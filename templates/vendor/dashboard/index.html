@@ -1,0 +1,182 @@
+{% extends "layouts/vendor.html" %}
+
+{% block title %}Vendor Dashboard{% endblock %}
+
+{% block content %}
+<div class="space-y-8 stagger-children">
+    <!-- Welcome Header -->
+    <div class="relative overflow-hidden rounded-2xl border border-slate-200/60 bg-gradient-to-br from-emerald-500 to-teal-600 p-8 shadow-premium dark:border-slate-700/60">
+        <div class="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl"></div>
+        <div class="absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-teal-400/20 blur-3xl"></div>
+        <div class="relative">
+            <h1 class="text-3xl font-bold text-white" style="font-family: var(--font-display);">Welcome back, {{ vendor.name }}</h1>
+            <p class="mt-2 text-emerald-100">Track bids, quotes, and project assignments in one place.</p>
+        </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="grid gap-4 sm:grid-cols-2">
+        <!-- Open Bidding Card -->
+        <div class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white/80 p-6 shadow-premium backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1 dark:border-slate-700/60 dark:bg-slate-800/80">
+            <div class="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"></div>
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-emerald-400/10 to-teal-400/10 blur-2xl transition-all duration-500 group-hover:scale-150"></div>
+            <div class="relative">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-600 dark:from-emerald-900/40 dark:to-teal-900/40 dark:text-emerald-400">
+                            <svg class="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Open Bidding</p>
+                            <p class="mt-1 text-4xl font-bold text-slate-900 dark:text-white" style="font-family: var(--font-display);">{{ available_projects | length }}</p>
+                        </div>
+                    </div>
+                    {% if available_projects | length > 0 %}
+                    <span class="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                        <span class="relative flex h-2 w-2">
+                            <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-75"></span>
+                            <span class="relative inline-flex h-2 w-2 rounded-full bg-indigo-500"></span>
+                        </span>
+                        Active
+                    </span>
+                    {% endif %}
+                </div>
+                <a href="/vendor/projects/available" class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-emerald-600 transition-colors duration-200 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300">
+                    View opportunities
+                    <svg class="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+                </a>
+            </div>
+        </div>
+
+        <!-- My Projects Card -->
+        <div class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white/80 p-6 shadow-premium backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1 dark:border-slate-700/60 dark:bg-slate-800/80">
+            <div class="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"></div>
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-violet-400/10 to-purple-400/10 blur-2xl transition-all duration-500 group-hover:scale-150"></div>
+            <div class="relative">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-violet-100 to-purple-100 text-violet-600 dark:from-violet-900/40 dark:to-purple-900/40 dark:text-violet-400">
+                            <svg class="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">My Projects</p>
+                            <p class="mt-1 text-4xl font-bold text-slate-900 dark:text-white" style="font-family: var(--font-display);">{{ my_projects | length }}</p>
+                        </div>
+                    </div>
+                    {% if my_projects | length > 0 %}
+                    <span class="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                        In Progress
+                    </span>
+                    {% endif %}
+                </div>
+                <a href="/vendor/projects/mine" class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-violet-600 transition-colors duration-200 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300">
+                    Review workload
+                    <svg class="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Project Lists -->
+    <div class="grid gap-6 lg:grid-cols-2">
+        <!-- Available Projects -->
+        <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white/80 shadow-premium backdrop-blur-sm dark:border-slate-700/60 dark:bg-slate-800/80">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-white" style="font-family: var(--font-display);">
+                    <svg class="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+                    Available Projects
+                </h2>
+            </div>
+            <div class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                {% if available_projects %}
+                {% for project in available_projects[:5] %}
+                <div class="group flex items-center justify-between px-6 py-4 transition-colors duration-200 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-slate-900 dark:text-white">Project {{ project.project_id }}</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">
+                                {% if project.bidding_close_at %}
+                                Closes {{ project.bidding_close_at.strftime('%b %d, %Y') if project.bidding_close_at is not string else project.bidding_close_at }}
+                                {% else %}
+                                Open for bidding
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                    <a href="/vendor/quotes/builder?project_id={{ project.id }}" class="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-sm transition-all duration-200 group-hover:opacity-100 hover:bg-emerald-700">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                        Start Quote
+                    </a>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="px-6 py-12">
+                    <div class="flex flex-col items-center justify-center text-center">
+                        <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/30 dark:to-teal-900/20">
+                            <svg class="h-7 w-7 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                        </div>
+                        <p class="font-medium text-slate-900 dark:text-white">No open bids</p>
+                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Check back later for new opportunities.</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- My Projects -->
+        <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white/80 shadow-premium backdrop-blur-sm dark:border-slate-700/60 dark:bg-slate-800/80">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-white" style="font-family: var(--font-display);">
+                    <svg class="h-5 w-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                    My Projects
+                </h2>
+            </div>
+            <div class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                {% if my_projects %}
+                {% for project in my_projects[:5] %}
+                <div class="group flex items-center justify-between px-6 py-4 transition-colors duration-200 hover:bg-violet-50/50 dark:hover:bg-violet-900/10">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-slate-900 dark:text-white">Project {{ project.project_id }}</p>
+                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
+                                {% set status_val = project.status.value | lower if project.status else '' %}
+                                {% if status_val == 'in_progress' or status_val == 'in progress' %}bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400
+                                {% elif status_val == 'completed' %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400
+                                {% elif status_val == 'pending' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400
+                                {% else %}bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400{% endif %}">
+                                {{ project.status.value if project.status else 'Unknown' }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                        <a href="/vendor/quotes/builder?project_id={{ project.id }}" class="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 transition-all duration-200 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-900/30 dark:text-violet-300">
+                            Update Quote
+                        </a>
+                        <a href="/vendor/as-built/submit?project_id={{ project.id }}" class="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:bg-violet-700">
+                            As-Built
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="px-6 py-12">
+                    <div class="flex flex-col items-center justify-center text-center">
+                        <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-100 to-purple-100 dark:from-violet-900/30 dark:to-purple-900/20">
+                            <svg class="h-7 w-7 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                        </div>
+                        <p class="font-medium text-slate-900 dark:text-white">No assigned projects</p>
+                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Start bidding on available projects.</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

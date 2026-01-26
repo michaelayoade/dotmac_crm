@@ -1,0 +1,171 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import status_badge %}
+
+{% block title %}{{ item.name }} - Inventory - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/admin/inventory" class="hover:text-primary-600">Inventory</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">{{ item.name }}</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ item.name }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ item.description or 'No description' }}</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/admin/inventory/items/{{ item.id }}/edit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                Edit
+            </a>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <!-- Main Info -->
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Item Details -->
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Item Details</h2>
+                </div>
+                <div class="p-6">
+                    <dl class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div>
+                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">SKU</dt>
+                            <dd class="mt-1 text-sm font-mono text-slate-900 dark:text-white">{{ item.sku or '-' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Unit</dt>
+                            <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ item.unit or '-' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Status</dt>
+                            <dd class="mt-1">
+                                {% if item.is_active %}
+                                {{ status_badge("Active", "active", size="sm") }}
+                                {% else %}
+                                {{ status_badge("Inactive", "inactive", size="sm") }}
+                                {% endif %}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Created</dt>
+                            <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ item.created_at.strftime('%B %d, %Y') if item.created_at else '-' }}</dd>
+                        </div>
+                        {% if item.description %}
+                        <div class="sm:col-span-2">
+                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Description</dt>
+                            <dd class="mt-1 text-sm text-slate-900 dark:text-white whitespace-pre-wrap">{{ item.description }}</dd>
+                        </div>
+                        {% endif %}
+                    </dl>
+                </div>
+            </div>
+
+            <!-- Stock Levels -->
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Stock Levels by Location</h2>
+                </div>
+                <div class="p-6">
+                    {% if stocks %}
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                            <thead>
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Location</th>
+                                    <th class="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">On Hand</th>
+                                    <th class="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Reserved</th>
+                                    <th class="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Available</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                                {% for stock in stocks %}
+                                <tr>
+                                    <td class="px-4 py-3 text-sm text-slate-900 dark:text-white">{{ stock.location.name if stock.location else '-' }}</td>
+                                    <td class="px-4 py-3 text-right text-sm font-medium text-slate-900 dark:text-white">{{ stock.quantity_on_hand }}</td>
+                                    <td class="px-4 py-3 text-right text-sm text-amber-600 dark:text-amber-400">{{ stock.reserved_quantity }}</td>
+                                    <td class="px-4 py-3 text-right text-sm font-medium {% if stock.quantity_on_hand - stock.reserved_quantity > 0 %}text-green-600 dark:text-green-400{% else %}text-red-600 dark:text-red-400{% endif %}">
+                                        {{ stock.quantity_on_hand - stock.reserved_quantity }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400">No stock records for this item.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="space-y-6">
+            <!-- Quick Stats -->
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Stock Summary</h2>
+                </div>
+                <div class="p-6 space-y-4">
+                    <div>
+                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Total On Hand</p>
+                        <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ total_on_hand }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Total Reserved</p>
+                        <p class="text-2xl font-bold text-amber-600 dark:text-amber-400">{{ total_reserved }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Available</p>
+                        <p class="text-2xl font-bold {% if total_on_hand - total_reserved > 0 %}text-green-600 dark:text-green-400{% else %}text-red-600 dark:text-red-400{% endif %}">{{ total_on_hand - total_reserved }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Item ID -->
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">System Info</h2>
+                </div>
+                <div class="p-6 space-y-4">
+                    <div>
+                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Item ID</p>
+                        <p class="text-sm font-mono text-slate-900 dark:text-white">{{ item.id | string | truncate(20, True, '...') }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Last Updated</p>
+                        <p class="text-sm text-slate-900 dark:text-white">{{ item.updated_at.strftime('%B %d, %Y at %H:%M') if item.updated_at else '-' }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Recent Activity</h2>
+                </div>
+                <div class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if activities %}
+                    {% for activity in activities %}
+                    <div class="px-6 py-4">
+                        <div class="text-sm text-slate-700 dark:text-slate-300">{{ activity.title }}</div>
+                        {% if activity.description %}
+                        <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ activity.description }}</div>
+                        {% endif %}
+                        {% if activity.occurred_at %}
+                        <div class="mt-1 text-xs text-slate-400 dark:text-slate-500">{{ activity.occurred_at.strftime('%b %d, %Y at %H:%M') }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="px-6 py-6 text-sm text-slate-500 dark:text-slate-400">No activity yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

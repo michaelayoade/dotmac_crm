@@ -1,0 +1,167 @@
+{% from "components/ui/macros.html" import status_badge, row_action, empty_state, pagination, icon_view, icon_edit, icon_delete %}
+
+<div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="overflow-x-auto">
+        <table class="min-w-full">
+            <thead>
+                <tr class="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-slate-100/50 dark:border-slate-700/50 dark:from-slate-800/80 dark:to-slate-800/50">
+                    <th scope="col" class="w-12 px-3 py-3.5">
+                        <input type="checkbox"
+                               data-select-all
+                               class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-cyan-500 cursor-pointer">
+                    </th>
+                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Quote</th>
+                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Lead</th>
+                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Contact</th>
+                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
+                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Total</th>
+                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Expires</th>
+                    <th scope="col" class="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                {% if quotes %}
+                {% for quote in quotes %}
+                {% set contact = contacts_map.get(quote.contact_id|string) if quote.contact_id else None %}
+                {% set lead = lead_map.get(quote.lead_id|string) if quote.lead_id else None %}
+                {% set stored_name = quote.metadata_.get('quote_name') if quote.metadata_ and quote.metadata_.get('quote_name') else '' %}
+                {% set quote_name = stored_name if stored_name else (contact.display_name if contact and contact.display_name else (contact.email if contact else '')) %}
+                {% set status_val = quote.status.value if quote.status else 'draft' %}
+
+                <tr class="group transition-colors hover:bg-gradient-to-r hover:from-cyan-50/50 hover:to-teal-50/30 dark:hover:from-cyan-900/10 dark:hover:to-teal-900/5">
+                    <td class="w-12 px-3 py-4">
+                        <input type="checkbox"
+                               data-quote-select
+                               data-quote-id="{{ quote.id }}"
+                               class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-cyan-500 cursor-pointer">
+                    </td>
+                    <td class="whitespace-nowrap px-5 py-4">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-teal-500 text-white font-semibold text-sm shadow-sm">
+                                {{ (quote_name[0] if quote_name else 'Q') | upper }}
+                            </div>
+                            <div class="min-w-0">
+                                <a href="/admin/crm/quotes/{{ quote.id }}" class="group/link flex items-center gap-1.5">
+                                    <span class="text-sm font-semibold text-slate-900 group-hover/link:text-cyan-600 dark:text-white dark:group-hover/link:text-cyan-400 transition-colors">
+                                        {{ quote_name if quote_name else ('Quote ' ~ (quote.id | string | truncate(8, True, ''))) }}
+                                    </span>
+                                    <svg class="h-3.5 w-3.5 text-slate-400 opacity-0 transition-all group-hover/link:opacity-100 group-hover/link:translate-x-0.5 group-hover/link:text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                </a>
+                                <p class="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{{ quote.id | string | truncate(12, True, '') }}</p>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="whitespace-nowrap px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
+                        {% if lead %}
+                        <a href="/admin/crm/leads/{{ lead.id }}" class="hover:text-cyan-600 dark:hover:text-cyan-400">
+                            {{ lead.title if lead.title else (lead.id|string|truncate(8, True, '')) }}
+                        </a>
+                        {% else %}
+                        <span class="text-slate-400">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="whitespace-nowrap px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
+                        {% if contact %}
+                        {{ contact.display_name if contact.display_name else contact.email }}
+                        {% else %}
+                        <span class="text-slate-400">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="whitespace-nowrap px-5 py-4">
+                        {% if status_val == 'draft' %}
+                        {{ status_badge("Draft", "pending") }}
+                        {% elif status_val == 'sent' %}
+                        {{ status_badge("Sent", "info") }}
+                        {% elif status_val == 'accepted' %}
+                        {{ status_badge("Accepted", "active") }}
+                        {% elif status_val == 'rejected' %}
+                        {{ status_badge("Rejected", "inactive") }}
+                        {% elif status_val == 'expired' %}
+                        {{ status_badge("Expired", "inactive") }}
+                        {% else %}
+                        {{ status_badge(status_val | replace('_', ' ') | title, "pending") }}
+                        {% endif %}
+                    </td>
+                    <td class="whitespace-nowrap px-5 py-4">
+                        <span class="text-sm font-medium text-slate-900 dark:text-white">
+                            {{ quote.currency }} {{ "{:,.2f}".format(quote.total or 0) }}
+                        </span>
+                    </td>
+                    <td class="whitespace-nowrap px-5 py-4">
+                        <span class="text-sm text-slate-600 dark:text-slate-300">
+                            {{ quote.expires_at.strftime('%b %d, %Y') if quote.expires_at else '—' }}
+                        </span>
+                    </td>
+                    <td class="whitespace-nowrap px-5 py-4 text-right">
+                        <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            {{ row_action("/admin/crm/quotes/" ~ quote.id, icon_view(), "View details", "cyan") }}
+                            {{ row_action("/admin/crm/quotes/" ~ quote.id ~ "/edit", icon_edit(), "Edit quote", "slate") }}
+                            <form method="post" action="/admin/crm/quotes/{{ quote.id }}/delete" class="inline">
+                                <button type="submit"
+                                        onclick="return confirm('Delete this quote?')"
+                                        class="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-all hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                                        title="Delete quote">
+                                    {{ icon_delete() }}
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="8" class="px-6 py-12">
+                        {{ empty_state("No quotes found", "Create your first quote to get started.", "/admin/crm/quotes/new", "New Quote") }}
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {# Pagination #}
+    {% if total_pages > 1 %}
+    <div class="border-t border-slate-100 px-5 py-4 dark:border-slate-700/50">
+        {{ pagination(page, total_pages, total, "/admin/crm/quotes", {"status": status, "lead_id": lead_id, "search": search}) }}
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Selection handling for this table partial
+(function() {
+    const selectAll = document.querySelector('[data-select-all]');
+    const checkboxes = document.querySelectorAll('[data-quote-select]');
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            const ids = [];
+            checkboxes.forEach(cb => {
+                cb.checked = this.checked;
+                if (this.checked) ids.push(cb.dataset.quoteId);
+            });
+            document.dispatchEvent(new CustomEvent('quotes-select-all', {
+                detail: { checked: this.checked, ids: ids }
+            }));
+        });
+    }
+
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', function() {
+            const selectedIds = [];
+            checkboxes.forEach(c => {
+                if (c.checked) selectedIds.push(c.dataset.quoteId);
+            });
+
+            if (selectAll) {
+                selectAll.checked = selectedIds.length === checkboxes.length;
+                selectAll.indeterminate = selectedIds.length > 0 && selectedIds.length < checkboxes.length;
+            }
+
+            document.dispatchEvent(new CustomEvent('quotes-selection-change', {
+                detail: { selectedIds: selectedIds }
+            }));
+        });
+    });
+})();
+</script>

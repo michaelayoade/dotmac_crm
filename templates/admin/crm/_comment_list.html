@@ -1,0 +1,33 @@
+{% if comments %}
+    {% for entry in comments %}
+    {% set comment = entry.comment %}
+    {% set is_selected = selected_comment_id and (selected_comment_id in entry.comment_ids) %}
+    {% set platform_class = 'channel-facebook_messenger' if comment.platform.value == 'facebook' else 'channel-instagram_dm' %}
+    <a href="/admin/crm/inbox?channel=comments&comment_id={{ comment.id }}{% if search %}&search={{ search | urlencode }}{% endif %}"
+       class="conversation-item flex items-start gap-3 px-4 py-3 border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60 {{ 'active' if is_selected }}">
+        <span class="channel-indicator {{ platform_class }} mt-1.5"></span>
+        <div class="min-w-0 flex-1">
+            <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                        {{ comment.author_name or 'Unknown' }}
+                    </span>
+                    <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-slate-200 text-slate-500 bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:bg-slate-900/60">
+                        {{ 'Facebook' if comment.platform.value == 'facebook' else 'Instagram' }}
+                    </span>
+                </div>
+                <span class="text-[11px] text-slate-400">
+                    {{ comment.created_time.strftime('%b %d, %H:%M') if comment.created_time else '' }}
+                </span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+                {{ comment.message or 'No message text' }}
+            </p>
+        </div>
+    </a>
+    {% endfor %}
+{% else %}
+    <div class="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
+        No comments yet.
+    </div>
+{% endif %}

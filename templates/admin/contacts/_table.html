@@ -1,0 +1,145 @@
+<div id="contacts-table" class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 150ms;">
+    <div class="overflow-x-auto">
+        <table class="min-w-full">
+            <thead>
+                <tr class="border-b border-slate-100 bg-slate-50/50 dark:border-slate-700/50 dark:bg-slate-800/50">
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Email</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Organization</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                {% if contacts %}
+                {% for contact in contacts %}
+                <tr class="group hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
+                    <td class="whitespace-nowrap px-6 py-4">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-full {% if contact.type == 'organization' %}bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400{% else %}bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400{% endif %}">
+                                {% if contact.type == 'organization' %}
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                                {% else %}
+                                <span class="text-xs font-medium">{{ contact.name[:2] | upper }}</span>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <a href="/admin/{% if contact.type == 'organization' %}customers/organization{% else %}customers/person{% endif %}/{{ contact.id }}" class="font-medium text-slate-900 hover:text-primary-600 dark:text-white dark:hover:text-primary-400">
+                                    {{ contact.name }}
+                                </a>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="whitespace-nowrap px-6 py-4">
+                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {% if contact.type == 'organization' %}bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400{% else %}bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400{% endif %}">
+                            {{ 'Org' if contact.type == 'organization' else 'Person' }}
+                        </span>
+                    </td>
+                    <td class="whitespace-nowrap px-6 py-4">
+                        {% if contact.status == 'lead' %}
+                        <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                            Lead
+                        </span>
+                        {% elif contact.status == 'contact' %}
+                        <span class="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                            <span class="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
+                            Contact
+                        </span>
+                        {% elif contact.status == 'customer' %}
+                        <span class="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                            <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                            Customer
+                        </span>
+                        {% elif contact.status == 'subscriber' %}
+                        <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                            Subscriber
+                        </span>
+                        {% elif contact.status == 'organization' %}
+                        <span class="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                            <span class="h-1.5 w-1.5 rounded-full bg-purple-500"></span>
+                            Organization
+                        </span>
+                        {% else %}
+                        <span class="text-slate-400">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                        {{ contact.email or '-' }}
+                    </td>
+                    <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                        {{ contact.phone or '-' }}
+                    </td>
+                    <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                        {{ contact.organization or '-' }}
+                    </td>
+                    <td class="whitespace-nowrap px-6 py-4 text-right">
+                        <div class="flex items-center justify-end gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                            <a href="/admin/{% if contact.type == 'organization' %}customers/organization{% else %}customers/person{% endif %}/{{ contact.id }}" class="rounded-lg p-2 text-slate-400 hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-900/20 dark:hover:text-primary-400" title="View">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                            </a>
+                            <a href="/admin/{% if contact.type == 'organization' %}customers/organization{% else %}customers/person{% endif %}/{{ contact.id }}/edit" class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300" title="Edit">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            </a>
+                            {% if contact.type == 'person' and contact.status in ['lead', 'contact', 'customer'] %}
+                            <button type="button"
+                                    @click="openConvert({{ contact.id | tojson }}, {{ contact.name | tojson }})"
+                                    class="rounded-lg p-2 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
+                                    title="Convert to subscriber">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            </button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="7" class="px-6 py-12">
+                        {{ empty_state(
+                            title="No contacts found",
+                            message="Get started by adding your first contact.",
+                            icon='<svg class="h-8 w-8 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>',
+                            color="primary",
+                            color2="amber",
+                            action_label="Add Contact",
+                            action_href="/admin/crm/contacts/new"
+                        ) }}
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if total_pages > 1 %}
+<div class="flex items-center justify-between border-t border-slate-100 px-6 py-4 dark:border-slate-700">
+    <p class="text-sm text-slate-500 dark:text-slate-400">
+        Showing <span class="font-medium text-slate-900 dark:text-white">{{ ((page - 1) * per_page) + 1 }}</span>
+        to <span class="font-medium text-slate-900 dark:text-white">{{ [page * per_page, total] | min }}</span>
+        of <span class="font-medium text-slate-900 dark:text-white">{{ total }}</span> results
+    </p>
+    <div class="flex items-center gap-2">
+        {% if page > 1 %}
+        <a href="/admin/contacts?page={{ page - 1 }}&search={{ search or '' }}&status={{ status or '' }}&entity_type={{ entity_type or '' }}&per_page={{ per_page }}"
+           class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            Previous
+        </a>
+        {% endif %}
+        {% if page < total_pages %}
+        <a href="/admin/contacts?page={{ page + 1 }}&search={{ search or '' }}&status={{ status or '' }}&entity_type={{ entity_type or '' }}&per_page={{ per_page }}"
+           class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+            Next
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}

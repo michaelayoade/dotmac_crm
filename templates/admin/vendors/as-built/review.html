@@ -1,0 +1,47 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}As-Built Review - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">As-built review</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Verify submitted as-built routes.</p>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <tr>
+                    <th class="px-4 py-3">As-built</th>
+                    <th class="px-4 py-3">Project</th>
+                    <th class="px-4 py-3">Status</th>
+                    <th class="px-4 py-3">Length (m)</th>
+                    <th class="px-4 py-3">Report</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for route in as_built_routes %}
+                <tr>
+                    <td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{{ route.id }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ route.project_id }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ route.status.value }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ route.actual_length_meters or '—' }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                        {% if route.report_file_path %}
+                        <a href="/admin/vendors/as-built/{{ route.id }}/report" class="text-primary-600 hover:text-primary-700">Download PDF</a>
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="5">No as-built submissions yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

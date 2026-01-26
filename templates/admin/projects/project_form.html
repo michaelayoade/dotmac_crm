@@ -1,0 +1,298 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}{{ 'Edit' if project.id else 'New' }} Project - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/admin/projects" class="hover:text-primary-600">Projects</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">New</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit Project' if project.id else 'Create Project' }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ 'Update project details' if project.id else 'Plan and track cross-functional work' }}</p>
+        </div>
+    </div>
+
+    <form method="POST" action="{{ action_url }}" enctype="multipart/form-data" class="space-y-6">
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Project Details</h2>
+            </div>
+            <div class="p-6 space-y-6">
+                {% if error %}
+                <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">
+                    {{ error }}
+                </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    <div class="sm:col-span-2">
+                        <label for="name" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Name <span class="text-red-500">*</span></label>
+                        <input type="text" name="name" id="name" required maxlength="160"
+                            value="{{ project.name }}"
+                            placeholder="Fiber Expansion - Phase 2"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div>
+                        <label for="code" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Code</label>
+                        <input type="text" name="code" id="code" maxlength="80"
+                            value="{{ project.code }}"
+                            placeholder="PRJ-0001"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div>
+                        <label for="project_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Project Type</label>
+                        <select name="project_type" id="project_type"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="">Select a type</option>
+                            {% for project_type in project_types %}
+                            <option value="{{ project_type }}" {% if project.project_type == project_type %}selected{% endif %}>
+                                {{ project_type | replace('_', ' ') | title }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="project_template_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Project Template</label>
+                        <select name="project_template_id" id="project_template_id"
+                            data-template-map='{{ project_template_map | tojson }}'
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="">No template</option>
+                            {% for template in project_templates %}
+                            <option value="{{ template.id }}" {% if project.project_template_id == template.id|string %}selected{% endif %}>
+                                {{ template.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Account</label>
+                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/accounts">
+                            <input type="text" data-typeahead-input
+                                   value="{{ account_label or '' }}"
+                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                                   placeholder="Search accounts...">
+                            <input type="hidden" name="account_id" data-typeahead-hidden value="{{ project.account_id or '' }}">
+                            <div data-typeahead-results></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Assigned Vendor</label>
+                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/vendors">
+                            <input type="text" data-typeahead-input
+                                   value="{{ assigned_vendor_label or '' }}"
+                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                                   placeholder="Search vendors...">
+                            <input type="hidden" name="assigned_vendor_id" data-typeahead-hidden value="{{ project.assigned_vendor_id or '' }}">
+                            <div data-typeahead-results></div>
+                        </div>
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label for="description" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
+                        <textarea name="description" id="description" rows="4"
+                            placeholder="Project scope and milestones..."
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ project.description }}</textarea>
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label for="attachments" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Attachments</label>
+                        <input type="file" name="attachments" id="attachments" multiple
+                            class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">PNG, JPG, GIF, WEBP, or PDF up to 5MB each.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Owner</label>
+                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/people">
+                            <input type="text" data-typeahead-input
+                                   value="{{ owner_label or '' }}"
+                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                                   placeholder="Search people...">
+                            <input type="hidden" name="owner_person_id" data-typeahead-hidden value="{{ project.owner_person_id or '' }}">
+                            <div data-typeahead-results></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Manager</label>
+                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/people">
+                            <input type="text" data-typeahead-input
+                                   value="{{ manager_label or '' }}"
+                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                                   placeholder="Search people...">
+                            <input type="hidden" name="manager_person_id" data-typeahead-hidden value="{{ project.manager_person_id or '' }}">
+                            <div data-typeahead-results></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="status" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Status</label>
+                        <select name="status" id="status"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            {% for status in project_statuses %}
+                            <option value="{{ status }}" {% if project.status == status %}selected{% endif %}>
+                                {{ status | replace('_', ' ') | title }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="priority" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Priority</label>
+                        <select name="priority" id="priority"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            {% for priority in project_priorities %}
+                            <option value="{{ priority }}" {% if project.priority == priority %}selected{% endif %}>
+                                {{ priority | title }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="start_at" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Start Date</label>
+                        <input type="datetime-local" name="start_at" id="start_at"
+                            value="{{ project.start_at }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div>
+                        <label for="due_at" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Due Date</label>
+                        <input type="datetime-local" name="due_at" id="due_at"
+                            value="{{ project.due_at }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" name="is_active" value="true" {% if project.is_active %}checked{% endif %}
+                                class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Active</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-3">
+            <a href="/admin/projects" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Cancel
+            </a>
+            <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                {{ 'Save Changes' if project.id else 'Create Project' }}
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    (function () {
+        const typeSelect = document.getElementById("project_type");
+        const templateSelect = document.getElementById("project_template_id");
+        const startInput = document.getElementById("start_at");
+        const dueInput = document.getElementById("due_at");
+        const isNew = {{ 'true' if not project.id else 'false' }};
+        if (!typeSelect || !templateSelect) {
+            return;
+        }
+        const templateMap = JSON.parse(templateSelect.dataset.templateMap || "{}");
+        const typeDurations = {
+            "radio_installation": 3,
+            "fiber_optics_installation": 14,
+            "radio_fiber_relocation": 3,
+            "fiber_optics_relocation": 14,
+            "cable_rerun": 5
+        };
+        let startTouched = false;
+        let dueTouched = false;
+
+        function formatLocalDate(date) {
+            const pad = (value) => String(value).padStart(2, "0");
+            return (
+                date.getFullYear()
+                + "-" + pad(date.getMonth() + 1)
+                + "-" + pad(date.getDate())
+                + "T" + pad(date.getHours())
+                + ":" + pad(date.getMinutes())
+            );
+        }
+
+        function parseLocalDate(value) {
+            if (!value) {
+                return null;
+            }
+            const [datePart, timePart] = value.split("T");
+            if (!datePart || !timePart) {
+                return null;
+            }
+            const [year, month, day] = datePart.split("-").map(Number);
+            const [hour, minute] = timePart.split(":").map(Number);
+            return new Date(year, month - 1, day, hour, minute);
+        }
+
+        function applyTemplateFromType() {
+            const selectedType = typeSelect.value;
+            if (!selectedType) {
+                templateSelect.value = "";
+                return;
+            }
+            const mappedTemplate = templateMap[selectedType];
+            templateSelect.value = mappedTemplate || "";
+        }
+
+        function applyScheduleFromType() {
+            if (!isNew || !startInput || !dueInput) {
+                return;
+            }
+            const selectedType = typeSelect.value;
+            const durationDays = typeDurations[selectedType];
+            if (!durationDays) {
+                return;
+            }
+            let startDate = parseLocalDate(startInput.value);
+            if (!startDate && !startTouched) {
+                startDate = new Date();
+                startInput.value = formatLocalDate(startDate);
+            }
+            if (startDate && !dueTouched) {
+                const dueDate = new Date(startDate.getTime());
+                dueDate.setDate(dueDate.getDate() + durationDays);
+                dueInput.value = formatLocalDate(dueDate);
+            }
+        }
+
+        if (!templateSelect.value && typeSelect.value) {
+            applyTemplateFromType();
+        }
+        if (typeSelect.value) {
+            applyScheduleFromType();
+        }
+
+        typeSelect.addEventListener("change", function () {
+            applyTemplateFromType();
+            applyScheduleFromType();
+        });
+        if (startInput) {
+            startInput.addEventListener("input", function () {
+                startTouched = true;
+                applyScheduleFromType();
+            });
+        }
+        if (dueInput) {
+            dueInput.addEventListener("input", function () {
+                dueTouched = true;
+            });
+        }
+    })();
+</script>
+{% endblock %}

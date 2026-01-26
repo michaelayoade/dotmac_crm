@@ -1,0 +1,179 @@
+{% extends "layouts/customer.html" %}
+
+{% block title %}Installations - My Account{% endblock %}
+
+{% block content %}
+<div class="space-y-6 stagger-children">
+    <!-- Page Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-stone-900 dark:text-white" style="font-family: var(--font-display);">Installations</h1>
+            <p class="mt-1 text-sm text-stone-500 dark:text-stone-400">Upcoming appointments and completed installs</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            <a href="/portal/service-orders" class="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 shadow-sm transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                View Service Orders
+            </a>
+            <a href="/portal/support/new" class="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-500/20 transition-all duration-300 hover:shadow-lg hover:shadow-brand-500/30 hover:-translate-y-0.5">
+                <svg class="h-4 w-4 transition-transform duration-300 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                Request Change
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters Card -->
+    <div class="rounded-2xl border border-stone-200/60 bg-white/80 p-5 shadow-premium backdrop-blur-sm dark:border-stone-700/60 dark:bg-stone-800/80">
+        <form class="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div class="flex-1">
+                <label class="block text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2">Status</label>
+                <select name="status" class="block w-full rounded-xl border border-stone-200 bg-white py-2.5 pl-4 pr-10 text-sm font-medium text-stone-700 transition-all duration-200 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-stone-600 dark:bg-stone-700 dark:text-white">
+                    <option value="">All Status</option>
+                    <option value="proposed" {% if status == 'proposed' %}selected{% endif %}>Proposed</option>
+                    <option value="confirmed" {% if status == 'confirmed' %}selected{% endif %}>Confirmed</option>
+                    <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                    <option value="no_show" {% if status == 'no_show' %}selected{% endif %}>No Show</option>
+                    <option value="canceled" {% if status == 'canceled' %}selected{% endif %}>Canceled</option>
+                </select>
+            </div>
+            <div>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 shadow-sm transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+                    Apply Filters
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Appointments Table -->
+    <div class="overflow-hidden rounded-2xl border border-stone-200/60 bg-white/80 shadow-premium backdrop-blur-sm dark:border-stone-700/60 dark:bg-stone-800/80">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-stone-200/60 dark:divide-stone-700/60">
+                <thead>
+                    <tr class="bg-stone-50/80 dark:bg-stone-800/50">
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Appointment</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Service Order</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Technician</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Window</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-100 dark:divide-stone-700/50">
+                    {% if appointments %}
+                    {% for appt in appointments %}
+                    {% set status_val = appt.status.value if appt.status else 'unknown' %}
+                    <tr class="group transition-colors duration-200 hover:bg-brand-50/50 dark:hover:bg-brand-900/10">
+                        <td class="px-6 py-4">
+                            <a href="/portal/installations/{{ appt.id }}" class="group/link flex items-center gap-3">
+                                <div class="flex h-10 w-10 items-center justify-center rounded-xl
+                                    {% if status_val == 'confirmed' %}bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400
+                                    {% elif status_val == 'completed' %}bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400
+                                    {% elif status_val == 'no_show' %}bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400
+                                    {% else %}bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400{% endif %}">
+                                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                </div>
+                                <div>
+                                    <span class="text-sm font-semibold text-stone-900 transition-colors duration-200 group-hover/link:text-brand-600 dark:text-white dark:group-hover/link:text-brand-400">
+                                        Installation
+                                    </span>
+                                    <p class="text-xs text-stone-500 dark:text-stone-400 font-mono">{{ appt.id|string|truncate(8, True, '') }}</p>
+                                </div>
+                            </a>
+                        </td>
+                        <td class="px-6 py-4">
+                            <a href="/portal/service-orders/{{ appt.service_order_id }}" class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 transition-colors duration-200 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                                {{ appt.service_order_id|string|truncate(8, True, '') }}
+                            </a>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if appt.technician %}
+                            <div class="flex items-center gap-2">
+                                <div class="flex h-7 w-7 items-center justify-center rounded-full bg-stone-100 text-xs font-semibold text-stone-600 dark:bg-stone-700 dark:text-stone-300">
+                                    {{ appt.technician[0] | upper }}
+                                </div>
+                                <span class="text-sm text-stone-700 dark:text-stone-300">{{ appt.technician }}</span>
+                            </div>
+                            {% else %}
+                            <span class="text-sm text-stone-400 italic dark:text-stone-500">Unassigned</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-2">
+                                <svg class="h-4 w-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                <span class="text-sm text-stone-600 dark:text-stone-300">
+                                    {{ appt.scheduled_start.strftime('%b %d, %Y %H:%M') if appt.scheduled_start else 'N/A' }}
+                                    –
+                                    {{ appt.scheduled_end.strftime('%H:%M') if appt.scheduled_end else '' }}
+                                </span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if status_val == 'confirmed' %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                <span class="relative flex h-2 w-2">
+                                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                                </span>
+                                Confirmed
+                            </span>
+                            {% elif status_val == 'completed' %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                Completed
+                            </span>
+                            {% elif status_val == 'no_show' %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                                No Show
+                            </span>
+                            {% elif status_val == 'canceled' %}
+                            <span class="inline-flex items-center rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600 dark:bg-stone-700 dark:text-stone-400">Canceled</span>
+                            {% else %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                                {{ status_val | replace('_', ' ') | title }}
+                            </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-16">
+                            <div class="flex flex-col items-center justify-center text-center">
+                                <div class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-100 to-brand-50 dark:from-brand-900/30 dark:to-brand-800/20">
+                                    <svg class="h-8 w-8 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                </div>
+                                <h3 class="text-lg font-semibold text-stone-900 dark:text-white" style="font-family: var(--font-display);">No installations</h3>
+                                <p class="mt-1 max-w-sm text-sm text-stone-500 dark:text-stone-400">Install appointments will appear here once scheduled.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% if total_pages and total_pages > 1 %}
+        {% set status_param = '&status=' ~ status if status else '' %}
+        <div class="flex flex-col items-center justify-between gap-4 border-t border-stone-200/60 px-6 py-4 dark:border-stone-700/60 sm:flex-row">
+            <p class="text-sm font-medium text-stone-500 dark:text-stone-400">Page <span class="text-stone-900 dark:text-white">{{ page }}</span> of <span class="text-stone-900 dark:text-white">{{ total_pages }}</span></p>
+            <div class="flex items-center gap-2">
+                {% if page > 1 %}
+                <a href="/portal/installations?page={{ page - 1 }}&per_page={{ per_page }}{{ status_param }}" class="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Previous
+                </a>
+                {% endif %}
+                {% if page < total_pages %}
+                <a href="/portal/installations?page={{ page + 1 }}&per_page={{ per_page }}{{ status_param }}" class="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                    Next
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

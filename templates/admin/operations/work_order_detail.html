@@ -1,0 +1,113 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Work Order - Field Service{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-3xl space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/admin/operations/work-orders" class="hover:text-primary-600">Work Orders</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">Work Order</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ work_order.title }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">#{{ work_order.id | string | truncate(12, True, '') }}</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/admin/operations/work-orders/{{ work_order.id }}/edit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Edit
+            </a>
+            <form method="post" action="/admin/operations/work-orders/{{ work_order.id }}/delete">
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300" onclick="return confirm('Delete this work order?')">
+                    Delete
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">Details</h2>
+        </div>
+        <div class="p-6">
+            <dl class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Status</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ work_order.status.value | replace('_', ' ') | title }}</dd>
+                </div>
+                <div>
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Priority</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ work_order.priority.value | replace('_', ' ') | title }}</dd>
+                </div>
+                <div>
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Type</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ work_order.work_type.value | replace('_', ' ') | title }}</dd>
+                </div>
+                <div>
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Assigned Technician</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                        {% if work_order.assigned_to %}
+                            {{ work_order.assigned_to.first_name }} {{ work_order.assigned_to.last_name }}
+                        {% else %}
+                            Unassigned
+                        {% endif %}
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Scheduled Window</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                        {% if work_order.scheduled_start %}
+                            {{ work_order.scheduled_start.strftime('%b %d, %Y %H:%M') }}
+                            {% if work_order.scheduled_end %}–{{ work_order.scheduled_end.strftime('%H:%M') }}{% endif %}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Service Order</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                        {% if work_order.service_order_id %}
+                            <a href="/admin/operations/service-orders/{{ work_order.service_order_id }}" class="text-primary-600 hover:text-primary-700">
+                                {{ work_order.service_order_id | string | truncate(8, True, '') }}
+                            </a>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="sm:col-span-2">
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Description</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white whitespace-pre-wrap">
+                        {{ work_order.description or '—' }}
+                    </dd>
+                </div>
+            </dl>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">Recent Activity</h2>
+        </div>
+        <div class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% if activities %}
+            {% for activity in activities %}
+            <div class="px-6 py-4">
+                <div class="text-sm text-slate-700 dark:text-slate-300">{{ activity.title }}</div>
+                {% if activity.description %}
+                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ activity.description }}</div>
+                {% endif %}
+                {% if activity.occurred_at %}
+                <div class="mt-1 text-xs text-slate-400 dark:text-slate-500">{{ activity.occurred_at.strftime('%b %d, %Y at %H:%M') }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="px-6 py-6 text-sm text-slate-500 dark:text-slate-400">No activity yet.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

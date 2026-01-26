@@ -1,0 +1,27 @@
+{% extends "layouts/vendor.html" %}
+
+{% block title %}Quote Builder{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Quote builder</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Project {{ project.project_id }}</p>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="grid gap-4 md:grid-cols-2">
+            <div class="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                Map drawing tools will appear here for route planning.
+            </div>
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Line items</h2>
+                <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Add cable, splice, and labor items using the API endpoints.</p>
+                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
+                    Use <code class="text-emerald-600">/api/vendor/quotes</code> and related endpoints to build and submit your quote.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

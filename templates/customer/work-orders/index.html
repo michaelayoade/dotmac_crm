@@ -1,0 +1,198 @@
+{% extends "layouts/customer.html" %}
+
+{% block title %}Field Service - My Account{% endblock %}
+
+{% block content %}
+<div class="space-y-6 stagger-children">
+    <!-- Page Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-stone-900 dark:text-white" style="font-family: var(--font-display);">Field Service</h1>
+            <p class="mt-1 text-sm text-stone-500 dark:text-stone-400">See technician progress and onsite work updates</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            <a href="/portal/service-orders" class="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 shadow-sm transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                View Service Orders
+            </a>
+            <a href="/portal/support/new" class="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-500/20 transition-all duration-300 hover:shadow-lg hover:shadow-brand-500/30 hover:-translate-y-0.5">
+                <svg class="h-4 w-4 transition-transform duration-300 group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                Request Service
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters Card -->
+    <div class="rounded-2xl border border-stone-200/60 bg-white/80 p-5 shadow-premium backdrop-blur-sm dark:border-stone-700/60 dark:bg-stone-800/80">
+        <form class="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div class="flex-1">
+                <label class="block text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2">Status</label>
+                <select name="status" class="block w-full rounded-xl border border-stone-200 bg-white py-2.5 pl-4 pr-10 text-sm font-medium text-stone-700 transition-all duration-200 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-stone-600 dark:bg-stone-700 dark:text-white">
+                    <option value="">All Status</option>
+                    <option value="scheduled" {% if status == 'scheduled' %}selected{% endif %}>Scheduled</option>
+                    <option value="dispatched" {% if status == 'dispatched' %}selected{% endif %}>Dispatched</option>
+                    <option value="in_progress" {% if status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                    <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                    <option value="canceled" {% if status == 'canceled' %}selected{% endif %}>Canceled</option>
+                </select>
+            </div>
+            <div class="flex-1">
+                <label class="block text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2">Priority</label>
+                <select name="priority" class="block w-full rounded-xl border border-stone-200 bg-white py-2.5 pl-4 pr-10 text-sm font-medium text-stone-700 transition-all duration-200 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-stone-600 dark:bg-stone-700 dark:text-white">
+                    <option value="">All Priorities</option>
+                    <option value="low" {% if priority == 'low' %}selected{% endif %}>Low</option>
+                    <option value="normal" {% if priority == 'normal' %}selected{% endif %}>Normal</option>
+                    <option value="high" {% if priority == 'high' %}selected{% endif %}>High</option>
+                    <option value="urgent" {% if priority == 'urgent' %}selected{% endif %}>Urgent</option>
+                </select>
+            </div>
+            <div>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 shadow-sm transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+                    Apply Filters
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Work Orders Table -->
+    <div class="overflow-hidden rounded-2xl border border-stone-200/60 bg-white/80 shadow-premium backdrop-blur-sm dark:border-stone-700/60 dark:bg-stone-800/80">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-stone-200/60 dark:divide-stone-700/60">
+                <thead>
+                    <tr class="bg-stone-50/80 dark:bg-stone-800/50">
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Work Order</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Service Order</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Type</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Priority</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Status</th>
+                        <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Created</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-100 dark:divide-stone-700/50">
+                    {% if work_orders %}
+                    {% for order in work_orders %}
+                    {% set status_val = order.status.value if order.status else 'unknown' %}
+                    {% set priority_val = order.priority.value if order.priority else 'normal' %}
+                    <tr class="group transition-colors duration-200 hover:bg-brand-50/50 dark:hover:bg-brand-900/10">
+                        <td class="px-6 py-4">
+                            <a href="/portal/work-orders/{{ order.id }}" class="group/link flex items-center gap-3">
+                                <div class="flex h-10 w-10 items-center justify-center rounded-xl
+                                    {% if status_val == 'completed' %}bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400
+                                    {% elif status_val == 'in_progress' %}bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400
+                                    {% elif status_val == 'dispatched' %}bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400
+                                    {% else %}bg-brand-100 text-brand-600 dark:bg-brand-900/30 dark:text-brand-400{% endif %}">
+                                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                </div>
+                                <div>
+                                    <span class="text-sm font-semibold text-stone-900 transition-colors duration-200 group-hover/link:text-brand-600 dark:text-white dark:group-hover/link:text-brand-400">
+                                        {{ order.title | default('Work Order') }}
+                                    </span>
+                                    <p class="text-xs text-stone-500 dark:text-stone-400 font-mono">{{ order.id|string|truncate(8, True, '') }}</p>
+                                </div>
+                            </a>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if order.service_order_id %}
+                            <a href="/portal/service-orders/{{ order.service_order_id }}" class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 transition-colors duration-200 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                                {{ order.service_order_id|string|truncate(8, True, '') }}
+                            </a>
+                            {% else %}
+                            <span class="text-sm text-stone-400 dark:text-stone-500">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center rounded-lg bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600 dark:bg-stone-700 dark:text-stone-400">
+                                {{ order.work_type.value if order.work_type else 'General' }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold
+                                {% if priority_val == 'urgent' %}bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300
+                                {% elif priority_val == 'high' %}bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300
+                                {% else %}bg-stone-100 text-stone-600 dark:bg-stone-700 dark:text-stone-400{% endif %}">
+                                {% if priority_val == 'urgent' %}
+                                <span class="relative flex h-2 w-2">
+                                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+                                    <span class="relative inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                                </span>
+                                {% elif priority_val == 'high' %}
+                                <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 5.414V17a1 1 0 11-2 0V5.414L6.707 7.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+                                {% endif %}
+                                {{ priority_val | title }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if status_val == 'completed' %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                Completed
+                            </span>
+                            {% elif status_val == 'in_progress' %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                <span class="relative flex h-2 w-2">
+                                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+                                    <span class="relative inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
+                                </span>
+                                In Progress
+                            </span>
+                            {% elif status_val == 'dispatched' %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM15 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/><path d="M3 4a1 1 0 00-1 1v10a1 1 0 001 1h1.05a2.5 2.5 0 014.9 0H10a1 1 0 001-1V5a1 1 0 00-1-1H3zM14 7h4.05a1 1 0 01.95 1.316l-1.4 4.2A1 1 0 0116.65 13H14V7z"/></svg>
+                                Dispatched
+                            </span>
+                            {% elif status_val == 'canceled' %}
+                            <span class="inline-flex items-center rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600 dark:bg-stone-700 dark:text-stone-400">Canceled</span>
+                            {% else %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+                                {{ status_val | replace('_', ' ') | title }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="text-sm text-stone-500 dark:text-stone-400">{{ order.created_at.strftime('%b %d, %Y') if order.created_at else 'N/A' }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="px-6 py-16">
+                            <div class="flex flex-col items-center justify-center text-center">
+                                <div class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-100 to-brand-50 dark:from-brand-900/30 dark:to-brand-800/20">
+                                    <svg class="h-8 w-8 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                </div>
+                                <h3 class="text-lg font-semibold text-stone-900 dark:text-white" style="font-family: var(--font-display);">No work orders</h3>
+                                <p class="mt-1 max-w-sm text-sm text-stone-500 dark:text-stone-400">Field service work orders will appear here.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% if total_pages and total_pages > 1 %}
+        {% set status_param = '&status=' ~ status if status else '' %}
+        {% set priority_param = '&priority=' ~ priority if priority else '' %}
+        <div class="flex flex-col items-center justify-between gap-4 border-t border-stone-200/60 px-6 py-4 dark:border-stone-700/60 sm:flex-row">
+            <p class="text-sm font-medium text-stone-500 dark:text-stone-400">Page <span class="text-stone-900 dark:text-white">{{ page }}</span> of <span class="text-stone-900 dark:text-white">{{ total_pages }}</span></p>
+            <div class="flex items-center gap-2">
+                {% if page > 1 %}
+                <a href="/portal/work-orders?page={{ page - 1 }}&per_page={{ per_page }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Previous
+                </a>
+                {% endif %}
+                {% if page < total_pages %}
+                <a href="/portal/work-orders?page={{ page + 1 }}&per_page={{ per_page }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                    Next
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,341 @@
+<!-- Conversation Header -->
+<div class="relative z-30 flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm dark:border-slate-800/60 dark:bg-slate-900/30">
+    <div class="flex items-center gap-4">
+        <!-- Back button (mobile) -->
+        <a href="/admin/crm/inbox"
+           class="lg:hidden p-2 -ml-2 rounded-lg text-primary-600 bg-primary-500/10 hover:text-primary-700 hover:bg-primary-500/20 transition-colors dark:text-primary-400 dark:bg-primary-500/15 dark:hover:bg-primary-500/25"
+           aria-label="Back to inbox list">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+        </a>
+
+        <!-- Contact info -->
+        <div class="flex items-center gap-3">
+            <div class="relative">
+                <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-sm font-semibold text-slate-800 border border-slate-200 dark:bg-gradient-to-br dark:from-slate-700 dark:to-slate-800 dark:text-white dark:border-slate-600/30">
+                    {{ conversation.contact.avatar_initials }}
+                </div>
+                <div class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full channel-indicator channel-{{ conversation.channel }}"></div>
+            </div>
+            <div>
+                <h2 class="text-sm font-semibold text-primary-700 dark:text-primary-300">{{ conversation.contact.name }}</h2>
+                <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-500">{{ conversation.contact.email }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex items-center gap-2">
+        <!-- Status dropdown -->
+        <div x-data="{ open: false }" class="relative">
+            <button @click="open = !open"
+                    class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+                        {% if conversation.status == 'open' %}bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20
+                        {% elif conversation.status == 'pending' %}bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20
+                        {% elif conversation.status == 'snoozed' %}bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20
+                        {% else %}bg-slate-500/10 text-slate-400 border border-slate-500/20 hover:bg-slate-500/20{% endif %}">
+                {% if conversation.status == 'open' %}
+                <span class="w-1.5 h-1.5 rounded-full bg-green-500 status-dot"></span>
+                {% endif %}
+                {{ conversation.status | capitalize }}
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+
+            <div x-show="open"
+                 @click.outside="open = false"
+                 x-transition
+                 class="absolute right-0 mt-2 w-40 py-1 bg-slate-50 border border-slate-200 rounded-xl shadow-xl z-50 dark:bg-slate-800 dark:border-slate-700">
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/status?new_status=open"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                    <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                    Open
+                </button>
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/status?new_status=pending"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                    <span class="w-2 h-2 rounded-full bg-yellow-500"></span>
+                    Pending
+                </button>
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/status?new_status=snoozed"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                    <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                    Snoozed
+                </button>
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/status?new_status=resolved"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                    <span class="w-2 h-2 rounded-full bg-slate-500"></span>
+                    Resolved
+                </button>
+            </div>
+        </div>
+
+        <!-- More actions -->
+        <button type="button"
+                hx-get="/admin/support/tickets/create?conversation_id={{ conversation.id }}&modal=1"
+                hx-target="#ticket-create-panel-body"
+                hx-swap="innerHTML"
+                @click="openTicketPanel()"
+                class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-primary-700">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
+            </svg>
+            Create ticket
+        </button>
+
+        <button @click="toggleContactPanel()"
+                :class="showContactPanel ? 'bg-primary-500/20 text-primary-600 dark:text-primary-400' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60'"
+                class="p-2 rounded-lg transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+            </svg>
+        </button>
+
+        <div x-data="{ open: false }" class="relative">
+            <button type="button"
+                    @click="open = !open"
+                    class="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"/>
+                </svg>
+            </button>
+            <div x-show="open"
+                 @click.outside="open = false"
+                 x-transition
+                 class="absolute right-0 mt-2 w-44 rounded-xl border border-slate-200 bg-slate-50 py-1 shadow-xl z-50 dark:border-slate-700 dark:bg-slate-800">
+                <button type="button"
+                        @click="$dispatch('show-contact-panel'); open = false"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                    View contact
+                </button>
+                <button type="button"
+                        @click="htmx.ajax('GET', '/admin/crm/inbox/conversation/{{ conversation.id }}', {target:'#message-thread', swap:'innerHTML'}); open = false"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                    Refresh thread
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Subject bar (if email) -->
+{% if conversation.subject %}
+<div class="px-6 py-3 border-b border-slate-200 bg-slate-100/70 dark:border-slate-800/40 dark:bg-slate-900/20">
+    <h3 class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ conversation.subject }}</h3>
+</div>
+{% endif %}
+
+<!-- Messages Container -->
+<div id="messages-container" class="relative z-0 flex-1 min-h-0 overflow-y-auto inbox-scroll px-6 py-6">
+    <div class="max-w-3xl mx-auto space-y-6">
+        {% for msg in messages %}
+        <div class="msg-slide-up {% if msg.direction == 'outbound' %}flex justify-end{% endif %}" style="animation-delay: {{ loop.index0 * 50 }}ms;">
+            <div class="{% if msg.direction == 'outbound' %}max-w-[75%]{% else %}max-w-[80%]{% endif %}">
+                {% if msg.direction == 'inbound' %}
+                <!-- Inbound message -->
+                <div class="flex items-start gap-3">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-xs font-semibold text-slate-800 border border-slate-200 dark:bg-gradient-to-br dark:from-slate-700 dark:to-slate-800 dark:text-white dark:border-slate-600/30">
+                        {{ msg.sender.initials }}
+                    </div>
+                    <div class="flex-1">
+                        <div class="message-inbound rounded-2xl rounded-tl-md px-4 py-3 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40">
+                            <div class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
+                                {{ msg.content_html | safe if msg.content_html else msg.content }}
+                            </div>
+                            {% if msg.attachments %}
+                            <div class="mt-3 space-y-2">
+                                {% for attachment in msg.attachments %}
+                                {% if attachment.is_image and attachment.url %}
+                                <a href="{{ attachment.url }}"
+                                   target="_blank"
+                                   rel="noopener"
+                                   class="block overflow-hidden rounded-lg border border-slate-200 bg-white/70 dark:border-slate-700/40 dark:bg-slate-900/40">
+                                    <img src="{{ attachment.url }}"
+                                         alt="{{ attachment.file_name }}"
+                                         class="block max-h-64 w-auto object-contain">
+                                </a>
+                                {% else %}
+                                {% if attachment.url %}
+                                <a href="{{ attachment.url }}"
+                                   target="_blank"
+                                   rel="noopener"
+                                   download="{{ attachment.file_name }}"
+                                   class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-xs text-slate-700 hover:bg-white dark:border-slate-700/40 dark:bg-slate-900/40 dark:text-slate-300">
+                                    <span class="font-medium">{{ attachment.file_name }}</span>
+                                    {% if attachment.mime_type %}
+                                    <span class="text-[10px] text-slate-500">{{ attachment.mime_type }}</span>
+                                    {% endif %}
+                                </a>
+                                {% else %}
+                                <div class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-xs text-slate-500 dark:border-slate-700/40 dark:bg-slate-900/40">
+                                    <span class="font-medium">{{ attachment.file_name }}</span>
+                                </div>
+                                {% endif %}
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="flex items-center gap-2 mt-1.5 px-1">
+                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%H:%M') }}</span>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <!-- Outbound message -->
+                <div class="flex items-start gap-3 flex-row-reverse">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-primary-600 to-primary-700 flex items-center justify-center text-xs font-semibold text-white">
+                        {{ msg.sender.initials }}
+                    </div>
+                    <div class="flex-1">
+                        <div class="message-outbound rounded-2xl rounded-tr-md px-4 py-3 bg-primary-500/10 border border-primary-500/20 dark:bg-transparent dark:border-primary-500/20">
+                            <div class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
+                                {{ msg.content_html | safe if msg.content_html else msg.content }}
+                            </div>
+                            {% if msg.attachments %}
+                            <div class="mt-3 space-y-2">
+                                {% for attachment in msg.attachments %}
+                                {% if attachment.is_image and attachment.url %}
+                                <a href="{{ attachment.url }}"
+                                   target="_blank"
+                                   rel="noopener"
+                                   class="block overflow-hidden rounded-lg border border-primary-200/60 bg-white/70 dark:border-primary-500/30 dark:bg-slate-900/40">
+                                    <img src="{{ attachment.url }}"
+                                         alt="{{ attachment.file_name }}"
+                                         class="block max-h-64 w-auto object-contain">
+                                </a>
+                                {% else %}
+                                {% if attachment.url %}
+                                <a href="{{ attachment.url }}"
+                                   target="_blank"
+                                   rel="noopener"
+                                   download="{{ attachment.file_name }}"
+                                   class="inline-flex items-center gap-2 rounded-lg border border-primary-200/60 bg-white/70 px-3 py-2 text-xs text-slate-700 hover:bg-white dark:border-primary-500/30 dark:bg-slate-900/40 dark:text-slate-300">
+                                    <span class="font-medium">{{ attachment.file_name }}</span>
+                                    {% if attachment.mime_type %}
+                                    <span class="text-[10px] text-slate-500">{{ attachment.mime_type }}</span>
+                                    {% endif %}
+                                </a>
+                                {% else %}
+                                <div class="inline-flex items-center gap-2 rounded-lg border border-primary-200/60 bg-white/70 px-3 py-2 text-xs text-slate-500 dark:border-primary-500/30 dark:bg-slate-900/40">
+                                    <span class="font-medium">{{ attachment.file_name }}</span>
+                                </div>
+                                {% endif %}
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="flex items-center gap-2 mt-1.5 px-1 justify-end">
+                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%H:%M') }}</span>
+                            {% if msg.status in ['sent', 'delivered'] %}
+                            <svg class="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13l4 4L17 7"/>
+                            </svg>
+                            {% elif msg.status in ['failed', 'queued'] %}
+                            <span class="w-2 h-2 rounded-full bg-red-500" title="Message not sent"></span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <!-- Typing indicator (example, controlled by Alpine) -->
+        <div x-show="isTyping" x-transition class="flex items-start gap-3" style="display: none;">
+            <div class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-xs font-semibold text-slate-800 border border-slate-200 dark:bg-gradient-to-br dark:from-slate-700 dark:to-slate-800 dark:text-white dark:border-slate-600/30">
+                {{ conversation.contact.avatar_initials }}
+            </div>
+            <div class="message-inbound rounded-2xl rounded-tl-md px-4 py-3 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40">
+                <div class="flex gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-slate-500 typing-dot"></span>
+                    <span class="w-2 h-2 rounded-full bg-slate-500 typing-dot"></span>
+                    <span class="w-2 h-2 rounded-full bg-slate-500 typing-dot"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Compose Area -->
+<div class="border-t border-slate-200 bg-slate-50/90 backdrop-blur-sm px-6 py-4 dark:border-slate-800/60 dark:bg-slate-900/50">
+    {% if reply_error %}
+    <div class="max-w-3xl mx-auto mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        Reply failed. Please try again.
+        {% if reply_error_detail %}
+        <div class="mt-1 text-[11px] text-red-600 dark:text-red-200">{{ reply_error_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    <form method="POST"
+          action="/admin/crm/inbox/conversation/{{ conversation.id }}/message"
+          class="max-w-3xl mx-auto">
+        <div class="flex items-end gap-3">
+            <!-- Attachment button -->
+            <button type="button" class="flex-shrink-0 p-2.5 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                </svg>
+            </button>
+
+            <!-- Message input -->
+            <div class="flex-1 relative">
+                <textarea x-ref="messageInput"
+                          name="message"
+                          rows="1"
+                          placeholder="Type your message..."
+                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 placeholder-slate-400 resize-none focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/30 transition-all dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-white dark:placeholder-slate-500"
+                          @keydown.enter.prevent="if (!$event.shiftKey) { $el.closest('form').requestSubmit(); }"
+                          @input="$el.style.height = 'auto'; $el.style.height = Math.min($el.scrollHeight, 150) + 'px'"></textarea>
+            </div>
+
+            <!-- Send button -->
+            <button type="submit"
+                    class="flex-shrink-0 p-3 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:from-primary-400 hover:to-primary-500 transition-all shadow-lg shadow-primary-500/20 hover:shadow-primary-500/30">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Quick responses -->
+        <div class="flex items-center gap-2 mt-3">
+            <span class="text-[10px] text-slate-500 uppercase tracking-wider dark:text-slate-500">Quick:</span>
+            <button type="button"
+                    @click="$refs.messageInput.value = 'Thank you for reaching out! Let me look into this for you.'; $refs.messageInput.dispatchEvent(new Event('input'))"
+                    class="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors dark:bg-slate-800/40 dark:border-slate-700/40 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/60">
+                Thanks for reaching out
+            </button>
+            <button type="button"
+                    @click="$refs.messageInput.value = 'I\'ll need a moment to check on that. I\'ll get back to you shortly.'; $refs.messageInput.dispatchEvent(new Event('input'))"
+                    class="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors dark:bg-slate-800/40 dark:border-slate-700/40 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/60">
+                Checking on it
+            </button>
+            <button type="button"
+                    @click="$refs.messageInput.value = 'Is there anything else I can help you with today?'; $refs.messageInput.dispatchEvent(new Event('input'))"
+                    class="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors dark:bg-slate-800/40 dark:border-slate-700/40 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/60">
+                Anything else?
+            </button>
+        </div>
+    </form>
+</div>

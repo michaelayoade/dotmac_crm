@@ -1,0 +1,709 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import status_badge %}
+
+{% block title %}Inbox Settings - Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/crm/inbox" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Inbox</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200">Settings</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-6">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-semibold text-slate-900 dark:text-white">Inbox Settings</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Configure email and WhatsApp connectors for the inbox.</p>
+        </div>
+        <a href="/admin/crm/inbox"
+           class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+            Back to inbox
+        </a>
+    </div>
+
+    {% if email_setup %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Email settings saved.
+    </div>
+    {% endif %}
+    {% if email_warning %}
+    <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+        Email settings saved, but the SMTP test failed.
+        {% if email_warning_detail %}
+        <div class="mt-1 text-xs text-amber-700 dark:text-amber-200">{{ email_warning_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if email_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        Email settings could not be saved. Check your inputs.
+        {% if email_error_detail %}
+        <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ email_error_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if whatsapp_setup %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        WhatsApp settings saved.
+    </div>
+    {% endif %}
+    {% if whatsapp_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        WhatsApp settings could not be saved. Check your inputs.
+    </div>
+    {% endif %}
+    {% if team_setup %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Team created.
+    </div>
+    {% endif %}
+    {% if team_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        Team could not be created.
+        {% if team_error_detail %}
+        <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ team_error_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if agent_setup %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Agent created.
+    </div>
+    {% endif %}
+    {% if agent_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        Agent could not be created.
+        {% if agent_error_detail %}
+        <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ agent_error_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if assignment_setup %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Agent assigned to team.
+    </div>
+    {% endif %}
+    {% if assignment_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        Agent could not be assigned.
+        {% if assignment_error_detail %}
+        <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ assignment_error_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if meta_setup %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Meta accounts connected successfully.
+        {% if meta_pages %}{{ meta_pages }} Facebook Page(s){% endif %}
+        {% if meta_instagram %}, {{ meta_instagram }} Instagram account(s){% endif %}
+    </div>
+    {% endif %}
+    {% if meta_disconnected %}
+    <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+        Meta integration disconnected.
+    </div>
+    {% endif %}
+    {% if meta_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        Meta connection failed.
+        {% if meta_error_detail %}
+        <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ meta_error_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="grid gap-6 lg:grid-cols-2">
+        <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Email connector</h2>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Use SMTP for outbound and IMAP/POP3 for inbound messages.</p>
+                </div>
+            </div>
+
+            <form method="POST" action="/admin/crm/inbox/email-connector?next=/admin/crm/inbox/settings" class="mt-5 space-y-4">
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Name</label>
+                        <input name="name"
+                               value="{{ email_channel.name if email_channel else 'CRM Email' }}"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Polling interval (seconds)</label>
+                        <input name="poll_interval_seconds"
+                               type="number"
+                               min="1"
+                               value="{{ email_channel.poll_interval_seconds if email_channel and email_channel.poll_interval_seconds is not none else '' }}"
+                               placeholder="300"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                            <input type="hidden" name="polling_enabled" value="0">
+                            <input type="checkbox" name="polling_enabled" value="1" {% if email_channel and email_channel.polling_active %}checked{% endif %}>
+                            Enable polling
+                        </label>
+                        <button type="submit"
+                                form="email-polling-reset-form"
+                                class="mt-2 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                            Reset stuck polling run
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">SMTP host</label>
+                        <input name="smtp_host"
+                               value="{{ email_channel.smtp.host if email_channel and email_channel.smtp }}"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                            <input type="checkbox" name="smtp_enabled" {% if email_channel and email_channel.smtp %}checked{% endif %}>
+                            Enable SMTP
+                        </label>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">SMTP port</label>
+                            <input name="smtp_port"
+                                   value="{{ email_channel.smtp.port if email_channel and email_channel.smtp }}"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                        <div class="flex flex-col justify-end gap-2">
+                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" name="smtp_use_tls" {% if email_channel and email_channel.smtp and email_channel.smtp.use_tls %}checked{% endif %}>
+                                TLS
+                            </label>
+                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" name="smtp_use_ssl" {% if email_channel and email_channel.smtp and email_channel.smtp.use_ssl %}checked{% endif %}>
+                                SSL
+                            </label>
+                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" name="skip_smtp_test">
+                                Skip SMTP test
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">IMAP host</label>
+                        <input name="imap_host"
+                               value="{{ email_channel.imap.host if email_channel and email_channel.imap }}"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">IMAP port</label>
+                            <input name="imap_port"
+                                   value="{{ email_channel.imap.port if email_channel and email_channel.imap }}"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                        <div class="flex flex-col justify-end gap-2">
+                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" name="imap_use_ssl" {% if email_channel and email_channel.imap and email_channel.imap.use_ssl %}checked{% endif %}>
+                                SSL
+                            </label>
+                            <input name="imap_mailbox"
+                                   placeholder="Mailbox"
+                                   value="{{ email_channel.imap.mailbox if email_channel and email_channel.imap }}"
+                                   class="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">POP3 host (optional)</label>
+                        <input name="pop3_host"
+                               value="{{ email_channel.pop3.host if email_channel and email_channel.pop3 }}"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">POP3 port</label>
+                            <input name="pop3_port"
+                                   value="{{ email_channel.pop3.port if email_channel and email_channel.pop3 }}"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                        <div class="flex items-end">
+                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" name="pop3_use_ssl" {% if email_channel and email_channel.pop3 and email_channel.pop3.use_ssl %}checked{% endif %}>
+                                SSL
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Username</label>
+                        <input name="username"
+                               value="{{ email_channel.auth_config.username if email_channel and email_channel.auth_config }}"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Password</label>
+                        <input name="password"
+                               type="password"
+                               autocomplete="new-password"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                </div>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">From email</label>
+                        <input name="from_email"
+                               value="{{ email_channel.auth_config.from_email if email_channel and email_channel.auth_config }}"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">From name</label>
+                        <input name="from_name"
+                               value="{{ email_channel.auth_config.from_name if email_channel and email_channel.auth_config }}"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="submit"
+                            class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                        Save email settings
+                    </button>
+                </div>
+            </form>
+            <form id="email-polling-reset-form"
+                  method="POST"
+                  action="/admin/crm/inbox/email-polling/reset?next=/admin/crm/inbox/settings">
+                {% include "components/forms/csrf_input.html" %}
+            </form>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">WhatsApp connector</h2>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Configure access token and phone number ID for outbound WhatsApp messages.</p>
+                </div>
+            </div>
+
+            <form method="POST" action="/admin/crm/inbox/whatsapp-connector?next=/admin/crm/inbox/settings" class="mt-5 space-y-4">
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Name</label>
+                    <input name="name"
+                           value="{{ whatsapp_channel.name if whatsapp_channel else 'CRM WhatsApp' }}"
+                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                </div>
+
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Phone number ID</label>
+                    <input name="phone_number_id"
+                           value="{{ whatsapp_channel.phone_number_id if whatsapp_channel }}"
+                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                </div>
+
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Access token</label>
+                    <input name="access_token"
+                           type="password"
+                           autocomplete="new-password"
+                           placeholder="Enter a new token to update"
+                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                </div>
+
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Base URL (optional)</label>
+                    <input name="base_url"
+                           value="{{ whatsapp_channel.base_url if whatsapp_channel and whatsapp_channel.base_url }}"
+                           placeholder="https://graph.facebook.com/v19.0"
+                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    <button type="submit"
+                            class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                        Save WhatsApp settings
+                    </button>
+                </div>
+            </form>
+        </section>
+    </div>
+
+    <!-- Meta (Facebook/Instagram) Connector -->
+    <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Facebook & Instagram</h2>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Connect Facebook Pages and Instagram Business accounts for Messenger and DM support.</p>
+                <div class="mt-2">
+                    {% if meta_status and meta_status.connected %}
+                    <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                        Connected
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        Not connected
+                    </span>
+                    {% endif %}
+                    <span class="ml-2 text-xs text-slate-500 dark:text-slate-400">
+                        Pages: {{ meta_status.pages | length if meta_status else 0 }} · Instagram: {{ meta_status.instagram_accounts | length if meta_status else 0 }}
+                    </span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <!-- Facebook icon -->
+                <svg class="h-6 w-6 text-[#1877F2]" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+                <!-- Instagram icon -->
+                <svg class="h-6 w-6 text-[#E4405F]" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678c-3.405 0-6.162 2.76-6.162 6.162 0 3.405 2.76 6.162 6.162 6.162 3.405 0 6.162-2.76 6.162-6.162 0-3.405-2.757-6.162-6.162-6.162zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405c0 .795-.646 1.44-1.44 1.44-.795 0-1.44-.646-1.44-1.44 0-.794.646-1.439 1.44-1.439.793-.001 1.44.645 1.44 1.439z"/>
+                </svg>
+            </div>
+        </div>
+
+        {% if meta_status and meta_status.connected %}
+        <!-- Connected state: Show connected accounts -->
+        <div class="mt-5 space-y-4">
+            {% if meta_status.pages %}
+            <div>
+                <h3 class="text-sm font-medium text-slate-700 dark:text-slate-300">Connected Facebook Pages</h3>
+                <div class="mt-2 space-y-2">
+                    {% for page in meta_status.pages %}
+                    <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                        <div class="flex items-center gap-3">
+                            {% if page.picture %}
+                            <img src="{{ page.picture }}" alt="{{ page.name }}" class="h-10 w-10 rounded-full">
+                            {% else %}
+                            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-[#1877F2] text-white">
+                                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                                </svg>
+                            </div>
+                            {% endif %}
+                            <div>
+                                <div class="font-medium text-slate-900 dark:text-white">{{ page.name }}</div>
+                                {% if page.category %}
+                                <div class="text-xs text-slate-500 dark:text-slate-400">{{ page.category }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            {% if page.has_error %}
+                            <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                                Token Error
+                            </span>
+                            {% elif page.needs_refresh %}
+                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                                Expires Soon
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                Connected
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if meta_status.instagram_accounts %}
+            <div>
+                <h3 class="text-sm font-medium text-slate-700 dark:text-slate-300">Connected Instagram Accounts</h3>
+                <div class="mt-2 space-y-2">
+                    {% for account in meta_status.instagram_accounts %}
+                    <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                        <div class="flex items-center gap-3">
+                            {% if account.profile_picture_url %}
+                            <img src="{{ account.profile_picture_url }}" alt="{{ account.username }}" class="h-10 w-10 rounded-full">
+                            {% else %}
+                            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#833AB4] via-[#E4405F] to-[#FCAF45] text-white">
+                                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03zm0 3.678c-3.405 0-6.162 2.76-6.162 6.162 0 3.405 2.76 6.162 6.162 6.162 3.405 0 6.162-2.76 6.162-6.162 0-3.405-2.757-6.162-6.162-6.162zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405c0 .795-.646 1.44-1.44 1.44-.795 0-1.44-.646-1.44-1.44 0-.794.646-1.439 1.44-1.439.793-.001 1.44.645 1.44 1.439z"/>
+                                </svg>
+                            </div>
+                            {% endif %}
+                            <div>
+                                <div class="font-medium text-slate-900 dark:text-white">@{{ account.username }}</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">Instagram Business</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            {% if account.has_error %}
+                            <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                                Token Error
+                            </span>
+                            {% elif account.needs_refresh %}
+                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                                Expires Soon
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                Connected
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="flex items-center justify-between pt-2">
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                    Tokens auto-refresh before expiry. Re-connect if you see errors.
+                </p>
+                <div class="flex items-center gap-2">
+                    <a href="/admin/crm/meta/connect"
+                       class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+                        Re-connect
+                    </a>
+                    <form method="POST" action="/admin/crm/meta/disconnect" class="inline">
+                        <button type="submit"
+                                onclick="return confirm('Disconnect Meta integration? This will disable Facebook Messenger and Instagram DM support.')"
+                                class="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:bg-slate-800 dark:text-red-400 dark:hover:bg-red-900/20">
+                            Disconnect
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <!-- Not connected state: Show connect button -->
+        <div class="mt-5">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center dark:border-slate-700 dark:bg-slate-800">
+                <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
+                    <svg class="h-6 w-6 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                    </svg>
+                </div>
+                <h3 class="mt-4 text-sm font-medium text-slate-900 dark:text-white">Connect Meta accounts</h3>
+                <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Link your Facebook Pages and Instagram Business accounts to receive and reply to messages directly from the inbox.
+                </p>
+                <a href="/admin/crm/meta/connect"
+                   class="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#1877F2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166FE5]">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                    </svg>
+                    Connect with Facebook
+                </a>
+            </div>
+            <p class="mt-3 text-center text-xs text-slate-500 dark:text-slate-400">
+                Requires a Facebook Developer App with Messenger and Instagram permissions.
+            </p>
+        </div>
+        {% endif %}
+    </section>
+
+    <div class="mt-10 space-y-6" id="crm-agents">
+        <div>
+            <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Teams and agents</h2>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create teams and agents, then link agents to teams for routing.</p>
+        </div>
+
+        <div class="grid gap-6 lg:grid-cols-3">
+            <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <h3 class="text-base font-semibold text-slate-900 dark:text-white">New team</h3>
+                <form method="POST" action="/admin/crm/inbox/teams" class="mt-5 space-y-4">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Team name</label>
+                        <input name="name"
+                               required
+                               placeholder="Support"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Notes</label>
+                        <input name="notes"
+                               placeholder="Handles inbound chat and email"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <button type="submit" class="w-full rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                        Create team
+                    </button>
+                </form>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <h3 class="text-base font-semibold text-slate-900 dark:text-white">New agent</h3>
+                <form method="POST" action="/admin/crm/inbox/agents" class="mt-5 space-y-4">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Person</label>
+                        <select name="person_id" required
+                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <option value="">Select a person...</option>
+                            {% for person in people %}
+                                {% set label = person.first_name ~ ' ' ~ person.last_name ~ ((' (' ~ person.email ~ ')') if person.email else '') %}
+                                <option value="{{ person.id }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Title (optional)</label>
+                        <input name="title"
+                               placeholder="Support Agent"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <button type="submit" class="w-full rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                        Create agent
+                    </button>
+                </form>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <h3 class="text-base font-semibold text-slate-900 dark:text-white">Assign agent to team</h3>
+                <form method="POST" action="/admin/crm/inbox/agent-teams" class="mt-5 space-y-4">
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Team</label>
+                        <select name="team_id" required
+                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <option value="">Select a team...</option>
+                            {% for team in teams %}
+                                <option value="{{ team.id }}">{{ team.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Agent</label>
+                        <select name="agent_id" required
+                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <option value="">Select an agent...</option>
+                            {% for agent in agents %}
+                                {% set person = people_by_id.get(agent.person_id|string) %}
+                                {% if person %}
+                                    {% set label = person.first_name ~ ' ' ~ person.last_name ~ ((' (' ~ person.email ~ ')') if person.email else '') %}
+                                {% else %}
+                                    {% set label = agent.person_id|string %}
+                                {% endif %}
+                                <option value="{{ agent.id }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="w-full rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                        Assign agent
+                    </button>
+                </form>
+            </section>
+        </div>
+
+        <div class="grid gap-6 lg:grid-cols-2">
+            <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Teams</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                        <thead class="bg-slate-50 dark:bg-slate-800/50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Team</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Notes</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agents</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-900">
+                            {% if teams %}
+                                {% for team in teams %}
+                                {% set team_links = agent_teams | selectattr('team_id', 'equalto', team.id) | list %}
+                                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                                    <td class="px-6 py-4 text-sm font-medium text-slate-900 dark:text-white">{{ team.name }}</td>
+                                    <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ team.notes or '—' }}</td>
+                                    <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ team_links | length }}</td>
+                                    <td class="px-6 py-4">
+                                        {% if team.is_active %}
+                                        {{ status_badge("Active", "active", size="sm") }}
+                                        {% else %}
+                                        {{ status_badge("Inactive", "inactive", size="sm") }}
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="4" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No teams yet.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Agents</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                        <thead class="bg-slate-50 dark:bg-slate-800/50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agent</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Teams</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-900">
+                            {% if agents %}
+                                {% for agent in agents %}
+                                {% set agent_links = agent_teams | selectattr('agent_id', 'equalto', agent.id) | list %}
+                                {% set person = people_by_id.get(agent.person_id|string) %}
+                                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                                    <td class="px-6 py-4">
+                                        <div class="text-sm font-medium text-slate-900 dark:text-white">
+                                            {% if person %}
+                                                {{ person.first_name }} {{ person.last_name }}
+                                            {% else %}
+                                                {{ agent.person_id }}
+                                            {% endif %}
+                                        </div>
+                                        {% if person and person.email %}
+                                        <div class="text-xs text-slate-500 dark:text-slate-400">{{ person.email }}</div>
+                                        {% endif %}
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ agent.title or '—' }}</td>
+                                    <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
+                                        {% if agent_links %}
+                                            <div class="flex flex-wrap gap-1">
+                                                {% for link in agent_links %}
+                                                    {% set team = teams_by_id.get(link.team_id|string) %}
+                                                    {% if team %}
+                                                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">{{ team.name }}</span>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        {% if agent.is_active %}
+                                        {{ status_badge("Active", "active", size="sm") }}
+                                        {% else %}
+                                        {{ status_badge("Inactive", "inactive", size="sm") }}
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="4" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No agents yet.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

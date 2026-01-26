@@ -1,0 +1,237 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import ambient_background, page_header, status_badge, empty_state, action_button, icon_plus %}
+
+{% block title %}Contacts - Admin{% endblock %}
+
+{% block content %}
+{{ ambient_background("primary", "amber") }}
+
+<div class="relative space-y-6" x-data="contactsConvert()">
+    <!-- Page Header -->
+    {% call page_header(
+        title="Contacts",
+        subtitle="Manage people and organizations across the customer lifecycle",
+        icon='<svg class="h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>',
+        color="primary",
+        color2="amber"
+    ) %}
+        {{ action_button("Add Contact", "/admin/crm/contacts/new", icon_plus(), "primary", "primary", "amber") }}
+    {% endcall %}
+
+    <!-- Stats Dashboard -->
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-6 animate-fade-in-up" style="animation-delay: 50ms;">
+        <!-- Total -->
+        <a href="/admin/contacts" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800 {{ 'ring-2 ring-primary-500' if not status else '' }}">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-slate-500/10 to-slate-600/5 blur-2xl"></div>
+            <div class="relative">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Total</p>
+                <p class="mt-1 text-3xl font-bold text-slate-900 dark:text-white">{{ stats.total }}</p>
+            </div>
+        </a>
+
+        <!-- Leads -->
+        <a href="/admin/contacts?status=lead" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800 {{ 'ring-2 ring-amber-500' if status == 'lead' else '' }}">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-amber-500/10 to-orange-500/5 blur-2xl"></div>
+            <div class="relative">
+                <p class="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Leads</p>
+                <p class="mt-1 text-3xl font-bold text-slate-900 dark:text-white">{{ stats.leads }}</p>
+            </div>
+        </a>
+
+        <!-- Contacts -->
+        <a href="/admin/contacts?status=contact" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800 {{ 'ring-2 ring-blue-500' if status == 'contact' else '' }}">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-blue-500/10 to-indigo-500/5 blur-2xl"></div>
+            <div class="relative">
+                <p class="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">Contacts</p>
+                <p class="mt-1 text-3xl font-bold text-slate-900 dark:text-white">{{ stats.contacts }}</p>
+            </div>
+        </a>
+
+        <!-- Customers -->
+        <a href="/admin/contacts?status=customer" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800 {{ 'ring-2 ring-green-500' if status == 'customer' else '' }}">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-green-500/10 to-emerald-500/5 blur-2xl"></div>
+            <div class="relative">
+                <p class="text-xs font-semibold uppercase tracking-wide text-green-600 dark:text-green-400">Customers</p>
+                <p class="mt-1 text-3xl font-bold text-slate-900 dark:text-white">{{ stats.customers }}</p>
+            </div>
+        </a>
+
+        <!-- Subscribers -->
+        <a href="/admin/contacts?status=subscriber" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800 {{ 'ring-2 ring-emerald-500' if status == 'subscriber' else '' }}">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-emerald-500/10 to-teal-500/5 blur-2xl"></div>
+            <div class="relative">
+                <p class="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Subscribers</p>
+                <p class="mt-1 text-3xl font-bold text-slate-900 dark:text-white">{{ stats.subscribers }}</p>
+            </div>
+        </a>
+
+        <!-- Organizations -->
+        <a href="/admin/contacts?entity_type=organization" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800 {{ 'ring-2 ring-purple-500' if entity_type == 'organization' else '' }}">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-purple-500/10 to-violet-500/5 blur-2xl"></div>
+            <div class="relative">
+                <p class="text-xs font-semibold uppercase tracking-wide text-purple-600 dark:text-purple-400">Organizations</p>
+                <p class="mt-1 text-3xl font-bold text-slate-900 dark:text-white">{{ stats.organizations }}</p>
+            </div>
+        </a>
+    </div>
+
+    <!-- Filters and Search -->
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 100ms;">
+        <div class="p-4">
+            <form hx-get="/admin/contacts" hx-target="#contacts-table" hx-trigger="submit, change from:select" hx-include="[name='search'], [name='status'], [name='entity_type'], [name='per_page']">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
+                    <!-- Search -->
+                    <div class="flex-1">
+                        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">Search</label>
+                        <div class="relative">
+                            <svg class="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                            <input type="text"
+                                   name="search"
+                                   value="{{ search or '' }}"
+                                   placeholder="Search by name, email, phone..."
+                                   hx-get="/admin/contacts"
+                                   hx-target="#contacts-table"
+                                   hx-trigger="keyup changed delay:300ms"
+                                   hx-include="closest form"
+                                   class="block w-full rounded-xl border-0 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-primary-500 dark:bg-slate-900 dark:text-white dark:ring-slate-700 dark:placeholder:text-slate-500 dark:focus:ring-primary-500" />
+                        </div>
+                    </div>
+
+                    <!-- Status Filter -->
+                    <div class="w-full sm:w-40">
+                        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">Status</label>
+                        <select name="status"
+                                class="block w-full rounded-xl border-0 bg-slate-50 py-2.5 pl-3 pr-10 text-sm text-slate-900 ring-1 ring-inset ring-slate-200 focus:bg-white focus:ring-2 focus:ring-primary-500 dark:bg-slate-900 dark:text-white dark:ring-slate-700 dark:focus:ring-primary-500">
+                            <option value="">All Statuses</option>
+                            <option value="lead" {% if status == 'lead' %}selected{% endif %}>Leads</option>
+                            <option value="contact" {% if status == 'contact' %}selected{% endif %}>Contacts</option>
+                            <option value="customer" {% if status == 'customer' %}selected{% endif %}>Customers</option>
+                            <option value="subscriber" {% if status == 'subscriber' %}selected{% endif %}>Subscribers</option>
+                        </select>
+                    </div>
+
+                    <!-- Type Filter -->
+                    <div class="w-full sm:w-44">
+                        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">Type</label>
+                        <select name="entity_type"
+                                class="block w-full rounded-xl border-0 bg-slate-50 py-2.5 pl-3 pr-10 text-sm text-slate-900 ring-1 ring-inset ring-slate-200 focus:bg-white focus:ring-2 focus:ring-primary-500 dark:bg-slate-900 dark:text-white dark:ring-slate-700 dark:focus:ring-primary-500">
+                            <option value="">All Types</option>
+                            <option value="person" {% if entity_type == 'person' %}selected{% endif %}>People</option>
+                            <option value="organization" {% if entity_type == 'organization' %}selected{% endif %}>Organizations</option>
+                        </select>
+                    </div>
+
+                    <!-- Per Page -->
+                    <div class="w-full sm:w-32">
+                        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400">Show</label>
+                        <select name="per_page"
+                                class="block w-full rounded-xl border-0 bg-slate-50 py-2.5 pl-3 pr-10 text-sm text-slate-900 ring-1 ring-inset ring-slate-200 focus:bg-white focus:ring-2 focus:ring-primary-500 dark:bg-slate-900 dark:text-white dark:ring-slate-700 dark:focus:ring-primary-500">
+                            <option value="25" {% if per_page == 25 %}selected{% endif %}>25 rows</option>
+                            <option value="50" {% if per_page == 50 %}selected{% endif %}>50 rows</option>
+                            <option value="100" {% if per_page == 100 %}selected{% endif %}>100 rows</option>
+                        </select>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Active Filters -->
+        {% if search or status or entity_type %}
+        <div class="flex flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-3 dark:border-slate-700">
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400">Active filters:</span>
+            {% if search %}
+            <span class="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+                Search: {{ search }}
+                <a href="/admin/contacts?status={{ status or '' }}&entity_type={{ entity_type or '' }}&per_page={{ per_page }}" class="ml-0.5 text-primary-600 hover:text-primary-800 dark:text-primary-400">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </a>
+            </span>
+            {% endif %}
+            {% if status %}
+            <span class="inline-flex items-center gap-1 rounded-full {% if status == 'lead' %}bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300{% elif status == 'contact' %}bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300{% else %}bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300{% endif %} px-2.5 py-1 text-xs font-medium">
+                {{ status | title }}
+                <a href="/admin/contacts?search={{ search or '' }}&entity_type={{ entity_type or '' }}&per_page={{ per_page }}" class="ml-0.5">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </a>
+            </span>
+            {% endif %}
+            {% if entity_type %}
+            <span class="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                {{ 'People' if entity_type == 'person' else 'Organizations' }}
+                <a href="/admin/contacts?search={{ search or '' }}&status={{ status or '' }}&per_page={{ per_page }}" class="ml-0.5 text-purple-600 hover:text-purple-800 dark:text-purple-400">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </a>
+            </span>
+            {% endif %}
+            <a href="/admin/contacts" class="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">Clear all</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Contacts Table -->
+    {% include "admin/contacts/_table.html" %}
+
+    <!-- Convert Modal -->
+    <div x-show="convertOpen"
+         x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="fixed inset-0 bg-slate-900/50" @click="convertOpen = false"></div>
+        <div class="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Convert to Subscriber</h3>
+                <button type="button" @click="convertOpen = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                Create a subscriber and billing account for
+                <span class="font-semibold text-slate-700 dark:text-slate-200" x-text="convertName"></span>.
+            </p>
+
+            <form method="post" :action="`/admin/contacts/${convertId}/convert`" class="mt-5 space-y-4">
+                {% include "components/forms/csrf_input.html" %}
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Subscriber Type</label>
+                    <select name="subscriber_type"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="person">Individual</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Account Status</label>
+                    <select name="account_status"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="active" selected>Active</option>
+                        <option value="delinquent">Delinquent</option>
+                        <option value="suspended">Suspended</option>
+                        <option value="canceled">Canceled</option>
+                    </select>
+                </div>
+                <div class="flex items-center justify-end gap-3 pt-2">
+                    <button type="button" @click="convertOpen = false" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                        Cancel
+                    </button>
+                    <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                        Convert & Create Account
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function contactsConvert() {
+    return {
+        convertOpen: false,
+        convertId: null,
+        convertName: "",
+        openConvert(id, name) {
+            this.convertId = id;
+            this.convertName = name || "this customer";
+            this.convertOpen = true;
+        },
+    };
+}
+</script>
+{% endblock %}
