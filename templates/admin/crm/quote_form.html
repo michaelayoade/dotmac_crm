@@ -1,0 +1,372 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}{{ form_title }} - Admin{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-3xl space-y-6">
+    <div>
+        <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <a href="/admin/crm/quotes" class="hover:text-primary-600">Quotes</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span class="text-slate-900 dark:text-white">{{ form_title }}</span>
+        </nav>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ form_title }}</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Draft and manage pricing proposals.</p>
+    </div>
+
+    {% if error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ action_url }}" class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        {% include "components/forms/csrf_input.html" %}
+        <div class="p-6 space-y-6">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Lead</label>
+                    <select name="lead_id"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">Unassigned</option>
+                        {% for lead in leads %}
+                        <option value="{{ lead.id }}" {% if quote.lead_id == lead.id|string %}selected{% endif %}>
+                            {{ lead.title or ('Lead ' ~ lead.id|string|truncate(8, True, '')) }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Contact</label>
+                    <select name="contact_id"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">Unassigned</option>
+                        {% for contact in contacts %}
+                        <option value="{{ contact.id }}" {% if quote.contact_id == contact.id|string %}selected{% endif %}>
+                            {{ contact.display_name or contact.email or contact.phone or (contact.id|string|truncate(8, True, '')) }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            {% if not quote.id %}
+            {% set items = quote_items or [] %}
+            <div>
+                <div class="flex items-center justify-between">
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Line Items</label>
+                    <button type="button" id="add-quote-item"
+                            class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">
+                        Add Item
+                    </button>
+                </div>
+                <div class="mt-3 overflow-x-auto">
+                    <table class="min-w-full text-left text-xs text-slate-600 dark:text-slate-300">
+                        <thead class="text-[11px] uppercase text-slate-400">
+                            <tr>
+                                <th class="py-2 pr-3">Description</th>
+                                <th class="py-2 pr-3">Qty</th>
+                                <th class="py-2 pr-3">Unit Price</th>
+                                <th class="py-2 pr-3">Amount</th>
+                                <th class="py-2"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="quote-items-body">
+                            {% if items %}
+                                {% for item in items %}
+                                <tr data-line-item-row>
+                                    <td class="py-2 pr-3">
+                                        <input type="hidden" name="item_inventory_item_id" value="{{ item.inventory_item_id or '' }}" data-inventory-item-id>
+                                        <input type="text" name="item_description" value="{{ item.description }}"
+                                               list="inventory-item-suggestions" data-inventory-item-input
+                                               class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    </td>
+                                    <td class="py-2 pr-3">
+                                        <input type="number" step="0.001" min="0" name="item_quantity" value="{{ item.quantity }}"
+                                               class="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    </td>
+                                    <td class="py-2 pr-3">
+                                        <input type="number" step="0.01" min="0" name="item_unit_price" value="{{ item.unit_price }}"
+                                               class="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    </td>
+                                    <td class="py-2 pr-3">
+                                        <input type="text" name="item_amount_display" readonly
+                                               class="w-28 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                    </td>
+                                    <td class="py-2">
+                                        <button type="button" data-remove-line-item class="text-xs text-red-500 hover:text-red-600">Remove</button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr data-line-item-row>
+                                    <td class="py-2 pr-3">
+                                        <input type="hidden" name="item_inventory_item_id" data-inventory-item-id>
+                                        <input type="text" name="item_description"
+                                               list="inventory-item-suggestions" data-inventory-item-input
+                                               class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    </td>
+                                    <td class="py-2 pr-3">
+                                        <input type="number" step="0.001" min="0" name="item_quantity"
+                                               class="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    </td>
+                                    <td class="py-2 pr-3">
+                                        <input type="number" step="0.01" min="0" name="item_unit_price"
+                                               class="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    </td>
+                                    <td class="py-2 pr-3">
+                                        <input type="text" name="item_amount_display" readonly
+                                               class="w-28 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                    </td>
+                                    <td class="py-2">
+                                        <button type="button" data-remove-line-item class="text-xs text-red-500 hover:text-red-600">Remove</button>
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+                <template id="quote-item-template">
+                    <tr data-line-item-row>
+                        <td class="py-2 pr-3">
+                            <input type="hidden" name="item_inventory_item_id" data-inventory-item-id>
+                            <input type="text" name="item_description"
+                                   list="inventory-item-suggestions" data-inventory-item-input
+                                   class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </td>
+                        <td class="py-2 pr-3">
+                            <input type="number" step="0.001" min="0" name="item_quantity"
+                                   class="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </td>
+                        <td class="py-2 pr-3">
+                            <input type="number" step="0.01" min="0" name="item_unit_price"
+                                   class="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </td>
+                        <td class="py-2 pr-3">
+                            <input type="text" name="item_amount_display" readonly
+                                   class="w-28 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                        </td>
+                        <td class="py-2">
+                            <button type="button" data-remove-line-item class="text-xs text-red-500 hover:text-red-600">Remove</button>
+                        </td>
+                    </tr>
+                </template>
+                <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Amounts are calculated automatically on save.</p>
+            </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Status</label>
+                    <select name="status"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for item in quote_statuses %}
+                        <option value="{{ item }}" {% if quote.status == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Currency</label>
+                    <input type="text" name="currency" value="{{ quote.currency }}" placeholder="NGN"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm uppercase focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Project Type</label>
+                <select name="project_type"
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">Select a project type</option>
+                    {% for project_type in project_types or [] %}
+                    <option value="{{ project_type }}" {% if quote.project_type == project_type %}selected{% endif %}>
+                        {{ project_type | replace('_', ' ') | title }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            {% if not quote.id %}
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Tax Rate</label>
+                <select name="tax_rate_id" data-quote-tax-rate
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">None</option>
+                    {% for rate in tax_rates or [] %}
+                    {% set rate_percent = (rate.rate * 100) if rate.rate <= 1 else rate.rate %}
+                    {% set rate_fraction = rate.rate if rate.rate <= 1 else (rate.rate / 100) %}
+                    <option value="{{ rate.id }}" data-rate="{{ rate_fraction }}"
+                            {% if quote.tax_rate_id == rate.id|string %}selected{% endif %}>
+                        {{ rate.name }} ({{ rate_percent | round(2) }}%)
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Subtotal</label>
+                    <input type="number" step="0.01" name="subtotal" value="{{ quote.subtotal }}"
+                           {% if not quote.id %}readonly data-quote-subtotal{% endif %}
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Tax Total</label>
+                    <input type="number" step="0.01" name="tax_total" value="{{ quote.tax_total }}"
+                           {% if not quote.id %}readonly data-quote-tax-total{% endif %}
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Total</label>
+                    <input type="number" step="0.01" name="total" value="{{ quote.total }}"
+                           {% if not quote.id %}readonly data-quote-total{% endif %}
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Expires At</label>
+                    <input type="datetime-local" name="expires_at" value="{{ quote.expires_at }}"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div class="flex items-center gap-3 pt-4 sm:pt-6">
+                    <input type="checkbox" name="is_active" value="true" {% if quote.is_active %}checked{% endif %}
+                           class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                    <label class="text-sm font-medium text-slate-700 dark:text-slate-300">Active</label>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Notes</label>
+                <textarea name="notes" rows="3"
+                          class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ quote.notes }}</textarea>
+            </div>
+        </div>
+        <div class="border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-slate-700 dark:bg-slate-800/50 flex items-center justify-end gap-3">
+            <a href="/admin/crm/quotes" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Cancel</a>
+            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">{{ submit_label }}</button>
+        </div>
+    </form>
+</div>
+{% if not quote.id %}
+<datalist id="inventory-item-suggestions">
+    {% for inv in inventory_items or [] %}
+    {% set inv_label = inv.name ~ (inv.sku and (' (' ~ inv.sku ~ ')') or '') %}
+    <option value="{{ inv_label }}" data-item-id="{{ inv.id }}"></option>
+    {% endfor %}
+</datalist>
+<script>
+(() => {
+  const body = document.getElementById("quote-items-body");
+  const template = document.getElementById("quote-item-template");
+  const addButton = document.getElementById("add-quote-item");
+  const inventoryMap = new Map();
+  document.querySelectorAll("#inventory-item-suggestions option").forEach((option) => {
+    inventoryMap.set(option.value, option.dataset.itemId || "");
+  });
+
+  if (!body || !template || !addButton) {
+    return;
+  }
+
+  const subtotalInput = document.querySelector("[data-quote-subtotal]");
+  const totalInput = document.querySelector("[data-quote-total]");
+  const taxInput = document.querySelector("[data-quote-tax-total]");
+  const taxRateSelect = document.querySelector("[data-quote-tax-rate]");
+
+  const recalcTotals = () => {
+    if (!subtotalInput || !totalInput) {
+      return;
+    }
+    let subtotal = 0;
+    body.querySelectorAll("[data-line-item-row]").forEach((row) => {
+      const qty = parseFloat(row.querySelector('input[name="item_quantity"]')?.value || "0");
+      const price = parseFloat(row.querySelector('input[name="item_unit_price"]')?.value || "0");
+      if (Number.isFinite(qty) && Number.isFinite(price)) {
+        subtotal += qty * price;
+      }
+    });
+    subtotalInput.value = subtotal.toFixed(2);
+    if (taxInput) {
+      const rateValue = taxRateSelect?.selectedOptions?.[0]?.dataset?.rate || "0";
+      const rate = parseFloat(rateValue);
+      if (Number.isFinite(rate)) {
+        taxInput.value = (subtotal * rate).toFixed(2);
+      } else {
+        taxInput.value = "0.00";
+      }
+    }
+    const tax = parseFloat(taxInput?.value || "0");
+    totalInput.value = (subtotal + (Number.isFinite(tax) ? tax : 0)).toFixed(2);
+  };
+
+  const bindRow = (row) => {
+    const qtyInput = row.querySelector('input[name="item_quantity"]');
+    const priceInput = row.querySelector('input[name="item_unit_price"]');
+    const amountInput = row.querySelector('input[name="item_amount_display"]');
+    const descInput = row.querySelector('[data-inventory-item-input]');
+    const inventoryIdInput = row.querySelector('[data-inventory-item-id]');
+    const removeBtn = row.querySelector("[data-remove-line-item]");
+
+    const updateInventoryItem = () => {
+      if (!descInput || !inventoryIdInput) {
+        return;
+      }
+      const match = inventoryMap.get(descInput.value) || "";
+      inventoryIdInput.value = match;
+    };
+
+    const updateAmount = () => {
+      if (!amountInput) {
+        return;
+      }
+      const qty = parseFloat(qtyInput?.value || "0");
+      const price = parseFloat(priceInput?.value || "0");
+      if (Number.isFinite(qty) && Number.isFinite(price)) {
+        amountInput.value = (qty * price).toFixed(2);
+      } else {
+        amountInput.value = "";
+      }
+      recalcTotals();
+    };
+
+    qtyInput?.addEventListener("input", updateAmount);
+    priceInput?.addEventListener("input", updateAmount);
+    descInput?.addEventListener("change", updateInventoryItem);
+    descInput?.addEventListener("blur", updateInventoryItem);
+    updateAmount();
+    updateInventoryItem();
+
+    removeBtn?.addEventListener("click", () => {
+      if (body.querySelectorAll("[data-line-item-row]").length > 1) {
+        row.remove();
+      } else {
+        row.querySelectorAll("input").forEach((input) => {
+          if (input.name === "item_amount_display") {
+            input.value = "";
+          } else {
+            input.value = "";
+          }
+        });
+      }
+      recalcTotals();
+    });
+  };
+
+  body.querySelectorAll("[data-line-item-row]").forEach((row) => bindRow(row));
+
+  taxRateSelect?.addEventListener("change", recalcTotals);
+  recalcTotals();
+
+  addButton.addEventListener("click", () => {
+    const clone = template.content.firstElementChild?.cloneNode(true);
+    if (!clone) {
+      return;
+    }
+    body.appendChild(clone);
+    bindRow(clone);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

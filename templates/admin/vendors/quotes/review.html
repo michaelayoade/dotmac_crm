@@ -1,0 +1,41 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Quote Review - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Quote review</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Review submitted vendor quotes.</p>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <tr>
+                    <th class="px-4 py-3">Quote</th>
+                    <th class="px-4 py-3">Project</th>
+                    <th class="px-4 py-3">Vendor</th>
+                    <th class="px-4 py-3">Status</th>
+                    <th class="px-4 py-3">Total</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for quote in quotes %}
+                <tr>
+                    <td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{{ quote.id }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ quote.project_id }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ quote.vendor_id }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ quote.status.value }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ quote.total }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="5">No quotes yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

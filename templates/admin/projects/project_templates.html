@@ -1,0 +1,55 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Project Templates - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Project Templates</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage task templates mapped to project types</p>
+        </div>
+        <a href="/admin/projects/templates/new" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            New Template
+        </a>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-800/60">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Template</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project Type</th>
+                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if templates %}
+                    {% for template in templates %}
+                    <tr class="hover:bg-slate-100 dark:hover:!bg-slate-700/50">
+                        <td class="px-6 py-4 text-sm text-slate-900 dark:text-white">
+                            <p class="font-medium">{{ template.name }}</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">{{ template.id|string|truncate(8, True, '') }}</p>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
+                            {{ template.project_type.value | replace('_', ' ') | title if template.project_type else '—' }}
+                        </td>
+                        <td class="px-6 py-4 text-right text-sm">
+                            <a href="/admin/projects/templates/{{ template.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
+                            <a href="/admin/projects/templates/{{ template.id }}/edit" class="ml-3 text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    {% set title = "No templates yet" %}
+                    {% set message = "Create a template to auto-generate project tasks." %}
+                    {% include "components/empty_state.html" %}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

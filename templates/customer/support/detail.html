@@ -1,0 +1,194 @@
+{% extends "layouts/customer.html" %}
+
+{% block title %}Support Ticket - My Account{% endblock %}
+
+{% block content %}
+{% set status = ticket.status.value if ticket.status is not string and ticket.status else (ticket.status | default('open')) %}
+{% set priority = ticket.priority.value if ticket.priority is not string and ticket.priority else (ticket.priority | default('normal')) %}
+<div class="space-y-6 stagger-children">
+    <!-- Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-stone-500 dark:text-stone-400 mb-3">
+                <a href="/portal/support" class="transition-colors duration-200 hover:text-brand-600 dark:hover:text-brand-400">Support</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="font-mono font-medium text-stone-900 dark:text-white">#{{ ticket.id }}</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-stone-900 dark:text-white" style="font-family: var(--font-display);">{{ ticket.title | default(ticket.subject | default('Support Ticket')) }}</h1>
+            <p class="mt-2 flex items-center gap-2 text-sm text-stone-500 dark:text-stone-400">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                Created {{ ticket.created_at.strftime('%b %d, %Y at %I:%M %p') if ticket.created_at else 'N/A' }}
+            </p>
+        </div>
+        <div class="flex items-center gap-3">
+            <!-- Status Badge -->
+            {% if status in ['open', 'in_progress'] %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                <span class="relative flex h-2 w-2">
+                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75"></span>
+                    <span class="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
+                </span>
+                {{ status | replace('_', ' ') | title }}
+            </span>
+            {% elif status == 'resolved' %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                Resolved
+            </span>
+            {% elif status == 'closed' %}
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600 dark:bg-stone-700 dark:text-stone-300">
+                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+                Closed
+            </span>
+            {% else %}
+            <span class="inline-flex items-center rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600 dark:bg-stone-700 dark:text-stone-300">
+                {{ status | title }}
+            </span>
+            {% endif %}
+
+            <!-- Priority Badge -->
+            <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold
+                {% if priority == 'urgent' %}bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300
+                {% elif priority == 'high' %}bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300
+                {% else %}bg-stone-100 text-stone-600 dark:bg-stone-700 dark:text-stone-400{% endif %}">
+                {% if priority == 'urgent' %}
+                <span class="relative flex h-2 w-2">
+                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+                    <span class="relative inline-flex h-2 w-2 rounded-full bg-red-500"></span>
+                </span>
+                {% elif priority == 'high' %}
+                <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 5.414V17a1 1 0 11-2 0V5.414L6.707 7.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+                {% endif %}
+                {{ priority | title }}
+            </span>
+        </div>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-3">
+        <!-- Main Content -->
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Description Card -->
+            <div class="rounded-2xl border border-stone-200/60 bg-white/80 shadow-premium backdrop-blur-sm dark:border-stone-700/60 dark:bg-stone-800/80">
+                <div class="border-b border-stone-200/60 px-6 py-4 dark:border-stone-700/60">
+                    <h2 class="flex items-center gap-2 text-lg font-semibold text-stone-900 dark:text-white" style="font-family: var(--font-display);">
+                        <svg class="h-5 w-5 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/></svg>
+                        Description
+                    </h2>
+                </div>
+                <div class="p-6">
+                    <div class="prose prose-sm prose-stone max-w-none dark:prose-invert">
+                        <p class="text-stone-600 dark:text-stone-300 whitespace-pre-wrap">{{ ticket.description | default('No description provided.') }}</p>
+                    </div>
+                    {% set attachments = ticket.metadata_.get("attachments") if ticket.metadata_ and ticket.metadata_ is mapping else [] %}
+                    {% if attachments %}
+                    <div class="mt-6 pt-6 border-t border-stone-200/60 dark:border-stone-700/60">
+                        <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-900 dark:text-white">
+                            <svg class="h-4 w-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                            Attachments
+                        </h3>
+                        <ul class="mt-3 space-y-2">
+                            {% for attachment in attachments %}
+                            <li>
+                                <a href="{{ attachment.url }}" class="group inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm transition-all duration-200 hover:bg-stone-100 hover:border-stone-300 dark:border-stone-700 dark:bg-stone-700/50 dark:hover:bg-stone-700" target="_blank" rel="noopener">
+                                    <svg class="h-4 w-4 text-stone-400 group-hover:text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                                    <span class="font-medium text-stone-700 dark:text-stone-300">{{ attachment.file_name or 'Attachment' }}</span>
+                                    {% if attachment.file_size %}
+                                    <span class="text-xs text-stone-500 dark:text-stone-400">({{ attachment.file_size }} bytes)</span>
+                                    {% endif %}
+                                    <svg class="ml-auto h-4 w-4 text-stone-400 opacity-0 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                                </a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Updates Timeline -->
+            <div class="rounded-2xl border border-stone-200/60 bg-white/80 shadow-premium backdrop-blur-sm dark:border-stone-700/60 dark:bg-stone-800/80">
+                <div class="border-b border-stone-200/60 px-6 py-4 dark:border-stone-700/60">
+                    <h2 class="flex items-center gap-2 text-lg font-semibold text-stone-900 dark:text-white" style="font-family: var(--font-display);">
+                        <svg class="h-5 w-5 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                        Updates
+                    </h2>
+                </div>
+                <div class="p-6">
+                    <div class="relative">
+                        <!-- Timeline line -->
+                        <div class="absolute left-4 top-0 bottom-0 w-0.5 bg-stone-200 dark:bg-stone-700"></div>
+
+                        <!-- Placeholder state -->
+                        <div class="relative flex gap-4">
+                            <div class="flex h-8 w-8 items-center justify-center rounded-full bg-stone-100 ring-4 ring-white dark:bg-stone-700 dark:ring-stone-800">
+                                <svg class="h-4 w-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                            <div class="flex-1 rounded-xl border border-stone-200/60 bg-stone-50/80 p-4 dark:border-stone-700/60 dark:bg-stone-700/30">
+                                <p class="text-sm text-stone-500 dark:text-stone-400">Support will respond here as updates are available.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="space-y-6">
+            <!-- Ticket Details Card -->
+            <div class="rounded-2xl border border-stone-200/60 bg-white/80 p-6 shadow-premium backdrop-blur-sm dark:border-stone-700/60 dark:bg-stone-800/80">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Ticket Details</h3>
+                <dl class="mt-5 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <dt class="flex items-center gap-2 text-sm text-stone-500 dark:text-stone-400">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"/></svg>
+                            Priority
+                        </dt>
+                        <dd class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold
+                            {% if priority == 'urgent' %}bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300
+                            {% elif priority == 'high' %}bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300
+                            {% else %}bg-stone-100 text-stone-600 dark:bg-stone-700 dark:text-stone-400{% endif %}">
+                            {{ priority | title }}
+                        </dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt class="flex items-center gap-2 text-sm text-stone-500 dark:text-stone-400">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                            Channel
+                        </dt>
+                        {% set channel = ticket.channel.value if ticket.channel is not string and ticket.channel else (ticket.channel | default('Portal')) %}
+                        <dd class="text-sm font-semibold text-stone-900 dark:text-white">{{ channel | title }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt class="flex items-center gap-2 text-sm text-stone-500 dark:text-stone-400">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            Assigned
+                        </dt>
+                        {% if ticket.assigned_to %}
+                        <dd class="flex items-center gap-2">
+                            <div class="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-600 dark:bg-brand-900/30 dark:text-brand-400">
+                                {{ (ticket.assigned_to.display_name or ticket.assigned_to.first_name or 'A')[0] | upper }}
+                            </div>
+                            <span class="text-sm font-semibold text-stone-900 dark:text-white">{{ ticket.assigned_to.display_name or (ticket.assigned_to.first_name ~ ' ' ~ ticket.assigned_to.last_name) }}</span>
+                        </dd>
+                        {% else %}
+                        <dd class="text-sm text-stone-400 dark:text-stone-500 italic">Unassigned</dd>
+                        {% endif %}
+                    </div>
+                </dl>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="space-y-3">
+                <a href="/portal/support" class="group inline-flex w-full items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-700 transition-all duration-200 hover:bg-stone-50 hover:border-stone-400 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600">
+                    <svg class="h-4 w-4 transition-transform duration-200 group-hover:-translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Back to Tickets
+                </a>
+                <a href="/portal/support/new" class="group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-brand-500/20 transition-all duration-300 hover:shadow-lg hover:shadow-brand-500/30 hover:-translate-y-0.5">
+                    <svg class="h-4 w-4 transition-transform duration-300 group-hover:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                    New Ticket
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Vendors - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Vendors</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage contractor companies.</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <form method="get" class="flex items-center gap-2">
+                <label for="status" class="sr-only">Status</label>
+                <select id="status" name="status" onchange="this.form.submit()" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                    <option value="active" {% if current_status != 'inactive' %}selected{% endif %}>Active</option>
+                    <option value="inactive" {% if current_status == 'inactive' %}selected{% endif %}>Inactive</option>
+                </select>
+            </form>
+            <a href="/admin/vendors/new" class="inline-flex items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800">New Vendor</a>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <tr>
+                    <th class="px-4 py-3">Vendor</th>
+                    <th class="px-4 py-3">Contact</th>
+                    <th class="px-4 py-3">Status</th>
+                    <th class="px-4 py-3 text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for vendor in vendors %}
+                <tr>
+                    <td class="px-4 py-3 font-medium text-slate-900 dark:text-white">
+                        <a href="/admin/vendors/{{ vendor.id }}" class="hover:text-primary-600 dark:hover:text-primary-400">{{ vendor.name }}</a>
+                    </td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ vendor.contact_email or '—' }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ 'Active' if vendor.is_active else 'Inactive' }}</td>
+                    <td class="px-4 py-3 text-right">
+                        <div class="flex items-center justify-end gap-3">
+                            <a href="/admin/vendors/{{ vendor.id }}/edit" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
+                            {% if not vendor.is_active %}
+                            <form method="post" action="/admin/vendors/{{ vendor.id }}/delete" onsubmit="return confirm('Delete this vendor? This will deactivate it.');">
+                                <button type="submit" class="text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400">Delete</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="4">No vendors yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% set activity_title = "Vendors Activity" %}
+    {% set activity_link = "/admin/system/audit" %}
+    {% include "components/data/recent_activity_panel.html" %}
+</div>
+{% endblock %}

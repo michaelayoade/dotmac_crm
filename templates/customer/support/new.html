@@ -1,0 +1,137 @@
+{% extends "layouts/customer.html" %}
+
+{% block title %}New Support Ticket - My Account{% endblock %}
+
+{% block content %}
+{% set topic = request.query_params.get('topic') if request and request.query_params is defined else None %}
+<div class="space-y-8">
+    <!-- Page Header -->
+    <div>
+        <nav class="flex items-center gap-2 text-sm text-stone-500 dark:text-stone-400 mb-3">
+            <a href="/portal/support" class="hover:text-[var(--color-brand-600)] transition-colors">Support</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+            <span class="text-stone-700 dark:text-stone-300">New Ticket</span>
+        </nav>
+        <h1 class="text-3xl font-display font-bold text-stone-900 dark:text-white">Create Support Ticket</h1>
+        <p class="mt-1 text-base text-stone-500 dark:text-stone-400">Tell us about the issue and we'll respond as soon as possible.</p>
+    </div>
+
+    {% if error %}
+    <div class="rounded-xl border-2 border-red-200 bg-red-50 px-5 py-4 dark:border-red-900/50 dark:bg-red-900/20">
+        <div class="flex items-start gap-3">
+            <svg class="h-5 w-5 text-red-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <p class="text-sm font-medium text-red-700 dark:text-red-300">{{ error }}</p>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if topic == 'access' %}
+    <div class="rounded-xl border-2 border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-900/50 dark:bg-amber-900/20">
+        <div class="flex items-start gap-3">
+            <svg class="h-5 w-5 text-amber-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <div>
+                <p class="text-sm font-semibold text-amber-800 dark:text-amber-300">Credential changes can interrupt connectivity.</p>
+                <p class="mt-1 text-sm text-amber-700 dark:text-amber-400">Please provide a preferred maintenance window and any device details so we can coordinate.</p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="space-y-6">
+        <div class="rounded-2xl border border-stone-200 bg-white p-6 shadow-premium dark:border-stone-700 dark:bg-stone-800">
+            <div class="space-y-6">
+                <!-- Subject -->
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-2">Subject</label>
+                    <input type="text" name="subject" required placeholder="Brief summary of your issue"
+                           value="{{ 'Access help / credential change request' if topic == 'access' else '' }}"
+                           class="block w-full rounded-xl border-2 border-stone-200 bg-white px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-all focus:border-[var(--color-brand-500)] focus:outline-none focus:ring-4 focus:ring-[var(--color-brand-500)]/10 dark:border-stone-600 dark:bg-stone-700 dark:text-white dark:placeholder-stone-500">
+                </div>
+
+                <!-- Description -->
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-2">Description</label>
+                    <textarea name="description" rows="6" required placeholder="Provide as many details as possible about the issue you're experiencing..."
+                              class="block w-full rounded-xl border-2 border-stone-200 bg-white px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-all focus:border-[var(--color-brand-500)] focus:outline-none focus:ring-4 focus:ring-[var(--color-brand-500)]/10 dark:border-stone-600 dark:bg-stone-700 dark:text-white dark:placeholder-stone-500 resize-none">{% if topic == 'access' %}Requested change: 
+Preferred maintenance window:
+Service/device details:
+Impact notes:{% endif %}</textarea>
+                </div>
+
+                <!-- Priority -->
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-2">Priority</label>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <label class="relative">
+                            <input type="radio" name="priority" value="low" class="peer sr-only">
+                            <div class="cursor-pointer rounded-xl border-2 border-stone-200 bg-white p-4 text-center transition-all peer-checked:border-stone-500 peer-checked:bg-stone-50 hover:border-stone-300 dark:border-stone-600 dark:bg-stone-700 dark:peer-checked:border-stone-400 dark:peer-checked:bg-stone-600 dark:hover:border-stone-500">
+                                <p class="text-sm font-semibold text-stone-700 dark:text-stone-300">Low</p>
+                                <p class="text-xs text-stone-500 dark:text-stone-400 mt-1">Non-urgent</p>
+                            </div>
+                        </label>
+                        <label class="relative">
+                            <input type="radio" name="priority" value="normal" checked class="peer sr-only">
+                            <div class="cursor-pointer rounded-xl border-2 border-stone-200 bg-white p-4 text-center transition-all peer-checked:border-blue-500 peer-checked:bg-blue-50 hover:border-stone-300 dark:border-stone-600 dark:bg-stone-700 dark:peer-checked:border-blue-400 dark:peer-checked:bg-blue-900/30 dark:hover:border-stone-500">
+                                <p class="text-sm font-semibold text-stone-700 dark:text-stone-300">Normal</p>
+                                <p class="text-xs text-stone-500 dark:text-stone-400 mt-1">Standard</p>
+                            </div>
+                        </label>
+                        <label class="relative">
+                            <input type="radio" name="priority" value="high" class="peer sr-only">
+                            <div class="cursor-pointer rounded-xl border-2 border-stone-200 bg-white p-4 text-center transition-all peer-checked:border-amber-500 peer-checked:bg-amber-50 hover:border-stone-300 dark:border-stone-600 dark:bg-stone-700 dark:peer-checked:border-amber-400 dark:peer-checked:bg-amber-900/30 dark:hover:border-stone-500">
+                                <p class="text-sm font-semibold text-stone-700 dark:text-stone-300">High</p>
+                                <p class="text-xs text-stone-500 dark:text-stone-400 mt-1">Important</p>
+                            </div>
+                        </label>
+                        <label class="relative">
+                            <input type="radio" name="priority" value="urgent" class="peer sr-only">
+                            <div class="cursor-pointer rounded-xl border-2 border-stone-200 bg-white p-4 text-center transition-all peer-checked:border-red-500 peer-checked:bg-red-50 hover:border-stone-300 dark:border-stone-600 dark:bg-stone-700 dark:peer-checked:border-red-400 dark:peer-checked:bg-red-900/30 dark:hover:border-stone-500">
+                                <p class="text-sm font-semibold text-stone-700 dark:text-stone-300">Urgent</p>
+                                <p class="text-xs text-stone-500 dark:text-stone-400 mt-1">Critical</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Attachments -->
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-2">Attachments</label>
+                    <div class="relative">
+                        <input type="file" name="attachments" multiple id="file-upload"
+                               class="hidden"
+                               accept=".png,.jpg,.jpeg,.gif,.webp,.pdf">
+                        <label for="file-upload" class="flex cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 px-6 py-8 transition-all hover:border-[var(--color-brand-400)] hover:bg-[var(--color-brand-50)] dark:border-stone-600 dark:bg-stone-700/50 dark:hover:border-[var(--color-brand-500)]">
+                            <div class="text-center">
+                                <svg class="mx-auto h-10 w-10 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                </svg>
+                                <p class="mt-2 text-sm font-medium text-stone-700 dark:text-stone-300">Click to upload or drag and drop</p>
+                                <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">PNG, JPG, GIF, WEBP, or PDF up to 5MB each</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-end gap-3">
+            <a href="/portal/support" class="rounded-xl border-2 border-stone-200 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-all hover:border-stone-300 hover:bg-stone-50 dark:border-stone-600 dark:bg-stone-700 dark:text-stone-300 dark:hover:border-stone-500">
+                Cancel
+            </a>
+            <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[var(--color-brand-500)] to-[var(--color-brand-600)] px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[var(--color-brand-500)]/20 transition-all hover:shadow-xl hover:shadow-[var(--color-brand-500)]/30 hover:-translate-y-0.5">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                </svg>
+                Submit Ticket
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,1134 @@
+{% extends "layouts/vendor.html" %}
+
+{% block title %}Fiber Map{% endblock %}
+
+{% block head %}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<style>
+    #fiber-map {
+        height: calc(100vh - 240px);
+        min-height: 500px;
+        border-radius: 0.75rem;
+    }
+    .leaflet-popup-content-wrapper {
+        border-radius: 0.5rem;
+    }
+    .dark .leaflet-popup-content-wrapper {
+        background: #1e293b;
+        color: #f1f5f9;
+    }
+    .dark .leaflet-popup-tip {
+        background: #1e293b;
+    }
+    .fiber-popup-title {
+        font-weight: 600;
+        font-size: 1rem;
+        margin-bottom: 0.5rem;
+    }
+    .fiber-popup-type {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        opacity: 0.7;
+        margin-bottom: 0.25rem;
+    }
+    .fiber-popup-detail {
+        font-size: 0.875rem;
+        margin: 0.25rem 0;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.25rem 0;
+    }
+    .legend-icon {
+        width: 1.25rem;
+        height: 1.25rem;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .distance-label {
+        background: rgba(0,0,0,0.7);
+        color: white;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+    .measure-tooltip {
+        background: #1e293b;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        border: none;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .measure-tooltip::before { display: none; }
+    .drag-coords {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.8);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-family: monospace;
+        z-index: 1000;
+        display: none;
+    }
+    .drag-coords.active { display: block; }
+    .edit-mode-badge {
+        background: #f97316;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 600;
+        animation: pulse 2s infinite;
+    }
+    .plan-mode-badge {
+        background: #8b5cf6;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 600;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+    .planning-panel {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        padding: 16px;
+        min-width: 280px;
+        z-index: 1000;
+        max-height: calc(100% - 20px);
+        overflow-y: auto;
+    }
+    .dark .planning-panel {
+        background: #1e293b;
+        color: #f1f5f9;
+    }
+    .planning-panel h3 {
+        font-weight: 600;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .planning-detail {
+        font-size: 13px;
+        margin: 8px 0;
+        display: flex;
+        justify-content: space-between;
+    }
+    .planning-detail-label {
+        color: #64748b;
+    }
+    .dark .planning-detail-label {
+        color: #94a3b8;
+    }
+    .planning-detail-value {
+        font-weight: 500;
+    }
+    .planning-distance {
+        font-size: 28px;
+        font-weight: 700;
+        color: #8b5cf6;
+        text-align: center;
+        margin: 16px 0;
+    }
+    .planning-cost {
+        background: #f8fafc;
+        border-radius: 6px;
+        padding: 12px;
+        margin-top: 12px;
+    }
+    .dark .planning-cost {
+        background: #334155;
+    }
+    /* Search box */
+    .map-search {
+        position: absolute;
+        top: 10px;
+        left: 60px;
+        z-index: 1000;
+    }
+    .map-search-container {
+        position: relative;
+    }
+    .map-search input {
+        width: 280px;
+        padding: 10px 36px 10px 12px;
+        border: none;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        font-size: 14px;
+    }
+    .dark .map-search input {
+        background: #1e293b;
+        color: #f1f5f9;
+    }
+    .map-search-clear {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 4px;
+        color: #94a3b8;
+        display: none;
+    }
+    .map-search-clear:hover {
+        color: #64748b;
+    }
+    .map-search-clear.visible {
+        display: block;
+    }
+    .search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 4px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        max-height: 300px;
+        overflow-y: auto;
+        display: none;
+    }
+    .search-results.visible {
+        display: block;
+    }
+    .dark .search-results {
+        background: #1e293b;
+    }
+    .search-result-item {
+        padding: 10px 12px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .dark .search-result-item {
+        border-bottom-color: #334155;
+    }
+    .search-result-item:last-child {
+        border-bottom: none;
+    }
+    .search-result-item:hover,
+    .search-result-item.selected {
+        background: #f1f5f9;
+    }
+    .dark .search-result-item:hover,
+    .dark .search-result-item.selected {
+        background: #334155;
+    }
+    .search-result-icon {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .search-result-content {
+        flex: 1;
+        min-width: 0;
+    }
+    .search-result-name {
+        font-weight: 500;
+        font-size: 14px;
+        color: #1e293b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .dark .search-result-name {
+        color: #f1f5f9;
+    }
+    .search-result-meta {
+        font-size: 12px;
+        color: #64748b;
+    }
+    .dark .search-result-meta {
+        color: #94a3b8;
+    }
+    .search-result-type {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #94a3b8;
+        flex-shrink: 0;
+    }
+    .search-no-results {
+        padding: 14px 12px;
+        text-align: center;
+        color: #64748b;
+        font-size: 14px;
+    }
+    .dark .search-no-results {
+        color: #94a3b8;
+    }
+    .search-result-count {
+        padding: 6px 12px;
+        font-size: 12px;
+        color: #64748b;
+        background: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .dark .search-result-count {
+        color: #94a3b8;
+        background: #0f172a;
+        border-bottom-color: #334155;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/vendor/projects/mine" class="hover:text-emerald-600">My Projects</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">Fiber Map</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Fiber Map</h1>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Edit fiber assets and plan routes for your projects.</p>
+            </div>
+        <div class="flex items-center gap-2">
+            <span id="edit-mode-indicator" class="edit-mode-badge hidden">Edit Mode</span>
+            <span id="plan-mode-indicator" class="plan-mode-badge hidden">Planning Mode</span>
+            <button id="btn-plan" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Plan new installation - click map to find nearest cabinet">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                Plan
+            </button>
+            <button id="btn-measure" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Measure distance">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                Measure
+            </button>
+            <button id="btn-edit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Toggle edit mode to drag markers">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                Edit
+            </button>
+            <button id="btn-refresh" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <div class="lg:col-span-3">
+            <div class="relative rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 overflow-hidden">
+                <div id="fiber-map"></div>
+                <!-- Search box -->
+                <div class="map-search">
+                    <div class="map-search-container">
+                        <input type="text" id="map-search-input" placeholder="Search cabinets, closures..." class="dark:bg-slate-800 dark:text-white" autocomplete="off">
+                        <button id="map-search-clear" class="map-search-clear" type="button">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                        <div id="search-results" class="search-results"></div>
+                    </div>
+                </div>
+                <div id="planning-panel" class="planning-panel hidden">
+                    <h3>
+                        <svg class="h-5 w-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+                        Installation Planning
+                    </h3>
+                    <div id="planning-content">
+                        <p class="text-sm text-slate-500 dark:text-slate-400">Click anywhere on the map to find the nearest FDH cabinet and estimate drop cable distance.</p>
+                    </div>
+                </div>
+            </div>
+            <div id="drag-coords" class="drag-coords"></div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Network Stats</h2>
+                <div class="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                    <div class="flex items-center justify-between">
+                        <span>FDH Cabinets</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ stats.fdh_cabinets }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Splice Closures</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ stats.splice_closures }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Splitters</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ stats.splitters }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Splices</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ stats.total_splices }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Segments</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ stats.segments }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Legend</h2>
+                <div class="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                    <div class="legend-item">
+                        <span class="legend-icon" style="background:#f97316"></span>
+                        <span>FDH Cabinet</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-icon" style="background:#14b8a6"></span>
+                        <span>Splice Closure</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-icon" style="background:#ef4444"></span>
+                        <span>Feeder Segment</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-icon" style="background:#3b82f6"></span>
+                        <span>Distribution Segment</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-icon" style="background:#22c55e"></span>
+                        <span>Drop Segment</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(function() {
+    const costSettings = {{ cost_settings | tojson | safe }};
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    let editMode = false;
+    let measureMode = false;
+    let planMode = false;
+    let measurePoints = [];
+    let measureLine = null;
+    let measureMarkers = [];
+    let planMarker = null;
+    let planLine = null;
+    let planCabinetMarker = null;
+    let planOptions = [];
+    let selectedCabinet = null;
+    let planTraceMode = false;
+    let tracePoints = [];
+    let traceLine = null;
+    let traceMarkers = [];
+    let planCustomerLatLng = null;
+    let planEstimate = null;
+    let planMessage = null;
+    let planSaveMessage = null;
+    const allMarkers = [];
+    const allFeatures = [];  // For search functionality
+
+    const map = L.map('fiber-map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19
+    }).addTo(map);
+
+    const layers = {
+        fdh: L.layerGroup().addTo(map),
+        closures: L.layerGroup().addTo(map),
+        feeder: L.layerGroup().addTo(map),
+        distribution: L.layerGroup().addTo(map),
+        drop: L.layerGroup().addTo(map),
+        distances: L.layerGroup()
+    };
+
+    const icons = {
+        fdh_cabinet: L.divIcon({
+            html: '<div style="background:#f97316;width:24px;height:24px;border-radius:4px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3)"><svg style="width:14px;height:14px;color:white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/></svg></div>',
+            className: '',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            popupAnchor: [0, -12]
+        }),
+        splice_closure: L.divIcon({
+            html: '<div style="background:#14b8a6;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3)"><svg style="width:10px;height:10px;color:white" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6"/></svg></div>',
+            className: '',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10],
+            popupAnchor: [0, -10]
+        })
+    };
+
+    const segmentStyles = {
+        feeder: { color: '#ef4444', weight: 4, opacity: 0.9 },
+        distribution: { color: '#3b82f6', weight: 3, opacity: 0.8 },
+        drop: { color: '#22c55e', weight: 2, opacity: 0.7 }
+    };
+
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+
+    function calculateLineDistance(coords) {
+        let total = 0;
+        for (let i = 0; i < coords.length - 1; i++) {
+            total += calculateDistance(coords[i][0], coords[i][1], coords[i+1][0], coords[i+1][1]);
+        }
+        return total;
+    }
+
+    function formatDistance(meters) {
+        if (meters >= 1000) return (meters / 1000).toFixed(2) + ' km';
+        return meters.toFixed(1) + ' m';
+    }
+
+    function getPopupContent(feature, marker) {
+        const p = feature.properties;
+        let content = `<div class="fiber-popup-type">${escapeHtml(p.type).replace(/_/g, ' ')}</div>`;
+        content += `<div class="fiber-popup-title">${escapeHtml(p.name || 'Unnamed')}</div>`;
+
+        if (p.code) content += `<div class="fiber-popup-detail"><strong>Code:</strong> ${escapeHtml(p.code)}</div>`;
+        if (p.splitter_count !== undefined) content += `<div class="fiber-popup-detail"><strong>Splitters:</strong> ${p.splitter_count}</div>`;
+        if (p.splice_count !== undefined) content += `<div class="fiber-popup-detail"><strong>Splices:</strong> ${p.splice_count}</div>`;
+        if (p.tray_count !== undefined) content += `<div class="fiber-popup-detail"><strong>Trays:</strong> ${p.tray_count}</div>`;
+        if (p.segment_type) content += `<div class="fiber-popup-detail"><strong>Type:</strong> ${escapeHtml(p.segment_type)}</div>`;
+        if (p.length_m) content += `<div class="fiber-popup-detail"><strong>Length:</strong> ${formatDistance(p.length_m)}</div>`;
+
+        if (marker) {
+            const latlng = marker.getLatLng();
+            content += `<div class="fiber-popup-detail" style="font-family:monospace;font-size:11px;color:#666;margin-top:4px">${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}</div>`;
+        }
+
+        return content;
+    }
+
+    async function updateMarkerPosition(type, id, lat, lng) {
+        try {
+            const response = await fetch('/vendor/fiber-map/update-position', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type, id, latitude: lat, longitude: lng })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to submit change request');
+            return true;
+        } catch (e) {
+            console.error('Error saving position:', e);
+            alert('Failed to submit change request. Please try again.');
+            return false;
+        }
+    }
+
+    function toggleEditMode() {
+        editMode = !editMode;
+        const btn = document.getElementById('btn-edit');
+        const indicator = document.getElementById('edit-mode-indicator');
+
+        if (editMode) {
+            btn.classList.add('bg-orange-100', 'border-orange-300', 'text-orange-700');
+            btn.classList.remove('bg-white', 'text-slate-700');
+            indicator.classList.remove('hidden');
+            allMarkers.forEach(m => {
+                if (m.dragging) m.dragging.enable();
+            });
+        } else {
+            btn.classList.remove('bg-orange-100', 'border-orange-300', 'text-orange-700');
+            btn.classList.add('bg-white', 'text-slate-700');
+            indicator.classList.add('hidden');
+            allMarkers.forEach(m => {
+                if (m.dragging) m.dragging.disable();
+            });
+        }
+    }
+
+    function toggleMeasureMode() {
+        measureMode = !measureMode;
+        const btn = document.getElementById('btn-measure');
+
+        if (measureMode) {
+            btn.classList.add('bg-blue-100', 'border-blue-300', 'text-blue-700');
+            btn.classList.remove('bg-white', 'text-slate-700');
+            map.getContainer().style.cursor = 'crosshair';
+            clearMeasure();
+        } else {
+            btn.classList.remove('bg-blue-100', 'border-blue-300', 'text-blue-700');
+            btn.classList.add('bg-white', 'text-slate-700');
+            map.getContainer().style.cursor = '';
+            clearMeasure();
+        }
+    }
+
+    function clearMeasure() {
+        if (measureLine) {
+            map.removeLayer(measureLine);
+            measureLine = null;
+        }
+        measureMarkers.forEach(m => map.removeLayer(m));
+        measureMarkers = [];
+        measurePoints = [];
+    }
+
+    function addMeasurePoint(latlng) {
+        measurePoints.push(latlng);
+        const marker = L.circleMarker(latlng, {
+            radius: 6,
+            fillColor: '#3b82f6',
+            color: '#fff',
+            weight: 2,
+            fillOpacity: 1
+        }).addTo(map);
+        measureMarkers.push(marker);
+
+        if (measureLine) {
+            map.removeLayer(measureLine);
+        }
+
+        if (measurePoints.length > 1) {
+            measureLine = L.polyline(measurePoints, { color: '#3b82f6', weight: 3 }).addTo(map);
+            const totalDistance = calculateLineDistance(measurePoints);
+            const lastPoint = measurePoints[measurePoints.length - 1];
+            const tooltip = L.tooltip({
+                permanent: true,
+                direction: 'top',
+                className: 'measure-tooltip'
+            }).setContent(formatDistance(totalDistance)).setLatLng(lastPoint);
+            tooltip.addTo(map);
+            measureMarkers.push(tooltip);
+        }
+    }
+
+    function togglePlanMode() {
+        planMode = !planMode;
+        const btn = document.getElementById('btn-plan');
+        const indicator = document.getElementById('plan-mode-indicator');
+        const panel = document.getElementById('planning-panel');
+
+        if (planMode) {
+            btn.classList.add('bg-violet-100', 'border-violet-300', 'text-violet-700');
+            btn.classList.remove('bg-white', 'text-slate-700');
+            indicator.classList.remove('hidden');
+            panel.classList.remove('hidden');
+            planTraceMode = false;
+            clearPlan();
+        } else {
+            btn.classList.remove('bg-violet-100', 'border-violet-300', 'text-violet-700');
+            btn.classList.add('bg-white', 'text-slate-700');
+            indicator.classList.add('hidden');
+            panel.classList.add('hidden');
+            clearPlan();
+        }
+    }
+
+    function clearPlan() {
+        if (planMarker) map.removeLayer(planMarker);
+        if (planLine) map.removeLayer(planLine);
+        if (planCabinetMarker) map.removeLayer(planCabinetMarker);
+        if (traceLine) map.removeLayer(traceLine);
+        traceMarkers.forEach(m => map.removeLayer(m));
+        planMarker = null;
+        planLine = null;
+        planCabinetMarker = null;
+        traceLine = null;
+        traceMarkers = [];
+        tracePoints = [];
+        planOptions = [];
+        selectedCabinet = null;
+        planCustomerLatLng = null;
+        planEstimate = null;
+        planMessage = null;
+        planSaveMessage = null;
+        planTraceMode = false;
+        updatePlanningPanel();
+    }
+
+    function updatePlanningPanel() {
+        const panel = document.getElementById('planning-content');
+        if (!panel) return;
+
+        if (!planMode) {
+            panel.innerHTML = '<p class="text-sm text-slate-500 dark:text-slate-400">Click anywhere on the map to find the nearest FDH cabinet and estimate drop cable distance.</p>';
+            return;
+        }
+
+        if (planMessage) {
+            panel.innerHTML = `<p class="text-sm text-slate-500 dark:text-slate-400">${escapeHtml(planMessage)}</p>`;
+            return;
+        }
+
+        if (!planEstimate) {
+            panel.innerHTML = '<p class="text-sm text-slate-500 dark:text-slate-400">Click on the map to start planning.</p>';
+            return;
+        }
+
+        const cost = planEstimate.cost;
+        const saveMessageHtml = planSaveMessage ? `<div class="mt-2 text-xs text-emerald-600">${escapeHtml(planSaveMessage)}</div>` : '';
+        const saveHtml = planLine ? `
+            <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-600 dark:bg-slate-900">
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300">Save plan to quote</label>
+                <div class="mt-2 flex gap-2">
+                    <input id="plan-quote-id" type="text" placeholder="Quote ID" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 focus:border-violet-400 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                    <button id="btn-save-plan" class="shrink-0 rounded-md bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-700">Save</button>
+                </div>
+                ${saveMessageHtml}
+            </div>
+        ` : '';
+
+        panel.innerHTML = `
+            <div class="planning-distance">${escapeHtml(planEstimate.distanceDisplay)}</div>
+            <div class="planning-detail">
+                <span class="planning-detail-label">Cabinet</span>
+                <span class="planning-detail-value">${escapeHtml(planEstimate.cabinetName)}</span>
+            </div>
+            <div class="planning-detail">
+                <span class="planning-detail-label">Route Type</span>
+                <span class="planning-detail-value">${escapeHtml(planEstimate.pathType)}</span>
+            </div>
+            <div class="planning-cost">
+                <div class="planning-detail">
+                    <span class="planning-detail-label">Estimated Cost</span>
+                    <span class="planning-detail-value">${escapeHtml(cost.total)}</span>
+                </div>
+                <div class="planning-detail">
+                    <span class="planning-detail-label">Drop Cable</span>
+                    <span class="planning-detail-value">${escapeHtml(cost.drop)}</span>
+                </div>
+                <div class="planning-detail">
+                    <span class="planning-detail-label">Labor</span>
+                    <span class="planning-detail-value">${escapeHtml(cost.labor)}</span>
+                </div>
+                <div class="planning-detail">
+                    <span class="planning-detail-label">ONT Device</span>
+                    <span class="planning-detail-value">${escapeHtml(cost.ont)}</span>
+                </div>
+                <div class="planning-detail">
+                    <span class="planning-detail-label">Base Fee</span>
+                    <span class="planning-detail-value">${escapeHtml(cost.base)}</span>
+                </div>
+            </div>
+            ${saveHtml}
+        `;
+
+        const saveBtn = document.getElementById('btn-save-plan');
+        if (saveBtn) saveBtn.addEventListener('click', () => savePlanToQuote());
+    }
+
+    function buildPlanGeojson() {
+        if (!planLine) return null;
+        const latlngs = planLine.getLatLngs();
+        if (!latlngs || latlngs.length < 2) return null;
+        const coords = latlngs.map(latlng => [latlng.lng, latlng.lat]);
+        return { type: 'LineString', coordinates: coords };
+    }
+
+    async function savePlanToQuote() {
+        const quoteIdInput = document.getElementById('plan-quote-id');
+        const quoteId = quoteIdInput ? quoteIdInput.value.trim() : '';
+        const geojson = buildPlanGeojson();
+        if (!quoteId) {
+            planSaveMessage = 'Quote ID is required to save.';
+            updatePlanningPanel();
+            return;
+        }
+        if (!geojson) {
+            planSaveMessage = 'No route available to save.';
+            updatePlanningPanel();
+            return;
+        }
+        planSaveMessage = 'Saving plan...';
+        updatePlanningPanel();
+        try {
+            const latlngs = planLine.getLatLngs();
+            const lengthMeters = calculateLineDistance(latlngs.map(point => [point.lat, point.lng]));
+            const response = await fetch(`/api/vendor/quotes/${quoteId}/route-revisions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ geojson, length_meters: lengthMeters })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || data.error || 'Failed to save plan');
+            planSaveMessage = `Saved as revision ${data.revision_number}.`;
+        } catch (e) {
+            planSaveMessage = e.message || 'Failed to save plan.';
+        }
+        updatePlanningPanel();
+    }
+
+    async function fetchPlanOptions(lat, lng) {
+        planMessage = null;
+        updatePlanningPanel();
+        try {
+            const response = await fetch(`/vendor/fiber-map/plan-options?lat=${lat}&lng=${lng}`);
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Unable to fetch options');
+            }
+            const data = await response.json();
+            planOptions = data.options || [];
+            if (!planOptions.length) {
+                planMessage = 'No cabinets found nearby.';
+                updatePlanningPanel();
+                return;
+            }
+            selectedCabinet = planOptions[0];
+            await fetchRouteForSelectedCabinet(lat, lng, selectedCabinet);
+        } catch (e) {
+            planMessage = e.message;
+            updatePlanningPanel();
+        }
+    }
+
+    async function fetchRouteForSelectedCabinet(lat, lng, cabinet) {
+        try {
+            const response = await fetch(`/vendor/fiber-map/route?lat=${lat}&lng=${lng}&cabinet_id=${cabinet.id}`);
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'No fiber route found');
+            }
+            const data = await response.json();
+            renderPlanRoute(data, lat, lng);
+        } catch (e) {
+            planMessage = e.message;
+            updatePlanningPanel();
+        }
+    }
+
+    function renderPlanRoute(data, lat, lng) {
+        if (planLine) map.removeLayer(planLine);
+        if (planCabinetMarker) map.removeLayer(planCabinetMarker);
+
+        const pathCoords = data.path_coords || [];
+        planLine = L.polyline(pathCoords.map(c => [c[1], c[0]]), { color: '#8b5cf6', weight: 4, opacity: 0.9 }).addTo(map);
+        planCabinetMarker = L.marker([data.cabinet.latitude, data.cabinet.longitude], { icon: icons.fdh_cabinet }).addTo(map);
+
+        const distanceM = data.distance_m || 0;
+        const currency = costSettings.currency || '';
+        const dropCost = distanceM * (costSettings.drop_cable_per_meter || 0);
+        const laborCost = distanceM * (costSettings.labor_per_meter || 0);
+        const ontCost = costSettings.ont_device || 0;
+        const baseCost = costSettings.installation_base || 0;
+        const totalCost = dropCost + laborCost + ontCost + baseCost;
+
+        const formatCurrency = (value) => `${currency} ${value.toFixed(2)}`;
+
+        planEstimate = {
+            distanceDisplay: data.distance_display || formatDistance(distanceM),
+            cabinetName: data.cabinet.name || 'Cabinet',
+            pathType: data.path_type || 'fiber',
+            cost: {
+                total: formatCurrency(totalCost),
+                drop: formatCurrency(dropCost),
+                labor: formatCurrency(laborCost),
+                ont: formatCurrency(ontCost),
+                base: formatCurrency(baseCost)
+            }
+        };
+        updatePlanningPanel();
+    }
+
+    function renderGeoJson(data) {
+        const bounds = [];
+        data.features.forEach(feature => {
+            if (feature.geometry.type === 'Point') {
+                const coords = feature.geometry.coordinates;
+                const marker = L.marker([coords[1], coords[0]], {
+                    icon: icons[feature.properties.type],
+                    draggable: false
+                });
+                marker.bindPopup(getPopupContent(feature, marker));
+                marker.on('dragstart', () => {
+                    const coordsEl = document.getElementById('drag-coords');
+                    coordsEl.classList.add('active');
+                });
+                marker.on('drag', (e) => {
+                    const coordsEl = document.getElementById('drag-coords');
+                    const latlng = e.target.getLatLng();
+                    coordsEl.textContent = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
+                });
+                marker.on('dragend', async (e) => {
+                    const coordsEl = document.getElementById('drag-coords');
+                    coordsEl.classList.remove('active');
+                    const latlng = e.target.getLatLng();
+                    const success = await updateMarkerPosition(feature.properties.type, feature.properties.id, latlng.lat, latlng.lng);
+                    if (!success) {
+                        const original = feature.geometry.coordinates;
+                        e.target.setLatLng([original[1], original[0]]);
+                    }
+                    marker.bindPopup(getPopupContent(feature, marker));
+                });
+                marker.addTo(feature.properties.type === 'fdh_cabinet' ? layers.fdh : layers.closures);
+                allMarkers.push(marker);
+                bounds.push([coords[1], coords[0]]);
+
+                // Add to searchable features
+                const p = feature.properties;
+                const searchText = [p.name || '', p.code || ''].filter(Boolean).join(' ').toLowerCase();
+                allFeatures.push({
+                    feature,
+                    marker,
+                    polyline: null,
+                    name: p.name || '',
+                    code: p.code || '',
+                    type: p.type,
+                    searchText
+                });
+
+            } else if (feature.geometry.type === 'LineString') {
+                const coords = feature.geometry.coordinates.map(c => [c[1], c[0]]);
+                const segmentType = feature.properties.segment_type || 'distribution';
+                const style = segmentStyles[segmentType] || segmentStyles.distribution;
+                const line = L.polyline(coords, style).addTo(layers[segmentType] || layers.distribution);
+                if (feature.properties.length_m) {
+                    const mid = coords[Math.floor(coords.length / 2)];
+                    const label = L.marker(mid, {
+                        icon: L.divIcon({
+                            className: 'distance-label',
+                            html: formatDistance(feature.properties.length_m),
+                            iconSize: null
+                        })
+                    });
+                    layers.distances.addLayer(label);
+                }
+                bounds.push(...coords);
+
+                // Add fiber segments to searchable features
+                const p = feature.properties;
+                const searchText = [p.name || '', p.segment_type || ''].filter(Boolean).join(' ').toLowerCase();
+                allFeatures.push({
+                    feature,
+                    marker: null,
+                    polyline: line,
+                    name: p.name || '',
+                    code: '',
+                    type: 'fiber_segment',
+                    segmentType,
+                    searchText
+                });
+            }
+        });
+
+        if (bounds.length) {
+            map.fitBounds(bounds, { padding: [40, 40] });
+        }
+    }
+
+    document.getElementById('btn-edit').addEventListener('click', toggleEditMode);
+    document.getElementById('btn-measure').addEventListener('click', toggleMeasureMode);
+    document.getElementById('btn-plan').addEventListener('click', togglePlanMode);
+    document.getElementById('btn-refresh').addEventListener('click', () => window.location.reload());
+
+    map.on('click', (e) => {
+        if (measureMode) {
+            addMeasurePoint(e.latlng);
+            return;
+        }
+        if (planMode) {
+            planCustomerLatLng = e.latlng;
+            if (planMarker) map.removeLayer(planMarker);
+            planMarker = L.marker(e.latlng).addTo(map);
+            fetchPlanOptions(e.latlng.lat, e.latlng.lng);
+        }
+    });
+
+    const geojsonData = {{ geojson_data | tojson | safe }};
+    renderGeoJson(geojsonData);
+
+    // ========== Search Functionality ==========
+    const searchInput = document.getElementById('map-search-input');
+    const searchResultsEl = document.getElementById('search-results');
+    const searchClear = document.getElementById('map-search-clear');
+    let selectedIndex = -1;
+    let currentMatches = [];
+
+    const typeConfig = {
+        fdh_cabinet: { label: 'FDH Cabinet', color: '#f97316' },
+        splice_closure: { label: 'Splice Closure', color: '#14b8a6' },
+        fiber_segment: { label: 'Fiber Segment', color: '#3b82f6' }
+    };
+
+    function showSearchResults(matches, query) {
+        currentMatches = matches;
+        selectedIndex = -1;
+
+        if (matches.length === 0) {
+            searchResultsEl.innerHTML = '<div class="search-no-results">No results found for "' + escapeHtml(query) + '"</div>';
+            searchResultsEl.classList.add('visible');
+            return;
+        }
+
+        const maxResults = 10;
+        const displayMatches = matches.slice(0, maxResults);
+        const countHtml = matches.length > maxResults
+            ? `<div class="search-result-count">Showing ${maxResults} of ${matches.length} results</div>`
+            : `<div class="search-result-count">${matches.length} result${matches.length > 1 ? 's' : ''}</div>`;
+
+        let html = countHtml;
+        displayMatches.forEach((match, idx) => {
+            const config = typeConfig[match.type] || { label: match.type, color: '#64748b' };
+            const meta = match.code ? match.code : '';
+
+            html += `
+                <div class="search-result-item" data-index="${idx}">
+                    <div class="search-result-icon" style="background:${config.color}">
+                        <svg class="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6"/></svg>
+                    </div>
+                    <div class="search-result-content">
+                        <div class="search-result-name">${escapeHtml(match.name || 'Unnamed')}</div>
+                        ${meta ? `<div class="search-result-meta">${escapeHtml(meta)}</div>` : ''}
+                    </div>
+                    <span class="search-result-type">${config.label}</span>
+                </div>
+            `;
+        });
+
+        searchResultsEl.innerHTML = html;
+        searchResultsEl.classList.add('visible');
+
+        searchResultsEl.querySelectorAll('.search-result-item').forEach(item => {
+            item.addEventListener('click', () => selectSearchResult(parseInt(item.dataset.index)));
+        });
+    }
+
+    function selectSearchResult(idx) {
+        if (idx < 0 || idx >= currentMatches.length) return;
+
+        const match = currentMatches[idx];
+        if (match.marker) {
+            map.setView(match.marker.getLatLng(), 17);
+            match.marker.openPopup();
+        } else if (match.polyline) {
+            map.fitBounds(match.polyline.getBounds(), { padding: [50, 50] });
+        }
+
+        hideSearchResults();
+        searchInput.value = match.name || '';
+        updateSearchClearButton();
+    }
+
+    function hideSearchResults() {
+        searchResultsEl.classList.remove('visible');
+        selectedIndex = -1;
+    }
+
+    function updateSelectedSearchItem() {
+        const items = searchResultsEl.querySelectorAll('.search-result-item');
+        items.forEach((item, idx) => {
+            item.classList.toggle('selected', idx === selectedIndex);
+        });
+        if (selectedIndex >= 0 && items[selectedIndex]) {
+            items[selectedIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    function updateSearchClearButton() {
+        searchClear.classList.toggle('visible', searchInput.value.length > 0);
+    }
+
+    let searchTimeout;
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        updateSearchClearButton();
+        const query = this.value.toLowerCase().trim();
+
+        if (query.length < 2) {
+            hideSearchResults();
+            return;
+        }
+
+        searchTimeout = setTimeout(() => {
+            const matches = allFeatures.filter(f => f.searchText.includes(query));
+            showSearchResults(matches, query);
+        }, 150);
+    });
+
+    searchInput.addEventListener('keydown', function(e) {
+        if (!searchResultsEl.classList.contains('visible')) return;
+
+        const maxIdx = Math.min(currentMatches.length - 1, 9);
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selectedIndex = Math.min(selectedIndex + 1, maxIdx);
+            updateSelectedSearchItem();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selectedIndex = Math.max(selectedIndex - 1, 0);
+            updateSelectedSearchItem();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (selectedIndex >= 0) selectSearchResult(selectedIndex);
+            else if (currentMatches.length > 0) selectSearchResult(0);
+        } else if (e.key === 'Escape') {
+            hideSearchResults();
+            searchInput.blur();
+        }
+    });
+
+    searchClear.addEventListener('click', function() {
+        searchInput.value = '';
+        hideSearchResults();
+        updateSearchClearButton();
+        searchInput.focus();
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.map-search-container')) {
+            hideSearchResults();
+        }
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            searchInput.focus();
+            searchInput.select();
+        }
+        if (e.key === 'Escape') {
+            hideSearchResults();
+        }
+    });
+})();
+</script>
+{% endblock %}

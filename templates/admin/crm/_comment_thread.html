@@ -1,0 +1,97 @@
+{% if selected_comment %}
+<div class="flex-1 flex flex-col">
+    <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+        <div class="flex items-center justify-between gap-4">
+            <div>
+                <div class="flex items-center gap-2">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">
+                        {{ selected_comment.author_name or 'Unknown' }}
+                    </h2>
+                    <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-slate-200 text-slate-500 bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:bg-slate-900/60">
+                        {{ 'Facebook' if selected_comment.platform.value == 'facebook' else 'Instagram' }}
+                    </span>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                    {{ selected_comment.created_time.strftime('%b %d, %Y %H:%M') if selected_comment.created_time else '' }}
+                </p>
+            </div>
+            {% if selected_comment.permalink_url %}
+            <a href="{{ selected_comment.permalink_url }}" target="_blank" rel="noreferrer"
+               class="text-xs font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
+                View Post
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="flex-1 overflow-y-auto px-6 py-5">
+        <div class="space-y-4">
+            <div class="relative pl-6">
+                <div class="absolute left-2 top-3 h-full w-px bg-slate-200/70 dark:bg-slate-700/60"></div>
+                <div class="flex items-start gap-3">
+                    <div class="mt-1.5 h-3 w-3 rounded-full bg-primary-500 ring-4 ring-primary-100 dark:ring-primary-500/30"></div>
+                    <div class="flex-1 rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        <div class="mb-2 flex items-center gap-2 text-xs text-slate-400">
+                            <span class="font-semibold text-slate-600 dark:text-slate-300">
+                                {{ selected_comment.author_name or 'Unknown' }}
+                            </span>
+                            <span class="opacity-70">•</span>
+                            <span>
+                                {{ selected_comment.created_time.strftime('%b %d, %Y %H:%M') if selected_comment.created_time else '' }}
+                            </span>
+                        </div>
+                        {{ selected_comment.message or 'No message text' }}
+                    </div>
+                </div>
+            </div>
+            {% if comment_replies %}
+            <div class="space-y-3">
+                {% for reply in comment_replies %}
+                <div class="relative pl-10">
+                    <div class="absolute left-4 top-4 h-full w-px bg-slate-200/60 dark:bg-slate-700/60"></div>
+                    <div class="flex items-start gap-3">
+                        <div class="mt-2 h-2.5 w-2.5 rounded-full bg-slate-400 ring-4 ring-slate-100 dark:bg-slate-500 dark:ring-slate-800"></div>
+                        <div class="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <div class="mb-1 text-[11px] text-slate-400">
+                                {{ reply.created_time.strftime('%b %d, %H:%M') if reply.created_time else '' }}
+                            </div>
+                            {{ reply.message }}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="border-t border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+        <form method="POST" action="/admin/crm/inbox/comments/{{ selected_comment.id }}/reply?next=/admin/crm/inbox">
+            {% include "components/forms/csrf_input.html" %}
+            <div class="flex gap-3">
+                <textarea name="message"
+                          rows="2"
+                          placeholder="Write a reply..."
+                          required
+                          class="flex-1 resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"></textarea>
+                <button type="submit"
+                        class="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                    Reply
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% else %}
+<div class="flex-1 flex items-center justify-center">
+    <div class="text-center px-8 animate-fade-in-up">
+        <div class="relative mx-auto mb-6">
+            <div class="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-200/60 flex items-center justify-center dark:from-slate-800 dark:to-slate-900 dark:border-slate-700/50">
+                <svg class="w-10 h-10 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 8h10M7 12h6m-6 4h8M5 20h8l6-6V5a2 2 0 00-2-2H5a2 2 0 00-2 2v13a2 2 0 002 2z"/>
+                </svg>
+            </div>
+        </div>
+        <h3 class="text-xl font-bold text-slate-900 mb-2 dark:text-white">Select a comment</h3>
+        <p class="text-slate-500 text-sm max-w-xs mx-auto dark:text-slate-400">Choose a comment from the list to view details.</p>
+    </div>
+</div>
+{% endif %}

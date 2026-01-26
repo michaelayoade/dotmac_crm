@@ -1,0 +1,108 @@
+{% extends "layouts/customer.html" %}
+
+{% block title %}Work Order Details - My Account{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/portal/work-orders" class="hover:text-primary-600">Field Service</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">{{ work_order.title | default('Work Order') }}</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ work_order.title | default('Work Order') }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Created {{ work_order.created_at.strftime('%b %d, %Y') if work_order.created_at else 'N/A' }}</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            {% set status_val = work_order.status.value if work_order.status else 'draft' %}
+            {% if status_val == 'completed' %}
+            <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">Completed</span>
+            {% elif status_val == 'in_progress' %}
+            <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">In Progress</span>
+            {% elif status_val == 'canceled' %}
+            <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">Canceled</span>
+            {% else %}
+            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">{{ status_val | replace('_', ' ') | title }}</span>
+            {% endif %}
+            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">{{ work_order.priority.value if work_order.priority else 'normal' }}</span>
+        </div>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-3">
+        <div class="lg:col-span-2 space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Work Summary</h2>
+                <p class="mt-3 text-sm text-slate-600 dark:text-slate-300">{{ work_order.description | default('Field service updates will appear here as technicians report progress.') }}</p>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Schedule</h2>
+                <div class="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                    <p><span class="font-medium text-slate-900 dark:text-white">Scheduled window:</span>
+                        {{ work_order.scheduled_start.strftime('%b %d, %Y %H:%M') if work_order.scheduled_start else 'TBD' }}
+                        {% if work_order.scheduled_end %}– {{ work_order.scheduled_end.strftime('%H:%M') }}{% endif %}
+                    </p>
+                    <p><span class="font-medium text-slate-900 dark:text-white">Started:</span> {{ work_order.started_at.strftime('%b %d, %Y %H:%M') if work_order.started_at else 'Not started' }}</p>
+                    <p><span class="font-medium text-slate-900 dark:text-white">Completed:</span> {{ work_order.completed_at.strftime('%b %d, %Y %H:%M') if work_order.completed_at else 'Not completed' }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Work Order Details</h3>
+                <dl class="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                    <div class="flex items-center justify-between">
+                        <dt>Type</dt>
+                        <dd class="font-medium text-slate-900 dark:text-white">{{ work_order.work_type.value if work_order.work_type else 'N/A' }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Assigned</dt>
+                        <dd class="font-medium text-slate-900 dark:text-white">
+                            {{ work_order.assigned_to.display_name if work_order.assigned_to and work_order.assigned_to.display_name else (work_order.assigned_to.first_name ~ ' ' ~ work_order.assigned_to.last_name) if work_order.assigned_to else 'Unassigned' }}
+                        </dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Service Order</dt>
+                        <dd class="font-medium text-slate-900 dark:text-white">
+                            {% if work_order.service_order %}
+                            <a href="/portal/service-orders/{{ work_order.service_order_id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">SO-{{ work_order.service_order_id|string|truncate(8, True, '')|upper }}</a>
+                            {% else %}
+                            N/A
+                            {% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Project</dt>
+                        <dd class="font-medium text-slate-900 dark:text-white">
+                            {% if work_order.project %}
+                            <a href="/portal/projects/{{ work_order.project_id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ work_order.project.name | default('PRJ-' ~ work_order.project_id|string|truncate(8, True, '')|upper) }}</a>
+                            {% else %}
+                            N/A
+                            {% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Support Ticket</dt>
+                        <dd class="font-medium text-slate-900 dark:text-white">
+                            {% if work_order.ticket %}
+                            <a href="/portal/support/{{ work_order.ticket_id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">
+                                {%- if work_order.ticket.ticket_number -%}
+                                    #{{ work_order.ticket.ticket_number }}
+                                {%- else -%}
+                                    TKT-{{ work_order.ticket_id|string|truncate(8, True, '')|upper }}
+                                {%- endif -%}
+                            </a>
+                            {% else %}
+                            N/A
+                            {% endif %}
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+            <a href="/portal/support/new" class="inline-flex w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Report an issue</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

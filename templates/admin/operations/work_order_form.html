@@ -1,0 +1,224 @@
+{% extends "layouts/admin.html" %}
+
+{% set is_new = is_new if is_new is defined else false %}
+{% block title %}{{ 'New' if is_new else 'Edit' }} Work Order - Field Service{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-3xl space-y-6">
+    <div>
+        <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <a href="/admin/operations/work-orders" class="hover:text-primary-600">Work Orders</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            {% if not is_new and work_order %}
+            <a href="/admin/operations/work-orders/{{ work_order.id }}" class="hover:text-primary-600">Work Order</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span class="text-slate-900 dark:text-white">Edit</span>
+            {% else %}
+            <span class="text-slate-900 dark:text-white">New</span>
+            {% endif %}
+        </nav>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Create Work Order' if is_new else 'Edit Work Order' }}</h1>
+    </div>
+
+    {% if error %}
+    <div class="rounded-lg bg-red-50 border border-red-200 p-4 dark:bg-red-900/30 dark:border-red-800">
+        <div class="flex">
+            <svg class="h-5 w-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <p class="ml-3 text-sm text-red-700 dark:text-red-200">{{ error }}</p>
+        </div>
+    </div>
+    {% endif %}
+
+    {% set title_value = form.title if form is defined else (work_order.title if work_order else '') %}
+    {% set description_value = form.description if form is defined else (work_order.description or '' if work_order else '') %}
+    {% set status_value = form.status if form is defined else (work_order.status.value if work_order and work_order.status else '') %}
+    {% set priority_value = form.priority if form is defined else (work_order.priority.value if work_order and work_order.priority else '') %}
+    {% set type_value = form.work_type if form is defined else (work_order.work_type.value if work_order and work_order.work_type else '') %}
+    {% set assigned_value = form.assigned_to_person_id if form is defined else (work_order.assigned_to_person_id|string if work_order and work_order.assigned_to_person_id else '') %}
+    {% set start_value = form.scheduled_start if form is defined else (work_order.scheduled_start.strftime('%Y-%m-%dT%H:%M') if work_order and work_order.scheduled_start else '') %}
+    {% set end_value = form.scheduled_end if form is defined else (work_order.scheduled_end.strftime('%Y-%m-%dT%H:%M') if work_order and work_order.scheduled_end else '') %}
+
+    <form method="post" action="{{ form_action if form_action is defined else ('/admin/operations/work-orders/' ~ work_order.id ~ '/edit') }}" class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="p-6 space-y-6">
+            <div>
+                <label for="title" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Title</label>
+                <input type="text" name="title" id="title" required
+                    value="{{ title_value }}"
+                    class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+            </div>
+
+            <div>
+                <label for="description" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Description</label>
+                <textarea name="description" id="description" rows="4"
+                    class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ description_value }}</textarea>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                    <label for="status" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Status</label>
+                    <select name="status" id="status" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for item in status_options %}
+                            <option value="{{ item }}" {% if status_value == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="priority" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Priority</label>
+                    <select name="priority" id="priority" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for item in priority_options %}
+                            <option value="{{ item }}" {% if priority_value == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="work_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Type</label>
+                    <select name="work_type" id="work_type" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for item in type_options %}
+                            <option value="{{ item }}" {% if type_value == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                    <label for="assigned_to_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Technician</label>
+                    <select name="assigned_to_person_id" id="assigned_to_person_id" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">Unassigned</option>
+                        {% for tech in technicians %}
+                            {% if tech.person %}
+                                <option value="{{ tech.person_id }}" {% if assigned_value == tech.person_id|string %}selected{% endif %}>
+                                    {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                </option>
+                            {% else %}
+                                <option value="{{ tech.person_id }}" {% if assigned_value == tech.person_id|string %}selected{% endif %}>
+                                    Technician {{ tech.id|string|truncate(8, True, '') }}
+                                </option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                        <label for="scheduled_start" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Start</label>
+                        <input type="datetime-local" name="scheduled_start" id="scheduled_start"
+                            value="{{ start_value }}"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                    </div>
+                    <div>
+                        <label for="scheduled_end" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">End</label>
+                        <input type="datetime-local" name="scheduled_end" id="scheduled_end"
+                            value="{{ end_value }}"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                        <div class="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                            <span>Quick set:</span>
+                            <button type="button" class="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700" data-add-minutes="30">+30m</button>
+                            <button type="button" class="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700" data-add-minutes="60">+1h</button>
+                            <button type="button" class="rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700" data-add-minutes="120">+2h</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-slate-700 dark:bg-slate-800/50 flex items-center justify-end gap-3">
+            <a href="{{ cancel_url if cancel_url is defined else ('/admin/operations/work-orders/' ~ work_order.id) }}" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Cancel</a>
+            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">{{ 'Create' if is_new else 'Save' }}</button>
+        </div>
+    </form>
+</div>
+<script>
+(() => {
+    const startInput = document.getElementById("scheduled_start");
+    const endInput = document.getElementById("scheduled_end");
+    const techSelect = document.getElementById("assigned_to_person_id");
+    if (!startInput || !endInput) {
+        return;
+    }
+    const storageKey = "ops:lastAssignedTechId";
+    const setSavedTech = () => {
+        if (!techSelect || techSelect.value) {
+            return;
+        }
+        try {
+            const saved = window.localStorage.getItem(storageKey);
+            if (!saved) {
+                return;
+            }
+            const match = Array.from(techSelect.options).some((opt) => opt.value === saved);
+            if (match) {
+                techSelect.value = saved;
+            }
+        } catch (err) {
+            return;
+        }
+    };
+    const persistTech = () => {
+        if (!techSelect) {
+            return;
+        }
+        try {
+            if (techSelect.value) {
+                window.localStorage.setItem(storageKey, techSelect.value);
+            } else {
+                window.localStorage.removeItem(storageKey);
+            }
+        } catch (err) {
+            return;
+        }
+    };
+    const toInputValue = (date) => {
+        const pad = (num) => String(num).padStart(2, "0");
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    };
+    const parseLocal = (value) => {
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+    const validateTimes = () => {
+        const start = parseLocal(startInput.value);
+        const end = parseLocal(endInput.value);
+        if (start && end && end < start) {
+            endInput.setCustomValidity("End time must be after start time.");
+        } else {
+            endInput.setCustomValidity("");
+        }
+    };
+    const setEndFromStart = (minutes) => {
+        const start = parseLocal(startInput.value);
+        if (!start) return;
+        const next = new Date(start.getTime() + minutes * 60000);
+        endInput.value = toInputValue(next);
+        endInput.dataset.auto = "true";
+        validateTimes();
+    };
+    startInput.addEventListener("change", () => {
+        if (!endInput.value || endInput.dataset.auto === "true") {
+            setEndFromStart(60);
+        } else {
+            validateTimes();
+        }
+    });
+    endInput.addEventListener("change", () => {
+        endInput.dataset.auto = "false";
+        validateTimes();
+    });
+    document.querySelectorAll("[data-add-minutes]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const minutes = Number(btn.dataset.addMinutes || "0");
+            if (!startInput.value) {
+                startInput.focus();
+                return;
+            }
+            setEndFromStart(minutes);
+        });
+    });
+    if (techSelect) {
+        setSavedTech();
+        techSelect.addEventListener("change", persistTech);
+    }
+    validateTimes();
+})();
+</script>
+{% endblock %}

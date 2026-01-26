@@ -1,0 +1,455 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Dispatch Board - Admin{% endblock %}
+
+{% block content %}
+{% set work_order_status_options = ['draft', 'scheduled', 'dispatched', 'in_progress', 'completed', 'canceled'] %}
+<!-- Ambient Background -->
+<div class="pointer-events-none fixed inset-0 overflow-hidden">
+    <div class="absolute -top-40 right-0 h-[500px] w-[500px] rounded-full bg-gradient-to-br from-amber-400/5 to-orange-500/5 blur-3xl"></div>
+    <div class="absolute -bottom-40 -left-40 h-[400px] w-[400px] rounded-full bg-gradient-to-tr from-emerald-400/5 to-cyan-500/5 blur-3xl"></div>
+</div>
+
+<div class="relative space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between animate-fade-in-up">
+        <div class="flex items-center gap-4">
+            <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+                <svg class="h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Dispatch Board</h1>
+                <p class="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Manage technician schedules and work orders</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/admin/operations/work-orders" class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                All Work Orders
+            </a>
+            <a href="/admin/operations/work-orders/new" class="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5">
+                <svg class="h-4 w-4 transition-transform group-hover:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                New Work Order
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in-up" style="animation-delay: 50ms;">
+        <a href="/admin/operations/work-orders?assigned=unassigned" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:-translate-y-1 hover:border-red-300 dark:border-slate-700/60 dark:bg-slate-800 dark:hover:border-red-600">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-red-500/10 to-rose-500/10 blur-2xl transition-all group-hover:scale-150"></div>
+            <div class="relative flex items-center gap-4">
+                <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-rose-600 shadow-lg shadow-red-500/25 transition-transform group-hover:scale-110">
+                    <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Unassigned</p>
+                    <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ stats.unassigned }}</p>
+                </div>
+            </div>
+        </a>
+        <a href="/admin/operations/work-orders?assigned=assigned" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 dark:border-slate-700/60 dark:bg-slate-800 dark:hover:border-blue-600">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-blue-500/10 to-indigo-500/10 blur-2xl transition-all group-hover:scale-150"></div>
+            <div class="relative flex items-center gap-4">
+                <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25 transition-transform group-hover:scale-110">
+                    <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Assigned Jobs</p>
+                    <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ stats.assigned_jobs }}</p>
+                </div>
+            </div>
+        </a>
+        <a href="/admin/operations/technicians" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:-translate-y-1 hover:border-emerald-300 dark:border-slate-700/60 dark:bg-slate-800 dark:hover:border-emerald-600">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-emerald-500/10 to-green-500/10 blur-2xl transition-all group-hover:scale-150"></div>
+            <div class="relative flex items-center gap-4">
+                <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 shadow-lg shadow-emerald-500/25 transition-transform group-hover:scale-110">
+                    <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Active Technicians</p>
+                    <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ stats.technicians_active }}</p>
+                </div>
+            </div>
+        </a>
+        <a href="/admin/operations/work-orders?status=in_progress&assigned=assigned" class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-lg hover:-translate-y-1 hover:border-amber-300 dark:border-slate-700/60 dark:bg-slate-800 dark:hover:border-amber-600">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-gradient-to-br from-amber-500/10 to-orange-500/10 blur-2xl transition-all group-hover:scale-150"></div>
+            <div class="relative flex items-center gap-4">
+                <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25 transition-transform group-hover:scale-110">
+                    <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">In Progress</p>
+                    <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ stats.in_progress }}</p>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-3 animate-fade-in-up" style="animation-delay: 100ms;">
+        <!-- Unassigned Queue -->
+        <div class="lg:col-span-1">
+            <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800 transition-all hover:shadow-md">
+                <div class="border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-rose-600 shadow-lg shadow-red-500/25">
+                                <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                            <h2 class="font-semibold text-slate-900 dark:text-white">Unassigned Queue</h2>
+                        </div>
+                        <span class="rounded-full bg-gradient-to-r from-red-500 to-rose-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm">{{ unassigned_work_orders|length }}</span>
+                    </div>
+                </div>
+                <div class="divide-y divide-slate-100 dark:divide-slate-700/50 max-h-[500px] overflow-y-auto">
+                    {% for wo in unassigned_work_orders %}
+                    {% set priority_val = wo.priority.value if wo.priority is not string else wo.priority %}
+                    {% set type_val = wo.work_type.value if wo.work_type is not string else wo.work_type %}
+                    {% set wo_status = wo.status.value if wo.status is not string else wo.status %}
+                    <div class="group p-4 hover:bg-gradient-to-r hover:from-amber-50/50 hover:to-orange-50/30 dark:hover:from-amber-900/10 dark:hover:to-orange-900/5 transition-all cursor-grab" draggable="true">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">{{ wo.title or 'Work Order' }}</p>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ type_val | replace('_', ' ') | title }}</p>
+                            </div>
+                            {% if priority_val == 'urgent' %}
+                            <span class="inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-red-500 to-rose-600 px-2 py-1 text-xs font-bold text-white shadow-sm">
+                                <span class="relative flex h-1.5 w-1.5">
+                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                    <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-white"></span>
+                                </span>
+                                Urgent
+                            </span>
+                            {% elif priority_val == 'high' %}
+                            <span class="inline-flex items-center rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-2 py-1 text-xs font-bold text-white shadow-sm">High</span>
+                            {% endif %}
+                        </div>
+                        {% if wo.scheduled_start %}
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center gap-1.5">
+                            <svg class="h-3.5 w-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            {{ wo.scheduled_start.strftime('%b %d, %H:%M') }}
+                        </p>
+                        {% endif %}
+                        <div class="mt-3 flex flex-wrap items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <form method="post" action="/admin/operations/work-orders/{{ wo.id }}/assign" class="flex items-center gap-1">
+                                <select name="assigned_to_person_id" data-assign-select
+                                        class="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                        onchange="this.form.submit()">
+                                    <option value="">Assign tech</option>
+                                    {% if technicians %}
+                                        {% for tech in technicians %}
+                                            {% if tech.person %}
+                                                <option value="{{ tech.person_id }}" {% if wo.assigned_to_person_id == tech.person_id %}selected{% endif %}>
+                                                    {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                                </option>
+                                            {% else %}
+                                                <option value="{{ tech.person_id }}" {% if wo.assigned_to_person_id == tech.person_id %}selected{% endif %}>
+                                                    Technician {{ tech.id|string|truncate(6, True, '') }}
+                                                </option>
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        <option value="" disabled>No technicians</option>
+                                    {% endif %}
+                                </select>
+                            </form>
+                            <form method="post" action="/admin/operations/work-orders/{{ wo.id }}/status" class="flex items-center gap-1">
+                                <select name="status"
+                                        class="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                        onchange="this.form.submit()">
+                                    {% for item in work_order_status_options %}
+                                        <option value="{{ item }}" {% if wo_status == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                                    {% endfor %}
+                                </select>
+                            </form>
+                            <a href="/admin/operations/work-orders/{{ wo.id }}"
+                               class="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all"
+                               title="View" aria-label="View work order">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                </svg>
+                            </a>
+                            <a href="/admin/operations/work-orders/{{ wo.id }}/edit"
+                               class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
+                               title="Edit" aria-label="Edit work order">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                </svg>
+                            </a>
+                            <form method="post" action="/admin/operations/work-orders/{{ wo.id }}/delete" class="inline">
+                                <button type="submit"
+                                        class="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                                        title="Delete" aria-label="Delete work order"
+                                        onclick="return confirm('Delete this work order?')">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                    </svg>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="p-8 text-center">
+                        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-green-100 dark:from-emerald-900/40 dark:to-green-900/30">
+                            <svg class="h-7 w-7 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                        <p class="mt-3 text-sm font-medium text-slate-500 dark:text-slate-400">All work orders assigned</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="mt-6 rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800 transition-all hover:shadow-md" x-data="{ open: false }">
+                <div class="border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+                                <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 4h4M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
+                            </div>
+                            <h2 class="font-semibold text-slate-900 dark:text-white">Unassigned Tickets</h2>
+                        </div>
+                        <span class="rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm">{{ unassigned_tickets|length }}</span>
+                    </div>
+                </div>
+                <div class="divide-y divide-slate-100 dark:divide-slate-700/50 overflow-hidden transition-all duration-300"
+                     :class="open ? 'max-h-[520px] overflow-y-auto' : 'max-h-[360px]'">
+                    {% for ticket in unassigned_tickets %}
+                    {% set priority_val = ticket.priority.value if ticket.priority is not string else ticket.priority %}
+                    <div class="p-4 hover:bg-gradient-to-r hover:from-blue-50/40 hover:to-indigo-50/30 dark:hover:from-blue-900/10 dark:hover:to-indigo-900/10 transition-all"
+                        x-show="open || {{ loop.index }} <= 5">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex-1 min-w-0">
+                                <a href="/admin/support/tickets/{{ ticket.id }}"
+                                   class="text-sm font-semibold text-slate-900 dark:text-white truncate hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
+                                    {{ ticket.title or 'Support Ticket' }}
+                                </a>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                    {{ ticket.created_at.strftime('%b %d, %Y') if ticket.created_at else '—' }}
+                                </p>
+                            </div>
+                            {% if priority_val == 'urgent' %}
+                            <span class="inline-flex items-center rounded-lg bg-gradient-to-r from-red-500 to-rose-600 px-2 py-1 text-xs font-bold text-white shadow-sm">Urgent</span>
+                            {% elif priority_val == 'high' %}
+                            <span class="inline-flex items-center rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-2 py-1 text-xs font-bold text-white shadow-sm">High</span>
+                            {% endif %}
+                        </div>
+                        <form method="post" action="/admin/operations/dispatch/tickets/{{ ticket.id }}/assign" class="mt-3 flex items-center gap-2">
+                            <select name="assigned_to_person_id" {% if not technicians %}disabled{% endif %}
+                                class="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <option value="">Assign technician</option>
+                                {% for tech in technicians %}
+                                {% if tech.person %}
+                                <option value="{{ tech.person_id }}">{{ tech.person.first_name }} {{ tech.person.last_name }}</option>
+                                {% else %}
+                                <option value="{{ tech.person_id }}">Technician {{ loop.index }}</option>
+                                {% endif %}
+                                {% endfor %}
+                            </select>
+                            <button type="submit" {% if not technicians %}disabled{% endif %}
+                                class="rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">Assign</button>
+                        </form>
+                        {% if not technicians %}
+                        <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">No technicians available.</p>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="p-8 text-center">
+                        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/40 dark:to-indigo-900/30">
+                            <svg class="h-7 w-7 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                        <p class="mt-3 text-sm font-medium text-slate-500 dark:text-slate-400">No unassigned tickets</p>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% if unassigned_tickets and unassigned_tickets|length > 5 %}
+                <div class="border-t border-slate-200/60 px-5 py-3 dark:border-slate-700/60">
+                    <button type="button" @click="open = !open"
+                        class="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-300">
+                        <span x-text="open ? 'Show less' : 'Show more'"></span>
+                        <svg class="h-3.5 w-3.5 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="mt-6">
+                {% set activity_title = "Dispatch Activity" %}
+                {% set activity_link = "/admin/system/audit" %}
+                {% include "components/data/recent_activity_panel.html" %}
+            </div>
+        </div>
+
+        <!-- Today's Schedule -->
+        <div class="lg:col-span-2">
+            <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800 transition-all hover:shadow-md">
+                <div class="border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
+                            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        </div>
+                        <h2 class="font-semibold text-slate-900 dark:text-white">Assigned Schedule</h2>
+                    </div>
+                </div>
+                <div class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {% for tech in technicians %}
+                    {% set tech_jobs = assigned_jobs | selectattr('assigned_to_person_id', 'equalto', tech.person_id) | list %}
+                    <div class="p-5">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="relative">
+                                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+                                    <span class="text-sm font-bold text-white">
+                                        {% if tech.person %}
+                                        {{ tech.person.first_name[0] if tech.person.first_name else '' }}{{ tech.person.last_name[0] if tech.person.last_name else '' }}
+                                        {% else %}
+                                        T{{ loop.index }}
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <span class="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-white dark:border-slate-800 bg-emerald-500">
+                                    <span class="sr-only">Available</span>
+                                </span>
+                            </div>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-slate-900 dark:text-white">
+                                    {% if tech.person %}
+                                    {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                    {% else %}
+                                    Technician {{ loop.index }}
+                                    {% endif %}
+                                </p>
+                                <p class="text-xs text-slate-500 dark:text-slate-400">
+                                    {{ tech.region or 'No region' }} · {{ tech_jobs|length }} job{{ 's' if tech_jobs|length != 1 else '' }} today
+                                </p>
+                            </div>
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                                Available
+                            </span>
+                        </div>
+                        {% if tech_jobs %}
+                        <div class="ml-14 space-y-2">
+                            {% for job in tech_jobs %}
+                            {% set status_val = job.status.value if job.status is not string else job.status %}
+                            <div class="group flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-700/30 hover:border-amber-200 hover:bg-gradient-to-r hover:from-amber-50/50 hover:to-orange-50/30 dark:hover:border-amber-800/50 dark:hover:from-amber-900/10 dark:hover:to-orange-900/5 transition-all">
+                                <div class="text-center min-w-[50px]">
+                                    <p class="text-xs font-bold text-slate-900 dark:text-white">{{ job.scheduled_start.strftime('%H:%M') if job.scheduled_start else '--:--' }}</p>
+                                    {% if job.scheduled_end %}
+                                    <p class="text-xs text-slate-400 dark:text-slate-500">{{ job.scheduled_end.strftime('%H:%M') }}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="h-10 w-0.5 rounded-full bg-gradient-to-b from-amber-400 to-orange-500"></div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">{{ job.title or 'Work Order' }}</p>
+                                    {% if job.address %}
+                                    <p class="text-xs text-slate-500 dark:text-slate-400 truncate">{{ job.address.street_address }}</p>
+                                    {% endif %}
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    {% if status_val == 'in_progress' %}
+                                    <span class="inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-600 px-2 py-1 text-xs font-bold text-white shadow-sm">
+                                        <span class="relative flex h-1.5 w-1.5">
+                                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                            <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-white"></span>
+                                        </span>
+                                        In Progress
+                                    </span>
+                                    {% elif status_val == 'completed' %}
+                                    <span class="inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-2 py-1 text-xs font-bold text-white shadow-sm">Completed</span>
+                                    {% elif status_val == 'scheduled' %}
+                                    <span class="inline-flex items-center rounded-lg bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-600 dark:text-slate-300">Scheduled</span>
+                                    {% else %}
+                                    <span class="inline-flex items-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-600 dark:text-slate-400">{{ status_val | title }}</span>
+                                    {% endif %}
+                                    <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <form method="post" action="/admin/operations/work-orders/{{ job.id }}/status" class="flex items-center gap-1">
+                                            <select name="status"
+                                                    class="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] text-slate-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                                    onchange="this.form.submit()">
+                                                {% for item in work_order_status_options %}
+                                                    <option value="{{ item }}" {% if status_val == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </form>
+                                        <a href="/admin/operations/work-orders/{{ job.id }}"
+                                           class="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all"
+                                           title="View" aria-label="View work order">
+                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </a>
+                                        <a href="/admin/operations/work-orders/{{ job.id }}/edit"
+                                           class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all"
+                                           title="Edit" aria-label="Edit work order">
+                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                            </svg>
+                                        </a>
+                                        <form method="post" action="/admin/operations/work-orders/{{ job.id }}/delete" class="inline">
+                                            <button type="submit"
+                                                    class="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                                                    title="Delete" aria-label="Delete work order"
+                                                    onclick="return confirm('Delete this work order?')">
+                                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                                </svg>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="ml-14 text-sm text-slate-400 dark:text-slate-500 italic">No assigned jobs yet</p>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="p-10 text-center">
+                        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600">
+                            <svg class="h-8 w-8 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        </div>
+                        <h3 class="mt-4 text-sm font-semibold text-slate-900 dark:text-white">No technicians</h3>
+                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">No active technician profiles found.</p>
+                        <a href="/admin/operations/technicians/new" class="mt-4 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:-translate-y-0.5">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            Add Technician
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+    const storageKey = "ops:lastAssignedTechId";
+    const selects = document.querySelectorAll("select[data-assign-select]");
+    if (!selects.length) {
+        return;
+    }
+    const saved = localStorage.getItem(storageKey);
+    selects.forEach((select) => {
+        if (saved && !select.value) {
+            const option = Array.from(select.options).find((opt) => opt.value === saved);
+            if (option) {
+                select.value = saved;
+            }
+        }
+        select.addEventListener("change", () => {
+            if (select.value) {
+                localStorage.setItem(storageKey, select.value);
+            }
+        });
+    });
+})();
+</script>
+
+{% endblock %}

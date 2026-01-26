@@ -1,0 +1,184 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}CRM Contacts - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6" x-data="crmContactsConvert()">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/admin/crm/inbox" class="hover:text-primary-600">CRM</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">Contacts</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">CRM Contacts</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage CRM contact records.</p>
+        </div>
+        <a href="/admin/crm/contacts/new" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            New Contact
+        </a>
+    </div>
+
+    <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Search</label>
+                <input type="text" name="search" value="{{ search }}" placeholder="Search name, email, phone"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Status</label>
+                <select name="is_active" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="" {% if is_active == '' %}selected{% endif %}>All</option>
+                    <option value="true" {% if is_active == 'true' %}selected{% endif %}>Active</option>
+                    <option value="false" {% if is_active == 'false' %}selected{% endif %}>Inactive</option>
+                </select>
+            </div>
+        </div>
+        <div class="mt-4 flex items-center justify-end gap-2">
+            <a href="/admin/crm/contacts" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Reset</a>
+            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Filter</button>
+        </div>
+    </form>
+
+    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-700/50">
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Contact</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Email</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Phone</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Linked</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
+                        <th class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {% if contacts %}
+                    {% for contact in contacts %}
+                    {% set person = people_map.get(contact.person_id|string) if contact.person_id else None %}
+                    {% set org = org_map.get(contact.organization_id|string) if contact.organization_id else None %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                        <td class="px-6 py-4">
+                            <div class="font-medium text-slate-900 dark:text-white">{{ contact.display_name or 'Contact ' ~ contact.id|string|truncate(8, True, '') }}</div>
+                            <div class="text-xs text-slate-500 dark:text-slate-400">{{ contact.id | string | truncate(12, True, '') }}</div>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ contact.email or '—' }}</td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ contact.phone or '—' }}</td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                            {% if person %}
+                            {{ person.first_name }} {{ person.last_name }}
+                            {% elif org %}
+                            {{ org.name }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                {{ 'Active' if contact.is_active else 'Inactive' }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-right text-sm">
+                            <a href="/admin/crm/contacts/{{ contact.id }}" class="text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-100">View</a>
+                            <a href="/admin/crm/contacts/{{ contact.id }}/edit" class="text-primary-600 hover:text-primary-700">Edit</a>
+                            {% if person and (person.party_status.value if person.party_status is not string else person.party_status) in ['lead', 'contact', 'customer'] %}
+                            <button type="button"
+                                    class="ml-3 text-emerald-600 hover:text-emerald-700"
+                                    @click="openConvert({{ person.id | string | tojson }}, {{ (person.first_name ~ ' ' ~ person.last_name) | tojson }})">
+                                Convert
+                            </button>
+                            {% endif %}
+                            <form method="post" action="/admin/crm/contacts/{{ contact.id }}/delete" class="inline" onsubmit="return confirm('Delete this contact?');">
+                                <button type="submit" class="ml-3 text-red-600 hover:text-red-700">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">No contacts found.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        <div class="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+            <span>Page {{ page }} of {{ total_pages }}</span>
+            <div class="flex items-center gap-2">
+                <a href="/admin/crm/contacts?page={{ page - 1 }}&per_page={{ per_page }}&search={{ search }}&is_active={{ is_active }}" class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page <= 1 else '' }}">Prev</a>
+                <a href="/admin/crm/contacts?page={{ page + 1 }}&per_page={{ per_page }}&search={{ search }}&is_active={{ is_active }}" class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page >= total_pages else '' }}">Next</a>
+            </div>
+        </div>
+    </div>
+
+    {% set activity_title = "CRM Activity" %}
+    {% set activity_link = "/admin/system/audit" %}
+    {% include "components/data/recent_activity_panel.html" %}
+</div>
+
+<!-- Convert Modal -->
+<div x-show="convertOpen"
+     x-cloak
+     class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="fixed inset-0 bg-slate-900/50" @click="convertOpen = false"></div>
+    <div class="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800">
+        <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Convert to Subscriber</h3>
+            <button type="button" @click="convertOpen = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            Create a subscriber and billing account for
+            <span class="font-semibold text-slate-700 dark:text-slate-200" x-text="convertName"></span>.
+        </p>
+
+        <form method="post" :action="`/admin/contacts/${convertId}/convert`" class="mt-5 space-y-4">
+            {% include "components/forms/csrf_input.html" %}
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Subscriber Type</label>
+                <select name="subscriber_type"
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="person">Individual</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Account Status</label>
+                <select name="account_status"
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="active" selected>Active</option>
+                    <option value="delinquent">Delinquent</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="canceled">Canceled</option>
+                </select>
+            </div>
+            <div class="flex items-center justify-end gap-3 pt-2">
+                <button type="button" @click="convertOpen = false" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                    Cancel
+                </button>
+                <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                    Convert & Create Account
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function crmContactsConvert() {
+    return {
+        convertOpen: false,
+        convertId: null,
+        convertName: "",
+        openConvert(id, name) {
+            this.convertId = id;
+            this.convertName = name || "this customer";
+            this.convertOpen = true;
+        },
+    };
+}
+</script>
+{% endblock %}

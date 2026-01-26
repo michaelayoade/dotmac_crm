@@ -1,0 +1,544 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Projects - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Projects</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Coordinate builds, expansions, and cross-functional initiatives</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="/admin/projects/tasks" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                View Tasks
+            </a>
+            <a href="/admin/projects/new" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                New Project
+            </a>
+        </div>
+    </div>
+
+    {% set query_params = [] %}
+    {% if priority %}{% set _ = query_params.append('priority=' ~ priority) %}{% endif %}
+    {% if per_page %}{% set _ = query_params.append('per_page=' ~ per_page) %}{% endif %}
+    {% set base_query = query_params | join('&') %}
+
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        <a href="/admin/projects{% if base_query %}?{{ base_query }}{% endif %}" class="rounded-xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if not status %}border-primary-300 bg-primary-50 ring-1 ring-primary-200 dark:border-primary-500/60 dark:bg-primary-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">All</p>
+                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ total_count }}</p>
+                </div>
+                <span class="h-3 w-3 rounded-full bg-slate-400 dark:bg-slate-500"></span>
+            </div>
+        </a>
+        <a href="/admin/projects?{{ (query_params + ['status=planned']) | join('&') }}" class="rounded-xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if status == 'planned' %}border-primary-300 bg-primary-50 ring-1 ring-primary-200 dark:border-primary-500/60 dark:bg-primary-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Planned</p>
+                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ status_counts.get('planned', 0) }}</p>
+                </div>
+                <span class="h-3 w-3 rounded-full bg-slate-400 dark:bg-slate-500"></span>
+            </div>
+        </a>
+        <a href="/admin/projects?{{ (query_params + ['status=active']) | join('&') }}" class="rounded-xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if status == 'active' %}border-primary-300 bg-primary-50 ring-1 ring-primary-200 dark:border-primary-500/60 dark:bg-primary-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Active</p>
+                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ status_counts.get('active', 0) }}</p>
+                </div>
+                <span class="h-3 w-3 rounded-full bg-emerald-500"></span>
+            </div>
+        </a>
+        <a href="/admin/projects?{{ (query_params + ['status=on_hold']) | join('&') }}" class="rounded-xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if status == 'on_hold' %}border-primary-300 bg-primary-50 ring-1 ring-primary-200 dark:border-primary-500/60 dark:bg-primary-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">On Hold</p>
+                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ status_counts.get('on_hold', 0) }}</p>
+                </div>
+                <span class="h-3 w-3 rounded-full bg-amber-500"></span>
+            </div>
+        </a>
+        <a href="/admin/projects?{{ (query_params + ['status=completed']) | join('&') }}" class="rounded-xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if status == 'completed' %}border-primary-300 bg-primary-50 ring-1 ring-primary-200 dark:border-primary-500/60 dark:bg-primary-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Completed</p>
+                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ status_counts.get('completed', 0) }}</p>
+                </div>
+                <span class="h-3 w-3 rounded-full bg-sky-500"></span>
+            </div>
+        </a>
+        <a href="/admin/projects?{{ (query_params + ['status=canceled']) | join('&') }}" class="rounded-xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if status == 'canceled' %}border-primary-300 bg-primary-50 ring-1 ring-primary-200 dark:border-primary-500/60 dark:bg-primary-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Canceled</p>
+                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ status_counts.get('canceled', 0) }}</p>
+                </div>
+                <span class="h-3 w-3 rounded-full bg-rose-500"></span>
+            </div>
+        </a>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <form class="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Status</label>
+                <select name="status" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Status</option>
+                    <option value="planned" {% if status == 'planned' %}selected{% endif %}>Planned</option>
+                    <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+                    <option value="on_hold" {% if status == 'on_hold' %}selected{% endif %}>On Hold</option>
+                    <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
+                    <option value="canceled" {% if status == 'canceled' %}selected{% endif %}>Canceled</option>
+                </select>
+            </div>
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Priority</label>
+                <select name="priority" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Priorities</option>
+                    <option value="low" {% if priority == 'low' %}selected{% endif %}>Low</option>
+                    <option value="normal" {% if priority == 'normal' %}selected{% endif %}>Normal</option>
+                    <option value="high" {% if priority == 'high' %}selected{% endif %}>High</option>
+                    <option value="urgent" {% if priority == 'urgent' %}selected{% endif %}>Urgent</option>
+                </select>
+            </div>
+            <div>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    Apply Filters
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="grid gap-4">
+        <details class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">Projects Kanban</summary>
+            <div class="mt-4">
+                <p class="text-xs text-slate-500 dark:text-slate-400">Drag to update status. Fields are configurable per board.</p>
+                <details class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/30">
+                    <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Kanban Settings</summary>
+                    <div class="mt-3">
+                        <form id="project-kanban-config" class="space-y-3">
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Endpoint</label>
+                                    <input name="endpoint" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Update Endpoint</label>
+                                    <input name="updateEndpoint" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Column Field</label>
+                                    <input name="columnField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">ID Field</label>
+                                    <input name="idField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Title Field</label>
+                                    <input name="titleField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Subtitle Field</label>
+                                    <input name="subtitleField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-500">Meta Fields (comma separated)</label>
+                                <input name="metaFields" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button type="submit" class="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700">Apply Kanban</button>
+                                <button type="button" data-reset="kanban" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Reset</button>
+                            </div>
+                        </form>
+                    </div>
+                </details>
+                <div
+                    class="mt-4"
+                    id="projects-kanban"
+                    data-kanban
+                    data-kanban-endpoint="/api/v1/projects/kanban"
+                    data-update-endpoint="/api/v1/projects/kanban/move"
+                    data-config='{"columnField":"status","idField":"id","titleField":"name","subtitleField":"project_type","metaFields":["status","due_date"]}'>
+                </div>
+            </div>
+        </details>
+
+        <details class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">Projects Gantt</summary>
+            <div class="mt-4">
+                <p class="text-xs text-slate-500 dark:text-slate-400">Drag the bar handle to update the due date.</p>
+                <details class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/30">
+                    <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Gantt Settings</summary>
+                    <div class="mt-3">
+                        <form id="project-gantt-config" class="space-y-3">
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Endpoint</label>
+                                    <input name="endpoint" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Update Endpoint</label>
+                                    <input name="updateEndpoint" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">ID Field</label>
+                                    <input name="idField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Title Field</label>
+                                    <input name="titleField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Start Date Field</label>
+                                    <input name="startField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500">Drag Update Field</label>
+                                    <input name="dragField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button type="submit" class="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700">Apply Gantt</button>
+                                <button type="button" data-reset="gantt" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Reset</button>
+                            </div>
+                        </form>
+                    </div>
+                </details>
+                <div
+                    class="mt-4"
+                    id="projects-gantt"
+                    data-gantt
+                    data-gantt-endpoint="/api/v1/projects/gantt"
+                    data-update-endpoint="/api/v1/projects/gantt/due-date"
+                    data-config='{"idField":"id","titleField":"name","startField":"start_date","dragField":"due_date"}'>
+                </div>
+            </div>
+        </details>
+    </div>
+
+    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
+                        <th class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
+                    {% if projects %}
+                    {% for project in projects %}
+                    {% set status_val = project.status.value if project.status else 'planned' %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                        <td class="px-6 py-4">
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">{{ project.name }}</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">{{ project.code | default(project.id|string|truncate(8, True, '')) }}</p>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                            {% if project.account and project.account.subscriber %}
+                            {% set subscriber = project.account.subscriber %}
+                            <a href="/admin/subscribers/{{ subscriber.id }}" class="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">
+                                {% if subscriber.person %}
+                                {{ subscriber.person.first_name }} {{ subscriber.person.last_name }}
+                                {% elif subscriber.organization %}
+                                {{ subscriber.organization.legal_name or subscriber.organization.name }}
+                                {% else %}
+                                Subscriber
+                                {% endif %}
+                            </a>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ status_val | replace('_', ' ') | title }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">{{ project.priority.value if project.priority else 'normal' }}</span>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ project.created_at.strftime('%b %d, %Y') if project.created_at else 'N/A' }}</td>
+                        <td class="px-6 py-4 text-right">
+                            <a href="/admin/projects/{{ project.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
+                            <span class="px-1.5 text-slate-300">|</span>
+                            <a href="/admin/projects/{{ project.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
+                            <span class="px-1.5 text-slate-300">|</span>
+                            <form method="POST" action="/admin/projects/{{ project.id }}/delete" class="inline" onsubmit="return confirm('Delete this project?');">
+                                <button type="submit" class="text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-12">
+                            {% set title = "No projects" %}
+                            {% set message = "Projects will appear here once created." %}
+                            {% include "components/data/empty_state.html" %}
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% if total_pages and total_pages > 1 %}
+        {% set status_param = '&status=' ~ status if status else '' %}
+        {% set priority_param = '&priority=' ~ priority if priority else '' %}
+        <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row">
+            <p class="text-sm text-slate-500 dark:text-slate-400">Page {{ page }} of {{ total_pages }}</p>
+            <div class="flex items-center gap-2">
+                {% if page > 1 %}
+                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                {% endif %}
+                {% if page < total_pages %}
+                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/kanban.js" defer></script>
+<script src="/static/js/gantt.js" defer></script>
+<script defer>
+document.addEventListener("DOMContentLoaded", () => {
+    const kanbanKey = "kanban_config";
+    const ganttKey = "gantt_config";
+    const kanbanEl = document.getElementById("projects-kanban");
+    const ganttEl = document.getElementById("projects-gantt");
+    const kanbanForm = document.getElementById("project-kanban-config");
+    const ganttForm = document.getElementById("project-gantt-config");
+
+    function safeParseJson(value) {
+        try {
+            return JSON.parse(value);
+        } catch {
+            return null;
+        }
+    }
+
+    async function fetchSetting(key) {
+        const response = await fetch(`/api/v1/settings/projects/${key}`, {
+            credentials: "same-origin",
+        });
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error(`Settings fetch failed: ${response.status}`);
+        const payload = await response.json();
+        return payload.value_json || null;
+    }
+
+    async function saveSetting(key, value) {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+        const response = await fetch(`/api/v1/settings/projects/${key}`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": csrfToken,
+            },
+            credentials: "same-origin",
+            body: JSON.stringify({
+                value_type: "json",
+                value_json: value,
+                is_active: true,
+            }),
+        });
+        if (!response.ok) {
+            throw new Error(`Settings save failed: ${response.status}`);
+        }
+        return response.json();
+    }
+
+    function applyKanbanConfig(config) {
+        kanbanEl.dataset.kanbanEndpoint = config.endpoint;
+        kanbanEl.dataset.updateEndpoint = config.updateEndpoint;
+        kanbanEl.dataset.config = JSON.stringify({
+            columnField: config.columnField,
+            idField: config.idField,
+            titleField: config.titleField,
+            subtitleField: config.subtitleField,
+            metaFields: config.metaFields,
+        });
+        if (window.DotmacKanban) window.DotmacKanban.initAll();
+    }
+
+    function applyGanttConfig(config) {
+        ganttEl.dataset.ganttEndpoint = config.endpoint;
+        ganttEl.dataset.updateEndpoint = config.updateEndpoint;
+        ganttEl.dataset.config = JSON.stringify({
+            idField: config.idField,
+            titleField: config.titleField,
+            startField: config.startField,
+            dragField: config.dragField,
+        });
+        if (window.DotmacGantt) window.DotmacGantt.initAll();
+    }
+
+    function fillKanbanForm(config) {
+        kanbanForm.endpoint.value = config.endpoint;
+        kanbanForm.updateEndpoint.value = config.updateEndpoint;
+        kanbanForm.columnField.value = config.columnField;
+        kanbanForm.idField.value = config.idField;
+        kanbanForm.titleField.value = config.titleField;
+        kanbanForm.subtitleField.value = config.subtitleField;
+        kanbanForm.metaFields.value = config.metaFields.join(", ");
+    }
+
+    function fillGanttForm(config) {
+        ganttForm.endpoint.value = config.endpoint;
+        ganttForm.updateEndpoint.value = config.updateEndpoint;
+        ganttForm.idField.value = config.idField;
+        ganttForm.titleField.value = config.titleField;
+        ganttForm.startField.value = config.startField;
+        ganttForm.dragField.value = config.dragField;
+    }
+
+    const defaultKanbanConfig = {
+        endpoint: kanbanEl.dataset.kanbanEndpoint || "",
+        updateEndpoint: kanbanEl.dataset.updateEndpoint || "",
+        columnField: "status",
+        idField: "id",
+        titleField: "name",
+        subtitleField: "project_type",
+        metaFields: ["status", "due_date"],
+    };
+
+    const defaultGanttConfig = {
+        endpoint: ganttEl.dataset.ganttEndpoint || "",
+        updateEndpoint: ganttEl.dataset.updateEndpoint || "",
+        idField: "id",
+        titleField: "name",
+        startField: "start_date",
+        dragField: "due_date",
+    };
+
+    function normalizeKanbanConfig(config) {
+        const merged = { ...defaultKanbanConfig, ...(config || {}) };
+        if (!merged.endpoint) merged.endpoint = defaultKanbanConfig.endpoint;
+        if (!merged.updateEndpoint) merged.updateEndpoint = defaultKanbanConfig.updateEndpoint;
+        if (!merged.columnField) merged.columnField = defaultKanbanConfig.columnField;
+        if (!merged.idField) merged.idField = defaultKanbanConfig.idField;
+        if (!merged.titleField) merged.titleField = defaultKanbanConfig.titleField;
+        if (!merged.subtitleField) merged.subtitleField = defaultKanbanConfig.subtitleField;
+        if (!Array.isArray(merged.metaFields)) {
+            merged.metaFields = defaultKanbanConfig.metaFields;
+        }
+        return merged;
+    }
+
+    function normalizeGanttConfig(config) {
+        const merged = { ...defaultGanttConfig, ...(config || {}) };
+        if (!merged.endpoint) merged.endpoint = defaultGanttConfig.endpoint;
+        if (!merged.updateEndpoint) merged.updateEndpoint = defaultGanttConfig.updateEndpoint;
+        if (!merged.idField) merged.idField = defaultGanttConfig.idField;
+        if (!merged.titleField) merged.titleField = defaultGanttConfig.titleField;
+        if (!merged.startField) merged.startField = defaultGanttConfig.startField;
+        if (!merged.dragField) merged.dragField = defaultGanttConfig.dragField;
+        return merged;
+    }
+
+    (async () => {
+        let kanbanConfig = normalizeKanbanConfig(defaultKanbanConfig);
+        let ganttConfig = normalizeGanttConfig(defaultGanttConfig);
+        try {
+            const savedKanbanConfig = await fetchSetting(kanbanKey);
+            if (savedKanbanConfig) {
+                kanbanConfig = normalizeKanbanConfig(savedKanbanConfig);
+            }
+        } catch (error) {
+            console.warn(error);
+        }
+        try {
+            const savedGanttConfig = await fetchSetting(ganttKey);
+            if (savedGanttConfig) {
+                ganttConfig = normalizeGanttConfig(savedGanttConfig);
+            }
+        } catch (error) {
+            console.warn(error);
+        }
+        fillKanbanForm(kanbanConfig);
+        applyKanbanConfig(kanbanConfig);
+        fillGanttForm(ganttConfig);
+        applyGanttConfig(ganttConfig);
+    })();
+
+    kanbanForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const metaFields = kanbanForm.metaFields.value
+            .split(",")
+            .map((field) => field.trim())
+            .filter(Boolean);
+        const config = {
+            endpoint: kanbanForm.endpoint.value.trim(),
+            updateEndpoint: kanbanForm.updateEndpoint.value.trim(),
+            columnField: kanbanForm.columnField.value.trim(),
+            idField: kanbanForm.idField.value.trim(),
+            titleField: kanbanForm.titleField.value.trim(),
+            subtitleField: kanbanForm.subtitleField.value.trim(),
+            metaFields,
+        };
+        try {
+            await saveSetting(kanbanKey, config);
+            applyKanbanConfig(config);
+        } catch (error) {
+            alert("Unable to save kanban config.");
+            console.error(error);
+        }
+    });
+
+    ganttForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const config = {
+            endpoint: ganttForm.endpoint.value.trim(),
+            updateEndpoint: ganttForm.updateEndpoint.value.trim(),
+            idField: ganttForm.idField.value.trim(),
+            titleField: ganttForm.titleField.value.trim(),
+            startField: ganttForm.startField.value.trim(),
+            dragField: ganttForm.dragField.value.trim(),
+        };
+        try {
+            await saveSetting(ganttKey, config);
+            applyGanttConfig(config);
+        } catch (error) {
+            alert("Unable to save gantt config.");
+            console.error(error);
+        }
+    });
+
+    document.querySelectorAll("[data-reset]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            if (button.dataset.reset === "kanban") {
+                fillKanbanForm(defaultKanbanConfig);
+                try {
+                    await saveSetting(kanbanKey, defaultKanbanConfig);
+                    applyKanbanConfig(defaultKanbanConfig);
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+            if (button.dataset.reset === "gantt") {
+                fillGanttForm(defaultGanttConfig);
+                try {
+                    await saveSetting(ganttKey, defaultGanttConfig);
+                    applyGanttConfig(defaultGanttConfig);
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

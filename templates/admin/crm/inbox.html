@@ -1,0 +1,955 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Inbox - Admin{% endblock %}
+
+{% block head %}
+<script src="/static/js/inbox-websocket.js"></script>
+<script>
+    // Disable view transitions for inbox to prevent refresh flicker
+    document.addEventListener('DOMContentLoaded', function() {
+        htmx.config.globalViewTransitions = false;
+    });
+</script>
+<style>
+    /* Prevent HTMX swap flash - keep content visible during requests */
+    #conversation-list.htmx-request,
+    #message-thread.htmx-request,
+    #contact-details.htmx-request {
+        opacity: 1 !important;
+    }
+
+    /* Smooth content transitions */
+    #conversation-list,
+    #message-thread,
+    #contact-details {
+        transition: none;
+    }
+
+    /* Match base typography */
+    .font-editorial { font-family: 'Outfit', system-ui, sans-serif; }
+    .font-mono-tight { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+    /* Channel color system - Industrial Modern palette */
+    .channel-email { --channel-color: 139, 92, 246; }
+    .channel-whatsapp { --channel-color: 34, 197, 94; }
+    .channel-sms { --channel-color: 249, 115, 22; }
+    .channel-telegram { --channel-color: 14, 165, 233; }
+    .channel-webchat { --channel-color: 245, 158, 11; }
+    .channel-phone { --channel-color: 249, 115, 22; }
+    .channel-facebook_messenger { --channel-color: 24, 119, 242; }
+    .channel-instagram_dm { --channel-color: 236, 72, 153; }
+
+    .channel-indicator {
+        background: rgb(var(--channel-color));
+        box-shadow: 0 0 12px rgba(var(--channel-color), 0.4);
+    }
+
+    .channel-badge {
+        background: rgba(var(--channel-color), 0.15);
+        color: rgb(var(--channel-color));
+        border: 1px solid rgba(var(--channel-color), 0.3);
+    }
+
+    /* Conversation list item states */
+    .conversation-item {
+        transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        border-left: 3px solid transparent;
+    }
+    .conversation-item:hover {
+        background: linear-gradient(90deg, rgba(245, 158, 11, 0.08) 0%, rgba(249, 115, 22, 0.04) 100%);
+    }
+    .conversation-item.active {
+        background: linear-gradient(90deg, rgba(245, 158, 11, 0.12) 0%, rgba(249, 115, 22, 0.06) 100%);
+        border-left-color: rgb(245, 158, 11);
+    }
+    .conversation-item.unread {
+        background: rgba(var(--channel-color), 0.05);
+    }
+
+    /* Message bubbles - Industrial Modern style */
+    .message-inbound {
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+    .message-outbound {
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(249, 115, 22, 0.08) 100%);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .dark .message-inbound {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid rgba(148, 163, 184, 0.1);
+    }
+    .dark .message-outbound {
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(249, 115, 22, 0.1) 100%);
+        border: 1px solid rgba(245, 158, 11, 0.2);
+    }
+
+    /* Status indicators */
+    .status-dot {
+        animation: pulse-soft 2s infinite;
+    }
+    @keyframes pulse-soft {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    /* Typing indicator */
+    .typing-dot {
+        animation: typing-bounce 1.4s infinite ease-in-out;
+    }
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes typing-bounce {
+        0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+        40% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Scrollbar styling for panels */
+    .inbox-scroll::-webkit-scrollbar { width: 6px; }
+    .inbox-scroll::-webkit-scrollbar-track { background: transparent; }
+    .inbox-scroll::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.35);
+        border-radius: 3px;
+    }
+    .inbox-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(148, 163, 184, 0.55);
+    }
+
+    /* Staggered list animation */
+    .conv-stagger {
+        opacity: 0;
+        transform: translateX(-8px);
+        animation: conv-slide-in 0.3s ease-out forwards;
+    }
+    .conv-stagger:nth-child(1) { animation-delay: 0ms; }
+    .conv-stagger:nth-child(2) { animation-delay: 40ms; }
+    .conv-stagger:nth-child(3) { animation-delay: 80ms; }
+    .conv-stagger:nth-child(4) { animation-delay: 120ms; }
+    .conv-stagger:nth-child(5) { animation-delay: 160ms; }
+    .conv-stagger:nth-child(6) { animation-delay: 200ms; }
+    @keyframes conv-slide-in {
+        to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Message slide-up animation */
+    .msg-slide-up {
+        opacity: 0;
+        transform: translateY(12px);
+        animation: msg-appear 0.25s ease-out forwards;
+    }
+    @keyframes msg-appear {
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Gradient mesh background - Industrial Modern */
+    .inbox-mesh {
+        background:
+            radial-gradient(ellipse at 0% 0%, rgba(245, 158, 11, 0.06) 0%, transparent 50%),
+            radial-gradient(ellipse at 100% 100%, rgba(249, 115, 22, 0.04) 0%, transparent 50%);
+    }
+
+    /* Contact card glow */
+    .contact-glow {
+        position: relative;
+    }
+    .contact-glow::before {
+        content: '';
+        position: absolute;
+        inset: -1px;
+        background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(249, 115, 22, 0.3));
+        border-radius: inherit;
+        z-index: -1;
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
+    .contact-glow:hover::before {
+        opacity: 1;
+    }
+
+</style>
+{% endblock %}
+
+{% block content_container_class %}max-w-none px-0 py-0 h-full{% endblock %}
+
+{% block content %}
+<div x-data="inboxController()"
+     x-init="init()"
+     x-on:toggle-contact-panel.window="toggleContactPanel()"
+     x-on:show-contact-panel.window="showContactPanel = true"
+     class="flex h-[calc(100vh-4rem)] min-h-0 w-full overflow-hidden rounded-2xl border border-slate-200/60 bg-white font-editorial shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+
+    {% if reply_error %}
+    <div x-data="{ showReplyToast: true }"
+         x-show="showReplyToast"
+         class="pointer-events-auto fixed right-6 top-6 z-50 w-[22rem] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        <div class="flex items-start gap-2">
+            <svg class="mt-0.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <div class="flex-1">
+                <div class="font-semibold">Reply failed</div>
+                {% if reply_error_detail %}
+                <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ reply_error_detail }}</div>
+                {% else %}
+                <div class="mt-1 text-xs text-red-600 dark:text-red-300">Meta rejected the outbound message.</div>
+                {% endif %}
+            </div>
+            <button type="button"
+                    @click="showReplyToast = false"
+                    class="ml-1 inline-flex h-6 w-6 items-center justify-center rounded-md text-red-500 hover:bg-red-100 hover:text-red-700 dark:text-red-300 dark:hover:bg-red-900/30"
+                    aria-label="Dismiss">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Left Sidebar - Channel Filters & Conversation List -->
+    <aside class="w-80 flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-slate-700/60">
+            <div class="flex items-center gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+                    <svg class="w-5.5 h-5.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-slate-900 tracking-tight dark:text-white">Inbox</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                        <span class="font-semibold text-amber-600 dark:text-amber-400">{{ stats.unread }}</span> unread messages
+                        <span x-show="wsConnected"
+                              class="ml-2 inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
+                              title="Real-time updates active">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span class="text-[10px] uppercase tracking-wide font-medium">Live</span>
+                        </span>
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-1">
+                <button type="button" @click="showNewConversation = true"
+                        class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors dark:text-slate-400 dark:hover:text-amber-400 dark:hover:bg-amber-500/10"
+                        title="New conversation">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
+                    </svg>
+                </button>
+                <a href="/admin/crm/inbox/settings"
+                   class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800"
+                   title="Inbox settings">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.370.996-.608.07 2.296-1.065 2.572-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.370-2.370.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                </a>
+            </div>
+        </div>
+
+        <!-- Search -->
+        <div class="px-4 py-3">
+            <div class="relative">
+                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
+                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                </div>
+                <input type="text"
+                       placeholder="Search conversations..."
+                       x-model="searchQuery"
+                       @input.debounce.300ms="filterConversations()"
+                       class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 transition-all focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 dark:bg-slate-800/50 dark:border-slate-600 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
+            </div>
+        </div>
+
+        <!-- Channel Filters -->
+        <div class="px-4 pb-3">
+            <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                <button @click="setChannel(null)"
+                        :class="!currentChannel ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/20' : 'bg-white text-slate-600 border border-slate-200 hover:border-amber-300 hover:text-amber-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-amber-500/50 dark:hover:text-amber-400'"
+                        class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <span>All</span>
+                    <span class="font-mono-tight opacity-80">{{ stats.all }}</span>
+                </button>
+                <button @click="setChannel('email')"
+                        :class="currentChannel === 'email' ? 'channel-badge channel-email' : 'bg-white text-slate-600 border border-slate-200 hover:border-violet-300 hover:text-violet-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-violet-500/50 dark:hover:text-violet-400'"
+                        class="channel-email flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                    <span>Email</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.email }}</span>
+                </button>
+                <button @click="setChannel('whatsapp')"
+                        :class="currentChannel === 'whatsapp' ? 'channel-badge channel-whatsapp' : 'bg-white text-slate-600 border border-slate-200 hover:border-green-300 hover:text-green-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-green-500/50 dark:hover:text-green-400'"
+                        class="channel-whatsapp flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                    </svg>
+                    <span>WhatsApp</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.whatsapp }}</span>
+                </button>
+                <button @click="setChannel('facebook_messenger')"
+                        :class="currentChannel === 'facebook_messenger' ? 'channel-badge channel-facebook_messenger' : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-300 hover:text-blue-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-blue-500/50 dark:hover:text-blue-400'"
+                        class="channel-facebook_messenger flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                    </svg>
+                    <span>Facebook</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.facebook_messenger }}</span>
+                </button>
+                <button @click="setChannel('instagram_dm')"
+                        :class="currentChannel === 'instagram_dm' ? 'channel-badge channel-instagram_dm' : 'bg-white text-slate-600 border border-slate-200 hover:border-pink-300 hover:text-pink-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-pink-500/50 dark:hover:text-pink-400'"
+                        class="channel-instagram_dm flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03z"/>
+                    </svg>
+                    <span>Instagram</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.instagram_dm }}</span>
+                </button>
+                <button @click="setChannel('comments')"
+                        :class="currentChannel === 'comments' ? 'channel-badge channel-facebook_messenger' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:text-slate-900 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-slate-500 dark:hover:text-slate-200'"
+                        class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 4h8M5 20h8l6-6V5a2 2 0 00-2-2H5a2 2 0 00-2 2v13a2 2 0 002 2z"/>
+                    </svg>
+                    <span>Comments</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.comments }}</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Status Tabs -->
+        {% if current_channel != 'comments' %}
+        <div class="px-4 pb-3 border-b border-slate-200/60 dark:border-slate-700/60">
+            <div class="flex gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
+                <button @click="setStatus(null)"
+                        :class="!currentStatus ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all">
+                    All
+                </button>
+                <button @click="setStatus('open')"
+                        :class="currentStatus === 'open' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 status-dot"></span>
+                    Open
+                </button>
+                <button @click="setStatus('pending')"
+                        :class="currentStatus === 'pending' ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    Pending
+                </button>
+                <button @click="setStatus('resolved')"
+                        :class="currentStatus === 'resolved' ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all">
+                    Done
+                </button>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Conversation List -->
+        <div id="conversation-list" class="flex-1 overflow-y-auto inbox-scroll">
+            {% if current_channel == 'comments' %}
+                {% include "admin/crm/_comment_list.html" %}
+            {% else %}
+                {% include "admin/crm/_conversation_list.html" %}
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- Center - Message Thread -->
+    <main class="flex-1 flex flex-col min-w-0 min-h-0 bg-white dark:bg-slate-950 inbox-mesh">
+        <div id="message-thread" class="flex-1 flex flex-col min-h-0">
+            {% if current_channel == 'comments' %}
+                {% include "admin/crm/_comment_thread.html" %}
+            {% elif selected_conversation %}
+                {% with conversation=selected_conversation, messages=messages %}
+                    {% include "admin/crm/_message_thread.html" %}
+                {% endwith %}
+            {% else %}
+                <!-- Empty State -->
+                <div class="flex-1 flex items-center justify-center">
+                    <div class="text-center px-8 animate-fade-in-up">
+                        <div class="relative mx-auto mb-6">
+                            <div class="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-200/60 flex items-center justify-center dark:from-slate-800 dark:to-slate-900 dark:border-slate-700/50">
+                                <svg class="w-10 h-10 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                                </svg>
+                            </div>
+                            <div class="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                            </div>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-900 mb-2 dark:text-white">Select a conversation</h3>
+                        <p class="text-slate-500 text-sm max-w-xs mx-auto dark:text-slate-400">Choose a conversation from the list to view messages and respond to your customers.</p>
+                        <button @click="showNewConversation = true" class="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/></svg>
+                            New Conversation
+                        </button>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </main>
+
+    <!-- Right Sidebar - Contact Details -->
+    <aside class="w-80 flex-shrink-0 border-l border-slate-200/60 bg-slate-50/50 overflow-y-auto inbox-scroll dark:border-slate-700/60 dark:bg-slate-900/40"
+           x-show="showContactPanel"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0"
+           x-transition:leave="transition ease-in duration-150"
+           x-transition:leave-start="opacity-100 translate-x-0"
+           x-transition:leave-end="opacity-0 translate-x-4">
+        <div id="contact-details">
+            {% if contact_details %}
+                {% with contact=contact_details, conversation_id=(selected_conversation.id if selected_conversation else None) %}
+                    {% include "admin/crm/_contact_details.html" %}
+                {% endwith %}
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- New conversation modal -->
+    <div x-cloak
+         x-show="showNewConversation"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         @click="showNewConversation = false"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm px-4 py-8">
+        <div @click.stop
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             class="w-full max-w-2xl rounded-2xl border border-slate-200/60 bg-white p-6 shadow-2xl dark:border-slate-700/60 dark:bg-slate-900">
+            <div class="flex items-start justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-900 dark:text-white">Start a new conversation</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Send the first message across any channel.</p>
+                    </div>
+                </div>
+                <button @click="showNewConversation = false"
+                        class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors dark:hover:bg-slate-800 dark:hover:text-slate-200">
+                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            {% if new_error %}
+            <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-500/30 dark:bg-red-500/10">
+                <div class="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-300">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Could not start the conversation.
+                </div>
+                {% if new_error_detail %}
+                <div class="mt-1 text-xs text-red-600 dark:text-red-400">{{ new_error_detail }}</div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <form method="POST" action="/admin/crm/inbox/conversation/new" class="mt-6 space-y-4">
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
+                        <select name="channel_type"
+                                x-model="newConversationChannel"
+                                class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
+                            <option value="email">Email</option>
+                            <option value="whatsapp">WhatsApp</option>
+                            <option value="facebook_messenger">Facebook</option>
+                            <option value="instagram_dm">Instagram</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Contact name</label>
+                        <input name="contact_name"
+                               placeholder="e.g. Ola Adebayo"
+                               class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
+                    </div>
+                </div>
+
+                <div>
+                        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                               x-text="newConversationChannel === 'email' ? 'Recipient email' : (newConversationChannel === 'whatsapp' ? 'WhatsApp number' : 'Recipient ID')"></label>
+                    <input name="contact_address"
+                           x-bind:type="newConversationChannel === 'email' ? 'email' : 'text'"
+                           placeholder="Enter address"
+                           class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
+                </div>
+
+                <div x-show="newConversationChannel === 'email'">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Subject</label>
+                    <input name="subject"
+                           placeholder="Subject"
+                           class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
+                </div>
+
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message</label>
+                    <textarea name="message"
+                              rows="4"
+                              placeholder="Write your message..."
+                              class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-2">
+                    <button type="button"
+                            @click="showNewConversation = false"
+                            class="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5">
+                        Start conversation
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Right panel (split view) -->
+    <aside class="w-[30rem] flex-shrink-0 border-l border-slate-200/60 bg-white overflow-y-auto inbox-scroll dark:border-slate-700/60 dark:bg-slate-950"
+           x-cloak
+           x-show="sidePanel"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-4"
+           x-transition:enter-end="opacity-100 translate-x-0"
+           x-transition:leave="transition ease-in duration-150"
+           x-transition:leave-start="opacity-100 translate-x-0"
+           x-transition:leave-end="opacity-0 translate-x-4">
+        <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-900 dark:text-white"
+                    x-text="sidePanel === 'ticket' ? 'Create Ticket' : 'Create Service Order'"></h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400"
+                   x-text="sidePanel === 'ticket' ? 'Keep the inbox visible for reference.' : 'Provision service without leaving the inbox.'"></p>
+            </div>
+            <button type="button"
+                    @click="closeSidePanel()"
+                    class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    aria-label="Close panel">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="p-5">
+            <div x-show="sidePanel === 'ticket'"
+                 id="ticket-create-panel-body"
+                 class="text-sm text-slate-500">
+                Loading ticket form...
+            </div>
+            <div x-show="sidePanel === 'service-order'"
+                 id="service-order-create-panel-body"
+                 class="text-sm text-slate-500">
+                Loading service order form...
+            </div>
+        </div>
+        <div class="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4 dark:border-slate-700">
+            <button type="button"
+                    @click="closeSidePanel()"
+                    class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+                Cancel
+            </button>
+            <button x-show="sidePanel === 'ticket'"
+                    type="submit"
+                    form="ticket-create-form"
+                    class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900">
+                Create Ticket
+            </button>
+            <button x-show="sidePanel === 'service-order'"
+                    type="submit"
+                    form="service-order-create-form"
+                    class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900">
+                Create Order
+            </button>
+        </div>
+    </aside>
+</div>
+
+<script>
+function inboxController() {
+    return {
+        searchQuery: {{ (search or "") | tojson }},
+        currentChannel: {{ current_channel | tojson }},
+        currentStatus: {{ current_status | tojson }},
+        selectedConversation: {{ (selected_conversation.id if selected_conversation else None) | tojson }},
+        selectedContactId: {{ (selected_conversation.contact.id if selected_conversation else None) | tojson }},
+        selectedCommentId: {{ ((selected_comment.id | string) if selected_comment else None) | tojson }},
+        showContactPanel: false,
+        sidePanel: null,
+        showNewConversation: {{ (new_error is not none) | tojson }},
+        newConversationChannel: 'email',
+        isTyping: false,
+        wsConnected: false,
+        inboxWs: null,
+        refreshTimer: null,
+        refreshDelayMs: 250,
+        init() {
+            // Setup HTMX event listeners
+            document.body.addEventListener('htmx:afterSwap', (e) => {
+                if (e.detail.target.id === 'message-thread') {
+                    this.scrollToBottom();
+                    this.refreshConversations();
+                }
+                if (e.detail.target.id === 'conversation-list') {
+                    this.storeConversationCache();
+                }
+            });
+            document.body.addEventListener('htmx:beforeRequest', (e) => {
+                if (e.detail.target && e.detail.target.id === 'service-order-create-panel-body') {
+                    this.openServiceOrderPanel();
+                }
+                if (e.detail.target && e.detail.target.id === 'ticket-create-panel-body') {
+                    this.openTicketPanel();
+                }
+            });
+
+            // Initialize WebSocket connection
+            this.initWebSocket();
+
+            // Setup WebSocket event listeners
+            window.addEventListener('inbox-new-message', (e) => {
+                this.scheduleRefresh();
+            });
+            window.addEventListener('inbox-message-status', (e) => {
+                this.scheduleRefresh('thread');
+            });
+            window.addEventListener('inbox-conversation-updated', (e) => {
+                this.scheduleRefresh();
+            });
+            window.addEventListener('inbox-conversation-summary', (e) => {
+                if (!this.updateConversationRow(e.detail)) {
+                    this.scheduleRefresh('list');
+                }
+            });
+            window.addEventListener('inbox-ws-connected', () => {
+                this.wsConnected = true;
+                if (this.selectedConversation && this.inboxWs) {
+                    this.inboxWs.subscribe(this.selectedConversation);
+                }
+            });
+            window.addEventListener('inbox-ws-disconnected', () => {
+                this.wsConnected = false;
+            });
+
+            // Fallback polling - only when WebSocket is not connected
+            setInterval(() => {
+                if (!document.hidden && !this.wsConnected) {
+                    this.autoRefresh();
+                }
+            }, 30000);
+
+            this.restoreConversationCache();
+            if (this.selectedConversation && this.currentChannel !== 'comments') {
+                requestAnimationFrame(() => {
+                    this.refreshThread(true);
+                });
+            }
+        },
+
+        initWebSocket() {
+            // Get token from cookie or session storage
+            const token = this.getAccessToken();
+            if (!token) {
+                console.log('[Inbox] No access token available for WebSocket');
+                return;
+            }
+            this.inboxWs = new InboxWebSocket({
+                token: token,
+                onStatusChange: (connected) => {
+                    this.wsConnected = connected;
+                }
+            });
+            this.inboxWs.connect(token);
+        },
+
+        getAccessToken() {
+            // Try to get token from session storage or cookie
+            return sessionStorage.getItem('access_token') ||
+                   document.cookie.split('; ').find(row => row.startsWith('session_token='))?.split('=')[1] ||
+                   null;
+        },
+
+        setChannel(channel) {
+            this.currentChannel = channel;
+            if (channel === 'comments') {
+                this.currentStatus = null;
+            }
+            this.filterConversations();
+        },
+
+        setStatus(status) {
+            if (this.currentChannel === 'comments') {
+                return;
+            }
+            this.currentStatus = status;
+            this.filterConversations();
+        },
+
+        cacheKey() {
+            const channel = this.currentChannel || 'all';
+            const status = this.currentStatus || 'all';
+            const search = this.searchQuery || '';
+            return `crm:conversations:${channel}:${status}:${search}`;
+        },
+
+        restoreConversationCache() {
+            if (this.currentChannel === 'comments') {
+                return;
+            }
+            try {
+                const cached = localStorage.getItem(this.cacheKey());
+                if (cached) {
+                    const list = document.querySelector('#conversation-list');
+                    if (list) {
+                        list.innerHTML = cached;
+                        setTimeout(() => this.refreshConversations(), 0);
+                    }
+                }
+            } catch (err) {
+                console.log('[Inbox] cache restore failed', err);
+            }
+        },
+
+        storeConversationCache() {
+            if (this.currentChannel === 'comments') {
+                return;
+            }
+            try {
+                const list = document.querySelector('#conversation-list');
+                if (list) {
+                    localStorage.setItem(this.cacheKey(), list.innerHTML);
+                }
+            } catch (err) {
+                console.log('[Inbox] cache store failed', err);
+            }
+        },
+
+        filterConversations() {
+            const params = new URLSearchParams();
+            if (this.currentChannel) params.set('channel', this.currentChannel);
+            if (this.currentStatus) params.set('status', this.currentStatus);
+            if (this.searchQuery) params.set('search', this.searchQuery);
+
+            if (this.currentChannel === 'comments') {
+                window.location = `/admin/crm/inbox?${params.toString()}`;
+                return;
+            }
+
+            htmx.ajax('GET', `/admin/crm/inbox/conversations?${params.toString()}`, {
+                target: '#conversation-list',
+                swap: 'innerHTML transition:false'
+            });
+        },
+
+        scheduleRefresh(scope = 'both') {
+            if (this.currentChannel === 'comments') {
+                return;
+            }
+            clearTimeout(this.refreshTimer);
+            this.refreshTimer = setTimeout(() => {
+                if (scope === 'list' || scope === 'both') {
+                    this.refreshConversations();
+                }
+                if (scope === 'thread' || scope === 'both') {
+                    if (this.selectedConversation) {
+                        this.refreshThread(true);
+                    }
+                }
+            }, this.refreshDelayMs);
+        },
+
+        selectConversation(convId, contactId) {
+            // Unsubscribe from previous conversation
+            if (this.inboxWs && this.selectedConversation) {
+                this.inboxWs.unsubscribe(this.selectedConversation);
+            }
+
+            this.selectedConversation = convId;
+            this.selectedContactId = contactId;
+            this.showContactPanel = false;
+            this.sidePanel = null;
+
+            // Subscribe to new conversation
+            if (this.inboxWs && convId) {
+                this.inboxWs.subscribe(convId);
+            }
+
+            // Load conversation thread
+            htmx.ajax('GET', `/admin/crm/inbox/conversation/${convId}`, {
+                target: '#message-thread',
+                swap: 'innerHTML transition:false'
+            });
+
+            const contactPanel = document.querySelector('#contact-details');
+            if (contactPanel) {
+                contactPanel.innerHTML = '';
+            }
+
+            // Update URL without reload
+            const params = new URLSearchParams(window.location.search);
+            params.set('conversation_id', convId);
+            window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+        },
+
+        openTicketPanel() {
+            this.sidePanel = 'ticket';
+            this.showContactPanel = false;
+        },
+
+        closeSidePanel() {
+            this.sidePanel = null;
+        },
+
+        closeTicketPanel() {
+            this.closeSidePanel();
+        },
+
+        openServiceOrderPanel() {
+            this.sidePanel = 'service-order';
+            this.showContactPanel = false;
+        },
+
+        closeServiceOrderPanel() {
+            this.closeSidePanel();
+        },
+
+        refreshConversations() {
+            if (this.currentChannel === 'comments') {
+                return;
+            }
+            this.filterConversations();
+        },
+
+        refreshComments() {
+            const params = new URLSearchParams();
+            if (this.searchQuery) params.set('search', this.searchQuery);
+            if (this.selectedCommentId) params.set('comment_id', this.selectedCommentId);
+
+            htmx.ajax('GET', `/admin/crm/inbox/comments/list?${params.toString()}`, {
+                target: '#conversation-list',
+                swap: 'innerHTML transition:false'
+            });
+            htmx.ajax('GET', `/admin/crm/inbox/comments/thread?${params.toString()}`, {
+                target: '#message-thread',
+                swap: 'innerHTML transition:false'
+            });
+        },
+
+        autoRefresh() {
+            if (this.currentChannel === 'comments') {
+                this.refreshComments();
+                return;
+            }
+            this.filterConversations();
+            this.refreshThread();
+        },
+
+        refreshThread(force = false) {
+            if (this.currentChannel === 'comments') {
+                return;
+            }
+            if (!this.selectedConversation) {
+                return;
+            }
+            const input = document.querySelector('#message-thread textarea[name="message"]');
+            const isComposing = input && (document.activeElement === input || input.value.trim() !== '');
+            if (!force && isComposing) {
+                return;
+            }
+            htmx.ajax('GET', `/admin/crm/inbox/conversation/${this.selectedConversation}`, {
+                target: '#message-thread',
+                swap: 'innerHTML transition:false'
+            });
+        },
+
+        updateConversationRow(summary) {
+            if (!summary || !summary.conversation_id) {
+                return false;
+            }
+            const row = document.querySelector(
+                `[data-conversation-id="${summary.conversation_id}"]`
+            );
+            if (!row) {
+                return false;
+            }
+            if (summary.channel) {
+                row.className = row.className.replace(/channel-[^\\s]+/g, '').trim();
+                row.classList.add(`channel-${summary.channel}`);
+            }
+            if (typeof summary.unread_count === 'number') {
+                const badge = row.querySelector('[data-role="unread-count"]');
+                if (badge) {
+                    if (summary.unread_count > 0) {
+                        badge.textContent = String(summary.unread_count);
+                        badge.classList.remove('hidden');
+                        row.classList.add('unread');
+                    } else {
+                        badge.textContent = '';
+                        badge.classList.add('hidden');
+                        row.classList.remove('unread');
+                    }
+                }
+            }
+            if (summary.preview) {
+                const preview = row.querySelector('[data-role="preview"]');
+                if (preview) {
+                    preview.textContent = summary.preview;
+                }
+            }
+            if (summary.last_message_at) {
+                const timeEl = row.querySelector('[data-role="last-message-at"]');
+                if (timeEl) {
+                    timeEl.dataset.timestamp = summary.last_message_at;
+                    const date = new Date(summary.last_message_at);
+                    timeEl.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                }
+            }
+            return true;
+        },
+
+        scrollToBottom() {
+            const container = document.querySelector('#messages-container');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        },
+
+        toggleContactPanel() {
+            const nextState = !this.showContactPanel;
+            this.showContactPanel = nextState;
+            if (nextState && this.selectedContactId) {
+                htmx.ajax('GET', `/admin/crm/inbox/contact/${this.selectedContactId}`, {
+                    target: '#contact-details',
+                    swap: 'innerHTML transition:false'
+                });
+            }
+        },
+
+        openContactPanel(contactId) {
+            this.selectedContactId = contactId;
+            this.showContactPanel = true;
+            htmx.ajax('GET', `/admin/crm/inbox/contact/${contactId}`, {
+                target: '#contact-details',
+                swap: 'innerHTML transition:false'
+            });
+        }
+    }
+}
+</script>
+
+{% endblock %}

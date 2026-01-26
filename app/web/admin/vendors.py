@@ -1,0 +1,566 @@
+"""Admin vendor portal web routes."""
+
+from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+import os
+from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.exc import IntegrityError
+
+from app.db import SessionLocal
+from app.models.auth import AuthProvider
+from app.models.vendor import Vendor, VendorUser
+from app.schemas.auth import UserCredentialCreate
+from app.schemas.rbac import PersonRoleCreate
+from app.schemas.person import PersonCreate
+from app.schemas.vendor import VendorCreate, VendorUpdate
+from app.services import auth as auth_service
+from app.services import person as person_service
+from app.services import rbac as rbac_service
+from app.services import vendor as vendor_service
+from app.services.audit_helpers import recent_activity_for_paths
+from app.services.auth_flow import hash_password
+from app.services.common import coerce_uuid
+from app.models.rbac import Role, PersonRole
+
+templates = Jinja2Templates(directory="templates")
+router = APIRouter(prefix="/vendors", tags=["web-admin-vendors"])
+_DEFAULT_VENDOR_ROLE = "vendors"
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def _base_context(request: Request, db: Session, active_page: str):
+    from app.web.admin import get_sidebar_stats, get_current_user
+    return {
+        "request": request,
+        "active_page": active_page,
+        "active_menu": "vendors",
+        "current_user": get_current_user(request),
+        "sidebar_stats": get_sidebar_stats(db),
+    }
+
+
+def _create_person_credential(
+    db: Session,
+    first_name: str,
+    last_name: str,
+    email: str,
+    username: str,
+    password: str,
+):
+    person_payload = PersonCreate(
+        first_name=first_name,
+        last_name=last_name,
+        display_name=f"{first_name} {last_name}".strip(),
+        email=email,
+        status="active",
+        is_active=True,
+    )
+    person = person_service.people.create(db=db, payload=person_payload)
+    credential_payload = UserCredentialCreate(
+        person_id=person.id,
+        provider=AuthProvider.local,
+        username=username,
+        password_hash=hash_password(password),
+    )
+    auth_service.user_credentials.create(db=db, payload=credential_payload)
+    return person
+
+
+def _assign_role_by_name(db: Session, person_id: str, role_name: str) -> None:
+    if not role_name:
+        return
+    role = db.query(Role).filter(Role.name.ilike(role_name)).first()
+    if not role:
+        return
+    existing = (
+        db.query(PersonRole)
+        .filter(PersonRole.person_id == coerce_uuid(person_id))
+        .filter(PersonRole.role_id == role.id)
+        .first()
+    )
+    if existing:
+        return
+    rbac_service.person_roles.create(
+        db,
+        PersonRoleCreate(person_id=person_id, role_id=role.id),
+    )
+
+
+@router.get("", response_class=HTMLResponse)
+def vendors_list(
+    request: Request,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    current_status = (status or "active").lower()
+    is_active = True
+    if current_status == "inactive":
+        is_active = False
+    vendors = vendor_service.vendors.list(
+        db=db,
+        is_active=is_active,
+        order_by="name",
+        order_dir="asc",
+        limit=200,
+        offset=0,
+    )
+    recent_activities = recent_activity_for_paths(db, ["/admin/vendors"])
+    context = _base_context(request, db, active_page="vendors")
+    context.update(
+        {
+            "vendors": vendors,
+            "current_status": current_status,
+            "recent_activities": recent_activities,
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/index.html", context)
+
+
+@router.get("/new", response_class=HTMLResponse)
+def vendor_new(request: Request, db: Session = Depends(get_db)):
+    context = _base_context(request, db, active_page="vendors")
+    roles = rbac_service.roles.list(
+        db=db,
+        is_active=True,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    context.update({"vendor": None, "action_url": "/admin/vendors", "roles": roles})
+    return templates.TemplateResponse("admin/vendors/vendor_form.html", context)
+
+@router.get("/{vendor_id}/edit", response_class=HTMLResponse)
+def vendor_edit(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+    vendor = vendor_service.vendors.get(db=db, vendor_id=vendor_id)
+    context = _base_context(request, db, active_page="vendors")
+    context.update(
+        {
+            "vendor": vendor,
+            "action_url": f"/admin/vendors/{vendor.id}",
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/vendor_form.html", context)
+
+
+@router.post("", response_class=HTMLResponse)
+async def vendor_create(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    create_user = bool(form.get("create_user"))
+    payload = {
+        "name": (form.get("name") or "").strip(),
+        "code": (form.get("code") or "").strip() or None,
+        "contact_name": (form.get("contact_name") or "").strip() or None,
+        "contact_email": (form.get("contact_email") or "").strip() or None,
+        "contact_phone": (form.get("contact_phone") or "").strip() or None,
+        "license_number": (form.get("license_number") or "").strip() or None,
+        "service_area": (form.get("service_area") or "").strip() or None,
+        "notes": (form.get("notes") or "").strip() or None,
+        "is_active": bool(form.get("is_active")),
+    }
+    user_payload = None
+    if create_user:
+        user_payload = {
+            "first_name": (form.get("user_first_name") or "").strip(),
+            "last_name": (form.get("user_last_name") or "").strip(),
+            "email": (form.get("user_email") or "").strip(),
+            "username": (form.get("user_username") or "").strip(),
+            "password": (form.get("user_password") or "").strip(),
+            "role": (form.get("user_role") or "").strip() or None,
+        }
+        missing = [key for key, value in user_payload.items() if key != "role" and not value]
+        if missing:
+            context = _base_context(request, db, active_page="vendors")
+            roles = rbac_service.roles.list(
+                db=db,
+                is_active=True,
+                order_by="name",
+                order_dir="asc",
+                limit=500,
+                offset=0,
+            )
+            context.update(
+                {
+                    "vendor": payload,
+                    "action_url": "/admin/vendors",
+                    "roles": roles,
+                    "error": "Provide all user fields to create a login.",
+                }
+            )
+            return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
+    try:
+        data = VendorCreate(**payload)
+    except ValidationError as exc:
+        context = _base_context(request, db, active_page="vendors")
+        roles = rbac_service.roles.list(
+            db=db,
+            is_active=True,
+            order_by="name",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        context.update(
+            {
+                "vendor": payload,
+                "action_url": "/admin/vendors",
+                "roles": roles,
+                "error": exc.errors()[0].get("msg", "Invalid vendor details."),
+            }
+        )
+        return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
+    vendor = vendor_service.vendors.create(db=db, payload=data)
+    if user_payload:
+        try:
+            role_name = user_payload["role"] or _DEFAULT_VENDOR_ROLE
+            person = _create_person_credential(
+                db=db,
+                first_name=user_payload["first_name"],
+                last_name=user_payload["last_name"],
+                email=user_payload["email"],
+                username=user_payload["username"],
+                password=user_payload["password"],
+            )
+            _assign_role_by_name(db, str(person.id), role_name)
+            link = VendorUser(
+                vendor_id=vendor.id,
+                person_id=person.id,
+                role=role_name,
+                is_active=True,
+            )
+            db.add(link)
+            db.commit()
+        except Exception as exc:
+            context = _base_context(request, db, active_page="vendors")
+            roles = rbac_service.roles.list(
+                db=db,
+                is_active=True,
+                order_by="name",
+                order_dir="asc",
+                limit=500,
+                offset=0,
+            )
+            context.update(
+                {
+                    "vendor": payload,
+                    "action_url": "/admin/vendors",
+                    "roles": roles,
+                    "error": str(exc) or "Unable to create login user.",
+                }
+            )
+            return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
+    return RedirectResponse(url="/admin/vendors", status_code=303)
+
+@router.post("/{vendor_id}", response_class=HTMLResponse)
+async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    payload = {
+        "name": (form.get("name") or "").strip(),
+        "code": (form.get("code") or "").strip() or None,
+        "contact_name": (form.get("contact_name") or "").strip() or None,
+        "contact_email": (form.get("contact_email") or "").strip() or None,
+        "contact_phone": (form.get("contact_phone") or "").strip() or None,
+        "license_number": (form.get("license_number") or "").strip() or None,
+        "service_area": (form.get("service_area") or "").strip() or None,
+        "notes": (form.get("notes") or "").strip() or None,
+        "is_active": bool(form.get("is_active")),
+    }
+    try:
+        data = VendorUpdate(**payload)
+    except ValidationError as exc:
+        context = _base_context(request, db, active_page="vendors")
+        payload.update({"id": vendor_id})
+        context.update(
+            {
+                "vendor": payload,
+                "action_url": f"/admin/vendors/{vendor_id}",
+                "error": exc.errors()[0].get("msg", "Invalid vendor details."),
+            }
+        )
+        return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
+    try:
+        vendor_service.vendors.update(db=db, vendor_id=vendor_id, payload=data)
+    except Exception as exc:
+        context = _base_context(request, db, active_page="vendors")
+        payload.update({"id": vendor_id})
+        context.update(
+            {
+                "vendor": payload,
+                "action_url": f"/admin/vendors/{vendor_id}",
+                "error": str(exc) or "Unable to update vendor.",
+            }
+        )
+        return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
+    return RedirectResponse(url="/admin/vendors", status_code=303)
+
+
+@router.post("/{vendor_id}/delete", response_class=HTMLResponse)
+def vendor_delete(vendor_id: str, db: Session = Depends(get_db)):
+    vendor = vendor_service.vendors.get(db=db, vendor_id=vendor_id)
+    if vendor.is_active:
+        raise HTTPException(status_code=409, detail="Deactivate vendor before deleting.")
+    try:
+        db.query(VendorUser).filter(VendorUser.vendor_id == vendor.id).delete(
+            synchronize_session=False
+        )
+        db.delete(vendor)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Vendor has linked records; remove them before deleting.",
+        )
+    return RedirectResponse(url="/admin/vendors", status_code=303)
+
+
+@router.get("/projects", response_class=HTMLResponse)
+def vendor_projects_list(request: Request, db: Session = Depends(get_db)):
+    projects = vendor_service.installation_projects.list(
+        db=db,
+        status=None,
+        vendor_id=None,
+        account_id=None,
+        project_id=None,
+        is_active=True,
+        order_by="created_at",
+        order_dir="desc",
+        limit=200,
+        offset=0,
+    )
+    vendors = vendor_service.vendors.list(
+        db=db,
+        is_active=True,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    vendor_names = {str(vendor.id): vendor.name for vendor in vendors}
+    context = _base_context(request, db, active_page="vendor-projects")
+    context.update({"projects": projects, "vendor_names": vendor_names})
+    return templates.TemplateResponse("admin/vendors/projects/index.html", context)
+
+
+@router.get("/quotes", response_class=HTMLResponse)
+def vendor_quotes_list(request: Request, db: Session = Depends(get_db)):
+    quotes = vendor_service.project_quotes.list(
+        db=db,
+        project_id=None,
+        vendor_id=None,
+        status=None,
+        party_status=None,
+        organization_id=None,
+        is_active=True,
+        order_by="created_at",
+        order_dir="desc",
+        limit=200,
+        offset=0,
+    )
+    context = _base_context(request, db, active_page="vendor-quotes")
+    context.update({"quotes": quotes})
+    return templates.TemplateResponse("admin/vendors/quotes/review.html", context)
+
+
+@router.get("/as-built", response_class=HTMLResponse)
+def vendor_as_built_list(request: Request, db: Session = Depends(get_db)):
+    as_built_routes = vendor_service.as_built_routes.list(
+        db=db,
+        project_id=None,
+        status=None,
+        order_by="created_at",
+        order_dir="desc",
+        limit=200,
+        offset=0,
+    )
+    context = _base_context(request, db, active_page="vendor-as-built")
+    context.update({"as_built_routes": as_built_routes})
+    return templates.TemplateResponse("admin/vendors/as-built/review.html", context)
+
+
+@router.get("/as-built/{as_built_id}/report")
+def vendor_as_built_report(as_built_id: str, db: Session = Depends(get_db)):
+    as_built = vendor_service.as_built_routes.get(db=db, as_built_id=as_built_id)
+    if not as_built or not as_built.report_file_path:
+        return HTMLResponse(content="Report not found", status_code=404)
+    if not os.path.exists(as_built.report_file_path):
+        return HTMLResponse(content="Report file missing", status_code=404)
+    filename = as_built.report_file_name or "as-built-report.pdf"
+    media_type = "application/pdf" if filename.endswith(".pdf") else "text/html"
+    return FileResponse(
+        path=as_built.report_file_path,
+        filename=filename,
+        media_type=media_type,
+    )
+
+
+@router.get("/{vendor_id}", response_class=HTMLResponse)
+def vendor_detail(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+    vendor = (
+        db.query(Vendor)
+        .options(selectinload(Vendor.users).selectinload(VendorUser.person))
+        .filter(Vendor.id == coerce_uuid(vendor_id))
+        .first()
+    )
+    if not vendor:
+        return RedirectResponse(url="/admin/vendors", status_code=303)
+    people = person_service.people.list(
+        db=db,
+        email=None,
+        status=None,
+        party_status=None,
+        organization_id=None,
+        is_active=True,
+        order_by="last_name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    roles = rbac_service.roles.list(
+        db=db,
+        is_active=True,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    context = _base_context(request, db, active_page="vendors")
+    context.update(
+        {
+            "vendor": vendor,
+            "vendor_users": vendor.users,
+            "people": people,
+            "roles": roles,
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/detail.html", context)
+
+
+@router.post("/{vendor_id}/users/link", response_class=HTMLResponse)
+async def vendor_user_link(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    person_id = (form.get("person_id") or "").strip()
+    role = (form.get("role") or "").strip() or _DEFAULT_VENDOR_ROLE
+    if not person_id:
+        return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)
+    existing = (
+        db.query(VendorUser)
+        .filter(VendorUser.vendor_id == coerce_uuid(vendor_id))
+        .filter(VendorUser.person_id == coerce_uuid(person_id))
+        .first()
+    )
+    if existing:
+        return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)
+    _assign_role_by_name(db, person_id, role)
+    link = VendorUser(
+        vendor_id=coerce_uuid(vendor_id),
+        person_id=coerce_uuid(person_id),
+        role=role,
+        is_active=True,
+    )
+    db.add(link)
+    db.commit()
+    return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)
+
+
+@router.post("/{vendor_id}/users/create", response_class=HTMLResponse)
+async def vendor_user_create(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    fields = {
+        "first_name": (form.get("first_name") or "").strip(),
+        "last_name": (form.get("last_name") or "").strip(),
+        "email": (form.get("email") or "").strip(),
+        "username": (form.get("username") or "").strip(),
+        "password": (form.get("password") or "").strip(),
+        "role": (form.get("role") or "").strip() or _DEFAULT_VENDOR_ROLE,
+    }
+    if not all([fields["first_name"], fields["last_name"], fields["email"], fields["username"], fields["password"]]):
+        context = _base_context(request, db, active_page="vendors")
+        vendor = db.get(Vendor, coerce_uuid(vendor_id))
+        people = person_service.people.list(
+            db=db,
+            email=None,
+            status=None,
+            is_active=True,
+            order_by="last_name",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        roles = rbac_service.roles.list(
+            db=db,
+            is_active=True,
+            order_by="name",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        context.update(
+            {
+                "vendor": vendor,
+                "vendor_users": vendor.users if vendor else [],
+                "people": people,
+                "roles": roles,
+                "error": "All user fields are required to create a login.",
+            }
+        )
+        return templates.TemplateResponse("admin/vendors/detail.html", context, status_code=400)
+    try:
+        person = _create_person_credential(
+            db=db,
+            first_name=fields["first_name"],
+            last_name=fields["last_name"],
+            email=fields["email"],
+            username=fields["username"],
+            password=fields["password"],
+        )
+        _assign_role_by_name(db, str(person.id), fields["role"])
+        link = VendorUser(
+            vendor_id=coerce_uuid(vendor_id),
+            person_id=person.id,
+            role=fields["role"],
+            is_active=True,
+        )
+        db.add(link)
+        db.commit()
+    except Exception as exc:
+        context = _base_context(request, db, active_page="vendors")
+        vendor = db.get(Vendor, coerce_uuid(vendor_id))
+        people = person_service.people.list(
+            db=db,
+            email=None,
+            status=None,
+            is_active=True,
+            order_by="last_name",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        roles = rbac_service.roles.list(
+            db=db,
+            is_active=True,
+            order_by="name",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        context.update(
+            {
+                "vendor": vendor,
+                "vendor_users": vendor.users if vendor else [],
+                "people": people,
+                "roles": roles,
+                "error": str(exc) or "Unable to create vendor user.",
+            }
+        )
+        return templates.TemplateResponse("admin/vendors/detail.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)

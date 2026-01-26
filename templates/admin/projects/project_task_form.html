@@ -1,0 +1,155 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}{{ 'Edit' if task.id else 'New' }} Project Task - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/admin/projects/tasks" class="hover:text-primary-600">Project Tasks</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">New</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit Project Task' if task.id else 'Create Project Task' }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ 'Update task details' if task.id else 'Add work items under a project' }}</p>
+        </div>
+    </div>
+
+    <form method="POST" action="{{ action_url }}" enctype="multipart/form-data" class="space-y-6">
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Task Details</h2>
+            </div>
+            <div class="p-6 space-y-6">
+                {% if error %}
+                <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">
+                    {{ error }}
+                </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    <div>
+                        <label for="project_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Project <span class="text-red-500">*</span></label>
+                        <select name="project_id" id="project_id" required
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="" disabled {% if not task.project_id %}selected{% endif %}>Select a project</option>
+                            {% for project in projects or [] %}
+                            <option value="{{ project.id }}" {% if task.project_id == project.id|string %}selected{% endif %}>
+                                {{ project.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="title" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Title <span class="text-red-500">*</span></label>
+                        <input type="text" name="title" id="title" required maxlength="200"
+                            value="{{ task.title }}"
+                            placeholder="Survey location"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label for="description" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
+                        <textarea name="description" id="description" rows="4"
+                            placeholder="Task details and deliverables..."
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ task.description }}</textarea>
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label for="attachments" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Attachments</label>
+                        <input type="file" name="attachments" id="attachments" multiple
+                            class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">PNG, JPG, GIF, WEBP, or PDF up to 5MB each.</p>
+                    </div>
+
+                    <div>
+                        <label for="status" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Status</label>
+                        <select name="status" id="status"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            {% for status in task_statuses %}
+                            <option value="{{ status }}" {% if task.status == status %}selected{% endif %}>
+                                {{ status | replace('_', ' ') | title }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="priority" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Priority</label>
+                        <select name="priority" id="priority"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            {% for priority in task_priorities %}
+                            <option value="{{ priority }}" {% if task.priority == priority %}selected{% endif %}>
+                                {{ priority | title }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="assigned_to_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Assigned To</label>
+                        <select name="assigned_to_person_id" id="assigned_to_person_id"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="">Unassigned</option>
+                            {% for technician in technicians or [] %}
+                            {% if technician.person %}
+                            <option value="{{ technician.person.id }}" {% if task.assigned_to_person_id == technician.person.id|string %}selected{% endif %}>
+                                {{ technician.person.first_name }} {{ technician.person.last_name }}
+                            </option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="created_by_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Created By</label>
+                        <select name="created_by_person_id" id="created_by_person_id"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="">Select creator</option>
+                            {% for person in people or [] %}
+                            <option value="{{ person.id }}" {% if task.created_by_person_id == person.id|string %}selected{% endif %}>
+                                {{ person.first_name }} {{ person.last_name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="start_at" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Start Date</label>
+                        <input type="datetime-local" name="start_at" id="start_at"
+                            value="{{ task.start_at }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div>
+                        <label for="due_at" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Due Date</label>
+                        <input type="datetime-local" name="due_at" id="due_at"
+                            value="{{ task.due_at }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div>
+                        <label for="effort_hours" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Effort (hours)</label>
+                        <input type="number" name="effort_hours" id="effort_hours" min="0"
+                            value="{{ task.effort_hours }}"
+                            placeholder="0"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-3">
+            <a href="/admin/projects/tasks" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Cancel
+            </a>
+            <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                {{ 'Save Changes' if task.id else 'Create Task' }}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
