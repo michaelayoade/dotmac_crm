@@ -85,9 +85,11 @@ def sync_peer_routes_for_ip(
     if not ip.is_private:
         return False
 
-    known_subnets = []
-    if peer.metadata_:
-        known_subnets = peer.metadata_.get("known_subnets") or []
+    known_subnets: list[str] = []
+    if isinstance(peer.metadata_, dict):
+        value = peer.metadata_.get("known_subnets")
+        if isinstance(value, list):
+            known_subnets = [str(item) for item in value if item]
 
     known_networks = _normalize_networks(known_subnets)
     target_cidr = _select_target_cidr(ip, known_networks)
@@ -159,14 +161,16 @@ def sync_lan_subnets(
     Returns:
         True if any configuration changed
     """
-    lan_subnets = []
-    if peer.metadata_:
-        lan_subnets = peer.metadata_.get("lan_subnets") or []
+    lan_subnets: list[str] = []
+    if isinstance(peer.metadata_, dict):
+        value = peer.metadata_.get("lan_subnets")
+        if isinstance(value, list):
+            lan_subnets = [str(item) for item in value if item]
 
     previous_subnets = previous_subnets or []
 
     # Normalize and validate subnets
-    valid_subnets = []
+    valid_subnets: list[str] = []
     for cidr in lan_subnets:
         try:
             net = ip_network(cidr, strict=False)
@@ -176,7 +180,7 @@ def sync_lan_subnets(
         except ValueError:
             continue
 
-    previous_normalized = []
+    previous_normalized: list[str] = []
     for cidr in previous_subnets:
         try:
             net = ip_network(cidr, strict=False)
@@ -254,7 +258,7 @@ def configure_peer_lan_routing(
     from app.services.wireguard_system import WireGuardSystemService
 
     # Validate subnets
-    valid_subnets = []
+    valid_subnets: list[str] = []
     for cidr in lan_subnets:
         try:
             net = ip_network(cidr, strict=False)
@@ -263,9 +267,11 @@ def configure_peer_lan_routing(
             return False, f"Invalid CIDR: {cidr}"
 
     # Update peer metadata
-    previous_subnets = []
-    if peer.metadata_:
-        previous_subnets = peer.metadata_.get("lan_subnets") or []
+    previous_subnets: list[str] = []
+    if isinstance(peer.metadata_, dict):
+        value = peer.metadata_.get("lan_subnets")
+        if isinstance(value, list):
+            previous_subnets = [str(item) for item in value if item]
     peer.metadata_ = peer.metadata_ or {}
     peer.metadata_["lan_subnets"] = valid_subnets
 

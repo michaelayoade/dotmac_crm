@@ -1,10 +1,12 @@
 """Admin projects web routes."""
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Optional
+from datetime import datetime
 
 from app.db import SessionLocal
 from app.services import projects as projects_service
@@ -16,7 +18,6 @@ from app.services.audit_helpers import (
     log_audit_event,
 )
 from app.models.person import Person
-from app.services import subscriber as subscriber_service
 from app.services import person as person_service
 from app.models.projects import ProjectPriority, ProjectStatus, ProjectType, TaskPriority, TaskStatus
 from app.schemas.projects import (
@@ -33,9 +34,28 @@ from app.schemas.projects import (
 )
 from app.schemas.vendor import InstallationProjectCreate, InstallationProjectUpdate
 from app.services import vendor as vendor_service
+from app.services.common import coerce_uuid
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/projects", tags=["web-admin-projects"])
+
+
+def _form_str(value: object | None) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _form_str_opt(value: object | None) -> str | None:
+    value_str = _form_str(value).strip()
+    return value_str or None
+
+
+def _parse_datetime_opt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _log_activity(
@@ -156,7 +176,7 @@ def _project_form_context(
         "current_user": get_current_user(request),
         "sidebar_stats": get_sidebar_stats(db),
         # Typeahead labels
-        "account_label": (labels or {}).get("account_label"),
+        "subscriber_label": (labels or {}).get("subscriber_label"),
         "assigned_vendor_label": (labels or {}).get("assigned_vendor_label"),
         "owner_label": (labels or {}).get("owner_label"),
         "manager_label": (labels or {}).get("manager_label"),
@@ -176,7 +196,7 @@ def _task_form_context(
     from app.web.admin import get_sidebar_stats, get_current_user
     projects = projects_service.projects.list(
         db=db,
-        account_id=None,
+        subscriber_id=None,
         status=None,
         priority=None,
         owner_person_id=None,
@@ -248,7 +268,7 @@ def projects_list(
 
     projects = projects_service.projects.list(
         db=db,
-        account_id=None,
+        subscriber_id=None,
         status=status if status else None,
         priority=priority if priority else None,
         owner_person_id=None,
@@ -262,7 +282,7 @@ def projects_list(
 
     all_projects = projects_service.projects.list(
         db=db,
-        account_id=None,
+        subscriber_id=None,
         status=status if status else None,
         priority=priority if priority else None,
         owner_person_id=None,
@@ -279,7 +299,7 @@ def projects_list(
     status_counts = {item.value: 0 for item in ProjectStatus}
     all_projects_unfiltered = projects_service.projects.list(
         db=db,
-        account_id=None,
+        subscriber_id=None,
         status=None,
         priority=priority if priority else None,
         owner_person_id=None,
@@ -328,7 +348,7 @@ def project_new(request: Request, db: Session = Depends(get_db)):
         "status": ProjectStatus.planned.value,
         "priority": ProjectPriority.normal.value,
         "project_template_id": "",
-        "account_id": "",
+        "subscriber_id": "",
         "owner_person_id": "",
         "manager_person_id": "",
         "start_at": "",
@@ -342,23 +362,23 @@ def project_new(request: Request, db: Session = Depends(get_db)):
 @router.post("", response_class=HTMLResponse)
 async def project_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    attachments = form.getlist("attachments") if form else []
+    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     from app.web.admin import get_current_user
     current_user = get_current_user(request)
     project = {
-        "name": (form.get("name") or "").strip(),
-        "code": (form.get("code") or "").strip(),
-        "description": (form.get("description") or "").strip(),
-        "project_type": (form.get("project_type") or "").strip(),
-        "project_template_id": (form.get("project_template_id") or "").strip(),
-        "assigned_vendor_id": (form.get("assigned_vendor_id") or "").strip(),
-        "status": (form.get("status") or "").strip(),
-        "priority": (form.get("priority") or "").strip(),
-        "account_id": (form.get("account_id") or "").strip(),
-        "owner_person_id": (form.get("owner_person_id") or "").strip(),
-        "manager_person_id": (form.get("manager_person_id") or "").strip(),
-        "start_at": (form.get("start_at") or "").strip(),
-        "due_at": (form.get("due_at") or "").strip(),
+        "name": _form_str(form.get("name")).strip(),
+        "code": _form_str(form.get("code")).strip(),
+        "description": _form_str(form.get("description")).strip(),
+        "project_type": _form_str(form.get("project_type")).strip(),
+        "project_template_id": _form_str(form.get("project_template_id")).strip(),
+        "assigned_vendor_id": _form_str(form.get("assigned_vendor_id")).strip(),
+        "status": _form_str(form.get("status")).strip(),
+        "priority": _form_str(form.get("priority")).strip(),
+        "subscriber_id": _form_str(form.get("subscriber_id")).strip(),
+        "owner_person_id": _form_str(form.get("owner_person_id")).strip(),
+        "manager_person_id": _form_str(form.get("manager_person_id")).strip(),
+        "start_at": _form_str(form.get("start_at")).strip(),
+        "due_at": _form_str(form.get("due_at")).strip(),
         "is_active": form.get("is_active") == "true",
     }
     if not project["name"]:
@@ -381,8 +401,8 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
         payload_data["project_type"] = project["project_type"]
     if project["project_template_id"]:
         payload_data["project_template_id"] = project["project_template_id"]
-    if project["account_id"]:
-        payload_data["account_id"] = project["account_id"]
+    if project["subscriber_id"]:
+        payload_data["subscriber_id"] = project["subscriber_id"]
     if project["owner_person_id"]:
         payload_data["owner_person_id"] = project["owner_person_id"]
     if project["manager_person_id"]:
@@ -403,7 +423,7 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
         if saved_attachments:
             payload_data["metadata_"] = {"attachments": saved_attachments}
 
-        payload = ProjectCreate(**payload_data)
+        payload = ProjectCreate.model_validate(payload_data)
         created_project = projects_service.projects.create(db=db, payload=payload)
         _log_activity(
             db=db,
@@ -415,10 +435,12 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
             metadata={"name": created_project.name},
         )
         if project["assigned_vendor_id"]:
-            install_payload = InstallationProjectCreate(
-                project_id=created_project.id,
-                assigned_vendor_id=project["assigned_vendor_id"],
-                account_id=project["account_id"] or None,
+            install_payload = InstallationProjectCreate.model_validate(
+                {
+                    "project_id": created_project.id,
+                    "assigned_vendor_id": project["assigned_vendor_id"],
+                    "subscriber_id": project["subscriber_id"] or None,
+                }
             )
             vendor_service.installation_projects.create(db=db, payload=install_payload)
         return RedirectResponse("/admin/projects", status_code=303)
@@ -521,20 +543,20 @@ def project_task_new(request: Request, db: Session = Depends(get_db)):
 @router.post("/tasks", response_class=HTMLResponse)
 async def project_task_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    attachments = form.getlist("attachments") if form else []
+    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     from app.web.admin import get_current_user
     current_user = get_current_user(request)
     task = {
-        "project_id": (form.get("project_id") or "").strip(),
-        "title": (form.get("title") or "").strip(),
-        "description": (form.get("description") or "").strip(),
-        "status": (form.get("status") or "").strip(),
-        "priority": (form.get("priority") or "").strip(),
-        "assigned_to_person_id": (form.get("assigned_to_person_id") or "").strip(),
-        "created_by_person_id": (form.get("created_by_person_id") or "").strip(),
-        "start_at": (form.get("start_at") or "").strip(),
-        "due_at": (form.get("due_at") or "").strip(),
-        "effort_hours": (form.get("effort_hours") or "").strip(),
+        "project_id": _form_str(form.get("project_id")).strip(),
+        "title": _form_str(form.get("title")).strip(),
+        "description": _form_str(form.get("description")).strip(),
+        "status": _form_str(form.get("status")).strip(),
+        "priority": _form_str(form.get("priority")).strip(),
+        "assigned_to_person_id": _form_str(form.get("assigned_to_person_id")).strip(),
+        "created_by_person_id": _form_str(form.get("created_by_person_id")).strip(),
+        "start_at": _form_str(form.get("start_at")).strip(),
+        "due_at": _form_str(form.get("due_at")).strip(),
+        "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
     if not task["project_id"]:
         context = _task_form_context(
@@ -547,7 +569,7 @@ async def project_task_create(request: Request, db: Session = Depends(get_db)):
         )
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
-    payload_data = {
+    payload_data: dict[str, object] = {
         "project_id": task["project_id"],
         "title": task["title"],
         "status": task["status"] or TaskStatus.todo.value,
@@ -577,7 +599,7 @@ async def project_task_create(request: Request, db: Session = Depends(get_db)):
         if saved_attachments:
             payload_data["metadata_"] = {"attachments": saved_attachments}
 
-        payload = ProjectTaskCreate(**payload_data)
+        payload = ProjectTaskCreate.model_validate(payload_data)
         created_task = projects_service.project_tasks.create(db=db, payload=payload)
         _log_activity(
             db=db,
@@ -655,15 +677,33 @@ def _template_task_form_context(
 
 @router.get("/templates", response_class=HTMLResponse)
 def project_templates_list(request: Request, db: Session = Depends(get_db)):
-    template_items = projects_service.project_templates.list(
-        db=db,
-        project_type=None,
-        is_active=True,
-        order_by="name",
-        order_dir="asc",
-        limit=1000,
-        offset=0,
-    )
+    try:
+        template_items = projects_service.project_templates.list(
+            db=db,
+            project_type=None,
+            is_active=True,
+            order_by="name",
+            order_dir="asc",
+            limit=1000,
+            offset=0,
+        )
+    except Exception:
+        # Fallback to raw query to avoid enum coercion failures
+        rows = (
+            db.execute(
+                text(
+                    """
+                    select id, name, project_type, description, is_active
+                    from project_templates
+                    where is_active = true
+                    order by name asc
+                    """
+                )
+            )
+            .mappings()
+            .all()
+        )
+        template_items = [dict(row) for row in rows]
     from app.web.admin import get_sidebar_stats, get_current_user
     return templates.TemplateResponse(
         "admin/projects/project_templates.html",
@@ -692,9 +732,9 @@ def project_template_new(request: Request, db: Session = Depends(get_db)):
 async def project_template_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     template = {
-        "name": (form.get("name") or "").strip(),
-        "project_type": (form.get("project_type") or "").strip(),
-        "description": (form.get("description") or "").strip(),
+        "name": _form_str(form.get("name")).strip(),
+        "project_type": _form_str(form.get("project_type")).strip(),
+        "description": _form_str(form.get("description")).strip(),
         "is_active": form.get("is_active") == "true",
     }
     if not template["name"]:
@@ -711,7 +751,7 @@ async def project_template_create(request: Request, db: Session = Depends(get_db
     if template["description"]:
         payload_data["description"] = template["description"]
     try:
-        payload = ProjectTemplateCreate(**payload_data)
+        payload = ProjectTemplateCreate.model_validate(payload_data)
         projects_service.project_templates.create(db=db, payload=payload)
         return RedirectResponse("/admin/projects/templates", status_code=303)
     except Exception as exc:
@@ -794,9 +834,9 @@ async def project_template_update(request: Request, template_id: str, db: Sessio
     form = await request.form()
     template = {
         "id": template_id,
-        "name": (form.get("name") or "").strip(),
-        "project_type": (form.get("project_type") or "").strip(),
-        "description": (form.get("description") or "").strip(),
+        "name": _form_str(form.get("name")).strip(),
+        "project_type": _form_str(form.get("project_type")).strip(),
+        "description": _form_str(form.get("description")).strip(),
         "is_active": form.get("is_active") == "true",
     }
     if not template["name"]:
@@ -815,7 +855,7 @@ async def project_template_update(request: Request, template_id: str, db: Sessio
         "is_active": template["is_active"],
     }
     try:
-        payload = ProjectTemplateUpdate(**payload_data)
+        payload = ProjectTemplateUpdate.model_validate(payload_data)
         projects_service.project_templates.update(db=db, template_id=template_id, payload=payload)
         return RedirectResponse(f"/admin/projects/templates/{template_id}", status_code=303)
     except Exception as exc:
@@ -858,9 +898,9 @@ def project_template_task_new(request: Request, template_id: str, db: Session = 
 async def project_template_task_create(request: Request, template_id: str, db: Session = Depends(get_db)):
     form = await request.form()
     task = {
-        "title": (form.get("title") or "").strip(),
-        "description": (form.get("description") or "").strip(),
-        "sort_order": (form.get("sort_order") or "").strip(),
+        "title": _form_str(form.get("title")).strip(),
+        "description": _form_str(form.get("description")).strip(),
+        "sort_order": _form_str(form.get("sort_order")).strip(),
     }
     if not task["title"]:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
@@ -873,7 +913,7 @@ async def project_template_task_create(request: Request, template_id: str, db: S
             "Title is required.",
         )
         return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
-    payload_data = {
+    payload_data: dict[str, object] = {
         "template_id": template_id,
         "title": task["title"],
         "description": task["description"] or None,
@@ -895,7 +935,7 @@ async def project_template_task_create(request: Request, template_id: str, db: S
                 "admin/projects/project_template_task_form.html", context
             )
     try:
-        payload = ProjectTemplateTaskCreate(**payload_data)
+        payload = ProjectTemplateTaskCreate.model_validate(payload_data)
         projects_service.project_template_tasks.create(db=db, payload=payload)
         return RedirectResponse(f"/admin/projects/templates/{template_id}", status_code=303)
     except Exception as exc:
@@ -966,9 +1006,9 @@ async def project_template_task_update(
         }
         return templates.TemplateResponse("admin/errors/404.html", context, status_code=404)
     task = {
-        "title": (form.get("title") or "").strip(),
-        "description": (form.get("description") or "").strip(),
-        "sort_order": (form.get("sort_order") or "").strip(),
+        "title": _form_str(form.get("title")).strip(),
+        "description": _form_str(form.get("description")).strip(),
+        "sort_order": _form_str(form.get("sort_order")).strip(),
     }
     if not task["title"]:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
@@ -981,7 +1021,7 @@ async def project_template_task_update(
             "Title is required.",
         )
         return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
-    payload_data = {
+    payload_data: dict[str, object] = {
         "title": task["title"],
         "description": task["description"] or None,
     }
@@ -1002,7 +1042,7 @@ async def project_template_task_update(
                 "admin/projects/project_template_task_form.html", context
             )
     try:
-        payload = ProjectTemplateTaskUpdate(**payload_data)
+        payload = ProjectTemplateTaskUpdate.model_validate(payload_data)
         projects_service.project_template_tasks.update(db=db, task_id=task_id, payload=payload)
         return RedirectResponse(f"/admin/projects/templates/{template_id}", status_code=303)
     except Exception as exc:
@@ -1096,7 +1136,7 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
         db=db,
         status=None,
         vendor_id=None,
-        account_id=None,
+        subscriber_id=None,
         project_id=project_id,
         is_active=None,
         order_by="created_at",
@@ -1133,8 +1173,8 @@ async def project_comment_create(
 ):
     from app.web.admin import get_current_user, get_sidebar_stats
     form = await request.form()
-    body = (form.get("body") or "").strip()
-    attachments = form.getlist("attachments") if form else []
+    body = _form_str(form.get("body")).strip()
+    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     if not body:
         return RedirectResponse(f"/admin/projects/{project_id}", status_code=303)
     prepared_attachments: list[dict] = []
@@ -1144,11 +1184,13 @@ async def project_comment_create(
         prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
         current_user = get_current_user(request)
-        payload = ProjectCommentCreate(
-            project_id=project_id,
-            author_person_id=current_user.get("person_id") or None,
-            body=body,
-            attachments=saved_attachments or None,
+        payload = ProjectCommentCreate.model_validate(
+            {
+                "project_id": project_id,
+                "author_person_id": current_user.get("person_id") or None,
+                "body": body,
+                "attachments": saved_attachments or None,
+            }
         )
         projects_service.project_comments.create(db=db, payload=payload)
         _log_activity(
@@ -1175,26 +1217,19 @@ async def project_comment_create(
 
 def _get_project_labels(db: Session, project, assigned_vendor_id: str | None = None) -> dict:
     """Build labels for project typeahead pre-population."""
-    labels = {
-        "account_label": None,
+    labels: dict[str, str | None] = {
+        "subscriber_label": None,
         "assigned_vendor_label": None,
         "owner_label": None,
         "manager_label": None,
     }
     if project:
-        if project.account:
-            account = project.account
-            if account.subscriber and account.subscriber.person:
-                if account.subscriber.person.organization:
-                    base = account.subscriber.person.organization.name
-                else:
-                    base = f"{account.subscriber.person.first_name} {account.subscriber.person.last_name}"
+        if project.subscriber:
+            base = project.subscriber.display_name
+            if project.subscriber.subscriber_number:
+                labels["subscriber_label"] = f"{base} ({project.subscriber.subscriber_number})"
             else:
-                base = "Account"
-            if account.account_number:
-                labels["account_label"] = f"{base} ({account.account_number})"
-            else:
-                labels["account_label"] = base
+                labels["subscriber_label"] = base
         if project.owner:
             labels["owner_label"] = f"{project.owner.first_name} {project.owner.last_name}"
         if project.manager:
@@ -1232,7 +1267,7 @@ def project_edit(request: Request, project_id: str, db: Session = Depends(get_db
         "assigned_vendor_id": "",
         "status": project.status.value if project.status else ProjectStatus.planned.value,
         "priority": project.priority.value if project.priority else ProjectPriority.normal.value,
-        "account_id": str(project.account_id) if project.account_id else "",
+        "subscriber_id": str(project.subscriber_id) if project.subscriber_id else "",
         "owner_person_id": str(project.owner_person_id) if project.owner_person_id else "",
         "manager_person_id": str(project.manager_person_id) if project.manager_person_id else "",
         "start_at": _fmt_dt(project.start_at),
@@ -1243,7 +1278,7 @@ def project_edit(request: Request, project_id: str, db: Session = Depends(get_db
         db=db,
         status=None,
         vendor_id=None,
-        account_id=None,
+        subscriber_id=None,
         project_id=project_id,
         is_active=None,
         order_by="created_at",
@@ -1270,19 +1305,19 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
     current_user = get_current_user(request)
     project = {
         "id": project_id,
-        "name": (form.get("name") or "").strip(),
-        "code": (form.get("code") or "").strip(),
-        "description": (form.get("description") or "").strip(),
-        "project_type": (form.get("project_type") or "").strip(),
-        "project_template_id": (form.get("project_template_id") or "").strip(),
-        "assigned_vendor_id": (form.get("assigned_vendor_id") or "").strip(),
-        "status": (form.get("status") or "").strip(),
-        "priority": (form.get("priority") or "").strip(),
-        "account_id": (form.get("account_id") or "").strip(),
-        "owner_person_id": (form.get("owner_person_id") or "").strip(),
-        "manager_person_id": (form.get("manager_person_id") or "").strip(),
-        "start_at": (form.get("start_at") or "").strip(),
-        "due_at": (form.get("due_at") or "").strip(),
+        "name": _form_str(form.get("name")).strip(),
+        "code": _form_str(form.get("code")).strip(),
+        "description": _form_str(form.get("description")).strip(),
+        "project_type": _form_str(form.get("project_type")).strip(),
+        "project_template_id": _form_str(form.get("project_template_id")).strip(),
+        "assigned_vendor_id": _form_str(form.get("assigned_vendor_id")).strip(),
+        "status": _form_str(form.get("status")).strip(),
+        "priority": _form_str(form.get("priority")).strip(),
+        "subscriber_id": _form_str(form.get("subscriber_id")).strip(),
+        "owner_person_id": _form_str(form.get("owner_person_id")).strip(),
+        "manager_person_id": _form_str(form.get("manager_person_id")).strip(),
+        "start_at": _form_str(form.get("start_at")).strip(),
+        "due_at": _form_str(form.get("due_at")).strip(),
         "is_active": form.get("is_active") == "true",
     }
     if not project["name"]:
@@ -1304,8 +1339,8 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
     if project["project_type"]:
         payload_data["project_type"] = project["project_type"]
     payload_data["project_template_id"] = project["project_template_id"] or None
-    if project["account_id"]:
-        payload_data["account_id"] = project["account_id"]
+    if project["subscriber_id"]:
+        payload_data["subscriber_id"] = project["subscriber_id"]
     if project["owner_person_id"]:
         payload_data["owner_person_id"] = project["owner_person_id"]
     if project["manager_person_id"]:
@@ -1316,7 +1351,7 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
         payload_data["due_at"] = project["due_at"]
 
     try:
-        payload = ProjectUpdate(**payload_data)
+        payload = ProjectUpdate.model_validate(payload_data)
         before = projects_service.projects.get(db=db, project_id=project_id)
         after = projects_service.projects.update(db=db, project_id=project_id, payload=payload)
         metadata_payload = build_changes_metadata(before, after)
@@ -1334,7 +1369,7 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
                 db=db,
                 status=None,
                 vendor_id=None,
-                account_id=None,
+                subscriber_id=None,
                 project_id=project_id,
                 is_active=None,
                 order_by="created_at",
@@ -1343,17 +1378,19 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
                 offset=0,
             )
             if install_projects:
-                update_payload = InstallationProjectUpdate(
-                    assigned_vendor_id=project["assigned_vendor_id"]
+                update_payload = InstallationProjectUpdate.model_validate(
+                    {"assigned_vendor_id": project["assigned_vendor_id"]}
                 )
                 vendor_service.installation_projects.update(
                     db=db, project_id=str(install_projects[0].id), payload=update_payload
                 )
             else:
-                install_payload = InstallationProjectCreate(
-                    project_id=project_id,
-                    assigned_vendor_id=project["assigned_vendor_id"],
-                    account_id=project["account_id"] or None,
+                install_payload = InstallationProjectCreate.model_validate(
+                    {
+                        "project_id": project_id,
+                        "assigned_vendor_id": project["assigned_vendor_id"],
+                        "subscriber_id": project["subscriber_id"] or None,
+                    }
                 )
                 vendor_service.installation_projects.create(db=db, payload=install_payload)
         return RedirectResponse(f"/admin/projects/{project_id}", status_code=303)
@@ -1433,8 +1470,8 @@ def project_task_detail(request: Request, task_id: str, db: Session = Depends(ge
 async def project_task_comment_create(request: Request, task_id: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
     form = await request.form()
-    body = (form.get("body") or "").strip()
-    attachments = form.getlist("attachments") if form else []
+    body = _form_str(form.get("body")).strip()
+    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     if not body:
         return RedirectResponse(f"/admin/projects/tasks/{task_id}", status_code=303)
     prepared_attachments: list[dict] = []
@@ -1444,11 +1481,13 @@ async def project_task_comment_create(request: Request, task_id: str, db: Sessio
         prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
         current_user = get_current_user(request)
-        payload = ProjectTaskCommentCreate(
-            task_id=task_id,
-            author_person_id=current_user.get("person_id") or None,
-            body=body,
-            attachments=saved_attachments or None,
+        payload = ProjectTaskCommentCreate.model_validate(
+            {
+                "task_id": task_id,
+                "author_person_id": current_user.get("person_id") or None,
+                "body": body,
+                "attachments": saved_attachments or None,
+            }
         )
         projects_service.project_task_comments.create(db=db, payload=payload)
         _log_activity(
@@ -1513,16 +1552,16 @@ async def project_task_update(request: Request, task_id: str, db: Session = Depe
     current_user = get_current_user(request)
     task = {
         "id": task_id,
-        "project_id": (form.get("project_id") or "").strip(),
-        "title": (form.get("title") or "").strip(),
-        "description": (form.get("description") or "").strip(),
-        "status": (form.get("status") or "").strip(),
-        "priority": (form.get("priority") or "").strip(),
-        "assigned_to_person_id": (form.get("assigned_to_person_id") or "").strip(),
-        "created_by_person_id": (form.get("created_by_person_id") or "").strip(),
-        "start_at": (form.get("start_at") or "").strip(),
-        "due_at": (form.get("due_at") or "").strip(),
-        "effort_hours": (form.get("effort_hours") or "").strip(),
+        "project_id": _form_str(form.get("project_id")).strip(),
+        "title": _form_str(form.get("title")).strip(),
+        "description": _form_str(form.get("description")).strip(),
+        "status": _form_str(form.get("status")).strip(),
+        "priority": _form_str(form.get("priority")).strip(),
+        "assigned_to_person_id": _form_str(form.get("assigned_to_person_id")).strip(),
+        "created_by_person_id": _form_str(form.get("created_by_person_id")).strip(),
+        "start_at": _form_str(form.get("start_at")).strip(),
+        "due_at": _form_str(form.get("due_at")).strip(),
+        "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
     if not task["project_id"]:
         context = _task_form_context(
@@ -1555,7 +1594,7 @@ async def project_task_update(request: Request, task_id: str, db: Session = Depe
         payload_data["effort_hours"] = task["effort_hours"]
 
     try:
-        payload = ProjectTaskUpdate(**payload_data)
+        payload = ProjectTaskUpdate.model_validate(payload_data)
         before = projects_service.project_tasks.get(db=db, task_id=task_id)
         after = projects_service.project_tasks.update(db=db, task_id=task_id, payload=payload)
         metadata_payload = build_changes_metadata(before, after)

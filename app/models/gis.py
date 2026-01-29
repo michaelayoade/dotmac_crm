@@ -16,6 +16,8 @@ class GeoLocationType(enum.Enum):
     site = "site"
     customer = "customer"
     asset = "asset"
+    network_device = "network_device"
+    fdh = "fdh"
     custom = "custom"
 
 
@@ -53,10 +55,16 @@ class GeoLocation(Base):
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     geom = mapped_column(Geometry("POINT", srid=4326), nullable=True)
     address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
+        UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
     pop_site_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("pop_sites.id")
+        UUID(as_uuid=True), nullable=True  # FK to pop_sites removed
+    )
+    olt_device_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    fdh_cabinet_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
     )
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     tags: Mapped[list[str] | None] = mapped_column(JSON)
@@ -70,8 +78,9 @@ class GeoLocation(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
-    address = relationship("Address")
-    pop_site = relationship("PopSite")
+    # Relationships to removed models commented out
+    # address = relationship("Address")
+    # pop_site = relationship("PopSite")
 
 
 class ServiceBuilding(Base):

@@ -552,11 +552,6 @@
                  class="text-sm text-slate-500">
                 Loading ticket form...
             </div>
-            <div x-show="sidePanel === 'service-order'"
-                 id="service-order-create-panel-body"
-                 class="text-sm text-slate-500">
-                Loading service order form...
-            </div>
         </div>
         <div class="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4 dark:border-slate-700">
             <button type="button"
@@ -569,12 +564,6 @@
                     form="ticket-create-form"
                     class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900">
                 Create Ticket
-            </button>
-            <button x-show="sidePanel === 'service-order'"
-                    type="submit"
-                    form="service-order-create-form"
-                    class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900">
-                Create Order
             </button>
         </div>
     </aside>
@@ -598,6 +587,7 @@ function inboxController() {
         inboxWs: null,
         refreshTimer: null,
         refreshDelayMs: 250,
+        pendingAttachments: [],
         init() {
             // Setup HTMX event listeners
             document.body.addEventListener('htmx:afterSwap', (e) => {
@@ -610,9 +600,6 @@ function inboxController() {
                 }
             });
             document.body.addEventListener('htmx:beforeRequest', (e) => {
-                if (e.detail.target && e.detail.target.id === 'service-order-create-panel-body') {
-                    this.openServiceOrderPanel();
-                }
                 if (e.detail.target && e.detail.target.id === 'ticket-create-panel-body') {
                     this.openTicketPanel();
                 }
@@ -646,9 +633,9 @@ function inboxController() {
                 this.wsConnected = false;
             });
 
-            // Fallback polling - only when WebSocket is not connected
+            // Fallback polling - always keep comments refreshed
             setInterval(() => {
-                if (!document.hidden && !this.wsConnected) {
+                if (!document.hidden) {
                     this.autoRefresh();
                 }
             }, 30000);
@@ -682,6 +669,109 @@ function inboxController() {
             return sessionStorage.getItem('access_token') ||
                    document.cookie.split('; ').find(row => row.startsWith('session_token='))?.split('=')[1] ||
                    null;
+        },
+
+        getCsrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta && meta.content) return meta.content;
+            const match = document.cookie.match(/csrf_token=([^;]+)/);
+            return match ? match[1] : '';
+        },
+
+        submitPrivateNote(event) {
+            const form = event.target;
+            const bodyField = form.querySelector('textarea[name="body"]');
+            const visibilityField = form.querySelector('select[name="visibility"]');
+            const errorEl = form.querySelector('[data-private-note-error]');
+            if (errorEl) errorEl.textContent = '';
+
+            const body = bodyField ? bodyField.value : '';
+            const visibility = visibilityField ? visibilityField.value : null;
+            const token = this.getCsrfToken();
+
+            fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/html',
+                    'X-CSRF-Token': token || ''
+                },
+                body: JSON.stringify({ body, visibility, attachments: this.pendingAttachments })
+            })
+            .then(async (response) => {
+                if (!response.ok) {
+                    let detail = 'Unable to save note';
+                    try {
+                        const data = await response.json();
+                        detail = data.detail || detail;
+                    } catch (err) {}
+                    throw new Error(detail);
+                }
+                return response.text();
+            })
+            .then((html) => {
+                if (html) {
+                    const list = document.querySelector('#message-list');
+                    if (list) {
+                        list.insertAdjacentHTML('beforeend', html);
+                        this.scrollToBottom();
+                    }
+                }
+                if (bodyField) bodyField.value = '';
+                this.pendingAttachments = [];
+                const hidden = document.querySelector('input[name="attachments"]');
+                if (hidden) hidden.value = '';
+            })
+            .catch((err) => {
+                if (errorEl) errorEl.textContent = err.message;
+            });
+        },
+
+        uploadAttachments(event) {
+            if (!this.selectedConversation) {
+                console.warn('[Inbox] No conversation selected for attachments');
+                return;
+            }
+            const files = event.target.files;
+            if (!files || !files.length) return;
+            const token = this.getCsrfToken();
+            const formData = new FormData();
+            Array.from(files).forEach((file) => formData.append('files', file));
+
+            fetch(`/admin/crm/inbox/conversation/${this.selectedConversation}/attachments`, {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': token || '' },
+                body: formData
+            })
+            .then(async (response) => {
+                if (!response.ok) {
+                    let detail = 'Upload failed';
+                    try {
+                        const data = await response.json();
+                        detail = data.detail || detail;
+                    } catch (err) {}
+                    throw new Error(detail);
+                }
+                return response.json();
+            })
+            .then((data) => {
+                const attachments = data.attachments || [];
+                this.pendingAttachments = [...this.pendingAttachments, ...attachments];
+                const hidden = document.querySelector('input[name="attachments"]');
+                if (hidden) hidden.value = JSON.stringify(this.pendingAttachments);
+            })
+            .catch((err) => {
+                console.error('[Inbox] attachment upload failed', err);
+            })
+            .finally(() => {
+                event.target.value = '';
+            });
+        },
+
+        removeAttachment(index) {
+            this.pendingAttachments = this.pendingAttachments.filter((_, idx) => idx !== index);
+            const hidden = document.querySelector('input[name="attachments"]');
+            if (hidden) hidden.value = JSON.stringify(this.pendingAttachments);
         },
 
         setChannel(channel) {
@@ -819,15 +909,6 @@ function inboxController() {
             this.closeSidePanel();
         },
 
-        openServiceOrderPanel() {
-            this.sidePanel = 'service-order';
-            this.showContactPanel = false;
-        },
-
-        closeServiceOrderPanel() {
-            this.closeSidePanel();
-        },
-
         refreshConversations() {
             if (this.currentChannel === 'comments') {
                 return;
@@ -933,7 +1014,7 @@ function inboxController() {
             const nextState = !this.showContactPanel;
             this.showContactPanel = nextState;
             if (nextState && this.selectedContactId) {
-                htmx.ajax('GET', `/admin/crm/inbox/contact/${this.selectedContactId}`, {
+                htmx.ajax('GET', `/admin/crm/inbox/contact/${this.selectedContactId}?conversation_id=${this.selectedConversation || ''}`, {
                     target: '#contact-details',
                     swap: 'innerHTML transition:false'
                 });
@@ -943,7 +1024,7 @@ function inboxController() {
         openContactPanel(contactId) {
             this.selectedContactId = contactId;
             this.showContactPanel = true;
-            htmx.ajax('GET', `/admin/crm/inbox/contact/${contactId}`, {
+            htmx.ajax('GET', `/admin/crm/inbox/contact/${contactId}?conversation_id=${this.selectedConversation || ''}`, {
                 target: '#contact-details',
                 swap: 'innerHTML transition:false'
             });

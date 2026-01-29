@@ -594,60 +594,6 @@ def test_receive_facebook_message_reuses_person_across_sender_ids(db_session):
     assert db_session.query(Person).count() == initial_count
 
 
-def test_receive_facebook_message_links_by_account(db_session, subscriber_account):
-    """FB messages should reuse account-linked person when account_id is provided."""
-    from app.schemas.crm.inbox import FacebookMessengerWebhookPayload
-
-    payload = FacebookMessengerWebhookPayload(
-        contact_address="fb_user_2",
-        message_id="m_fb_2",
-        page_id="page_123",
-        body="Hi from FB account",
-        received_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        metadata={"account_id": str(subscriber_account.id)},
-    )
-
-    message = meta_webhooks.receive_facebook_message(db_session, payload)
-
-    assert message.conversation.person_id == subscriber_account.subscriber.person_id
-
-
-def test_receive_facebook_message_applies_account_from_email_metadata(
-    db_session,
-    subscriber_account,
-):
-    """FB messages should apply account metadata when email links to an account."""
-    from app.models.subscriber import AccountRole, AccountRoleType
-    from app.schemas.crm.inbox import FacebookMessengerWebhookPayload
-
-    person = subscriber_account.subscriber.person
-    person.email = "fb-account@example.com"
-    db_session.add(
-        AccountRole(
-            account_id=subscriber_account.id,
-            person_id=person.id,
-            role=AccountRoleType.primary,
-        )
-    )
-    db_session.commit()
-    db_session.refresh(person)
-
-    payload = FacebookMessengerWebhookPayload(
-        contact_address="fb_user_3",
-        message_id="m_fb_3",
-        page_id="page_123",
-        body="Hi from FB account via email",
-        received_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        metadata={"email": "fb-account@example.com"},
-    )
-
-    message = meta_webhooks.receive_facebook_message(db_session, payload)
-
-    db_session.refresh(person)
-    assert message.conversation.person_id == person.id
-    assert person.metadata_.get("account_id") == str(subscriber_account.id)
-
-
 # =============================================================================
 # Edge Case Tests
 # =============================================================================

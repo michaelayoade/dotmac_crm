@@ -8,7 +8,7 @@ from app.services.crm.conversation import (
     resolve_conversation_contact,
     resolve_open_conversation,
 )
-from app.services.crm.team import Teams, Agents, AgentTeams, TeamChannels, RoutingRules
+from app.services.crm.team import Teams, Agents, AgentTeams, TeamChannels, RoutingRules, get_agent_labels, get_agent_team_options
 from app.services.crm.sales import Pipelines, PipelineStages, Leads, Quotes, CrmQuoteLineItems
 from app.services.crm import inbox
 

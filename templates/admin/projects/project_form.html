@@ -73,13 +73,13 @@
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Account</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/accounts">
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Subscriber</label>
+                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/subscribers">
                             <input type="text" data-typeahead-input
-                                   value="{{ account_label or '' }}"
+                                   value="{{ subscriber_label or '' }}"
                                    class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                                   placeholder="Search accounts...">
-                            <input type="hidden" name="account_id" data-typeahead-hidden value="{{ project.account_id or '' }}">
+                                   placeholder="Search subscribers...">
+                            <input type="hidden" name="subscriber_id" data-typeahead-hidden value="{{ project.subscriber_id or '' }}">
                             <div data-typeahead-results></div>
                         </div>
                     </div>

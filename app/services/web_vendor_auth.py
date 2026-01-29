@@ -37,7 +37,7 @@ def vendor_login_submit(
             response = RedirectResponse(url="/vendor/auth/mfa", status_code=303)
             response.set_cookie(
                 key="vendor_mfa_pending",
-                value=result.get("mfa_token", ""),
+                value=str(result.get("mfa_token", "")),
                 httponly=True,
                 secure=True,
                 samesite="lax",
@@ -58,7 +58,7 @@ def vendor_login_submit(
         max_age = vendor_portal.get_remember_max_age(db) if remember else vendor_portal.get_session_max_age(db)
         response.set_cookie(
             key=vendor_portal.SESSION_COOKIE_NAME,
-            value=session_token,
+            value=str(session_token or ""),
             httponly=True,
             secure=True,
             samesite="lax",
@@ -101,7 +101,7 @@ def vendor_mfa_submit(
         response.delete_cookie("vendor_mfa_remember")
         response.set_cookie(
             key=vendor_portal.SESSION_COOKIE_NAME,
-            value=session_token,
+            value=str(session_token or ""),
             httponly=True,
             secure=True,
             samesite="lax",
@@ -143,7 +143,7 @@ def vendor_refresh(request: Request):
     response = Response(status_code=204)
     response.set_cookie(
         key=vendor_portal.SESSION_COOKIE_NAME,
-        value=session_token,
+        value=session_token or "",
         httponly=True,
         secure=True,
         samesite="lax",

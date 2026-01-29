@@ -1,5 +1,7 @@
 """Service helpers for vendor portal routes."""
 
+import uuid
+
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.responses import RedirectResponse
@@ -13,6 +15,19 @@ from app.models.rbac import PersonRole, Role
 templates = Jinja2Templates(directory="templates")
 
 _VENDOR_ROLE_NAME = "vendors"
+
+
+def _coerce_float(value: object | None, default: float) -> float:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return default
+    return default
 
 
 def _require_vendor_context(request: Request, db: Session):
@@ -165,15 +180,18 @@ def vendor_fiber_map(request: Request, db: Session):
         FdhCabinet.latitude.isnot(None),
         FdhCabinet.longitude.isnot(None)
     ).all()
-    splitter_counts = {}
+    splitter_counts: dict[uuid.UUID | None, int] = {}
     if fdh_cabinets:
         fdh_ids = [fdh.id for fdh in fdh_cabinets]
-        splitter_counts = dict(
-            db.query(Splitter.fdh_id, func.count(Splitter.id))
-            .filter(Splitter.fdh_id.in_(fdh_ids))
-            .group_by(Splitter.fdh_id)
-            .all()
-        )
+        splitter_counts = {
+            row[0]: row[1]
+            for row in (
+                db.query(Splitter.fdh_id, func.count(Splitter.id))
+                .filter(Splitter.fdh_id.in_(fdh_ids))
+                .group_by(Splitter.fdh_id)
+                .all()
+            )
+        }
     for fdh in fdh_cabinets:
         splitter_count = splitter_counts.get(fdh.id, 0)
         features.append({
@@ -194,22 +212,28 @@ def vendor_fiber_map(request: Request, db: Session):
         FiberSpliceClosure.latitude.isnot(None),
         FiberSpliceClosure.longitude.isnot(None)
     ).all()
-    splice_counts = {}
-    tray_counts = {}
+    splice_counts: dict[uuid.UUID | None, int] = {}
+    tray_counts: dict[uuid.UUID | None, int] = {}
     if closures:
         closure_ids = [closure.id for closure in closures]
-        splice_counts = dict(
-            db.query(FiberSplice.closure_id, func.count(FiberSplice.id))
-            .filter(FiberSplice.closure_id.in_(closure_ids))
-            .group_by(FiberSplice.closure_id)
-            .all()
-        )
-        tray_counts = dict(
-            db.query(FiberSpliceTray.closure_id, func.count(FiberSpliceTray.id))
-            .filter(FiberSpliceTray.closure_id.in_(closure_ids))
-            .group_by(FiberSpliceTray.closure_id)
-            .all()
-        )
+        splice_counts = {
+            row[0]: row[1]
+            for row in (
+                db.query(FiberSplice.closure_id, func.count(FiberSplice.id))
+                .filter(FiberSplice.closure_id.in_(closure_ids))
+                .group_by(FiberSplice.closure_id)
+                .all()
+            )
+        }
+        tray_counts = {
+            row[0]: row[1]
+            for row in (
+                db.query(FiberSpliceTray.closure_id, func.count(FiberSpliceTray.id))
+                .filter(FiberSpliceTray.closure_id.in_(closure_ids))
+                .group_by(FiberSpliceTray.closure_id)
+                .all()
+            )
+        }
     for closure in closures:
         splice_count = splice_counts.get(closure.id, 0)
         tray_count = tray_counts.get(closure.id, 0)
@@ -262,11 +286,32 @@ def vendor_fiber_map(request: Request, db: Session):
     }
 
     cost_settings = {
-        "drop_cable_per_meter": float(settings_spec.resolve_value(db, SettingDomain.network, "fiber_drop_cable_cost_per_meter") or "2.50"),
-        "labor_per_meter": float(settings_spec.resolve_value(db, SettingDomain.network, "fiber_labor_cost_per_meter") or "1.50"),
-        "ont_device": float(settings_spec.resolve_value(db, SettingDomain.network, "fiber_ont_device_cost") or "85.00"),
-        "installation_base": float(settings_spec.resolve_value(db, SettingDomain.network, "fiber_installation_base_fee") or "50.00"),
-        "currency": settings_spec.resolve_value(db, SettingDomain.billing, "default_currency") or "NGN",
+        "drop_cable_per_meter": _coerce_float(
+            settings_spec.resolve_value(
+                db, SettingDomain.network, "fiber_drop_cable_cost_per_meter"
+            ),
+            2.50,
+        ),
+        "labor_per_meter": _coerce_float(
+            settings_spec.resolve_value(
+                db, SettingDomain.network, "fiber_labor_cost_per_meter"
+            ),
+            1.50,
+        ),
+        "ont_device": _coerce_float(
+            settings_spec.resolve_value(db, SettingDomain.network, "fiber_ont_device_cost"),
+            85.00,
+        ),
+        "installation_base": _coerce_float(
+            settings_spec.resolve_value(
+                db, SettingDomain.network, "fiber_installation_base_fee"
+            ),
+            50.00,
+        ),
+        "currency": str(
+            settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
+            or "NGN"
+        ),
     }
 
     return templates.TemplateResponse(

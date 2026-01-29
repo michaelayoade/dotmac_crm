@@ -17,7 +17,7 @@ class WirelessMast(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     pop_site_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("pop_sites.id")
+        UUID(as_uuid=True), nullable=True  # FK to pop_sites removed
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
@@ -31,7 +31,7 @@ class WirelessMast(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", MutableDict.as_mutable(JSON)
+        "metadata", MutableDict.as_mutable(JSON())
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -43,4 +43,4 @@ class WirelessMast(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    pop_site = relationship("PopSite", back_populates="masts")
+    # pop_site = relationship("PopSite", back_populates="masts")  # Model removed

@@ -15,13 +15,13 @@ class BandwidthSample(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     subscription_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id"), nullable=False
+        UUID(as_uuid=True), nullable=False  # FK to subscriptions removed
     )
     device_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("network_devices.id")
+        UUID(as_uuid=True), nullable=True  # FK to network_devices removed
     )
     interface_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("device_interfaces.id")
+        UUID(as_uuid=True), nullable=True  # FK to device_interfaces removed
     )
     rx_bps: Mapped[int] = mapped_column(Integer, default=0)
     tx_bps: Mapped[int] = mapped_column(Integer, default=0)
@@ -31,9 +31,10 @@ class BandwidthSample(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    subscription = relationship("Subscription", back_populates="bandwidth_samples")
-    device = relationship("NetworkDevice")
-    interface = relationship("DeviceInterface")
+    # Relationships to removed models commented out
+    # subscription = relationship("Subscription", back_populates="bandwidth_samples")
+    # device = relationship("NetworkDevice")
+    # interface = relationship("DeviceInterface")
 
 
 class QueueMapping(Base):
@@ -52,11 +53,11 @@ class QueueMapping(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     nas_device_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("nas_devices.id"), nullable=False
+        UUID(as_uuid=True), nullable=False  # FK to nas_devices removed
     )
     queue_name: Mapped[str] = mapped_column(String(255), nullable=False)
     subscription_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id"), nullable=False
+        UUID(as_uuid=True), nullable=False  # FK to subscriptions removed
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -69,5 +70,5 @@ class QueueMapping(Base):
         onupdate=lambda: datetime.now(timezone.utc)
     )
 
-    nas_device = relationship("NasDevice")
-    subscription = relationship("Subscription")
+    # nas_device = relationship("NasDevice")  # Model removed
+    # subscription = relationship("Subscription")  # Model removed

@@ -1,31 +1,5 @@
 from app.models.auth import ApiKey, MFAMethod, Session, UserCredential  # noqa: F401
 from app.models.audit import AuditActorType, AuditEvent  # noqa: F401
-from app.models.billing import (  # noqa: F401
-    BankAccount,
-    BankAccountType,
-    BillingRun,
-    BillingRunStatus,
-    CreditNote,
-    CreditNoteApplication,
-    CreditNoteLine,
-    CreditNoteStatus,
-    Invoice,
-    InvoiceLine,
-    InvoiceStatus,
-    LedgerEntry,
-    LedgerEntryType,
-    LedgerSource,
-    Payment,
-    PaymentMethod,
-    PaymentMethodType,
-    PaymentProvider,
-    PaymentProviderEvent,
-    PaymentProviderEventStatus,
-    PaymentProviderType,
-    PaymentStatus,
-    TaxApplication,
-    TaxRate,
-)
 from app.models.sales_order import (  # noqa: F401
     SalesOrder,
     SalesOrderLine,
@@ -45,66 +19,7 @@ from app.models.notification import (  # noqa: F401
     OnCallRotation,
     OnCallRotationMember,
 )
-from app.models.catalog import (  # noqa: F401
-    AccessCredential,
-    AccessType,
-    AddOn,
-    AddOnPrice,
-    AddOnType,
-    BillingCycle,
-    CatalogOffer,
-    ConfigBackupMethod,
-    ConnectionType,
-    ContractTerm,
-    DunningAction,
-    NasConfigBackup,
-    NasDevice,
-    NasDeviceStatus,
-    NasVendor,
-    OfferAddOn,
-    OfferPrice,
-    OfferRadiusProfile,
-    OfferStatus,
-    OfferVersion,
-    OfferVersionPrice,
-    PolicyDunningStep,
-    PolicySet,
-    PriceBasis,
-    PriceType,
-    PriceUnit,
-    ProrationPolicy,
-    ProvisioningAction,
-    ProvisioningLog,
-    ProvisioningTemplate,
-    RadiusAttribute,
-    RadiusProfile,
-    RefundPolicy,
-    RegionZone,
-    ServiceType,
-    SlaProfile,
-    Subscription,
-    SubscriptionAddOn,
-    SubscriptionStatus,
-    SuspensionAction,
-    UsageAllowance,
-)
-from app.models.sla_credit import (  # noqa: F401
-    SlaCreditItem,
-    SlaCreditReport,
-    SlaCreditReportStatus,
-)
-from app.models.radius import (  # noqa: F401
-    RadiusClient,
-    RadiusServer,
-    RadiusSyncJob,
-    RadiusSyncRun,
-    RadiusSyncStatus,
-    RadiusUser,
-)
 from app.models.network import (  # noqa: F401
-    CPEDevice,
-    DeviceStatus,
-    DeviceType,
     FiberAccessPoint,
     FiberEndpointType,
     FiberSegment,
@@ -116,12 +31,6 @@ from app.models.network import (  # noqa: F401
     FiberStrandStatus,
     FiberTerminationPoint,
     FdhCabinet,
-    IPAssignment,
-    IPVersion,
-    IpBlock,
-    IpPool,
-    IPv4Address,
-    IPv6Address,
     OLTDevice,
     ODNEndpointType,
     OltCard,
@@ -132,67 +41,16 @@ from app.models.network import (  # noqa: F401
     OltSfpModule,
     OntAssignment,
     OntUnit,
-    Port,
-    PortStatus,
-    PortType,
-    PortVlan,
     PonPort,
     PonPortSplitterLink,
     Splitter,
     SplitterPort,
     SplitterPortType,
-    SplitterPortAssignment,
-    Vlan,
 )
 from app.models.fiber_change_request import (  # noqa: F401
     FiberChangeRequest,
     FiberChangeRequestOperation,
     FiberChangeRequestStatus,
-)
-from app.models.lifecycle import (  # noqa: F401
-    LifecycleEventType,
-    SubscriptionLifecycleEvent,
-)
-from app.models.collections import (  # noqa: F401
-    DunningActionLog,
-    DunningCase,
-    DunningCaseStatus,
-)
-from app.models.network_monitoring import (  # noqa: F401
-    Alert,
-    AlertEvent,
-    AlertOperator,
-    AlertRule,
-    AlertSeverity,
-    AlertStatus,
-    DeviceInterface,
-    DeviceMetric,
-    DeviceRole,
-    DeviceStatus as MonitoringDeviceStatus,
-    DeviceType,
-    InterfaceStatus,
-    MetricType,
-    NetworkDevice,
-    PopSite,
-)
-from app.models.snmp import (  # noqa: F401
-    SnmpAuthProtocol,
-    SnmpCredential,
-    SnmpOid,
-    SnmpPoller,
-    SnmpPrivProtocol,
-    SnmpReading,
-    SnmpTarget,
-    SnmpVersion,
-)
-from app.models.tr069 import (  # noqa: F401
-    Tr069AcsServer,
-    Tr069CpeDevice,
-    Tr069Event,
-    Tr069Job,
-    Tr069JobStatus,
-    Tr069Parameter,
-    Tr069Session,
 )
 from app.models.bandwidth import BandwidthSample, QueueMapping  # noqa: F401
 from app.models.person import (  # noqa: F401
@@ -203,52 +61,18 @@ from app.models.person import (  # noqa: F401
     PersonMergeLog,
     PersonStatusLog,
 )
-from app.models.provisioning import (  # noqa: F401
-    AppointmentStatus,
-    ProvisioningTask,
-    ProvisioningRun,
-    ProvisioningRunStatus,
-    ProvisioningStep,
-    ProvisioningStepType,
-    ProvisioningVendor,
-    ProvisioningWorkflow,
-    ServiceOrder,
-    ServiceOrderStatus,
-    ServiceState,
-    ServiceStateTransition,
-    TaskStatus,
-)
 from app.models.subscriber import (  # noqa: F401
-    AccountRole,
-    AccountRoleType,
-    AccountStatus,
-    Address,
+    AddressType,
     Organization,
     Reseller,
     ResellerUser,
     Subscriber,
-    SubscriberAccount,
-    SubscriberCustomField,
-)
-from app.models.subscription_engine import (  # noqa: F401
-    SettingValueType,
-    SubscriptionEngine,
-    SubscriptionEngineSetting,
+    SubscriberStatus,
 )
 from app.models.domain_settings import (  # noqa: F401
     DomainSetting,
     SettingDomain,
-)
-from app.models.usage import (  # noqa: F401
-    AccountingStatus,
-    QuotaBucket,
-    RadiusAccountingSession,
-    UsageCharge,
-    UsageChargeStatus,
-    UsageRatingRun,
-    UsageRatingRunStatus,
-    UsageRecord,
-    UsageSource,
+    SettingValueType,
 )
 from app.models.rbac import (  # noqa: F401
     Permission,
@@ -442,17 +266,6 @@ from app.models.wireguard import (  # noqa: F401
     WireGuardPeer,
     WireGuardPeerStatus,
     WireGuardServer,
-)
-from app.models.subscription_change import (  # noqa: F401
-    SubscriptionChangeRequest,
-    SubscriptionChangeStatus,
-)
-from app.models.payment_arrangement import (  # noqa: F401
-    ArrangementStatus,
-    InstallmentStatus,
-    PaymentArrangement,
-    PaymentArrangementInstallment,
-    PaymentFrequency,
 )
 from app.models.event_store import (  # noqa: F401
     EventStatus,

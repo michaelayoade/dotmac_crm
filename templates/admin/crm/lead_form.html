@@ -101,6 +101,40 @@
                 </div>
             </div>
 
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Probability (%)</label>
+                    <div class="flex items-center gap-3">
+                        <input type="range" id="probability-slider" min="0" max="100" step="5" value="{{ lead.probability if lead.probability is not none else 50 }}"
+                               class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-primary-600 dark:bg-slate-700"
+                               oninput="document.getElementById('probability-display').textContent = this.value + '%'; document.getElementById('probability-input').value = this.value;">
+                        <span id="probability-display" class="w-12 text-sm font-medium text-slate-900 dark:text-white">{{ lead.probability if lead.probability is not none else 50 }}%</span>
+                    </div>
+                    <input type="hidden" name="probability" id="probability-input" value="{{ lead.probability if lead.probability is not none else '' }}">
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Likelihood of winning this deal</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Expected Close Date</label>
+                    <input type="date" name="expected_close_date" value="{{ lead.expected_close_date or '' }}"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+            </div>
+
+            <div id="lost-reason-container" class="{% if not (lead.status == 'lost' or (lead.status and lead.status.value == 'lost')) %}hidden{% endif %}">
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Lost Reason</label>
+                <select name="lost_reason"
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">Select reason...</option>
+                    <option value="Price too high" {% if lead.lost_reason == 'Price too high' %}selected{% endif %}>Price too high</option>
+                    <option value="Competitor chosen" {% if lead.lost_reason == 'Competitor chosen' %}selected{% endif %}>Competitor chosen</option>
+                    <option value="No budget" {% if lead.lost_reason == 'No budget' %}selected{% endif %}>No budget</option>
+                    <option value="Project canceled" {% if lead.lost_reason == 'Project canceled' %}selected{% endif %}>Project canceled</option>
+                    <option value="No response" {% if lead.lost_reason == 'No response' %}selected{% endif %}>No response</option>
+                    <option value="Timing not right" {% if lead.lost_reason == 'Timing not right' %}selected{% endif %}>Timing not right</option>
+                    <option value="Other" {% if lead.lost_reason and lead.lost_reason not in ['Price too high', 'Competitor chosen', 'No budget', 'Project canceled', 'No response', 'Timing not right'] %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+
             <div>
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Notes</label>
                 <textarea name="notes" rows="3"
@@ -119,4 +153,34 @@
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Show/hide lost reason field based on status
+    const statusSelect = document.querySelector('select[name="status"]');
+    const lostReasonContainer = document.getElementById('lost-reason-container');
+
+    if (statusSelect && lostReasonContainer) {
+        statusSelect.addEventListener('change', function() {
+            if (this.value === 'lost') {
+                lostReasonContainer.classList.remove('hidden');
+            } else {
+                lostReasonContainer.classList.add('hidden');
+            }
+        });
+    }
+
+    // Set probability value when slider is first touched
+    const slider = document.getElementById('probability-slider');
+    const probabilityInput = document.getElementById('probability-input');
+
+    if (slider && probabilityInput) {
+        slider.addEventListener('input', function() {
+            probabilityInput.value = this.value;
+        });
+    }
+});
+</script>
 {% endblock %}

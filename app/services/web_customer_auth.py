@@ -10,21 +10,35 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.auth import AuthProvider, UserCredential
-from app.models.catalog import AccessCredential
 from app.models.domain_settings import SettingDomain
-from app.models.radius import RadiusUser
-from app.models.subscriber import AccountStatus, Subscriber, SubscriberAccount
+from app.models.person import Person
 from app.services import customer_portal
-from app.services import radius_auth
 from app.services.auth_flow import verify_password
 from app.services.settings_spec import resolve_value
 
 templates = Jinja2Templates(directory="templates")
 
 
+def _coerce_int(value: object | None, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return default
+    return default
+
+
 def get_current_customer_from_request(request: Request, db: Session) -> Optional[dict]:
     session_token = request.cookies.get(customer_portal.SESSION_COOKIE_NAME)
-    return customer_portal.get_current_customer(session_token, db)
+    return customer_portal.get_customer_context(db, session_token)
 
 
 def customer_login_page(request: Request, error: str | None = None, next_url: str | None = None):
@@ -55,103 +69,73 @@ def customer_login_submit(
         if not normalized_username:
             raise ValueError("Username is required")
 
-        account_id = None
-        subscriber_id = None
-        subscription_id = None
-        authenticated_locally = False
+        person_id = None
 
+        # Check for local credentials
         local_credential = (
             db.query(UserCredential)
             .filter(UserCredential.username == normalized_username)
             .filter(UserCredential.provider == AuthProvider.local)
             .first()
         )
-        if local_credential:
-            if not local_credential.is_active:
-                raise ValueError("Account disabled. Please contact support.")
-            now = datetime.now(timezone.utc)
-            if local_credential.locked_until and local_credential.locked_until > now:
-                raise ValueError("Account locked. Please try again later.")
-            if not verify_password(password, local_credential.password_hash):
-                local_credential.failed_login_attempts += 1
-                max_attempts = resolve_value(db, SettingDomain.auth, "customer_login_max_attempts") or 5
-                lockout_minutes = resolve_value(db, SettingDomain.auth, "customer_lockout_minutes") or 15
-                if local_credential.failed_login_attempts >= max_attempts:
-                    local_credential.locked_until = now + timedelta(minutes=lockout_minutes)
-                db.commit()
-                raise ValueError("Invalid username or password")
 
-            if local_credential.must_change_password:
-                raise ValueError("Password reset required. Please contact support.")
-
-            local_credential.failed_login_attempts = 0
-            local_credential.locked_until = None
-            local_credential.last_login_at = now
-            db.commit()
-            authenticated_locally = True
-
-            subscriber = (
-                db.query(Subscriber)
-                .filter(Subscriber.person_id == local_credential.person_id)
-                .filter(Subscriber.is_active.is_(True))
+        if not local_credential:
+            # Try to find by email
+            person = (
+                db.query(Person)
+                .filter(Person.email == normalized_username)
+                .filter(Person.is_active.is_(True))
                 .first()
             )
-            if subscriber:
-                subscriber_id = subscriber.id
-                active_account = next(
-                    (account for account in subscriber.accounts if account.status == AccountStatus.active),
-                    None,
-                )
-                account = active_account or (subscriber.accounts[0] if subscriber.accounts else None)
-                if account:
-                    account_id = account.id
-
-        if not authenticated_locally:
-            radius_auth.authenticate(db=db, username=normalized_username, password=password)
-
-            radius_user = (
-                db.query(RadiusUser)
-                .filter(RadiusUser.username == normalized_username)
-                .filter(RadiusUser.is_active.is_(True))
-                .first()
-            )
-
-            if radius_user:
-                account_id = radius_user.account_id
-                subscription_id = radius_user.subscription_id
-                if radius_user.subscription_id:
-                    from app.models.catalog import Subscription
-                    subscription = db.get(Subscription, radius_user.subscription_id)
-                    if subscription and subscription.account:
-                        subscriber_id = subscription.account.subscriber_id
-                if account_id and not subscriber_id:
-                    account = db.get(SubscriberAccount, account_id)
-                    if account:
-                        subscriber_id = account.subscriber_id
-            else:
-                credential = (
-                    db.query(AccessCredential)
-                    .filter(AccessCredential.username == normalized_username)
-                    .filter(AccessCredential.is_active.is_(True))
+            if person:
+                local_credential = (
+                    db.query(UserCredential)
+                    .filter(UserCredential.person_id == person.id)
+                    .filter(UserCredential.provider == AuthProvider.local)
                     .first()
                 )
-                if credential:
-                    account_id = credential.account_id
-                    if credential.account:
-                        subscriber_id = credential.account.subscriber_id
-                if account_id and not subscriber_id:
-                    account = db.get(SubscriberAccount, account_id)
-                    if account:
-                        subscriber_id = account.subscriber_id
 
-        if not account_id or not subscriber_id:
+        if not local_credential:
+            raise ValueError("Invalid username or password")
+
+        if not local_credential.is_active:
+            raise ValueError("Account disabled. Please contact support.")
+
+        now = datetime.now(timezone.utc)
+        if local_credential.locked_until and local_credential.locked_until > now:
+            raise ValueError("Account locked. Please try again later.")
+
+        if not verify_password(password, local_credential.password_hash):
+            local_credential.failed_login_attempts = (local_credential.failed_login_attempts or 0) + 1
+            max_attempts = _coerce_int(
+                resolve_value(db, SettingDomain.auth, "customer_login_max_attempts"),
+                5,
+            )
+            lockout_minutes = _coerce_int(
+                resolve_value(db, SettingDomain.auth, "customer_lockout_minutes"),
+                15,
+            )
+            if local_credential.failed_login_attempts >= max_attempts:
+                local_credential.locked_until = now + timedelta(minutes=lockout_minutes)
+            db.commit()
+            raise ValueError("Invalid username or password")
+
+        if local_credential.must_change_password:
+            raise ValueError("Password reset required. Please contact support.")
+
+        local_credential.failed_login_attempts = 0
+        local_credential.locked_until = None
+        local_credential.last_login_at = now
+        db.commit()
+
+        person_id = local_credential.person_id
+
+        if not person_id:
             raise ValueError("Customer account not found. Please contact support.")
 
         session_token = customer_portal.create_customer_session(
             username=normalized_username,
-            account_id=account_id,
-            subscriber_id=subscriber_id,
-            subscription_id=subscription_id,
+            person_id=person_id,
             remember=remember,
             db=db,
         )
@@ -182,10 +166,6 @@ def customer_login_submit(
             error_msg = str(exc)
         elif "customer account not found" in message:
             error_msg = str(exc)
-        elif "timeout" in message:
-            error_msg = "Authentication service unavailable. Please try again."
-        elif "not configured" in message:
-            error_msg = "Authentication service not configured. Please contact support."
 
         return templates.TemplateResponse(
             "customer/auth/login.html",
@@ -222,8 +202,9 @@ def customer_session_info(request: Request, db: Session):
             headers={"HX-Redirect": "/portal/auth/login"},
         )
 
+    current_user = customer.get("current_user", {})
     return HTMLResponse(
-        content=f'<span class="text-green-500">Logged in as {customer.get("username")}</span>'
+        content=f'<span class="text-green-500">Logged in as {current_user.get("name", "")}</span>'
     )
 
 

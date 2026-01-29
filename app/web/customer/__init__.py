@@ -3,9 +3,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from app.web.customer.routes import router as portal_router
 from app.web.customer.auth import router as auth_router
-from app.web.customer.contracts import router as contracts_router
 
 router = APIRouter()
 
@@ -24,7 +22,5 @@ def customer_legacy_redirect(request: Request, path: str):
 
 
 router.include_router(auth_router)
-router.include_router(portal_router)
-router.include_router(contracts_router)
 
 __all__ = ["router"]

@@ -50,15 +50,6 @@ class WebhookEventType(enum.Enum):
     provisioning_completed = "provisioning.completed"
     provisioning_failed = "provisioning.failed"
 
-    # Operations - Service Order events (3)
-    service_order_created = "service_order.created"
-    service_order_assigned = "service_order.assigned"
-    service_order_completed = "service_order.completed"
-
-    # Operations - Appointment events (2)
-    appointment_scheduled = "appointment.scheduled"
-    appointment_missed = "appointment.missed"
-
     # Network events (4)
     device_offline = "device.offline"
     device_online = "device.online"

@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from fastapi import HTTPException
+from typing import Any, List
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.subscription_engine import SettingValueType
+from app.models.domain_settings import SettingValueType
 from app.schemas.settings import DomainSettingCreate, DomainSettingUpdate
 from app.services.common import validate_enum, apply_pagination, apply_ordering, coerce_uuid
 from app.services.response import ListResponseMixin
@@ -131,7 +134,7 @@ class DomainSettings(ListResponseMixin):
         key: str,
         value_type: SettingValueType,
         value_text: str | None = None,
-        value_json: dict | bool | int | None = None,
+        value_json: dict | List[Any] | bool | int | str | None = None,
         is_secret: bool = False,
     ):
         if not self.domain:
@@ -170,26 +173,18 @@ class DomainSettings(ListResponseMixin):
 settings = DomainSettings()
 auth_settings = DomainSettings(SettingDomain.auth)
 audit_settings = DomainSettings(SettingDomain.audit)
-billing_settings = DomainSettings(SettingDomain.billing)
-catalog_settings = DomainSettings(SettingDomain.catalog)
-subscriber_settings = DomainSettings(SettingDomain.subscriber)
 imports_settings = DomainSettings(SettingDomain.imports)
 network_settings = DomainSettings(SettingDomain.network)
-network_monitoring_settings = DomainSettings(SettingDomain.network_monitoring)
 provisioning_settings = DomainSettings(SettingDomain.provisioning)
 geocoding_settings = DomainSettings(SettingDomain.geocoding)
-usage_settings = DomainSettings(SettingDomain.usage)
-radius_settings = DomainSettings(SettingDomain.radius)
 notification_settings = DomainSettings(SettingDomain.notification)
-collections_settings = DomainSettings(SettingDomain.collections)
-lifecycle_settings = DomainSettings(SettingDomain.lifecycle)
 projects_settings = DomainSettings(SettingDomain.projects)
 workflow_settings = DomainSettings(SettingDomain.workflow)
 inventory_settings = DomainSettings(SettingDomain.inventory)
+gis_settings = DomainSettings(SettingDomain.gis)
+radius_settings = DomainSettings(SettingDomain.radius)
+scheduler_settings = DomainSettings(SettingDomain.scheduler)
 comms_settings = DomainSettings(SettingDomain.comms)
-tr069_settings = DomainSettings(SettingDomain.tr069)
-snmp_settings = DomainSettings(SettingDomain.snmp)
 bandwidth_settings = DomainSettings(SettingDomain.bandwidth)
-subscription_engine_settings = DomainSettings(SettingDomain.subscription_engine)
 gis_settings = DomainSettings(SettingDomain.gis)
 scheduler_settings = DomainSettings(SettingDomain.scheduler)

@@ -24,10 +24,13 @@
 
     function createCard(record, config, columnId) {
         const card = document.createElement("div");
-        card.className = "rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:shadow-md dark:border-slate-700 dark:bg-slate-900/40";
+        card.className = "rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:shadow-md dark:border-slate-700 dark:bg-slate-900/40 cursor-grab";
         card.draggable = true;
         card.dataset.cardId = record[config.idField];
         card.dataset.columnId = columnId;
+        if (record.url) {
+            card.dataset.url = record.url;
+        }
 
         const title = document.createElement("div");
         title.className = "text-sm font-semibold text-slate-900 dark:text-white";
@@ -52,6 +55,14 @@
             });
             card.appendChild(meta);
         }
+
+        // Make card clickable to navigate to detail page (but not during drag)
+        card.addEventListener("click", (event) => {
+            if (card.classList.contains("opacity-60")) return; // dragging
+            if (card.dataset.url) {
+                window.location.href = card.dataset.url;
+            }
+        });
 
         return card;
     }

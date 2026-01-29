@@ -1,6 +1,6 @@
-# DotMac SM User Guide
+# DotMac Omni User Guide
 
-A comprehensive guide for using the DotMac Subscriber Management platform.
+A comprehensive guide for using the DotMac Omni-Channel Field Service and CRM platform.
 
 ---
 
@@ -52,21 +52,17 @@ A comprehensive guide for using the DotMac Subscriber Management platform.
 
 ## Admin Portal
 
-The Admin Portal is the central hub for managing all aspects of your subscriber management system.
+The Admin Portal is the central hub for managing all aspects of your field service operations.
 
 ### Dashboard Overview
 
-The dashboard provides a real-time snapshot of your business:
-
-![Dashboard Layout]
+The dashboard provides a real-time snapshot of your operations:
 
 | Section | Description |
 |---------|-------------|
 | **Network Health** | OLT/ONT status, active alarms, and connectivity metrics |
-| **Revenue Trends** | Monthly recurring revenue (MRR) charts and growth |
 | **Service Orders** | Pipeline view of pending, in-progress, and completed orders |
-| **Key Metrics** | MRR, ARPU, Active Subscribers, Open Tickets |
-| **Billing Health** | AR aging breakdown (Current, 30, 60, 90+ days) |
+| **Key Metrics** | Active customers, open tickets |
 | **Recent Activity** | Live feed of system events |
 | **Today's Dispatch** | Field technician assignments and status |
 
@@ -82,34 +78,11 @@ The sidebar is organized into logical sections:
 - Create new customer accounts
 - View customer details and history
 
-**Subscribers**
-- Manage individual service subscribers
-- Link subscribers to accounts
-- View subscription details and status
-- Manage subscriber lifecycle
+#### Inventory
 
-#### Services & Catalog
-
-**Products**
-- Define service products (Internet, Voice, TV, etc.)
-- Set pricing and billing cycles
-- Configure product attributes
-
-**Speed Tiers**
-- Create bandwidth tiers (e.g., 100 Mbps, 500 Mbps, 1 Gbps)
-- Set download/upload speeds
-- Link to products
-
-**Offers & Promos**
-- Create promotional offers
-- Set discount percentages or fixed amounts
-- Define validity periods
-- Apply to specific products or plans
-
-**Inventory**
 - Track physical equipment (modems, routers, ONTs)
 - Manage stock levels
-- Assign equipment to subscribers
+- Assign equipment to service orders
 
 #### Network Section
 
@@ -159,16 +132,6 @@ The sidebar is organized into logical sections:
 | IP Pools & Blocks | Manage IP address allocation |
 | VLANs | Virtual LAN configuration |
 
-**RADIUS / AAA**
-- Configure authentication servers
-- Manage RADIUS profiles
-- Set bandwidth policies
-
-**Network Monitoring**
-- Real-time alarm dashboard
-- Device status monitoring
-- Performance metrics
-
 #### Operations Section
 
 **Service Orders**
@@ -207,76 +170,6 @@ The sidebar is organized into logical sections:
 - Multi-phase installation projects
 - Vendor assignment and tracking
 
-#### Billing Section
-
-**Overview**
-- Billing dashboard with key metrics
-- Revenue summary
-- Payment trends
-
-**Accounts**
-- View billing accounts
-- Account balance and history
-- Payment methods on file
-
-**Invoices**
-- Generate individual or batch invoices
-- View invoice details
-- Send invoice notifications
-- Download PDF invoices
-
-**Payments**
-- Record payments (cash, check, card, bank transfer)
-- Process refunds
-- Payment reconciliation
-
-**AR Aging**
-- Accounts receivable aging report
-- Filter by aging bucket (Current, 30, 60, 90+ days)
-- Collection priority list
-
-**Dunning**
-- Automated collection workflows
-- Configure dunning schedules
-- Track dunning actions
-
-**General Ledger**
-- Financial transaction journal
-- Account balances
-- Transaction history
-
-**Tax Rates**
-- Configure tax rates by region
-- Set tax categories
-- Manage tax exemptions
-
-#### Reports Section
-
-**Revenue Reports**
-- Monthly/quarterly revenue analysis
-- Revenue by product/service
-- Growth trends and forecasts
-
-**Subscriber Reports**
-- Subscriber growth metrics
-- Acquisition and churn rates
-- Subscriber demographics
-
-**Churn Analysis**
-- Churn rate tracking
-- Churn reasons analysis
-- At-risk subscriber identification
-
-**Network Reports**
-- Bandwidth utilization
-- Device uptime statistics
-- Capacity planning data
-
-**Technician Reports**
-- Work order completion rates
-- Average resolution time
-- Technician performance metrics
-
 #### Integrations Section
 
 **Connectors**
@@ -298,11 +191,6 @@ The sidebar is organized into logical sections:
 - Configure outbound webhooks
 - Event triggers
 - Delivery monitoring
-
-**Payment Providers**
-- Configure payment gateways
-- Test connections
-- Transaction settings
 
 #### System Section
 
@@ -346,7 +234,7 @@ The sidebar is organized into logical sections:
 
 ## Customer Portal
 
-The Customer Portal allows subscribers to manage their accounts, view bills, and get support.
+The Customer Portal allows customers to view their services and get support.
 
 ### Dashboard
 
@@ -354,58 +242,21 @@ The customer dashboard shows:
 
 | Widget | Description |
 |--------|-------------|
-| **Account Balance** | Current balance (green = credit, red = amount due) |
-| **Next Bill** | Upcoming bill amount and due date |
 | **Service Status** | Active or Suspended indicator |
 | **Open Tickets** | Number of pending support requests |
-| **Active Services** | List of subscribed services with speeds and costs |
 | **Quick Actions** | Shortcuts to common tasks |
 | **Recent Activity** | Timeline of recent account events |
 
 ### Quick Actions
 
-- **Make a Payment** - Pay your bill online
-- **View Invoices** - Access billing history
 - **Report an Issue** - Create a support ticket
 - **Update Profile** - Change contact information
-
-### Services
-
-View your active services:
-
-- Service name and type
-- Speed tier (download/upload)
-- Service address
-- Monthly cost
-- Service status
-
-### Billing
-
-**View Invoices**
-1. Navigate to **Billing** > **Invoices**
-2. See list of all invoices with status (Paid, Unpaid, Overdue)
-3. Click an invoice to view details
-4. Download PDF for your records
-
-**Make a Payment**
-1. Navigate to **Billing** > **Payments**
-2. Enter payment amount
-3. Select payment method
-4. Confirm payment
-5. Receive confirmation
-
-**Payment History**
-- View all past payments
-- Payment date and amount
-- Payment method used
-- Transaction reference
 
 ### Support
 
 **Create a Ticket**
 1. Navigate to **Support** > **New Ticket**
 2. Select issue category:
-   - Billing Question
    - Technical Issue
    - Service Request
    - General Inquiry
@@ -462,15 +313,11 @@ The Reseller Portal allows partners to manage their customer accounts.
 | Metric | Description |
 |--------|-------------|
 | **Total Accounts** | Number of customer accounts under management |
-| **Open Balance** | Total outstanding balance across all accounts |
-| **Open Invoices** | Number of unpaid invoices |
 
 **Recent Accounts Table**
 - Customer Name
 - Account Number
 - Status (Active, Suspended, etc.)
-- Open Balance
-- Last Payment Date
 - Actions
 
 ### Accounts Management
@@ -484,8 +331,6 @@ The Reseller Portal allows partners to manage their customer accounts.
 **Account Details**
 - Click an account to view full details
 - Account information
-- Service subscriptions
-- Billing history
 - Support tickets
 
 ### View as Customer
@@ -577,29 +422,20 @@ Document completed installations:
 1. Create Customer Account
    Admin > Customers > New Customer
    ↓
-2. Add Subscriber
-   Admin > Subscribers > New Subscriber
-   Link to customer account
-   ↓
-3. Create Subscription
-   Select subscriber > Add Subscription
-   Choose product/plan
-   ↓
-4. Create Service Order
+2. Create Service Order
    Admin > Operations > Service Orders > New
    Type: New Install
    ↓
-5. Schedule Installation
+3. Schedule Installation
    Assign to technician or vendor
    Set appointment date/time
    ↓
-6. Complete Installation
+4. Complete Installation
    Technician marks complete
    As-built documentation
    ↓
-7. Activate Service
-   Provision network (RADIUS, VLAN)
-   Generate first invoice
+5. Activate Service
+   Provision network (VLAN)
 ```
 
 ### Processing a Support Ticket (Admin)
@@ -630,39 +466,6 @@ Document completed installations:
    Customer notified automatically
 ```
 
-### Running Monthly Billing (Admin)
-
-```
-1. Review Unbilled Subscriptions
-   Admin > Billing > Overview
-   Check billing queue
-   ↓
-2. Generate Invoices
-   Admin > Billing > Invoices > Generate Batch
-   Select billing period
-   Preview invoices
-   ↓
-3. Review Generated Invoices
-   Check for errors
-   Adjust if needed
-   ↓
-4. Send Invoices
-   Approve batch
-   Invoices sent via email
-   ↓
-5. Monitor Payments
-   Admin > Billing > Payments
-   Record incoming payments
-   ↓
-6. Review AR Aging
-   Admin > Billing > AR Aging
-   Identify overdue accounts
-   ↓
-7. Run Dunning (if configured)
-   Automated reminders sent
-   Follow up on delinquent accounts
-```
-
 ### Adding Network Equipment (Admin)
 
 ```
@@ -678,18 +481,12 @@ Document completed installations:
 3. Add ONT/CPE
    Admin > Network > GPON > ONTs > New
    Enter serial number
-   Assign to subscriber
    ↓
 4. Configure VLAN
    Admin > Network > IP/VLAN > VLANs
    Create or assign VLAN
    ↓
-5. Create RADIUS Profile
-   Admin > Network > RADIUS
-   Set authentication parameters
-   Configure bandwidth limits
-   ↓
-6. Test Connectivity
+5. Test Connectivity
    Verify ONT registration
    Test customer connection
 ```
@@ -770,7 +567,6 @@ The portals are mobile-responsive:
 ### Support Contacts
 
 - **Technical Support**: support@your-domain.com
-- **Billing Questions**: billing@your-domain.com
 - **Phone**: +1 (XXX) XXX-XXXX
 
 ### Training Resources
@@ -785,19 +581,12 @@ The portals are mobile-responsive:
 
 | Term | Definition |
 |------|------------|
-| **Account** | A billing entity (person or organization) |
-| **Subscriber** | An individual service user linked to an account |
-| **Subscription** | A service plan assigned to a subscriber |
+| **Account** | A customer entity (person or organization) |
 | **OLT** | Optical Line Terminal - head-end fiber equipment |
 | **ONT** | Optical Network Terminal - customer fiber modem |
 | **CPE** | Customer Premise Equipment |
 | **GPON** | Gigabit Passive Optical Network |
 | **VLAN** | Virtual Local Area Network |
-| **RADIUS** | Remote Authentication Dial-In User Service |
-| **MRR** | Monthly Recurring Revenue |
-| **ARPU** | Average Revenue Per User |
-| **AR** | Accounts Receivable |
-| **Dunning** | Collection process for overdue payments |
 | **POP** | Point of Presence - network location |
 | **FDH** | Fiber Distribution Hub |
 | **Service Order** | Request for new service or changes |
@@ -805,5 +594,5 @@ The portals are mobile-responsive:
 
 ---
 
-*Last Updated: January 2025*
-*Version: 1.0*
+*Last Updated: January 2026*
+*Version: 2.0*

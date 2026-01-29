@@ -61,9 +61,7 @@
             <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Account</h2>
             {% if order.account_id %}
             <p class="mt-3 text-base font-semibold text-slate-900 dark:text-white">
-                <a href="/admin/billing/accounts/{{ order.account_id }}" class="hover:text-primary-600">
-                    {{ order.account.account_number|default(order.account_id|string|truncate(8, True, '')) }}
-                </a>
+                {{ order.account.account_number|default(order.account_id|string|truncate(8, True, '')) }}
             </p>
             {% else %}
             <p class="mt-3 text-sm text-slate-500 dark:text-slate-400">No account linked.</p>
@@ -81,19 +79,11 @@
                     {% endif %}
                 </div>
                 <div>
-                    <span class="text-slate-500 dark:text-slate-400">Service Order:</span>
-                    {% if order.service_order_id %}
-                    <a href="/admin/operations/service-orders/{{ order.service_order_id }}" class="text-primary-600 hover:text-primary-700">
-                        {{ order.service_order_id|string|truncate(8, True, '') }}
+                    <span class="text-slate-500 dark:text-slate-400">Project:</span>
+                    {% if order.project_id %}
+                    <a href="/admin/projects/{{ order.project_id }}" class="text-primary-600 hover:text-primary-700">
+                        {{ order.project_id|string|truncate(8, True, '') }}
                     </a>
-                    {% else %}
-                    <span class="text-slate-500 dark:text-slate-400">-</span>
-                    {% endif %}
-                </div>
-                <div>
-                    <span class="text-slate-500 dark:text-slate-400">Invoice:</span>
-                    {% if order.invoice_id %}
-                    <span class="text-slate-900 dark:text-white">{{ order.invoice_id|string|truncate(8, True, '') }}</span>
                     {% else %}
                     <span class="text-slate-500 dark:text-slate-400">-</span>
                     {% endif %}

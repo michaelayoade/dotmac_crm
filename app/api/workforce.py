@@ -46,9 +46,7 @@ def get_work_order(work_order_id: str, db: Session = Depends(get_db)):
 
 @router.get("/work-orders", response_model=ListResponse[WorkOrderRead], tags=["work-orders"])
 def list_work_orders(
-    account_id: str | None = None,
-    subscription_id: str | None = None,
-    service_order_id: str | None = None,
+    subscriber_id: str | None = None,
     ticket_id: str | None = None,
     project_id: str | None = None,
     assigned_to_person_id: str | None = None,
@@ -63,21 +61,19 @@ def list_work_orders(
     db: Session = Depends(get_db),
 ):
     return workforce_service.work_orders.list_response(
-        db,
-        account_id,
-        subscription_id,
-        service_order_id,
-        ticket_id,
-        project_id,
-        assigned_to_person_id,
-        status,
-        priority,
-        work_type,
-        is_active,
-        order_by,
-        order_dir,
-        limit,
-        offset,
+        db=db,
+        subscriber_id=subscriber_id,
+        ticket_id=ticket_id,
+        project_id=project_id,
+        assigned_to_person_id=assigned_to_person_id,
+        status=status,
+        priority=priority,
+        work_type=work_type,
+        is_active=is_active,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=limit,
+        offset=offset,
     )
 
 

@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -46,6 +46,7 @@ class PipelineStage(Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    default_probability: Mapped[int] = mapped_column(Integer, default=50)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -87,6 +88,9 @@ class Lead(Base):
     status: Mapped[LeadStatus] = mapped_column(Enum(LeadStatus), default=LeadStatus.new)
     estimated_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     currency: Mapped[str | None] = mapped_column(String(3))
+    probability: Mapped[int | None] = mapped_column(Integer)
+    expected_close_date: Mapped[date | None] = mapped_column(Date)
+    lost_reason: Mapped[str | None] = mapped_column(String(200))
     notes: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -109,9 +113,16 @@ class Lead(Base):
     def contact_id(self):
         return self.person_id
 
-    @contact_id.expression
+    @contact_id.expression  # type: ignore[no-redef]
     def contact_id(cls):
         return cls.person_id
+
+    @hybrid_property
+    def weighted_value(self) -> Decimal | None:
+        """Return estimated_value weighted by probability."""
+        if self.estimated_value is None or self.probability is None:
+            return None
+        return self.estimated_value * Decimal(self.probability) / Decimal(100)
 
 
 class Quote(Base):
@@ -164,7 +175,7 @@ class Quote(Base):
     def contact_id(self):
         return self.person_id
 
-    @contact_id.expression
+    @contact_id.expression  # type: ignore[no-redef]
     def contact_id(cls):
         return cls.person_id
 

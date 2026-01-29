@@ -1,5 +1,7 @@
 """Admin inventory management web routes."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -289,7 +291,7 @@ def inventory_location_create(
         payload = InventoryLocationCreate(
             name=name,
             code=code or None,
-            address_id=address_id or None,
+            address_id=UUID(address_id) if address_id else None,
             is_active=is_active == "true",
         )
         location = inventory_service.inventory_locations.create(db=db, payload=payload)
@@ -427,7 +429,7 @@ def inventory_location_update(
         payload = InventoryLocationUpdate(
             name=name,
             code=code or None,
-            address_id=address_id or None,
+            address_id=UUID(address_id) if address_id else None,
             is_active=is_active == "true",
         )
         inventory_service.inventory_locations.update(

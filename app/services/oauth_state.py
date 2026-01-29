@@ -73,7 +73,7 @@ def get_and_delete_oauth_state(state: str) -> dict | None:
         results = pipe.execute()
 
         data = results[0]
-        if data:
+        if isinstance(data, str):
             logger.debug("retrieved_oauth_state state=%s...", state[:8])
             return json.loads(data)
 
@@ -102,7 +102,7 @@ def verify_oauth_state(state: str) -> dict | None:
         key = f"{STATE_PREFIX}{state}"
         data = client.get(key)
 
-        if data:
+        if isinstance(data, str):
             return json.loads(data)
         return None
 
@@ -124,7 +124,9 @@ def delete_oauth_state(state: str) -> bool:
         client = _get_redis_client()
         key = f"{STATE_PREFIX}{state}"
         result = client.delete(key)
-        return result > 0
+        if isinstance(result, int):
+            return result > 0
+        return False
     except redis.RedisError as exc:
         logger.error("failed_to_delete_oauth_state error=%s", exc)
         return False

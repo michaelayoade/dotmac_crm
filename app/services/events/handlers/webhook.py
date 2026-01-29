@@ -55,13 +55,6 @@ EVENT_TYPE_TO_WEBHOOK = {
     EventType.provisioning_started: WebhookEventType.provisioning_started,
     EventType.provisioning_completed: WebhookEventType.provisioning_completed,
     EventType.provisioning_failed: WebhookEventType.provisioning_failed,
-    # Service order events
-    EventType.service_order_created: WebhookEventType.service_order_created,
-    EventType.service_order_assigned: WebhookEventType.service_order_assigned,
-    EventType.service_order_completed: WebhookEventType.service_order_completed,
-    # Appointment events
-    EventType.appointment_scheduled: WebhookEventType.appointment_scheduled,
-    EventType.appointment_missed: WebhookEventType.appointment_missed,
     # Network events
     EventType.device_offline: WebhookEventType.device_offline,
     EventType.device_online: WebhookEventType.device_online,

@@ -205,6 +205,18 @@
                         </button>
                     </form>
 
+                    {% if credential and credential.must_change_password %}
+                    <button type="button"
+                            hx-post="/admin/system/users/{{ user.id }}/resend-invite"
+                            hx-target="#resend-invite-result"
+                            hx-swap="innerHTML"
+                            class="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-primary-300 bg-primary-50 px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-400">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        Resend Invitation
+                    </button>
+                    <div id="resend-invite-result" class="mt-2"></div>
+                    {% endif %}
+
                     {% if mfa_methods %}
                     <form method="POST" action="/admin/system/users/{{ user.id }}/disable-mfa" class="inline w-full">
                         <button type="submit" onclick="return confirm('Disable all MFA methods?')" class="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">

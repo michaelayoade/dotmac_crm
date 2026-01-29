@@ -348,21 +348,7 @@
                     <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Account</dt>
                         <dd class="mt-1.5">
-                            <a href="/admin/billing/accounts/{{ ticket.account.id }}" class="group inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
-                                {{ ticket.account.name }}
-                                <svg class="h-3.5 w-3.5 opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                            </a>
-                        </dd>
-                    </div>
-                    {% endif %}
-                    {% if ticket.subscription %}
-                    <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Subscription</dt>
-                        <dd class="mt-1.5">
-                            <a href="/admin/subscribers/{{ ticket.subscription.id }}" class="group inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
-                                {{ ticket.subscription.subscriber_id or ticket.subscription.id[:8] }}
-                                <svg class="h-3.5 w-3.5 opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                            </a>
+                            <span class="text-sm text-slate-900 dark:text-white">{{ ticket.account.name }}</span>
                         </dd>
                     </div>
                     {% endif %}

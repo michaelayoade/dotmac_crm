@@ -91,7 +91,7 @@ class ServiceQualification(Base):
         UUID(as_uuid=True), ForeignKey("coverage_areas.id")
     )
     address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
+        UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
@@ -110,7 +110,7 @@ class ServiceQualification(Base):
     )
 
     coverage_area = relationship("CoverageArea", back_populates="qualifications")
-    address = relationship("Address")
+    # address = relationship("Address")  # Model removed
     buildout_requests = relationship(
         "BuildoutRequest", back_populates="qualification"
     )
@@ -129,7 +129,7 @@ class BuildoutRequest(Base):
         UUID(as_uuid=True), ForeignKey("coverage_areas.id")
     )
     address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
+        UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
     requested_by: Mapped[str | None] = mapped_column(String(120))
     status: Mapped[BuildoutRequestStatus] = mapped_column(
@@ -146,7 +146,7 @@ class BuildoutRequest(Base):
 
     qualification = relationship("ServiceQualification", back_populates="buildout_requests")
     coverage_area = relationship("CoverageArea")
-    address = relationship("Address")
+    # address = relationship("Address")  # Model removed
     project = relationship("BuildoutProject", back_populates="request", uselist=False)
 
 
@@ -163,7 +163,7 @@ class BuildoutProject(Base):
         UUID(as_uuid=True), ForeignKey("coverage_areas.id")
     )
     address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
+        UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
     status: Mapped[BuildoutProjectStatus] = mapped_column(
         Enum(BuildoutProjectStatus), default=BuildoutProjectStatus.planned
@@ -183,7 +183,7 @@ class BuildoutProject(Base):
 
     request = relationship("BuildoutRequest", back_populates="project")
     coverage_area = relationship("CoverageArea")
-    address = relationship("Address")
+    # address = relationship("Address")  # Model removed
     milestones = relationship("BuildoutMilestone", back_populates="project")
     updates = relationship("BuildoutUpdate", back_populates="project")
 

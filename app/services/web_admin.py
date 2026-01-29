@@ -37,7 +37,6 @@ def get_current_user(request) -> dict:
 
 def get_sidebar_stats(db: Session) -> dict:
     """Get stats for sidebar badges."""
-    from app.services import provisioning as provisioning_service
     from app.services import tickets as tickets_service
 
     def get_status(obj):
@@ -45,28 +44,9 @@ def get_sidebar_stats(db: Session) -> dict:
         return status.value if hasattr(status, "value") else str(status)
 
     try:
-        orders = provisioning_service.service_orders.list(
-            db=db,
-            account_id=None,
-            subscription_id=None,
-            status=None,
-            order_by="created_at",
-            order_dir="desc",
-            limit=1000,
-            offset=0,
-        )
-        service_orders_count = sum(
-            1 for o in orders
-            if get_status(o) not in ("completed", "cancelled", "canceled")
-        )
-    except Exception:
-        service_orders_count = 0
-
-    try:
         tickets = tickets_service.tickets.list(
             db=db,
-            account_id=None,
-            subscription_id=None,
+            subscriber_id=None,
             status=None,
             priority=None,
             channel=None,
@@ -87,7 +67,15 @@ def get_sidebar_stats(db: Session) -> dict:
         open_tickets_count = 0
 
     return {
-        "service_orders": service_orders_count,
         "dispatch_jobs": 0,
         "open_tickets": open_tickets_count,
+    }
+
+
+def build_admin_context(request, db: Session) -> dict:
+    """Build common context for admin templates."""
+    return {
+        "request": request,
+        "user": get_current_user(request),
+        "sidebar_stats": get_sidebar_stats(db),
     }

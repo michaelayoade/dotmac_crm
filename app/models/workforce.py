@@ -51,14 +51,8 @@ class WorkOrder(Base):
     work_type: Mapped[WorkOrderType] = mapped_column(
         Enum(WorkOrderType), default=WorkOrderType.install
     )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id")
-    )
-    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id")
-    )
-    service_order_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("service_orders.id")
+    subscriber_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subscribers.id")
     )
     ticket_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tickets.id")
@@ -67,7 +61,7 @@ class WorkOrder(Base):
         UUID(as_uuid=True), ForeignKey("projects.id")
     )
     address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
+        UUID(as_uuid=True)  # FK to addresses removed
     )
     assigned_to_person_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id")
@@ -91,12 +85,10 @@ class WorkOrder(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
-    account = relationship("SubscriberAccount")
-    subscription = relationship("Subscription")
-    service_order = relationship("ServiceOrder")
+    subscriber = relationship("Subscriber", back_populates="work_orders")
     ticket = relationship("Ticket")
     project = relationship("Project")
-    address = relationship("Address")
+    # address = relationship("Address")  # Model removed
     assigned_to = relationship("Person", foreign_keys=[assigned_to_person_id])
     assignments = relationship("WorkOrderAssignment", back_populates="work_order")
     notes = relationship("WorkOrderNote", back_populates="work_order")

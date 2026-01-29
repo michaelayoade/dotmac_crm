@@ -17,8 +17,7 @@ class ProjectBase(BaseModel):
     project_template_id: UUID | None = None
     status: ProjectStatus = ProjectStatus.planned
     priority: ProjectPriority = ProjectPriority.normal
-    account_id: UUID | None = None
-    service_order_id: UUID | None = None
+    subscriber_id: UUID | None = None
     created_by_person_id: UUID | None = None
     owner_person_id: UUID | None = None
     manager_person_id: UUID | None = None
@@ -45,8 +44,7 @@ class ProjectUpdate(BaseModel):
     project_template_id: UUID | None = None
     status: ProjectStatus | None = None
     priority: ProjectPriority | None = None
-    account_id: UUID | None = None
-    service_order_id: UUID | None = None
+    subscriber_id: UUID | None = None
     created_by_person_id: UUID | None = None
     owner_person_id: UUID | None = None
     manager_person_id: UUID | None = None

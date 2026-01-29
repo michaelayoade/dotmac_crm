@@ -183,7 +183,7 @@ def test_user_credentials_update_requires_radius_server(db_session, person):
         password_hash=hash_password("secret"),
     )
     credential = auth_service.user_credentials.create(db_session, payload)
-    update = UserCredentialUpdate(radius_server_id=uuid.uuid4())
+    update = UserCredentialUpdate()
     with pytest.raises(HTTPException) as exc:
         auth_service.user_credentials.update(db_session, str(credential.id), update)
     assert exc.value.status_code == 404

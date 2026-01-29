@@ -66,7 +66,7 @@ class Conversation(Base):
     def contact_id(self):
         return self.person_id
 
-    @contact_id.expression
+    @contact_id.expression  # type: ignore[no-redef]
     def contact_id(cls):
         return cls.person_id
 

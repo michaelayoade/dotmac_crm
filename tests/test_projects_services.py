@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.projects import Project, ProjectPriority, ProjectStatus, ProjectTask, TaskPriority, TaskStatus
-from app.models.subscription_engine import SettingValueType
+from app.models.domain_settings import SettingValueType
 from app.schemas.projects import ProjectCreate, ProjectTaskCreate, ProjectTaskUpdate, ProjectUpdate
 from app.services import projects as projects_service
 from app.services.common import apply_ordering, apply_pagination, validate_enum

@@ -99,7 +99,7 @@ class Person(Base):
 
     notes: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", MutableDict.as_mutable(JSON)
+        "metadata", MutableDict.as_mutable(JSON())
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -111,7 +111,7 @@ class Person(Base):
 
     # Relationships
     organization = relationship("Organization", back_populates="people")
-    subscribers = relationship("Subscriber", back_populates="person")
+    # subscribers = relationship("Subscriber", back_populates="person")  # Model removed
     channels = relationship("PersonChannel", back_populates="person", cascade="all, delete-orphan")
     status_logs = relationship(
         "PersonStatusLog",
@@ -128,7 +128,7 @@ class Person(Base):
     def person_id(self):
         return self.id
 
-    @person_id.expression
+    @person_id.expression  # type: ignore[no-redef]
     def person_id(cls):
         return cls.id
 
@@ -155,7 +155,7 @@ class PersonChannel(Base):
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON))
+    metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON()))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -183,7 +183,7 @@ class PersonStatusLog(Base):
         UUID(as_uuid=True), ForeignKey("people.id")
     )
     reason: Mapped[str | None] = mapped_column(String(255))
-    metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON))
+    metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON()))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -207,7 +207,7 @@ class PersonMergeLog(Base):
     merged_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id")
     )
-    source_snapshot: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON))
+    source_snapshot: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON()))
 
     merged_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

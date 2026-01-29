@@ -193,6 +193,13 @@ class TeamChannels(ListResponseMixin):
         return channel
 
     @staticmethod
+    def get(db: Session, channel_id: str):
+        channel = db.get(CrmTeamChannel, coerce_uuid(channel_id))
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        return channel
+
+    @staticmethod
     def list(
         db: Session,
         team_id: str | None,
@@ -215,6 +222,26 @@ class TeamChannels(ListResponseMixin):
             {"created_at": CrmTeamChannel.created_at},
         )
         return apply_pagination(query, limit, offset).all()
+
+    @staticmethod
+    def update(db: Session, channel_id: str, payload):
+        channel = db.get(CrmTeamChannel, coerce_uuid(channel_id))
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        data = payload.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            setattr(channel, key, value)
+        db.commit()
+        db.refresh(channel)
+        return channel
+
+    @staticmethod
+    def delete(db: Session, channel_id: str):
+        channel = db.get(CrmTeamChannel, coerce_uuid(channel_id))
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        db.delete(channel)
+        db.commit()
 
 
 class RoutingRules(ListResponseMixin):
@@ -269,3 +296,60 @@ class RoutingRules(ListResponseMixin):
         db.commit()
         db.refresh(rule)
         return rule
+
+
+def get_agent_labels(db: Session, agents: list) -> dict[str, str]:
+    """Get display labels for a list of agents efficiently.
+
+    Uses bulk Person fetch to avoid N+1 queries.
+    Returns: {agent_id: display_label}
+    """
+    from app.models.person import Person
+
+    if not agents:
+        return {}
+
+    # Bulk fetch all persons for the agents
+    person_ids = [agent.person_id for agent in agents if agent.person_id]
+    if not person_ids:
+        return {}
+
+    persons = db.query(Person).filter(Person.id.in_(person_ids)).all()
+    person_map = {person.id: person for person in persons}
+
+    labels = {}
+    for agent in agents:
+        if agent.person_id and agent.person_id in person_map:
+            person = person_map[agent.person_id]
+            label = person.display_name or " ".join(
+                part for part in [person.first_name, person.last_name] if part
+            ).strip()
+            labels[str(agent.id)] = label or "Agent"
+        else:
+            labels[str(agent.id)] = "Agent"
+
+    return labels
+
+
+def get_agent_team_options(db: Session) -> dict:
+    """Get agents and teams for assignment dropdowns.
+
+    Returns: {agents, teams, agent_labels}
+    """
+    teams = (
+        db.query(CrmTeam)
+        .filter(CrmTeam.is_active.is_(True))
+        .order_by(CrmTeam.name.asc())
+        .limit(200)
+        .all()
+    )
+    agents = (
+        db.query(CrmAgent)
+        .filter(CrmAgent.is_active.is_(True))
+        .order_by(CrmAgent.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    agent_labels = get_agent_labels(db, agents)
+
+    return {"agents": agents, "teams": teams, "agent_labels": agent_labels}

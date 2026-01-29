@@ -11,7 +11,6 @@ from app.models.inventory import (
     WorkOrderMaterial,
 )
 from app.models.domain_settings import SettingDomain
-from app.models.subscriber import Address
 from app.models.workforce import WorkOrder
 from app.schemas.inventory import (
     InventoryItemCreate,
@@ -110,8 +109,6 @@ class InventoryItems(ListResponseMixin):
 class InventoryLocations(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: InventoryLocationCreate):
-        if payload.address_id and not db.get(Address, payload.address_id):
-            raise HTTPException(status_code=404, detail="Address not found")
         location = InventoryLocation(**payload.model_dump())
         db.add(location)
         db.commit()
@@ -150,9 +147,6 @@ class InventoryLocations(ListResponseMixin):
         if not location:
             raise HTTPException(status_code=404, detail="Inventory location not found")
         data = payload.model_dump(exclude_unset=True)
-        if "address_id" in data and data["address_id"]:
-            if not db.get(Address, data["address_id"]):
-                raise HTTPException(status_code=404, detail="Address not found")
         for key, value in data.items():
             setattr(location, key, value)
         db.commit()

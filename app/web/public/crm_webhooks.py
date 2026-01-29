@@ -58,7 +58,8 @@ async def meta_webhook_verify(
     """
     # Get expected token from database settings with short-lived cache
     now = time.monotonic()
-    if now - _VERIFY_TOKEN_CACHE["loaded_at"] > _VERIFY_TOKEN_TTL_SECONDS:
+    loaded_at = float(_VERIFY_TOKEN_CACHE.get("loaded_at") or 0.0)
+    if now - loaded_at > _VERIFY_TOKEN_TTL_SECONDS:
         settings = meta_oauth.get_meta_settings(db)
         _VERIFY_TOKEN_CACHE["value"] = settings.get("meta_webhook_verify_token")
         _VERIFY_TOKEN_CACHE["loaded_at"] = now

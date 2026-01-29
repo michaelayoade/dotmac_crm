@@ -11,7 +11,6 @@ from app.models.network import FiberSegment, FiberSegmentType
 from app.models.person import Person
 from app.models.projects import Project
 from app.models.qualification import BuildoutProject
-from app.models.subscriber import Address, SubscriberAccount
 from app.models.vendor import (
     AsBuiltRoute,
     AsBuiltRouteStatus,
@@ -76,20 +75,6 @@ def _ensure_buildout_project(db: Session, project_id: str) -> BuildoutProject:
     return project
 
 
-def _ensure_account(db: Session, account_id: str) -> SubscriberAccount:
-    account = db.get(SubscriberAccount, coerce_uuid(account_id))
-    if not account:
-        raise HTTPException(status_code=404, detail="Subscriber account not found")
-    return account
-
-
-def _ensure_address(db: Session, address_id: str) -> Address:
-    address = db.get(Address, coerce_uuid(address_id))
-    if not address:
-        raise HTTPException(status_code=404, detail="Address not found")
-    return address
-
-
 def _ensure_installation_project(db: Session, project_id: str) -> InstallationProject:
     project = db.get(InstallationProject, coerce_uuid(project_id))
     if not project:
@@ -144,6 +129,21 @@ def _quote_total_from_items(db: Session, quote_id: str) -> Decimal:
     return round_money(Decimal(total))
 
 
+def _coerce_int(value: object | None, default: int) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, Decimal):
+        return int(value)
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
 def _apply_validity_defaults(db: Session, quote: ProjectQuote) -> None:
     if quote.valid_from is None:
         quote.valid_from = _now()
@@ -151,7 +151,7 @@ def _apply_validity_defaults(db: Session, quote: ProjectQuote) -> None:
         days = settings_spec.resolve_value(
             db, SettingDomain.network, "vendor_quote_validity_days"
         )
-        days = int(days or 30)
+        days = _coerce_int(days, 30)
         quote.valid_until = quote.valid_from + timedelta(days=days)
 
 
@@ -221,10 +221,6 @@ class InstallationProjects(ListResponseMixin):
         _ensure_project(db, str(payload.project_id))
         if payload.buildout_project_id:
             _ensure_buildout_project(db, str(payload.buildout_project_id))
-        if payload.account_id:
-            _ensure_account(db, str(payload.account_id))
-        if payload.address_id:
-            _ensure_address(db, str(payload.address_id))
         if payload.assigned_vendor_id:
             _ensure_vendor(db, str(payload.assigned_vendor_id))
         if payload.created_by_person_id:
@@ -248,7 +244,7 @@ class InstallationProjects(ListResponseMixin):
         db: Session,
         status: str | None,
         vendor_id: str | None,
-        account_id: str | None,
+        subscriber_id: str | None,
         project_id: str | None,
         is_active: bool | None,
         order_by: str,
@@ -265,8 +261,8 @@ class InstallationProjects(ListResponseMixin):
             query = query.filter(InstallationProject.status == status_value)
         if vendor_id:
             query = query.filter(InstallationProject.assigned_vendor_id == coerce_uuid(vendor_id))
-        if account_id:
-            query = query.filter(InstallationProject.account_id == coerce_uuid(account_id))
+        if subscriber_id:
+            query = query.filter(InstallationProject.subscriber_id == coerce_uuid(subscriber_id))
         if project_id:
             query = query.filter(InstallationProject.project_id == coerce_uuid(project_id))
         if is_active is None:
@@ -287,10 +283,6 @@ class InstallationProjects(ListResponseMixin):
         data = payload.model_dump(exclude_unset=True)
         if "buildout_project_id" in data and data["buildout_project_id"]:
             _ensure_buildout_project(db, str(data["buildout_project_id"]))
-        if "account_id" in data and data["account_id"]:
-            _ensure_account(db, str(data["account_id"]))
-        if "address_id" in data and data["address_id"]:
-            _ensure_address(db, str(data["address_id"]))
         if "assigned_vendor_id" in data and data["assigned_vendor_id"]:
             _ensure_vendor(db, str(data["assigned_vendor_id"]))
         for key, value in data.items():
@@ -305,7 +297,7 @@ class InstallationProjects(ListResponseMixin):
         minimum_days = settings_spec.resolve_value(
             db, SettingDomain.network, "vendor_bid_minimum_days"
         )
-        minimum_days = int(minimum_days or 7)
+        minimum_days = _coerce_int(minimum_days, 7)
         if bid_days is None:
             bid_days = minimum_days
         if bid_days < minimum_days:
@@ -547,9 +539,10 @@ class ProposedRouteRevisions(ListResponseMixin):
             .filter(ProposedRouteRevision.quote_id == quote.id)
             .scalar()
         )
+        revision_number = _coerce_int(next_revision, 0) + 1
         revision = ProposedRouteRevision(
             quote_id=quote.id,
-            revision_number=int(next_revision) + 1,
+            revision_number=revision_number,
             status=ProposedRouteRevisionStatus.draft,
             route_geom=_geojson_to_geom(payload.geojson),
             length_meters=payload.length_meters,
@@ -567,9 +560,10 @@ class ProposedRouteRevisions(ListResponseMixin):
             .filter(ProposedRouteRevision.quote_id == quote.id)
             .scalar()
         )
+        revision_number = _coerce_int(next_revision, 0) + 1
         revision = ProposedRouteRevision(
             quote_id=quote.id,
-            revision_number=int(next_revision) + 1,
+            revision_number=revision_number,
             status=ProposedRouteRevisionStatus.draft,
             route_geom=_geojson_to_geom(geojson),
             length_meters=length_meters,

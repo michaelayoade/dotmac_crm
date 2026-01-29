@@ -40,5 +40,5 @@ class AuditEvent(Base):
     user_agent: Mapped[str | None] = mapped_column(String(255))
     request_id: Mapped[str | None] = mapped_column(String(120))
     metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", MutableDict.as_mutable(JSON)
+        "metadata", MutableDict.as_mutable(JSON())
     )

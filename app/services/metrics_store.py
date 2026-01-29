@@ -68,7 +68,14 @@ class MetricsStore:
             return self._timeout
         # Try to get from settings (no db available in async context, use env fallback)
         timeout = resolve_value(None, SettingDomain.bandwidth, "victoriametrics_timeout_seconds")
-        return float(timeout) if timeout else _DEFAULT_TIMEOUT
+        if isinstance(timeout, (int, float)):
+            return float(timeout)
+        if isinstance(timeout, str):
+            try:
+                return float(timeout)
+            except ValueError:
+                return _DEFAULT_TIMEOUT
+        return _DEFAULT_TIMEOUT
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:

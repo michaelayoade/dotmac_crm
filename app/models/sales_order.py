@@ -41,15 +41,8 @@ class SalesOrder(Base):
     person_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id"), nullable=False
     )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id")
-    )
-    invoice_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("invoices.id")
-    )
-    service_order_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("service_orders.id")
-    )
+    # account_id removed - SubscriberAccount model deleted
+    # invoice_id removed - Invoice model deleted
     order_number: Mapped[str | None] = mapped_column(String(80))
     status: Mapped[SalesOrderStatus] = mapped_column(
         Enum(SalesOrderStatus), default=SalesOrderStatus.draft
@@ -87,10 +80,7 @@ class SalesOrder(Base):
     )
 
     person = relationship("Person", back_populates="sales_orders")
-    account = relationship("SubscriberAccount")
     quote = relationship("Quote", back_populates="sales_order")
-    invoice = relationship("Invoice")
-    service_order = relationship("ServiceOrder")
     lines = relationship("SalesOrderLine", back_populates="sales_order")
 
 

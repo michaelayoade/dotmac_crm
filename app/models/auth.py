@@ -64,9 +64,7 @@ class UserCredential(Base):
     )
     username: Mapped[str | None] = mapped_column(String(150))
     password_hash: Mapped[str | None] = mapped_column(String(255))
-    radius_server_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("radius_servers.id")
-    )
+    # radius_server_id removed - RadiusServer model deleted
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     password_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -85,7 +83,6 @@ class UserCredential(Base):
     )
 
     person = relationship("Person")
-    radius_server = relationship("RadiusServer")
 
 
 class MFAMethod(Base):

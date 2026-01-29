@@ -186,8 +186,8 @@
                     <div class="flex items-center justify-between">
                         <dt>Customer</dt>
                         <dd>
-                            {% if project.account and project.account.subscriber %}
-                            {% set subscriber = project.account.subscriber %}
+                            {% if project.subscriber %}
+                            {% set subscriber = project.subscriber %}
                             <a href="/admin/subscribers/{{ subscriber.id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">
                                 {% if subscriber.person %}
                                 {{ subscriber.person.first_name }} {{ subscriber.person.last_name }}

@@ -160,7 +160,7 @@ def notification_template_create(
         payload = NotificationTemplateCreate(
             name=name.strip(),
             code=code.strip().lower().replace(" ", "_"),
-            channel=channel,
+            channel=NotificationChannel(channel),
             subject=subject.strip() if subject else None,
             body=body.strip(),
         )
@@ -238,7 +238,7 @@ def notification_template_update(
         payload = NotificationTemplateUpdate(
             name=name.strip(),
             code=code.strip().lower().replace(" ", "_"),
-            channel=channel,
+            channel=NotificationChannel(channel),
             subject=subject.strip() if subject else None,
             body=body.strip(),
             is_active=is_active,
@@ -295,7 +295,7 @@ def notification_template_test(
                 db=db,
                 to_email=test_recipient.strip(),
                 subject=template.subject or "Test Notification",
-                body=template.body,
+                body_html=template.body,
             )
             message = f"Test email sent to {test_recipient}"
         else:

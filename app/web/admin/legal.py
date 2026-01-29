@@ -297,7 +297,7 @@ async def legal_document_upload(
             db=db,
             document_id=document_id,
             file_content=content,
-            file_name=file.filename,
+            file_name=file.filename or "document",
             mime_type=file.content_type,
         )
 
@@ -340,7 +340,13 @@ def legal_document_publish(
     request: Request, document_id: str, db: Session = Depends(get_db)
 ):
     """Publish a legal document."""
-    payload = LegalDocumentUpdate(is_published=True, is_current=True)
+    payload = LegalDocumentUpdate(
+        title=None,
+        slug=None,
+        version=None,
+        is_published=True,
+        is_current=True,
+    )
     document = legal_service.legal_documents.update(
         db=db, document_id=document_id, payload=payload
     )
@@ -358,7 +364,12 @@ def legal_document_unpublish(
     request: Request, document_id: str, db: Session = Depends(get_db)
 ):
     """Unpublish a legal document."""
-    payload = LegalDocumentUpdate(is_published=False)
+    payload = LegalDocumentUpdate(
+        title=None,
+        slug=None,
+        version=None,
+        is_published=False,
+    )
     document = legal_service.legal_documents.update(
         db=db, document_id=document_id, payload=payload
     )

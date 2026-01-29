@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -27,7 +28,6 @@ from app.models.rbac import Permission, PersonRole, Role, RolePermission
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.person import Person
 from app.services.secrets import resolve_secret
-from app.services import radius_auth as radius_auth_service
 from app.schemas.auth_flow import LoginResponse, LogoutResponse, TokenResponse
 
 PASSWORD_CONTEXT = CryptContext(
@@ -412,20 +412,7 @@ class AuthFlow(ListResponseMixin):
             resolved_provider = AuthProvider(provider_value)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid auth provider") from exc
-        if resolved_provider == AuthProvider.radius:
-            credential = (
-                db.query(UserCredential)
-                .filter(UserCredential.username == username)
-                .filter(UserCredential.provider == AuthProvider.radius)
-                .filter(UserCredential.is_active.is_(True))
-                .first()
-            )
-            if not credential:
-                raise HTTPException(status_code=401, detail="Invalid credentials")
-            radius_auth_service.authenticate(
-                db, username, password, str(credential.radius_server_id) if credential.radius_server_id else None
-            )
-        elif resolved_provider == AuthProvider.local:
+        if resolved_provider == AuthProvider.local:
             credential = (
                 db.query(UserCredential)
                 .filter(UserCredential.username == username)
@@ -671,7 +658,7 @@ class AuthFlow(ListResponseMixin):
         }
 
     @staticmethod
-    def _issue_tokens(db: Session, person_id: str, request: Request):
+    def _issue_tokens(db: Session, person_id: str | uuid.UUID, request: Request):
         person_uuid = coerce_uuid(person_id)
         refresh_token = secrets.token_urlsafe(48)
         now = _now()

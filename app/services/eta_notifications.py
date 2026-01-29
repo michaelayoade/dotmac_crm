@@ -20,49 +20,15 @@ def _resolve_customer_contact(db: Session, work_order: WorkOrder) -> dict | None
 
     Returns dict with name, email, phone if found, otherwise None.
     """
-    # Try to get contact from account
-    if work_order.account_id:
-        from app.models.subscriber import SubscriberAccount, AccountRole
+    from app.models.person import Person
 
-        account = db.get(SubscriberAccount, work_order.account_id)
-        if account and account.subscriber and account.subscriber.person:
-            person = account.subscriber.person
-            return {
-                "name": person.display_name or f"{person.first_name} {person.last_name}".strip(),
-                "email": person.email,
-                "phone": person.phone,
-            }
-
-        # Check account roles for a primary contact
-        if account and account.account_roles:
-            primary = next(
-                (r for r in account.account_roles if r.is_primary and r.person),
-                None
-            )
-            if primary and primary.person:
-                person = primary.person
-                return {
-                    "name": person.display_name or f"{person.first_name} {person.last_name}".strip(),
-                    "email": person.email,
-                    "phone": person.phone,
-                }
-
-    # Try service order if linked
-    if work_order.service_order_id:
-        from app.models.provisioning import ServiceOrder
-
-        service_order = db.get(ServiceOrder, work_order.service_order_id)
-        if service_order and service_order.account_id:
-            from app.models.subscriber import SubscriberAccount
-
-            account = db.get(SubscriberAccount, service_order.account_id)
-            if account and account.subscriber and account.subscriber.person:
-                person = account.subscriber.person
-                return {
-                    "name": person.display_name or f"{person.first_name} {person.last_name}".strip(),
-                    "email": person.email,
-                    "phone": person.phone,
-                }
+    if work_order.subscriber and work_order.subscriber.person:
+        person = work_order.subscriber.person
+        return {
+            "name": person.display_name or f"{person.first_name} {person.last_name}".strip(),
+            "email": person.email,
+            "phone": person.phone,
+        }
 
     return None
 
@@ -172,7 +138,8 @@ Thank you for your patience!"""
                 db=db,
                 to_email=contact["email"],
                 subject=subject,
-                body=body,
+                body_html=body,
+                body_text=body,
             )
             logger.info(f"ETA email sent to {contact['email']} for work order {work_order_id}")
             sent = True
@@ -285,7 +252,8 @@ Thank you for your patience!"""
                 db=db,
                 to_email=contact["email"],
                 subject=subject,
-                body=body,
+                body_html=body,
+                body_text=body,
             )
             sent = True
         except Exception as exc:
@@ -374,7 +342,8 @@ Thank you for choosing us!"""
             db=db,
             to_email=contact["email"],
             subject=subject,
-            body=body,
+            body_html=body,
+            body_text=body,
         )
         logger.info(f"Work order completed email sent for {work_order_id}")
         return True

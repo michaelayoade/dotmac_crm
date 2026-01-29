@@ -48,8 +48,7 @@ def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
 
 @router.get("/tickets", response_model=ListResponse[TicketRead], tags=["tickets"])
 def list_tickets(
-    account_id: str | None = None,
-    subscription_id: str | None = None,
+    subscriber_id: str | None = None,
     status: str | None = None,
     priority: str | None = None,
     channel: str | None = None,
@@ -64,8 +63,7 @@ def list_tickets(
 ):
     return tickets_service.tickets.list_response(
         db,
-        account_id,
-        subscription_id,
+        subscriber_id,
         status,
         priority,
         channel,
@@ -102,7 +100,7 @@ def bulk_update_tickets(
     payload: TicketBulkUpdateRequest, db: Session = Depends(get_db)
 ):
     response = tickets_service.tickets.bulk_update_response(
-        db, payload.ticket_ids, payload.update
+        db, [str(ticket_id) for ticket_id in payload.ticket_ids], payload.update
     )
     return TicketBulkUpdateResponse(**response)
 

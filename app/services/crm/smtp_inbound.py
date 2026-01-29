@@ -9,12 +9,13 @@ from email import message_from_bytes, policy
 from email.header import decode_header
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from datetime import timezone
-from typing import Iterable
+from typing import Any, Iterable
 
+SMTPController: Any
 try:
-    from aiosmtpd.controller import Controller
+    from aiosmtpd.controller import Controller as SMTPController
 except ModuleNotFoundError:
-    Controller = None
+    SMTPController = None
 
 from app.db import SessionLocal
 from app.logging import get_logger
@@ -151,7 +152,7 @@ def _handle_message(
                 logger.info("smtp_inbound_skip_self from=%s", from_addr)
                 return
 
-        metadata = {
+        metadata: dict[str, Any] = {
             "smtp": {
                 "from_raw": msg.get("From"),
                 "to_raw": msg.get("To"),
@@ -211,11 +212,13 @@ class CRMInboundSMTPHandler:
     def __init__(self, allowed_recipients: set[str] | None):
         if allowed_recipients:
             normalized = {
-                _normalize_email_address(addr)
-                for addr in allowed_recipients
-                if _normalize_email_address(addr)
+                addr
+                for addr in (
+                    _normalize_email_address(raw) for raw in allowed_recipients
+                )
+                if addr
             }
-            self.allowed_recipients = normalized
+            self.allowed_recipients: set[str] | None = normalized
         else:
             self.allowed_recipients = None
 
@@ -244,13 +247,13 @@ class CRMInboundSMTPHandler:
         return "250 OK"
 
 
-_SMTP_CONTROLLER: Controller | None = None
+_SMTP_CONTROLLER: Any | None = None
 
 
 def start_smtp_inbound_server() -> None:
     """Start the inbound SMTP server in a background thread."""
     global _SMTP_CONTROLLER
-    if Controller is None:
+    if SMTPController is None:
         logger.warning(
             "smtp_inbound_unavailable reason=missing_aiosmtpd python=%s",
             ".".join(map(str, sys.version_info[:3])),
@@ -273,7 +276,7 @@ def start_smtp_inbound_server() -> None:
         allowed_recipients = {addr.strip() for addr in recipients_env.split(",") if addr.strip()}
 
     handler = CRMInboundSMTPHandler(allowed_recipients)
-    controller = Controller(handler, hostname=host, port=port)
+    controller = SMTPController(handler, hostname=host, port=port)
     controller.start()
     _SMTP_CONTROLLER = controller
     logger.info("smtp_inbound_server_start host=%s port=%s", host, port)

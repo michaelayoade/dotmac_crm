@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping
 import uuid
 
 from fastapi import BackgroundTasks
@@ -8,8 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.gis import GeoLocation, GeoLocationType
-from app.models.network_monitoring import PopSite
-from app.models.subscriber import Address
+from app.models.network import OLTDevice, FdhCabinet
 from app.services.response import ListResponseMixin
 
 
@@ -20,53 +20,40 @@ class SyncResult(ListResponseMixin):
     skipped: int = 0
 
 
-def _address_display_name(address: Address) -> str:
-    if address.label:
-        return address.label
-    parts = [address.address_line1]
-    if address.city:
-        parts.append(address.city)
-    if address.region:
-        parts.append(address.region)
-    if address.postal_code:
-        parts.append(address.postal_code)
-    return ", ".join([part for part in parts if part])
-
-
 class GeoSync(ListResponseMixin):
     @staticmethod
     def sync_sources(
         db: Session,
         background_tasks: BackgroundTasks,
-        sync_pops: bool,
-        sync_addresses: bool,
+        sync_olts: bool,
+        sync_fdhs: bool,
         deactivate_missing: bool,
         background: bool,
-    ) -> dict[str, object]:
+    ) -> Mapping[str, object]:
         if background:
             return GeoSync.queue_sync(
-                background_tasks, sync_pops, sync_addresses, deactivate_missing
+                background_tasks, sync_olts, sync_fdhs, deactivate_missing
             )
-        return GeoSync.run_sync(db, sync_pops, sync_addresses, deactivate_missing)
+        return GeoSync.run_sync(db, sync_olts, sync_fdhs, deactivate_missing)
 
     @staticmethod
     def run_sync(
         db: Session,
-        sync_pops: bool,
-        sync_addresses: bool,
+        sync_olts: bool,
+        sync_fdhs: bool,
         deactivate_missing: bool,
     ) -> dict[str, dict[str, int]]:
         results: dict[str, dict[str, int]] = {}
-        if sync_pops:
-            result = GeoSync.sync_pop_sites(db, deactivate_missing=deactivate_missing)
-            results["pop_sites"] = {
+        if sync_olts:
+            result = GeoSync.sync_olt_devices(db, deactivate_missing=deactivate_missing)
+            results["olt_devices"] = {
                 "created": result.created,
                 "updated": result.updated,
                 "skipped": result.skipped,
             }
-        if sync_addresses:
-            result = GeoSync.sync_addresses(db, deactivate_missing=deactivate_missing)
-            results["addresses"] = {
+        if sync_fdhs:
+            result = GeoSync.sync_fdh_cabinets(db, deactivate_missing=deactivate_missing)
+            results["fdh_cabinets"] = {
                 "created": result.created,
                 "updated": result.updated,
                 "skipped": result.skipped,
@@ -76,8 +63,8 @@ class GeoSync(ListResponseMixin):
     @staticmethod
     def queue_sync(
         background_tasks: BackgroundTasks,
-        sync_pops: bool,
-        sync_addresses: bool,
+        sync_olts: bool,
+        sync_fdhs: bool,
         deactivate_missing: bool,
     ) -> dict[str, str]:
         def _run_sync() -> None:
@@ -85,8 +72,8 @@ class GeoSync(ListResponseMixin):
             try:
                 GeoSync.run_sync(
                     session,
-                    sync_pops=sync_pops,
-                    sync_addresses=sync_addresses,
+                    sync_olts=sync_olts,
+                    sync_fdhs=sync_fdhs,
                     deactivate_missing=deactivate_missing,
                 )
             except Exception:
@@ -99,93 +86,92 @@ class GeoSync(ListResponseMixin):
         return {"status": "queued"}
 
     @staticmethod
-    def sync_pop_sites(db: Session, deactivate_missing: bool = False) -> SyncResult:
+    def sync_olt_devices(db: Session, deactivate_missing: bool = False) -> SyncResult:
         result = SyncResult()
-        pops = db.query(PopSite).all()
+        olts = db.query(OLTDevice).all()
         seen_ids: set[uuid.UUID] = set()
-        for pop in pops:
-            if pop.latitude is None or pop.longitude is None:
+        for olt in olts:
+            if olt.latitude is None or olt.longitude is None:
                 result.skipped += 1
                 continue
-            seen_ids.add(pop.id)
+            seen_ids.add(olt.id)
             existing = (
                 db.query(GeoLocation)
-                .filter(GeoLocation.pop_site_id == pop.id)
+                .filter(GeoLocation.olt_device_id == olt.id)
                 .first()
             )
             if existing:
-                existing.name = pop.name
-                existing.location_type = GeoLocationType.pop
-                existing.latitude = pop.latitude
-                existing.longitude = pop.longitude
-                existing.is_active = pop.is_active
+                existing.name = olt.name
+                existing.location_type = GeoLocationType.network_device
+                existing.latitude = olt.latitude
+                existing.longitude = olt.longitude
+                existing.is_active = olt.is_active
                 result.updated += 1
             else:
                 db.add(
                     GeoLocation(
-                        name=pop.name,
-                        location_type=GeoLocationType.pop,
-                        latitude=pop.latitude,
-                        longitude=pop.longitude,
-                        pop_site_id=pop.id,
-                        is_active=pop.is_active,
+                        name=olt.name,
+                        location_type=GeoLocationType.network_device,
+                        latitude=olt.latitude,
+                        longitude=olt.longitude,
+                        olt_device_id=olt.id,
+                        is_active=olt.is_active,
                     )
                 )
                 result.created += 1
         if deactivate_missing:
             missing_query = db.query(GeoLocation).filter(
-                GeoLocation.pop_site_id.isnot(None)
+                GeoLocation.olt_device_id.isnot(None)
             )
             if seen_ids:
                 missing_query = missing_query.filter(
-                    GeoLocation.pop_site_id.notin_(seen_ids)
+                    GeoLocation.olt_device_id.notin_(seen_ids)
                 )
             missing_query.update({"is_active": False}, synchronize_session=False)
         db.commit()
         return result
 
     @staticmethod
-    def sync_addresses(db: Session, deactivate_missing: bool = False) -> SyncResult:
+    def sync_fdh_cabinets(db: Session, deactivate_missing: bool = False) -> SyncResult:
         result = SyncResult()
-        addresses = db.query(Address).all()
+        fdhs = db.query(FdhCabinet).all()
         seen_ids: set[uuid.UUID] = set()
-        for address in addresses:
-            if address.latitude is None or address.longitude is None:
+        for fdh in fdhs:
+            if fdh.latitude is None or fdh.longitude is None:
                 result.skipped += 1
                 continue
-            seen_ids.add(address.id)
+            seen_ids.add(fdh.id)
             existing = (
                 db.query(GeoLocation)
-                .filter(GeoLocation.address_id == address.id)
+                .filter(GeoLocation.fdh_cabinet_id == fdh.id)
                 .first()
             )
-            name = _address_display_name(address)
             if existing:
-                existing.name = name
-                existing.location_type = GeoLocationType.address
-                existing.latitude = address.latitude
-                existing.longitude = address.longitude
-                existing.is_active = True
+                existing.name = fdh.name
+                existing.location_type = GeoLocationType.fdh
+                existing.latitude = fdh.latitude
+                existing.longitude = fdh.longitude
+                existing.is_active = fdh.is_active
                 result.updated += 1
             else:
                 db.add(
                     GeoLocation(
-                        name=name,
-                        location_type=GeoLocationType.address,
-                        latitude=address.latitude,
-                        longitude=address.longitude,
-                        address_id=address.id,
-                        is_active=True,
+                        name=fdh.name,
+                        location_type=GeoLocationType.fdh,
+                        latitude=fdh.latitude,
+                        longitude=fdh.longitude,
+                        fdh_cabinet_id=fdh.id,
+                        is_active=fdh.is_active,
                     )
                 )
                 result.created += 1
         if deactivate_missing:
             missing_query = db.query(GeoLocation).filter(
-                GeoLocation.address_id.isnot(None)
+                GeoLocation.fdh_cabinet_id.isnot(None)
             )
             if seen_ids:
                 missing_query = missing_query.filter(
-                    GeoLocation.address_id.notin_(seen_ids)
+                    GeoLocation.fdh_cabinet_id.notin_(seen_ids)
                 )
             missing_query.update({"is_active": False}, synchronize_session=False)
         db.commit()

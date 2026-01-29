@@ -113,15 +113,15 @@
             <input type="hidden" name="person_id" data-typeahead-hidden required>
             <div data-typeahead-results></div>
         </div>
-        <div class="relative" data-typeahead-url="/api/v1/search/accounts" data-typeahead-min="2" data-typeahead-limit="8">
-            <label class="block text-[10px] text-slate-500 mb-1">Account (optional)</label>
+        <div class="relative" data-typeahead-url="/api/v1/search/subscribers" data-typeahead-min="2" data-typeahead-limit="8">
+            <label class="block text-[10px] text-slate-500 mb-1">Subscriber (optional)</label>
             <input type="text"
-                   name="account_search"
+                   name="subscriber_search"
                    data-typeahead-input
                    autocomplete="off"
-                   placeholder="Search account number or name"
+                   placeholder="Search subscriber number or name"
                    class="w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200" />
-            <input type="hidden" name="account_id" data-typeahead-hidden>
+            <input type="hidden" name="subscriber_id" data-typeahead-hidden>
             <div data-typeahead-results></div>
         </div>
         <div class="grid grid-cols-2 gap-1.5">
@@ -477,6 +477,7 @@
         {% endif %}
     </div>
 </div>
+
 
 <!-- Actions -->
 <div class="px-5 py-4 border-t border-slate-800/60 mt-auto">

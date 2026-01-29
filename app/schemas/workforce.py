@@ -15,9 +15,7 @@ class WorkOrderBase(BaseModel):
     status: WorkOrderStatus = WorkOrderStatus.draft
     priority: WorkOrderPriority = WorkOrderPriority.normal
     work_type: WorkOrderType = WorkOrderType.install
-    account_id: UUID | None = None
-    subscription_id: UUID | None = None
-    service_order_id: UUID | None = None
+    subscriber_id: UUID | None = None
     ticket_id: UUID | None = None
     project_id: UUID | None = None
     address_id: UUID | None = None
@@ -44,9 +42,7 @@ class WorkOrderUpdate(BaseModel):
     status: WorkOrderStatus | None = None
     priority: WorkOrderPriority | None = None
     work_type: WorkOrderType | None = None
-    account_id: UUID | None = None
-    subscription_id: UUID | None = None
-    service_order_id: UUID | None = None
+    subscriber_id: UUID | None = None
     ticket_id: UUID | None = None
     project_id: UUID | None = None
     address_id: UUID | None = None

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import ChannelType as CrmChannelType
@@ -543,6 +543,474 @@ class ContactChannels(ListResponseMixin):
         db.commit()
         db.refresh(channel)
         return channel
+
+
+def get_contact_context(db: Session, contact: Person) -> dict:
+    """Get contact context including related tickets, projects, and conversations.
+
+    Returns a dict with recent_tickets, recent_projects, conversations_summary, and tags.
+    """
+    from sqlalchemy.orm import selectinload
+    from app.models.tickets import Ticket
+    from app.models.projects import Project, ProjectStatus
+
+    person_id = contact.id
+
+    # Collect tags from conversations
+    tags = set()
+    for conv in contact.conversations or []:
+        conv_with_tags = db.get(
+            Conversation,
+            conv.id,
+            options=[selectinload(Conversation.tags)],
+        )
+        if conv_with_tags and conv_with_tags.tags:
+            for tag in conv_with_tags.tags:
+                tags.add(tag.tag)
+
+    # Get recent tickets for this person
+    recent_tickets = []
+    tickets = (
+        db.query(Ticket)
+        .filter(Ticket.created_by_person_id == person_id)
+        .order_by(Ticket.created_at.desc())
+        .limit(3)
+        .all()
+    )
+    for t in tickets:
+        ticket_status = t.status.value if hasattr(t.status, "value") else str(t.status)
+        recent_tickets.append({
+            "id": str(t.id),
+            "label": f"TKT-{str(t.id)[:8].upper()}",
+            "subject": t.title or "No subject",
+            "status": ticket_status,
+            "href": f"/admin/support/tickets/{t.id}",
+        })
+
+    # Get recent projects for this person
+    recent_projects = []
+    projects = (
+        db.query(Project)
+        .filter(Project.is_active.is_(True))
+        .filter(Project.status != ProjectStatus.completed)
+        .filter(
+            or_(
+                Project.created_by_person_id == person_id,
+                Project.owner_person_id == person_id,
+                Project.manager_person_id == person_id,
+            )
+        )
+        .order_by(Project.updated_at.desc(), Project.created_at.desc())
+        .limit(3)
+        .all()
+    )
+    for project in projects:
+        project_status = (
+            project.status.value
+            if hasattr(project.status, "value")
+            else str(project.status)
+        )
+        recent_projects.append({
+            "id": f"PRJ-{str(project.id)[:8].upper()}",
+            "name": project.name or "Untitled project",
+            "status": project_status,
+            "href": f"/admin/projects/{project.id}",
+        })
+
+    # Get conversations summary
+    conversations_summary = []
+    conversations_query = (
+        db.query(Conversation)
+        .options(
+            selectinload(Conversation.assignments)
+            .selectinload(ConversationAssignment.agent),
+            selectinload(Conversation.assignments)
+            .selectinload(ConversationAssignment.team),
+        )
+        .filter(Conversation.contact_id == contact.id)  # type: ignore[arg-type]
+        .order_by(Conversation.updated_at.desc())
+        .limit(5)
+        .all()
+    )
+    for conv in conversations_query:
+        active_assignment = next(
+            (assignment for assignment in conv.assignments or [] if assignment.is_active),
+            None,
+        )
+        agent_id = str(active_assignment.agent_id) if active_assignment and active_assignment.agent_id else ""
+        team_id = str(active_assignment.team_id) if active_assignment and active_assignment.team_id else ""
+        agent_name = ""
+        if active_assignment and active_assignment.agent and active_assignment.agent.person_id:
+            agent_person = db.get(Person, active_assignment.agent.person_id)
+            if agent_person:
+                agent_name = agent_person.display_name or " ".join(
+                    part for part in [agent_person.first_name, agent_person.last_name] if part
+                ).strip()
+        team_name = active_assignment.team.name if active_assignment and active_assignment.team else ""
+        conversations_summary.append({
+            "id": str(conv.id),
+            "subject": conv.subject or f"Conversation {str(conv.id)[:8]}",
+            "status": conv.status.value if conv.status else "open",
+            "agent_id": agent_id,
+            "team_id": team_id,
+            "agent_name": agent_name,
+            "team_name": team_name,
+        })
+
+    return {
+        "tags": list(tags),
+        "recent_tickets": recent_tickets,
+        "recent_projects": recent_projects,
+        "conversations_summary": conversations_summary,
+    }
+
+
+def get_person_with_relationships(
+    db: Session,
+    person_id: str,
+) -> Person | None:
+    """Get person with channels and conversations eager-loaded."""
+    return (
+        db.query(Person)
+        .options(
+            selectinload(Person.channels),
+            selectinload(Person.conversations),
+        )
+        .filter(Person.id == coerce_uuid(person_id))
+        .first()
+    )
+
+
+def get_contact_social_comments(
+    db: Session,
+    contact_id: str,
+    limit: int = 10,
+):
+    """Get social comments for contact's social channels.
+
+    Returns a list of SocialComment objects (raw model instances).
+    """
+    from app.models.crm.comments import SocialComment, SocialCommentPlatform
+
+    contact = db.get(Person, coerce_uuid(contact_id))
+    if not contact:
+        return []
+
+    social_channels = (
+        db.query(PersonChannel)
+        .filter(PersonChannel.person_id == contact.id)
+        .filter(
+            PersonChannel.channel_type.in_(
+                [
+                    PersonChannelType.facebook_messenger,
+                    PersonChannelType.instagram_dm,
+                ]
+            )
+        )
+        .all()
+    )
+
+    fb_addresses = []
+    ig_addresses = []
+    for channel in social_channels:
+        if channel.channel_type == PersonChannelType.facebook_messenger:
+            fb_addresses.append(channel.address)
+        elif channel.channel_type == PersonChannelType.instagram_dm:
+            ig_addresses.append(channel.address)
+
+    comment_filters = []
+    if fb_addresses:
+        comment_filters.append(
+            (SocialComment.platform == SocialCommentPlatform.facebook)
+            & (
+                SocialComment.author_id.in_(fb_addresses)
+                | SocialComment.author_name.in_(fb_addresses)
+            )
+        )
+    if ig_addresses:
+        comment_filters.append(
+            (SocialComment.platform == SocialCommentPlatform.instagram)
+            & (
+                SocialComment.author_id.in_(ig_addresses)
+                | SocialComment.author_name.in_(ig_addresses)
+            )
+        )
+
+    if not comment_filters:
+        return []
+
+    return (
+        db.query(SocialComment)
+        .filter(SocialComment.is_active.is_(True))
+        .filter(or_(*comment_filters))
+        .order_by(
+            SocialComment.created_time.desc().nullslast(),
+            SocialComment.created_at.desc(),
+        )
+        .limit(limit)
+        .all()
+    )
+
+
+def get_contact_conversations_summary(
+    db: Session,
+    contact_id: str,
+    limit: int = 5,
+) -> list[dict]:
+    """Get recent conversations for contact with assignment info."""
+    conversations = (
+        db.query(Conversation)
+        .options(
+            selectinload(Conversation.assignments)
+            .selectinload(ConversationAssignment.agent),
+            selectinload(Conversation.assignments)
+            .selectinload(ConversationAssignment.team),
+        )
+        .filter(Conversation.contact_id == coerce_uuid(contact_id))
+        .order_by(Conversation.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    # Collect person_ids from active assignments to bulk fetch
+    person_ids = []
+    for conv in conversations:
+        active_assignment = next(
+            (a for a in conv.assignments or [] if a.is_active),
+            None,
+        )
+        if active_assignment and active_assignment.agent and active_assignment.agent.person_id:
+            person_ids.append(active_assignment.agent.person_id)
+
+    # Bulk fetch all agent persons
+    person_map = {}
+    if person_ids:
+        persons = db.query(Person).filter(Person.id.in_(person_ids)).all()
+        person_map = {p.id: p for p in persons}
+
+    result = []
+    for conv in conversations:
+        active_assignment = next(
+            (a for a in conv.assignments or [] if a.is_active),
+            None,
+        )
+        agent_id = str(active_assignment.agent_id) if active_assignment and active_assignment.agent_id else ""
+        team_id = str(active_assignment.team_id) if active_assignment and active_assignment.team_id else ""
+        agent_name = ""
+        if active_assignment and active_assignment.agent and active_assignment.agent.person_id:
+            agent_person = person_map.get(active_assignment.agent.person_id)
+            if agent_person:
+                agent_name = agent_person.display_name or " ".join(
+                    part for part in [agent_person.first_name, agent_person.last_name] if part
+                ).strip()
+        team_name = active_assignment.team.name if active_assignment and active_assignment.team else ""
+
+        result.append({
+            "id": str(conv.id),
+            "subject": conv.subject or f"Conversation {str(conv.id)[:8]}",
+            "status": conv.status.value if conv.status else "open",
+            "agent_id": agent_id,
+            "team_id": team_id,
+            "agent_name": agent_name,
+            "team_name": team_name,
+            "updated_at": conv.updated_at,
+        })
+
+    return result
+
+
+def get_contact_resolved_conversations(
+    db: Session,
+    contact_id: str,
+) -> list[dict]:
+    """Get resolved conversations for contact."""
+    from app.models.crm.enums import ConversationStatus as CrmConversationStatus
+
+    conversations = (
+        db.query(Conversation)
+        .filter(Conversation.contact_id == coerce_uuid(contact_id))
+        .filter(Conversation.status == CrmConversationStatus.resolved)
+        .order_by(Conversation.updated_at.desc())
+        .all()
+    )
+
+    result = []
+    for conv in conversations:
+        result.append({
+            "id": str(conv.id),
+            "subject": conv.subject or f"Conversation {str(conv.id)[:8]}",
+            "status": conv.status.value if conv.status else "resolved",
+            "updated_at": conv.updated_at,
+            "last_message_at": conv.last_message_at,
+        })
+
+    return result
+
+
+def get_contact_recent_conversations(
+    db: Session,
+    contact_id: str,
+    limit: int = 5,
+):
+    """Get recent conversations for a contact.
+
+    Returns a list of Conversation objects (raw model instances).
+    """
+    return (
+        db.query(Conversation)
+        .filter(Conversation.contact_id == coerce_uuid(contact_id))
+        .order_by(Conversation.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_contact_tags(db: Session, contact_id: str) -> set[str]:
+    """Get all unique tags from a contact's conversations efficiently.
+
+    Uses a single query with join instead of N+1 pattern.
+    """
+    from app.models.crm.conversation import ConversationTag
+
+    tags = (
+        db.query(ConversationTag.tag)
+        .join(Conversation, Conversation.id == ConversationTag.conversation_id)
+        .filter(Conversation.contact_id == coerce_uuid(contact_id))
+        .distinct()
+        .all()
+    )
+    return {tag[0] for tag in tags if tag[0]}
+
+
+def get_contact_recent_tickets(
+    db: Session,
+    person_id: str,
+    subscriber_ids: list | None = None,
+    limit: int = 3,
+) -> list[dict]:
+    """Get recent tickets for a person."""
+    from app.models.tickets import Ticket
+
+    ticket_filters = []
+    if person_id:
+        ticket_filters.append(Ticket.created_by_person_id == coerce_uuid(person_id))
+    if subscriber_ids:
+        ticket_filters.append(Ticket.subscriber_id.in_(subscriber_ids))
+
+    if not ticket_filters:
+        return []
+
+    tickets = (
+        db.query(Ticket)
+        .filter(or_(*ticket_filters))
+        .order_by(Ticket.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for t in tickets:
+        ticket_status = t.status.value if hasattr(t.status, "value") else str(t.status)
+        result.append({
+            "id": str(t.id),
+            "label": f"TKT-{str(t.id)[:8].upper()}",
+            "subject": t.title or "No subject",
+            "status": ticket_status,
+            "href": f"/admin/support/tickets/{t.id}",
+        })
+
+    return result
+
+
+def get_contact_recent_projects(
+    db: Session,
+    person_id: str,
+    subscriber_ids: list | None = None,
+    limit: int = 3,
+) -> list[dict]:
+    """Get recent projects for a person."""
+    from app.models.projects import Project, ProjectStatus
+
+    project_filters = []
+    if person_id:
+        person_uuid = coerce_uuid(person_id)
+        project_filters.append(Project.created_by_person_id == person_uuid)
+        project_filters.append(Project.owner_person_id == person_uuid)
+        project_filters.append(Project.manager_person_id == person_uuid)
+    if subscriber_ids:
+        project_filters.append(Project.subscriber_id.in_(subscriber_ids))
+
+    if not project_filters:
+        return []
+
+    projects = (
+        db.query(Project)
+        .filter(Project.is_active.is_(True))
+        .filter(Project.status != ProjectStatus.completed)
+        .filter(or_(*project_filters))
+        .order_by(Project.updated_at.desc(), Project.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for project in projects:
+        project_status = (
+            project.status.value
+            if hasattr(project.status, "value")
+            else str(project.status)
+        )
+        result.append({
+            "id": f"PRJ-{str(project.id)[:8].upper()}",
+            "name": project.name or "Untitled project",
+            "status": project_status,
+            "href": f"/admin/projects/{project.id}",
+        })
+
+    return result
+
+
+def get_contact_recent_tasks(
+    db: Session,
+    person_id: str,
+    subscriber_ids: list | None = None,
+    limit: int = 3,
+) -> list[dict]:
+    """Get recent tasks for a person."""
+    from app.models.projects import Project, ProjectTask
+
+    task_filters = []
+    if person_id:
+        person_uuid = coerce_uuid(person_id)
+        task_filters.append(ProjectTask.created_by_person_id == person_uuid)
+        task_filters.append(ProjectTask.assigned_to_person_id == person_uuid)
+    if subscriber_ids:
+        task_filters.append(Project.subscriber_id.in_(subscriber_ids))
+
+    if not task_filters:
+        return []
+
+    tasks = (
+        db.query(ProjectTask)
+        .join(Project, ProjectTask.project_id == Project.id)
+        .filter(or_(*task_filters))
+        .order_by(ProjectTask.updated_at.desc(), ProjectTask.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for task in tasks:
+        task_status = task.status.value if hasattr(task.status, "value") else str(task.status)
+        result.append({
+            "id": str(task.id),
+            "label": f"TSK-{str(task.id)[:8].upper()}",
+            "title": task.title or "Untitled task",
+            "status": task_status,
+            "href": f"/admin/projects/tasks/{task.id}",
+        })
+
+    return result
 
 
 def get_or_create_contact_by_channel(

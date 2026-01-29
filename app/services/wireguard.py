@@ -532,6 +532,7 @@ class WireGuardPeerService:
         db: Session,
         server_id: str | uuid.UUID | None = None,
         status: WireGuardPeerStatus | None = None,
+        nas_device_id: str | uuid.UUID | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[WireGuardPeer]:
@@ -544,6 +545,8 @@ class WireGuardPeerService:
             query = query.filter(WireGuardPeer.server_id == server_id)
         if status:
             query = query.filter(WireGuardPeer.status == status)
+        if nas_device_id:
+            _ = nas_device_id
 
         return query.order_by(WireGuardPeer.name).offset(offset).limit(limit).all()
 
@@ -962,9 +965,11 @@ class MikroTikScriptService:
         allowed_addresses = [f"{network_addr}/{prefix_len}"]
         if network_addr_v6 and prefix_len_v6 is not None:
             allowed_addresses.append(f"{network_addr_v6}/{prefix_len_v6}")
-        routes = []
-        if server.metadata_:
-            routes = server.metadata_.get("routes") or []
+        routes: list[str] = []
+        if isinstance(server.metadata_, dict):
+            routes_value = server.metadata_.get("routes")
+            if isinstance(routes_value, list):
+                routes = [str(route) for route in routes_value if route]
         for route in routes:
             if route and route not in allowed_addresses:
                 allowed_addresses.append(route)

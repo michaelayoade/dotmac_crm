@@ -1,0 +1,51 @@
+<div class="msg-slide-up flex justify-center" style="animation-delay: 0ms;">
+    <div class="max-w-[85%] w-full">
+        <div class="rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 shadow-sm dark:border-amber-400/30 dark:bg-amber-500/10">
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                <span class="font-semibold">Private note</span>
+                <span class="rounded-full border border-amber-300/60 px-2 py-0.5 text-[9px] font-semibold text-amber-700 dark:border-amber-400/40 dark:text-amber-200">
+                    {{ msg.visibility or 'team' }}
+                </span>
+            </div>
+            <div class="mt-2 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
+                {{ msg.content_html | safe if msg.content_html else msg.content }}
+            </div>
+            {% if msg.attachments %}
+            <div class="mt-3 space-y-2">
+                {% for attachment in msg.attachments %}
+                {% if attachment.is_image and attachment.url %}
+                <a href="{{ attachment.url }}"
+                   target="_blank"
+                   rel="noopener"
+                   class="block overflow-hidden rounded-lg border border-amber-200/60 bg-white/70 dark:border-amber-400/30 dark:bg-slate-900/40">
+                    <img src="{{ attachment.url }}"
+                         alt="{{ attachment.file_name }}"
+                         class="block max-h-64 w-auto object-contain">
+                </a>
+                {% else %}
+                {% if attachment.url %}
+                <a href="{{ attachment.url }}"
+                   target="_blank"
+                   rel="noopener"
+                   download="{{ attachment.file_name }}"
+                   class="inline-flex items-center gap-2 rounded-lg border border-amber-200/60 bg-white/70 px-3 py-2 text-xs text-slate-700 hover:bg-white dark:border-amber-400/30 dark:bg-slate-900/40 dark:text-slate-300">
+                    <span class="font-medium">{{ attachment.file_name }}</span>
+                    {% if attachment.mime_type %}
+                    <span class="text-[10px] text-slate-500">{{ attachment.mime_type }}</span>
+                    {% endif %}
+                </a>
+                {% else %}
+                <div class="inline-flex items-center gap-2 rounded-lg border border-amber-200/60 bg-white/70 px-3 py-2 text-xs text-slate-500 dark:border-amber-400/30 dark:bg-slate-900/40">
+                    <span class="font-medium">{{ attachment.file_name }}</span>
+                </div>
+                {% endif %}
+                {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+            <div class="mt-2 text-[10px] text-slate-500 dark:text-slate-400">
+                {{ msg.sender.name }} · {{ msg.timestamp.strftime('%H:%M') }}
+            </div>
+        </div>
+    </div>
+</div>

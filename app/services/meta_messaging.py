@@ -74,6 +74,8 @@ def _get_meta_access_token_override(db: Session) -> str | None:
     token = resolve_value(db, SettingDomain.comms, "meta_access_token_override")
     if not token:
         return None
+    if not isinstance(token, str):
+        token = str(token)
     return token.strip() or None
 
 

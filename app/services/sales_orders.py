@@ -13,11 +13,6 @@ from app.models.sales_order import (
     SalesOrderPaymentStatus,
     SalesOrderStatus,
 )
-from app.models.projects import ProjectType
-from app.models.provisioning import ServiceOrderStatus
-from app.schemas.provisioning import ServiceOrderCreate
-from app.services import provisioning as provisioning_service
-from app.models.subscriber import AccountRole, AccountRoleType, Subscriber, SubscriberAccount
 from app.models.crm.sales import Quote
 from app.models.person import Person
 from app.models.sequence import DocumentSequence
@@ -30,23 +25,13 @@ from app.services.common import (
     round_money,
     validate_enum,
 )
-from app.schemas.subscriber import SubscriberAccountCreate, SubscriberCreate, AccountRoleCreate
-from app.services import subscriber as subscriber_service
 from app.services.response import ListResponseMixin
-
 
 def _ensure_person(db: Session, person_id: str):
     person = get_by_id(db, Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     return person
-
-
-def _ensure_account(db: Session, account_id: str):
-    account = get_by_id(db, SubscriberAccount, account_id)
-    if not account:
-        raise HTTPException(status_code=404, detail="Subscriber account not found")
-    return account
 
 
 def _next_sequence_value(db: Session, key: str, start_value: int = 1) -> int:
@@ -113,91 +98,8 @@ def _recalculate_order_totals(db: Session, sales_order_id: str) -> None:
 
 
 def _ensure_fulfillment(db: Session, sales_order: SalesOrder) -> None:
-    if sales_order.service_order_id:
-        return
-    if sales_order.payment_status not in {
-        SalesOrderPaymentStatus.paid,
-        SalesOrderPaymentStatus.waived,
-    }:
-        return
-    if not sales_order.account_id:
-        raise HTTPException(
-            status_code=400,
-            detail="account_id is required to create a service order",
-        )
-    project_type = None
-    if sales_order.quote_id:
-        quote = db.get(Quote, sales_order.quote_id)
-        if quote and isinstance(quote.metadata_, dict):
-            raw_project_type = quote.metadata_.get("project_type")
-            if raw_project_type:
-                try:
-                    project_type = validate_enum(
-                        raw_project_type, ProjectType, "project_type"
-                    )
-                except Exception:
-                    project_type = None
-    requested_by_contact_id = None
-    linked = (
-        db.query(AccountRole)
-        .filter(AccountRole.account_id == sales_order.account_id)
-        .filter(AccountRole.person_id == sales_order.person_id)
-        .first()
-    )
-    if linked:
-        requested_by_contact_id = sales_order.person_id
-    payload = ServiceOrderCreate(
-        account_id=sales_order.account_id,
-        requested_by_contact_id=requested_by_contact_id,
-        status=ServiceOrderStatus.submitted,
-        project_type=project_type,
-        notes=sales_order.notes,
-    )
-    order = provisioning_service.service_orders.create(db, payload)
-    sales_order.service_order_id = order.id
-
-
-def _ensure_subscriber_account(db: Session, person_id: str) -> SubscriberAccount:
-    subscriber = (
-        db.query(Subscriber)
-        .filter(Subscriber.person_id == coerce_uuid(person_id))
-        .first()
-    )
-    if not subscriber:
-        subscriber = subscriber_service.subscribers.create(
-            db,
-            SubscriberCreate(person_id=coerce_uuid(person_id)),
-        )
-
-    account = (
-        db.query(SubscriberAccount)
-        .filter(SubscriberAccount.subscriber_id == subscriber.id)
-        .order_by(SubscriberAccount.created_at.desc())
-        .first()
-    )
-    if not account:
-        account = subscriber_service.accounts.create(
-            db,
-            SubscriberAccountCreate(subscriber_id=subscriber.id),
-        )
-
-    existing_role = (
-        db.query(AccountRole)
-        .filter(AccountRole.account_id == account.id)
-        .filter(AccountRole.person_id == coerce_uuid(person_id))
-        .first()
-    )
-    if not existing_role:
-        subscriber_service.account_roles.create(
-            db,
-            AccountRoleCreate(
-                account_id=account.id,
-                person_id=coerce_uuid(person_id),
-                role=AccountRoleType.primary,
-                is_primary=True,
-            ),
-        )
-    return account
+    """Placeholder for fulfillment actions once implemented."""
+    return None
 
 
 class SalesOrders(ListResponseMixin):
@@ -212,19 +114,8 @@ class SalesOrders(ListResponseMixin):
             )
         total_value = Decimal(data.get("total") or 0)
         amount_paid_value = Decimal(data.get("amount_paid") or 0)
-        if (
-            not data.get("account_id")
-            and data.get("payment_status")
-            in {SalesOrderPaymentStatus.paid, SalesOrderPaymentStatus.waived}
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="account_id is required for paid or waived sales orders",
-            )
 
         _ensure_person(db, data.get("person_id"))
-        if data.get("account_id"):
-            _ensure_account(db, data["account_id"])
         if data.get("quote_id"):
             quote = get_by_id(db, Quote, data["quote_id"])
             if not quote:
@@ -251,11 +142,6 @@ class SalesOrders(ListResponseMixin):
         db.add(sales_order)
         db.commit()
         db.refresh(sales_order)
-        if not sales_order.account_id:
-            account = _ensure_subscriber_account(db, str(sales_order.person_id))
-            sales_order.account_id = account.id
-            db.commit()
-            db.refresh(sales_order)
         _ensure_fulfillment(db, sales_order)
         db.commit()
         db.refresh(sales_order)
@@ -310,11 +196,6 @@ class SalesOrders(ListResponseMixin):
 
         db.commit()
         db.refresh(sales_order)
-        if not sales_order.account_id:
-            account = _ensure_subscriber_account(db, str(sales_order.person_id))
-            sales_order.account_id = account.id
-            db.commit()
-            db.refresh(sales_order)
         return sales_order
 
     @staticmethod
@@ -332,7 +213,6 @@ class SalesOrders(ListResponseMixin):
     def list(
         db: Session,
         person_id: str | None,
-        account_id: str | None,
         quote_id: str | None,
         status: str | None,
         payment_status: str | None,
@@ -345,8 +225,6 @@ class SalesOrders(ListResponseMixin):
         query = db.query(SalesOrder)
         if person_id:
             query = query.filter(SalesOrder.person_id == coerce_uuid(person_id))
-        if account_id:
-            query = query.filter(SalesOrder.account_id == coerce_uuid(account_id))
         if quote_id:
             query = query.filter(SalesOrder.quote_id == coerce_uuid(quote_id))
         if status:
@@ -381,19 +259,8 @@ class SalesOrders(ListResponseMixin):
             data["payment_status"] = validate_enum(
                 data["payment_status"], SalesOrderPaymentStatus, "payment_status"
             )
-        if (
-            not (data.get("account_id") or sales_order.account_id)
-            and data.get("payment_status")
-            in {SalesOrderPaymentStatus.paid, SalesOrderPaymentStatus.waived}
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="account_id is required for paid or waived sales orders",
-            )
         if data.get("person_id"):
             _ensure_person(db, data["person_id"])
-        if data.get("account_id"):
-            _ensure_account(db, data["account_id"])
         if data.get("quote_id"):
             quote = get_by_id(db, Quote, data["quote_id"])
             if not quote:

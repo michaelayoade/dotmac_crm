@@ -13,11 +13,8 @@ from app.models.crm.conversation import (
 )
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.person import ChannelType as PersonChannelType, Person, PersonChannel
-from app.models.subscriber import AccountRole, AccountRoleType, SubscriberAccount
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
-from app.services import subscriber as subscriber_service
-from app.schemas.subscriber import AccountRoleCreate
 
 
 def _now():
@@ -370,7 +367,6 @@ def resolve_conversation_contact(
     person_id: str,
     channel_type: ChannelType | None = None,
     address: str | None = None,
-    account_id: str | None = None,
 ) -> Conversation:
     conversation = db.get(Conversation, coerce_uuid(conversation_id))
     if not conversation:
@@ -458,31 +454,177 @@ def resolve_conversation_contact(
             update_query = update_query.filter(Message.person_channel_id.is_(None))
         update_query.update({"person_channel_id": new_channel.id}, synchronize_session=False)
 
-    if account_id:
-        account = db.get(SubscriberAccount, coerce_uuid(account_id))
-        if not account:
-            raise HTTPException(status_code=404, detail="Subscriber account not found")
-        existing_role = (
-            db.query(AccountRole)
-            .filter(AccountRole.account_id == account.id)
-            .filter(AccountRole.person_id == person.id)
-            .first()
-        )
-        if not existing_role:
-            has_primary = (
-                db.query(AccountRole)
-                .filter(AccountRole.account_id == account.id)
-                .filter(AccountRole.is_primary.is_(True))
-                .first()
-            )
-            payload = AccountRoleCreate(
-                account_id=account.id,
-                person_id=person.id,
-                role=AccountRoleType.primary,
-                is_primary=has_primary is None,
-            )
-            subscriber_service.account_roles.create(db, payload)
-
     db.commit()
     db.refresh(conversation)
     return conversation
+
+
+def can_mark_conversation_read(
+    db: Session,
+    conversation_id: str,
+    actor_person_id: str | None,
+) -> bool:
+    """Check if the actor can mark a conversation as read."""
+    from app.models.crm.team import CrmAgent, CrmAgentTeam
+
+    if not actor_person_id:
+        return False
+    assignment = (
+        db.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == coerce_uuid(conversation_id))
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    if not assignment:
+        return True
+    if assignment.agent_id:
+        from app.models.crm.team import CrmAgent
+        agent = db.get(CrmAgent, assignment.agent_id)
+        return bool(agent and str(agent.person_id) == str(actor_person_id))
+    if assignment.team_id:
+        agent = db.query(CrmAgent).filter(CrmAgent.person_id == coerce_uuid(actor_person_id)).first()
+        if not agent:
+            return False
+        membership = (
+            db.query(CrmAgentTeam)
+            .filter(CrmAgentTeam.agent_id == agent.id)
+            .filter(CrmAgentTeam.team_id == assignment.team_id)
+            .first()
+        )
+        return bool(membership)
+    return False
+
+
+def mark_conversation_read(
+    db: Session,
+    conversation_id: str,
+    actor_person_id: str | None,
+    last_seen_at: datetime | None,
+) -> None:
+    """Mark inbound messages as read up to last_seen_at."""
+    if not last_seen_at or not can_mark_conversation_read(db, conversation_id, actor_person_id):
+        return
+    db.query(Message).filter(
+        Message.conversation_id == coerce_uuid(conversation_id),
+        Message.direction == MessageDirection.inbound,
+        Message.status == MessageStatus.received,
+        Message.read_at.is_(None),
+        func.coalesce(Message.received_at, Message.created_at) <= last_seen_at,
+    ).update({"read_at": _now()})
+    db.commit()
+
+
+def get_latest_message(db: Session, conversation_id: str) -> Message | None:
+    """Get the latest message in a conversation."""
+    return (
+        db.query(Message)
+        .filter(Message.conversation_id == coerce_uuid(conversation_id))
+        .order_by(
+            func.coalesce(
+                Message.received_at,
+                Message.sent_at,
+                Message.created_at,
+            ).desc()
+        )
+        .first()
+    )
+
+
+def get_unread_count(db: Session, conversation_id: str) -> int:
+    """Get count of unread inbound messages in a conversation."""
+    return (
+        db.query(Message)
+        .filter(Message.conversation_id == coerce_uuid(conversation_id))
+        .filter(Message.direction == MessageDirection.inbound)
+        .filter(Message.status == MessageStatus.received)
+        .filter(Message.read_at.is_(None))
+        .count()
+    )
+
+
+def assign_conversation(
+    db: Session,
+    conversation_id: str,
+    agent_id: str | None = None,
+    team_id: str | None = None,
+    assigned_by_id: str | None = None,
+    update_lead_owner: bool = True,
+) -> ConversationAssignment | None:
+    """Assign conversation to agent/team, optionally update lead owner.
+
+    Returns the new assignment, or None if unassigned.
+    """
+    from app.models.crm.sales import Lead
+    from app.schemas.crm.conversation import ConversationAssignmentCreate
+
+    conversation = db.get(Conversation, coerce_uuid(conversation_id))
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    agent_value = (agent_id or "").strip()
+    team_value = (team_id or "").strip()
+    agent_uuid = coerce_uuid(agent_value) if agent_value else None
+    team_uuid = coerce_uuid(team_value) if team_value else None
+
+    if agent_value or team_value:
+        payload = ConversationAssignmentCreate(
+            conversation_id=conversation.id,
+            agent_id=agent_uuid,
+            team_id=team_uuid,
+            assigned_by_id=coerce_uuid(assigned_by_id) if assigned_by_id else None,
+            assigned_at=_now(),
+            is_active=True,
+        )
+        assignment = ConversationAssignments.create(db, payload)
+
+        if update_lead_owner and agent_uuid:
+            db.query(Lead).filter(
+                Lead.contact_id == conversation.contact_id,
+                Lead.is_active.is_(True),
+            ).update({"owner_agent_id": agent_uuid}, synchronize_session=False)
+            db.commit()
+
+        return assignment
+    else:
+        db.query(ConversationAssignment).filter(
+            ConversationAssignment.conversation_id == conversation.id,
+            ConversationAssignment.is_active.is_(True),
+        ).update({"is_active": False, "updated_at": _now()})
+        db.commit()
+        return None
+
+
+def get_reply_channel_type(
+    db: Session,
+    conversation_id: str,
+) -> ChannelType | None:
+    """Determine channel type for replying to a conversation.
+
+    Returns the channel type of the last inbound message, or None if no inbound messages exist.
+    """
+    last_inbound = (
+        db.query(Message)
+        .filter(Message.conversation_id == coerce_uuid(conversation_id))
+        .filter(Message.direction == MessageDirection.inbound)
+        .order_by(
+            func.coalesce(
+                Message.received_at,
+                Message.sent_at,
+                Message.created_at,
+            ).desc()
+        )
+        .first()
+    )
+    return last_inbound.channel_type if last_inbound else None
+
+
+def unassign_conversation(
+    db: Session,
+    conversation_id: str,
+) -> None:
+    """Remove active assignment from a conversation."""
+    db.query(ConversationAssignment).filter(
+        ConversationAssignment.conversation_id == coerce_uuid(conversation_id),
+        ConversationAssignment.is_active.is_(True),
+    ).update({"is_active": False, "updated_at": _now()})
+    db.commit()

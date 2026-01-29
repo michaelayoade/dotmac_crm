@@ -99,16 +99,20 @@ def _get_app_url(db: Session | None) -> str:
     return _env_value("APP_URL") or _setting_value(db, "app_url") or "http://localhost:8000"
 
 
-def _create_smtp_client(host: str, port: int, use_ssl: bool, timeout: int | None = None):
-    kwargs = {}
-    if timeout is not None:
-        kwargs["timeout"] = timeout
+def _create_smtp_client(host: str, port: int, use_ssl: bool, timeout: float | None = None):
+    timeout_value = float(timeout) if timeout is not None else None
     if use_ssl:
         smtp_base = smtplib.SMTP_SSL.__mro__[1]
         if smtplib.SMTP is not smtp_base:
-            return smtplib.SMTP(host, port, **kwargs)
-        return smtplib.SMTP_SSL(host, port, **kwargs)
-    return smtplib.SMTP(host, port, **kwargs)
+            if timeout_value is None:
+                return smtplib.SMTP(host, port)
+            return smtplib.SMTP(host, port, timeout=timeout_value)
+        if timeout_value is None:
+            return smtplib.SMTP_SSL(host, port)
+        return smtplib.SMTP_SSL(host, port, timeout=timeout_value)
+    if timeout_value is None:
+        return smtplib.SMTP(host, port)
+    return smtplib.SMTP(host, port, timeout=timeout_value)
 
 
 def send_email_with_config(
@@ -128,9 +132,11 @@ def send_email_with_config(
     msg.attach(MIMEText(body_html, "html"))
 
     try:
+        host = str(config.get("host") or "localhost")
+        port = int(config.get("port") or 587)
         server = _create_smtp_client(
-            config.get("host"),
-            config.get("port", 587),
+            host,
+            port,
             bool(config.get("use_ssl")),
         )
 
@@ -142,7 +148,8 @@ def send_email_with_config(
         if username and password:
             server.login(username, password)
 
-        server.sendmail(config.get("from_email"), to_email, msg.as_string())
+        from_email = str(config.get("from_email") or "")
+        server.sendmail(from_email, to_email, msg.as_string())
         server.quit()
         return True
     except smtplib.SMTPAuthenticationError as exc:
@@ -200,9 +207,11 @@ def send_email(
         db.refresh(notification)
 
     try:
+        host = str(config["host"] or "localhost")
+        port = int(config["port"] or 587)
         server = _create_smtp_client(
-            config["host"],
-            config["port"],
+            host,
+            port,
             bool(config["use_ssl"]),
         )
 
@@ -212,10 +221,10 @@ def send_email(
         if config["username"] and config["password"]:
             server.login(config["username"], config["password"])
 
-        server.sendmail(config["from_email"], to_email, msg.as_string())
+        server.sendmail(str(config["from_email"]), to_email, msg.as_string())
         server.quit()
 
-        if notification:
+        if notification and db:
             notification.status = NotificationStatus.delivered
             db.commit()
 
@@ -224,14 +233,14 @@ def send_email(
 
     except smtplib.SMTPAuthenticationError as exc:
         logger.error("SMTP authentication failed for %s: %s", to_email, exc)
-        if notification:
+        if notification and db:
             notification.status = NotificationStatus.failed
             notification.last_error = "SMTP authentication failed"
             db.commit()
         return False
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
-        if notification:
+        if notification and db:
             notification.status = NotificationStatus.failed
             notification.last_error = str(e)
             db.commit()
@@ -243,19 +252,25 @@ def test_smtp_connection(
     timeout_sec: int | None = None,
     db: Session | None = None,
 ) -> tuple[bool, str | None]:
-    host = config.get("host")
+    host = str(config.get("host") or "")
     if not host:
         return False, "SMTP host is required"
 
     # Use configurable timeout, fallback to default of 10 seconds
     if timeout_sec is None:
-        timeout_sec = resolve_value(db, SettingDomain.notification, "smtp_test_timeout_seconds") if db else None
+        timeout_value = resolve_value(db, SettingDomain.notification, "smtp_test_timeout_seconds") if db else None
+        if isinstance(timeout_value, (int, float)):
+            timeout_sec = int(timeout_value)
+        elif isinstance(timeout_value, str) and timeout_value.isdigit():
+            timeout_sec = int(timeout_value)
+        else:
+            timeout_sec = None
         if timeout_sec is None:
             timeout_sec = 10
 
     server = None
     try:
-        port = config.get("port", 587)
+        port = int(config.get("port") or 587)
         use_ssl = bool(config.get("use_ssl"))
         use_tls = bool(config.get("use_tls"))
 

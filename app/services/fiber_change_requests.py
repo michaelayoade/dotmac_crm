@@ -21,6 +21,7 @@ from app.models.network import (
     Splitter,
     SplitterPort,
 )
+from app.services.common import coerce_uuid
 
 ASSET_MODEL_MAP = {
     "fdh_cabinet": FdhCabinet,
@@ -79,14 +80,17 @@ def create_request(
     requested_by_vendor_id: str | None,
 ):
     normalized, _ = _get_model(asset_type)
+    asset_uuid = coerce_uuid(asset_id) if asset_id else None
+    requested_by_person_uuid = coerce_uuid(requested_by_person_id) if requested_by_person_id else None
+    requested_by_vendor_uuid = coerce_uuid(requested_by_vendor_id) if requested_by_vendor_id else None
     request = FiberChangeRequest(
         asset_type=normalized,
-        asset_id=asset_id,
+        asset_id=asset_uuid,
         operation=operation,
         payload=payload,
         status=FiberChangeRequestStatus.pending,
-        requested_by_person_id=requested_by_person_id,
-        requested_by_vendor_id=requested_by_vendor_id,
+        requested_by_person_id=requested_by_person_uuid,
+        requested_by_vendor_id=requested_by_vendor_uuid,
     )
     db.add(request)
     db.commit()
@@ -113,7 +117,7 @@ def reject_request(db: Session, request_id: str, reviewer_person_id: str, review
     if request.status != FiberChangeRequestStatus.pending:
         raise HTTPException(status_code=400, detail="Change request already processed")
     request.status = FiberChangeRequestStatus.rejected
-    request.reviewed_by_person_id = reviewer_person_id
+    request.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
     request.review_notes = review_notes
     request.reviewed_at = datetime.now(timezone.utc)
     db.commit()
@@ -160,7 +164,7 @@ def approve_request(db: Session, request_id: str, reviewer_person_id: str, revie
         raise HTTPException(status_code=400, detail="Change request already processed")
     _apply_request(db, request)
     request.status = FiberChangeRequestStatus.applied
-    request.reviewed_by_person_id = reviewer_person_id
+    request.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
     request.review_notes = review_notes
     request.reviewed_at = datetime.now(timezone.utc)
     request.applied_at = datetime.now(timezone.utc)

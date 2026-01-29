@@ -38,7 +38,11 @@ _DEFAULT_TTL = 900  # 15 minutes fallback
 def _get_default_ttl() -> int:
     """Get the default VPN cache TTL from settings."""
     ttl = resolve_value(None, SettingDomain.network, "vpn_cache_default_ttl_seconds")
-    return ttl if ttl else _DEFAULT_TTL
+    if isinstance(ttl, int):
+        return ttl
+    if isinstance(ttl, str) and ttl.isdigit():
+        return int(ttl)
+    return _DEFAULT_TTL
 
 
 # Cache TTL functions - these allow runtime configuration
@@ -107,7 +111,8 @@ def get_cached(key: str) -> str | None:
         return None
 
     try:
-        return client.get(key)
+        value = client.get(key)
+        return value if isinstance(value, str) else None
     except Exception:
         return None
 
@@ -160,7 +165,8 @@ def delete_pattern(pattern: str) -> int:
     try:
         keys = list(client.scan_iter(f"{CACHE_PREFIX}{pattern}*"))
         if keys:
-            return client.delete(*keys)
+            deleted = client.delete(*keys)
+            return deleted if isinstance(deleted, int) else 0
         return 0
     except Exception:
         return 0
@@ -322,6 +328,8 @@ def get_cache_stats() -> dict[str, Any]:
 
     try:
         info = client.info("memory")
+        if not isinstance(info, dict):
+            return {"available": False}
         keys = list(client.scan_iter(f"{CACHE_PREFIX}*"))
 
         return {

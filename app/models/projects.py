@@ -91,11 +91,8 @@ class Project(Base):
     priority: Mapped[ProjectPriority] = mapped_column(
         Enum(ProjectPriority), default=ProjectPriority.normal
     )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id")
-    )
-    service_order_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("service_orders.id")
+    subscriber_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subscribers.id")
     )
     created_by_person_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id")
@@ -120,8 +117,7 @@ class Project(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
-    account = relationship("SubscriberAccount")
-    service_order = relationship("ServiceOrder", back_populates="projects")
+    subscriber = relationship("Subscriber", back_populates="projects")
     created_by = relationship("Person", foreign_keys=[created_by_person_id])
     owner = relationship("Person", foreign_keys=[owner_person_id])
     manager = relationship("Person", foreign_keys=[manager_person_id])

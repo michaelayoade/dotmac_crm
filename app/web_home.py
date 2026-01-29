@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.services import subscriber as subscriber_service
+from app.services import person as person_service
 
 templates = Jinja2Templates(directory="templates")
 
@@ -21,11 +21,13 @@ def get_db():
 
 @router.get("/", tags=["web"], response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db)):
-    subscribers = subscriber_service.subscribers.list(
+    people = person_service.people.list(
         db=db,
-        subscriber_type=None,
-        person_id=None,
+        email=None,
+        status=None,
+        party_status=None,
         organization_id=None,
+        is_active=True,
         order_by="created_at",
         order_dir="desc",
         limit=25,
@@ -33,5 +35,5 @@ def home(request: Request, db: Session = Depends(get_db)):
     )
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "title": "Dotmac SM", "subscribers": subscribers},
+        {"request": request, "title": "Dotmac SM", "people": people},
     )

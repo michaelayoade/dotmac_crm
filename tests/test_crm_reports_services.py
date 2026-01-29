@@ -590,3 +590,261 @@ def test_project_metrics_with_date_filter(db_session, subscriber_account):
 
     assert "projects" in result
     assert "tasks" in result
+
+
+# =============================================================================
+# Sales Pipeline Metrics Tests
+# =============================================================================
+
+
+def test_sales_pipeline_metrics_empty(db_session):
+    """Test sales pipeline metrics with no leads."""
+    result = reports.sales_pipeline_metrics(db_session, None, None, None, None)
+
+    assert result["pipeline_value"] == 0.0
+    assert result["weighted_value"] == 0.0
+    assert result["open_deals"] == 0
+    assert result["won_deals"] == 0
+    assert result["lost_deals"] == 0
+    assert result["win_rate"] is None
+
+
+def test_sales_pipeline_metrics_with_leads(db_session, crm_contact):
+    """Test sales pipeline metrics with leads."""
+    pipeline = Pipeline(name="Sales Metrics Pipeline", is_active=True)
+    db_session.add(pipeline)
+    db_session.commit()
+
+    stage = PipelineStage(
+        pipeline_id=pipeline.id,
+        name="Negotiation",
+        order_index=1,
+        is_active=True,
+    )
+    db_session.add(stage)
+    db_session.commit()
+
+    lead1 = Lead(
+        person_id=crm_contact.id,
+        pipeline_id=pipeline.id,
+        stage_id=stage.id,
+        status=LeadStatus.qualified,
+        estimated_value=Decimal("10000.00"),
+        probability=60,
+        is_active=True,
+    )
+    lead2 = Lead(
+        person_id=crm_contact.id,
+        pipeline_id=pipeline.id,
+        stage_id=stage.id,
+        status=LeadStatus.won,
+        estimated_value=Decimal("5000.00"),
+        probability=100,
+        is_active=True,
+    )
+    lead3 = Lead(
+        person_id=crm_contact.id,
+        pipeline_id=pipeline.id,
+        stage_id=stage.id,
+        status=LeadStatus.lost,
+        estimated_value=Decimal("3000.00"),
+        is_active=True,
+    )
+    db_session.add(lead1)
+    db_session.add(lead2)
+    db_session.add(lead3)
+    db_session.commit()
+
+    result = reports.sales_pipeline_metrics(db_session, str(pipeline.id), None, None, None)
+
+    assert result["pipeline_value"] == 18000.0
+    assert result["weighted_value"] == 11000.0  # 6000 + 5000
+    assert result["open_deals"] == 1
+    assert result["won_deals"] == 1
+    assert result["lost_deals"] == 1
+    assert result["win_rate"] == 50.0
+    assert result["avg_deal_size"] == 5000.0
+    assert len(result["stages"]) == 1
+    assert result["stages"][0]["count"] == 3
+
+
+def test_sales_pipeline_metrics_with_owner_filter(db_session, crm_contact, crm_agent):
+    """Test sales pipeline metrics filtered by owner agent."""
+    lead = Lead(
+        person_id=crm_contact.id,
+        owner_agent_id=crm_agent.id,
+        status=LeadStatus.new,
+        estimated_value=Decimal("7500.00"),
+        probability=40,
+        is_active=True,
+    )
+    db_session.add(lead)
+    db_session.commit()
+
+    result = reports.sales_pipeline_metrics(
+        db_session, None, None, None, str(crm_agent.id)
+    )
+
+    assert result["open_deals"] >= 1
+    assert result["weighted_value"] >= 3000.0
+
+
+# =============================================================================
+# Sales Forecast Tests
+# =============================================================================
+
+
+def test_sales_forecast_empty(db_session):
+    """Test sales forecast with no leads."""
+    result = reports.sales_forecast(db_session, None, months_ahead=3)
+
+    assert len(result) == 3
+    for month in result:
+        assert month["expected_value"] == 0.0
+        assert month["weighted_value"] == 0.0
+        assert month["deal_count"] == 0
+
+
+def test_sales_forecast_with_leads(db_session, crm_contact):
+    """Test sales forecast with leads having expected close dates."""
+    from datetime import date
+    from calendar import monthrange
+
+    today = datetime.now().date()
+    # Get first day of current month
+    month_start = today.replace(day=1)
+    _, last_day = monthrange(month_start.year, month_start.month)
+    close_date = month_start.replace(day=15)  # Mid-month
+
+    lead = Lead(
+        person_id=crm_contact.id,
+        status=LeadStatus.proposal,
+        estimated_value=Decimal("20000.00"),
+        probability=75,
+        expected_close_date=close_date,
+        is_active=True,
+    )
+    db_session.add(lead)
+    db_session.commit()
+
+    result = reports.sales_forecast(db_session, None, months_ahead=3)
+
+    # First month should have the lead
+    assert result[0]["deal_count"] >= 1
+    assert result[0]["expected_value"] >= 20000.0
+    assert result[0]["weighted_value"] >= 15000.0
+
+
+def test_sales_forecast_excludes_won_and_lost(db_session, crm_contact):
+    """Test sales forecast excludes won and lost leads."""
+    from datetime import date
+
+    today = datetime.now().date()
+    close_date = today.replace(day=15)
+
+    won_lead = Lead(
+        person_id=crm_contact.id,
+        status=LeadStatus.won,
+        estimated_value=Decimal("10000.00"),
+        expected_close_date=close_date,
+        is_active=True,
+    )
+    lost_lead = Lead(
+        person_id=crm_contact.id,
+        status=LeadStatus.lost,
+        estimated_value=Decimal("5000.00"),
+        expected_close_date=close_date,
+        is_active=True,
+    )
+    db_session.add(won_lead)
+    db_session.add(lost_lead)
+    db_session.commit()
+
+    result = reports.sales_forecast(db_session, None, months_ahead=1)
+
+    # Won and lost leads should not be counted in forecast
+    assert result[0]["deal_count"] == 0
+
+
+# =============================================================================
+# Agent Sales Performance Tests
+# =============================================================================
+
+
+def test_agent_sales_performance_empty(db_session):
+    """Test agent sales performance with no leads."""
+    result = reports.agent_sales_performance(db_session, None, None, None)
+
+    assert isinstance(result, list)
+    assert len(result) == 0
+
+
+def test_agent_sales_performance_with_leads(db_session, crm_contact, crm_agent):
+    """Test agent sales performance with agent-owned leads."""
+    won_lead = Lead(
+        person_id=crm_contact.id,
+        owner_agent_id=crm_agent.id,
+        status=LeadStatus.won,
+        estimated_value=Decimal("8000.00"),
+        is_active=True,
+    )
+    lost_lead = Lead(
+        person_id=crm_contact.id,
+        owner_agent_id=crm_agent.id,
+        status=LeadStatus.lost,
+        estimated_value=Decimal("2000.00"),
+        is_active=True,
+    )
+    db_session.add(won_lead)
+    db_session.add(lost_lead)
+    db_session.commit()
+
+    result = reports.agent_sales_performance(db_session, None, None, None)
+
+    assert len(result) >= 1
+    agent_result = next(
+        (r for r in result if r["agent_id"] == str(crm_agent.id)), None
+    )
+    assert agent_result is not None
+    assert agent_result["deals_won"] == 1
+    assert agent_result["deals_lost"] == 1
+    assert agent_result["won_value"] == 8000.0
+    assert agent_result["win_rate"] == 50.0
+
+
+def test_agent_sales_performance_sorted_by_value(db_session, crm_contact, person):
+    """Test agent sales performance is sorted by won value descending."""
+    from app.models.crm.team import CrmAgent
+
+    # Create two agents with different values
+    agent1 = CrmAgent(person_id=crm_contact.id, is_active=True)
+    agent2 = CrmAgent(person_id=person.id, is_active=True)
+    db_session.add(agent1)
+    db_session.add(agent2)
+    db_session.commit()
+
+    # Agent 1 wins more value
+    lead1 = Lead(
+        person_id=crm_contact.id,
+        owner_agent_id=agent1.id,
+        status=LeadStatus.won,
+        estimated_value=Decimal("50000.00"),
+        is_active=True,
+    )
+    # Agent 2 wins less
+    lead2 = Lead(
+        person_id=person.id,
+        owner_agent_id=agent2.id,
+        status=LeadStatus.won,
+        estimated_value=Decimal("10000.00"),
+        is_active=True,
+    )
+    db_session.add(lead1)
+    db_session.add(lead2)
+    db_session.commit()
+
+    result = reports.agent_sales_performance(db_session, None, None, None)
+
+    # Should be sorted by won_value descending
+    if len(result) >= 2:
+        assert result[0]["won_value"] >= result[1]["won_value"]

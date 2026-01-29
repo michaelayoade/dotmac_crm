@@ -144,8 +144,11 @@
 
 <!-- Messages Container -->
 <div id="messages-container" class="relative z-0 flex-1 min-h-0 overflow-y-auto inbox-scroll px-6 py-6">
-    <div class="max-w-3xl mx-auto space-y-6">
+    <div id="message-list" class="max-w-3xl mx-auto space-y-6">
         {% for msg in messages %}
+        {% if msg.is_private_note %}
+        {% include "admin/crm/_private_note_item.html" %}
+        {% else %}
         <div class="msg-slide-up {% if msg.direction == 'outbound' %}flex justify-end{% endif %}" style="animation-delay: {{ loop.index0 * 50 }}ms;">
             <div class="{% if msg.direction == 'outbound' %}max-w-[75%]{% else %}max-w-[80%]{% endif %}">
                 {% if msg.direction == 'inbound' %}
@@ -259,6 +262,7 @@
                 {% endif %}
             </div>
         </div>
+        {% endif %}
         {% endfor %}
 
         <!-- Typing indicator (example, controlled by Alpine) -->
@@ -278,7 +282,7 @@
 </div>
 
 <!-- Compose Area -->
-<div class="border-t border-slate-200 bg-slate-50/90 backdrop-blur-sm px-6 py-4 dark:border-slate-800/60 dark:bg-slate-900/50">
+<div class="border-t border-slate-200 bg-slate-50/90 backdrop-blur-sm px-6 py-4 dark:border-slate-800/60 dark:bg-slate-900/50" x-data="{ showPrivateNote: false }">
     {% if reply_error %}
     <div class="max-w-3xl mx-auto mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
         Reply failed. Please try again.
@@ -287,16 +291,52 @@
         {% endif %}
     </div>
     {% endif %}
+    <div class="max-w-3xl mx-auto mb-3">
+        <button type="button"
+                @click="showPrivateNote = !showPrivateNote; if (showPrivateNote) { $nextTick(() => $refs.privateNoteInput?.focus()); }"
+                class="inline-flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/20">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+            </svg>
+            Private note
+        </button>
+    </div>
+    <form x-show="showPrivateNote"
+          x-collapse
+          hx-boost="false"
+          action="/admin/crm/inbox/{{ conversation.id }}/private_note"
+          class="max-w-3xl mx-auto mb-4 space-y-2"
+          x-on:submit.prevent="submitPrivateNote($event)">
+        <textarea x-ref="privateNoteInput"
+                  name="body"
+                  rows="2"
+                  placeholder="Add a private note..."
+                  class="w-full rounded-xl border border-slate-700/50 bg-slate-900/40 px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400/60"></textarea>
+        <div class="flex items-center justify-end">
+            <button type="submit"
+                    class="inline-flex items-center justify-center rounded-lg bg-amber-500 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-amber-400">
+                Add note
+            </button>
+        </div>
+        <p class="text-[11px] text-red-400" data-private-note-error></p>
+    </form>
     <form method="POST"
           action="/admin/crm/inbox/conversation/{{ conversation.id }}/message"
           class="max-w-3xl mx-auto">
         <div class="flex items-end gap-3">
             <!-- Attachment button -->
-            <button type="button" class="flex-shrink-0 p-2.5 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60">
+        <button type="button"
+                @click="$refs.attachmentInput.click()"
+                class="flex-shrink-0 p-2.5 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                 </svg>
             </button>
+            <input x-ref="attachmentInput"
+                   type="file"
+                   multiple
+                   class="hidden"
+                   @change="uploadAttachments($event)">
 
             <!-- Message input -->
             <div class="flex-1 relative">
@@ -316,6 +356,17 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                 </svg>
             </button>
+        </div>
+
+        <input type="hidden" name="attachments" x-ref="messageAttachments">
+
+        <div x-show="pendingAttachments.length" class="mt-2 flex flex-wrap gap-2">
+            <template x-for="(att, idx) in pendingAttachments" :key="att.stored_name || idx">
+                <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-[11px] text-slate-600 dark:border-slate-700/40 dark:bg-slate-900/40 dark:text-slate-300">
+                    <span x-text="att.file_name"></span>
+                    <button type="button" class="text-slate-400 hover:text-slate-600" @click="removeAttachment(idx)">×</button>
+                </span>
+            </template>
         </div>
 
         <!-- Quick responses -->

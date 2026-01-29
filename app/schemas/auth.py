@@ -12,7 +12,6 @@ class UserCredentialBase(BaseModel):
     person_id: UUID
     provider: AuthProvider = AuthProvider.local
     username: str | None = Field(default=None, max_length=150)
-    radius_server_id: UUID | None = None
     must_change_password: bool = False
     password_updated_at: datetime | None = None
     failed_login_attempts: int = 0
@@ -37,7 +36,6 @@ class UserCredentialUpdate(BaseModel):
     provider: AuthProvider | None = None
     username: str | None = Field(default=None, max_length=150)
     password_hash: str | None = Field(default=None, max_length=255)
-    radius_server_id: UUID | None = None
     must_change_password: bool | None = None
     password_updated_at: datetime | None = None
     failed_login_attempts: int | None = None

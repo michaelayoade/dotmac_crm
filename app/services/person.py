@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from uuid import UUID
+from typing import List
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_
@@ -130,11 +133,11 @@ class People(ListResponseMixin):
         existing_by_phone = _find_person_by_phone(db, data.get("phone"))
         if existing_by_phone:
             raise HTTPException(status_code=409, detail="Phone already belongs to another person")
-        for channel in payload.channels:
+        for payload_channel in payload.channels:
             existing_channel = _find_person_channel_owner(
                 db,
-                ChannelType(channel.channel_type.value),
-                channel.address,
+                ChannelType(payload_channel.channel_type.value),
+                payload_channel.address,
             )
             if existing_channel:
                 raise HTTPException(
@@ -168,7 +171,7 @@ class People(ListResponseMixin):
                 continue
             if (ChannelType(ch.channel_type.value), normalized_address) in existing_channels:
                 continue
-            channel = PersonChannel(
+            channel: PersonChannel = PersonChannel(
                 person_id=person.id,
                 channel_type=ChannelType(ch.channel_type.value),
                 address=normalized_address,
@@ -319,7 +322,7 @@ class People(ListResponseMixin):
                 status_code=409,
                 detail="Channel address already belongs to another person",
             )
-        channel = PersonChannel(
+        channel: PersonChannel = PersonChannel(
             person_id=person.id,
             channel_type=channel_type,
             address=normalized_address,
@@ -341,7 +344,6 @@ class People(ListResponseMixin):
         """Merge source person into target, preserving all relationships."""
         from app.models.crm.sales import Lead, Quote
         from app.models.crm.conversation import Conversation
-        from app.models.subscriber import Subscriber
 
         source = db.get(Person, source_id)
         target = db.get(Person, target_id)
@@ -396,11 +398,6 @@ class People(ListResponseMixin):
             {"person_id": target.id}, synchronize_session=False
         )
 
-        # 5. Move subscribers
-        db.query(Subscriber).filter(Subscriber.person_id == source.id).update(
-            {"person_id": target.id}, synchronize_session=False
-        )
-
         # Log the merge
         merge_log = PersonMergeLog(
             source_person_id=source.id,
@@ -442,6 +439,107 @@ class People(ListResponseMixin):
             .limit(limit)
             .all()
         )
+
+    @staticmethod
+    def linked_user_labels(db: Session, person_id) -> List[str]:
+        """Check for records that would block user deletion."""
+        from app.models.crm.conversation import Conversation, ConversationAssignment
+        from app.models.crm.sales import Lead, Quote
+        from app.models.crm.team import CrmAgent
+        from app.models.tickets import Ticket, TicketComment
+        from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote
+        from app.models.projects import Project, ProjectTask, ProjectTaskComment, ProjectComment
+
+        checks = [
+            ("CRM agent", db.query(CrmAgent.id).filter(CrmAgent.person_id == person_id)),
+            ("CRM conversations", db.query(Conversation.id).filter(Conversation.person_id == person_id)),
+            ("CRM assignments", db.query(ConversationAssignment.id).filter(ConversationAssignment.assigned_by_id == person_id)),
+            ("CRM leads", db.query(Lead.id).filter(Lead.person_id == person_id)),
+            ("CRM quotes", db.query(Quote.id).filter(Quote.person_id == person_id)),
+            (
+                "Tickets",
+                db.query(Ticket.id).filter(
+                    or_(
+                        Ticket.created_by_person_id == person_id,
+                        Ticket.assigned_to_person_id == person_id,
+                    )
+                ),
+            ),
+            ("Ticket comments", db.query(TicketComment.id).filter(TicketComment.author_person_id == person_id)),
+            ("Work orders", db.query(WorkOrder.id).filter(WorkOrder.assigned_to_person_id == person_id)),
+            ("Work order assignments", db.query(WorkOrderAssignment.id).filter(WorkOrderAssignment.person_id == person_id)),
+            ("Work order notes", db.query(WorkOrderNote.id).filter(WorkOrderNote.author_person_id == person_id)),
+            (
+                "Projects",
+                db.query(Project.id).filter(
+                    or_(
+                        Project.created_by_person_id == person_id,
+                        Project.owner_person_id == person_id,
+                        Project.manager_person_id == person_id,
+                    )
+                ),
+            ),
+            (
+                "Project tasks",
+                db.query(ProjectTask.id).filter(
+                    or_(
+                        ProjectTask.assigned_to_person_id == person_id,
+                        ProjectTask.created_by_person_id == person_id,
+                    )
+                ),
+            ),
+            ("Project task comments", db.query(ProjectTaskComment.id).filter(ProjectTaskComment.author_person_id == person_id)),
+            ("Project comments", db.query(ProjectComment.id).filter(ProjectComment.author_person_id == person_id)),
+        ]
+        linked = []
+        for label, query in checks:
+            if query.first():
+                linked.append(label)
+        return linked
+
+    @staticmethod
+    def hard_delete_user(db: Session, person_id: str) -> None:
+        """Hard delete a user and all auth-related records.
+
+        Raises HTTPException if user is active or has linked business records.
+        """
+        from sqlalchemy.exc import IntegrityError
+        from app.models.auth import UserCredential, MFAMethod, Session as AuthSession, ApiKey
+        from app.models.rbac import PersonRole, PersonPermission
+        from app.models.vendor import VendorUser
+        from app.models.subscriber import ResellerUser
+
+        person = db.get(Person, person_id)
+        if not person:
+            raise HTTPException(status_code=404, detail="Person not found")
+        if person.is_active:
+            raise HTTPException(status_code=400, detail="Deactivate user before deleting")
+
+        linked = People.linked_user_labels(db, person.id)
+        if linked:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete user. Linked to: {', '.join(linked)}.",
+            )
+
+        try:
+            db.query(UserCredential).filter(UserCredential.person_id == person.id).delete(synchronize_session=False)
+            db.query(MFAMethod).filter(MFAMethod.person_id == person.id).delete(synchronize_session=False)
+            db.query(AuthSession).filter(AuthSession.person_id == person.id).delete(synchronize_session=False)
+            db.query(ApiKey).filter(ApiKey.person_id == person.id).delete(synchronize_session=False)
+            db.query(PersonRole).filter(PersonRole.person_id == person.id).delete(synchronize_session=False)
+            db.query(PersonPermission).filter(PersonPermission.person_id == person.id).delete(synchronize_session=False)
+            db.query(VendorUser).filter(VendorUser.person_id == person.id).delete(synchronize_session=False)
+            db.query(ResellerUser).filter(ResellerUser.person_id == person.id).delete(synchronize_session=False)
+            db.delete(person)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            linked = People.linked_user_labels(db, person.id)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete user. Linked records exist: {', '.join(linked) if linked else 'unknown'}.",
+            )
 
 
 people = People()

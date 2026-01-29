@@ -20,7 +20,6 @@ from app.models.auth import (
 )
 from app.services.common import validate_enum, apply_pagination, apply_ordering, coerce_uuid
 from app.services.response import ListResponseMixin
-from app.models.radius import RadiusServer
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.person import Person
 from app.services import settings_spec
@@ -96,18 +95,10 @@ def _ensure_person(db: Session, person_id: str):
         raise HTTPException(status_code=404, detail="Person not found")
 
 
-def _ensure_radius_server(db: Session, server_id: str):
-    server = db.get(RadiusServer, coerce_uuid(server_id))
-    if not server:
-        raise HTTPException(status_code=404, detail="Radius server not found")
-
-
 class UserCredentials(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: UserCredentialCreate):
         _ensure_person(db, str(payload.person_id))
-        if payload.radius_server_id:
-            _ensure_radius_server(db, str(payload.radius_server_id))
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "provider" not in fields_set:
@@ -174,8 +165,6 @@ class UserCredentials(ListResponseMixin):
         data = payload.model_dump(exclude_unset=True)
         if "person_id" in data:
             _ensure_person(db, str(data["person_id"]))
-        if "radius_server_id" in data and data["radius_server_id"]:
-            _ensure_radius_server(db, str(data["radius_server_id"]))
         for key, value in data.items():
             setattr(credential, key, value)
         db.commit()
@@ -403,6 +392,11 @@ class ApiKeys(ListResponseMixin):
         key = f"api_key_rl:{client_ip}:{int(time.time() // window)}"
         try:
             count = redis_client.incr(key)
+            if not isinstance(count, int):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Rate limiting unavailable (Redis error)",
+                )
             if count == 1:
                 redis_client.expire(key, window)
             if count > max(max_per_window, 1):

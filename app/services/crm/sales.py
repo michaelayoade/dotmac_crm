@@ -281,6 +281,105 @@ class Leads(ListResponseMixin):
         lead.is_active = False
         db.commit()
 
+    @staticmethod
+    def kanban_view(db: Session, pipeline_id: str | None = None) -> dict:
+        """Return kanban board data with columns and records.
+
+        Returns:
+            dict with 'columns' (list of stage info) and 'records' (list of leads).
+        """
+        if pipeline_id:
+            stages = (
+                db.query(PipelineStage)
+                .filter(PipelineStage.pipeline_id == coerce_uuid(pipeline_id))
+                .filter(PipelineStage.is_active.is_(True))
+                .order_by(PipelineStage.order_index.asc())
+                .all()
+            )
+            leads = (
+                db.query(Lead)
+                .filter(Lead.pipeline_id == coerce_uuid(pipeline_id))
+                .filter(Lead.is_active.is_(True))
+                .all()
+            )
+        else:
+            # Get all active stages grouped by pipeline
+            stages = (
+                db.query(PipelineStage)
+                .filter(PipelineStage.is_active.is_(True))
+                .order_by(PipelineStage.order_index.asc())
+                .all()
+            )
+            leads = db.query(Lead).filter(Lead.is_active.is_(True)).all()
+
+        columns = []
+        for stage in stages:
+            columns.append({
+                "id": str(stage.id),
+                "title": stage.name,
+                "order_index": stage.order_index,
+                "default_probability": stage.default_probability,
+            })
+
+        # Batch load all persons to avoid N+1 queries
+        person_ids = [lead.person_id for lead in leads if lead.person_id]
+        persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+        person_map = {p.id: p for p in persons}
+
+        records = []
+        for lead in leads:
+            person = person_map.get(lead.person_id) if lead.person_id else None
+            contact_name = ""
+            if person:
+                contact_name = person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip()
+
+            records.append({
+                "id": str(lead.id),
+                "stage": str(lead.stage_id) if lead.stage_id else None,
+                "title": lead.title or f"Lead #{str(lead.id)[:8]}",
+                "contact_name": contact_name,
+                "estimated_value": float(lead.estimated_value) if lead.estimated_value else None,
+                "probability": lead.probability,
+                "weighted_value": float(lead.weighted_value) if lead.weighted_value else None,
+                "status": lead.status.value if lead.status else "new",
+                "currency": lead.currency or "",
+                "url": f"/admin/crm/leads/{lead.id}",
+            })
+
+        return {"columns": columns, "records": records}
+
+    @staticmethod
+    def update_stage(db: Session, lead_id: str, new_stage_id: str) -> dict:
+        """Move lead to a new stage, auto-updating probability from stage default.
+
+        Returns:
+            dict with updated lead info.
+        """
+        lead = db.get(Lead, coerce_uuid(lead_id))
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        stage = db.get(PipelineStage, coerce_uuid(new_stage_id))
+        if not stage:
+            raise HTTPException(status_code=404, detail="Stage not found")
+
+        lead.stage_id = stage.id
+        lead.pipeline_id = stage.pipeline_id
+
+        # Auto-update probability from stage default if lead doesn't have one set
+        if lead.probability is None:
+            lead.probability = stage.default_probability
+
+        db.commit()
+        db.refresh(lead)
+
+        return {
+            "id": str(lead.id),
+            "stage_id": str(lead.stage_id),
+            "pipeline_id": str(lead.pipeline_id) if lead.pipeline_id else None,
+            "probability": lead.probability,
+        }
+
 
 class Quotes(ListResponseMixin):
     @staticmethod

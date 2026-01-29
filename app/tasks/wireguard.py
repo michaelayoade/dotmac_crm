@@ -18,10 +18,27 @@ from app.services.settings_spec import resolve_value
 _DEFAULT_RETENTION_DAYS = 90
 
 
+def _coerce_int(value: object | None, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return default
+    return default
+
+
 def _get_wireguard_log_retention_days(db=None) -> int:
     """Get WireGuard log retention days from settings."""
     days = resolve_value(db, SettingDomain.network, "wireguard_log_retention_days") if db else None
-    return days if days else _DEFAULT_RETENTION_DAYS
+    return _coerce_int(days, _DEFAULT_RETENTION_DAYS)
 
 
 @celery_app.task(name="app.tasks.wireguard.cleanup_connection_logs")

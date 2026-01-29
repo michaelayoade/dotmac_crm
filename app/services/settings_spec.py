@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.models.domain_settings import SettingDomain
-from app.models.subscription_engine import SettingValueType
+from app.models.domain_settings import SettingValueType
 from app.services import domain_settings as settings_service
 from app.services.response import ListResponseMixin
 from app.services.settings_cache import SettingsCache
@@ -1088,54 +1088,6 @@ SETTINGS_SPECS: list[SettingSpec] = [
         allowed={"active", "revoked", "expired"},
     ),
     SettingSpec(
-        domain=SettingDomain.provisioning,
-        key="default_service_order_status",
-        env_var="PROVISIONING_DEFAULT_SERVICE_ORDER_STATUS",
-        value_type=SettingValueType.string,
-        default="draft",
-        allowed={
-            "draft",
-            "submitted",
-            "scheduled",
-            "provisioning",
-            "active",
-            "canceled",
-            "failed",
-        },
-    ),
-    SettingSpec(
-        domain=SettingDomain.provisioning,
-        key="default_appointment_status",
-        env_var="PROVISIONING_DEFAULT_APPOINTMENT_STATUS",
-        value_type=SettingValueType.string,
-        default="proposed",
-        allowed={"proposed", "confirmed", "completed", "no_show", "canceled"},
-    ),
-    SettingSpec(
-        domain=SettingDomain.provisioning,
-        key="default_task_status",
-        env_var="PROVISIONING_DEFAULT_TASK_STATUS",
-        value_type=SettingValueType.string,
-        default="pending",
-        allowed={"pending", "in_progress", "blocked", "completed", "failed"},
-    ),
-    SettingSpec(
-        domain=SettingDomain.provisioning,
-        key="default_vendor",
-        env_var="PROVISIONING_DEFAULT_VENDOR",
-        value_type=SettingValueType.string,
-        default="other",
-        allowed={"mikrotik", "huawei", "zte", "nokia", "genieacs", "other"},
-    ),
-    SettingSpec(
-        domain=SettingDomain.provisioning,
-        key="default_workflow_id",
-        env_var="PROVISIONING_DEFAULT_WORKFLOW_ID",
-        value_type=SettingValueType.string,
-        default=None,
-        label="Default Provisioning Workflow ID",
-    ),
-    SettingSpec(
         domain=SettingDomain.projects,
         key="default_project_status",
         env_var="PROJECTS_DEFAULT_PROJECT_STATUS",
@@ -1943,27 +1895,16 @@ SETTINGS_SPECS: list[SettingSpec] = [
 DOMAIN_SETTINGS_SERVICE = {
     SettingDomain.auth: settings_service.auth_settings,
     SettingDomain.audit: settings_service.audit_settings,
-    SettingDomain.billing: settings_service.billing_settings,
-    SettingDomain.catalog: settings_service.catalog_settings,
-    SettingDomain.subscriber: settings_service.subscriber_settings,
     SettingDomain.imports: settings_service.imports_settings,
     SettingDomain.notification: settings_service.notification_settings,
     SettingDomain.network: settings_service.network_settings,
-    SettingDomain.network_monitoring: settings_service.network_monitoring_settings,
     SettingDomain.provisioning: settings_service.provisioning_settings,
     SettingDomain.geocoding: settings_service.geocoding_settings,
-    SettingDomain.usage: settings_service.usage_settings,
-    SettingDomain.radius: settings_service.radius_settings,
-    SettingDomain.collections: settings_service.collections_settings,
-    SettingDomain.lifecycle: settings_service.lifecycle_settings,
     SettingDomain.projects: settings_service.projects_settings,
     SettingDomain.workflow: settings_service.workflow_settings,
     SettingDomain.inventory: settings_service.inventory_settings,
     SettingDomain.comms: settings_service.comms_settings,
-    SettingDomain.tr069: settings_service.tr069_settings,
-    SettingDomain.snmp: settings_service.snmp_settings,
     SettingDomain.bandwidth: settings_service.bandwidth_settings,
-    SettingDomain.subscription_engine: settings_service.subscription_engine_settings,
     SettingDomain.gis: settings_service.gis_settings,
     SettingDomain.scheduler: settings_service.scheduler_settings,
 }
@@ -2011,14 +1952,17 @@ def resolve_value(db, domain: SettingDomain, key: str) -> object | None:
     if spec.allowed and value is not None and value not in spec.allowed:
         value = spec.default
     if spec.value_type == SettingValueType.integer and value is not None:
+        parsed: int | None
         try:
+            if not isinstance(value, (int, str)):
+                raise TypeError("Value must be int or str")
             parsed = int(value)
         except (TypeError, ValueError):
             parsed = spec.default if isinstance(spec.default, int) else None
         if spec.min_value is not None and parsed is not None and parsed < spec.min_value:
-            parsed = spec.default
+            parsed = spec.default if isinstance(spec.default, int) else None
         if spec.max_value is not None and parsed is not None and parsed > spec.max_value:
-            parsed = spec.default
+            parsed = spec.default if isinstance(spec.default, int) else None
         value = parsed
 
     # 3. Cache the result (only non-None values)
@@ -2087,14 +2031,17 @@ def resolve_values_atomic(
         if spec.allowed and value is not None and value not in spec.allowed:
             value = spec.default
         if spec.value_type == SettingValueType.integer and value is not None:
+            parsed: int | None
             try:
+                if not isinstance(value, (int, str)):
+                    raise TypeError("Value must be int or str")
                 parsed = int(value)
             except (TypeError, ValueError):
                 parsed = spec.default if isinstance(spec.default, int) else None
             if spec.min_value is not None and parsed is not None and parsed < spec.min_value:
-                parsed = spec.default
+                parsed = spec.default if isinstance(spec.default, int) else None
             if spec.max_value is not None and parsed is not None and parsed > spec.max_value:
-                parsed = spec.default
+                parsed = spec.default if isinstance(spec.default, int) else None
             value = parsed
 
         if value is not None:
@@ -2152,7 +2099,9 @@ def normalize_for_db(spec: SettingSpec, value: object) -> tuple[str | None, obje
         bool_value = bool(value)
         return ("true" if bool_value else "false"), None
     if spec.value_type == SettingValueType.integer:
-        return str(int(value)), None
+        if isinstance(value, (int, str, bool)):
+            return str(int(value)), None
+        return str(int(str(value))), None
     if spec.value_type == SettingValueType.string:
         return str(value), None
     return None, value

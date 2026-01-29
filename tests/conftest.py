@@ -125,25 +125,15 @@ def _patch_jsonb_for_sqlite():
 _patch_jsonb_for_sqlite()
 
 from app.models.person import Person
-from app.models.subscriber import Subscriber, SubscriberAccount
 from app.schemas.projects import ProjectCreate, ProjectTaskCreate
 from app.schemas.tickets import TicketCreate
 from app.schemas.workforce import WorkOrderCreate
-from app.schemas.network_monitoring import PopSiteCreate, NetworkDeviceCreate
 from app.schemas.network import OLTDeviceCreate
-from app.schemas.catalog import CatalogOfferCreate, OfferVersionCreate, SubscriptionCreate
-from app.models.catalog import ServiceType, AccessType, PriceBasis, RegionZone
-from app.schemas.radius import RadiusServerCreate
-from app.schemas.tr069 import Tr069AcsServerCreate
 from app.schemas.gis import GeoLayerCreate
 from app.services import projects as projects_service
 from app.services import tickets as tickets_service
 from app.services import workforce as workforce_service
-from app.services import network_monitoring as network_monitoring_service
 from app.services import network as network_service
-from app.services import catalog as catalog_service
-from app.services import radius as radius_service
-from app.services import tr069 as tr069_service
 from app.services import gis as gis_service
 
 @pytest.fixture(scope="session")
@@ -218,34 +208,53 @@ def person(db_session):
     return person
 
 
-@pytest.fixture()
-def subscriber(person, db_session):
-    subscriber = Subscriber(
-        person_id=person.id,
-    )
-    db_session.add(subscriber)
-    db_session.commit()
-    db_session.refresh(subscriber)
-    return subscriber
+class _StubSubscriber:
+    """Stub subscriber for tests that expect subscriber fixture."""
+    def __init__(self, person):
+        self.id = uuid.uuid4()
+        self.person_id = person.id
+        self.person = person
+
+
+class _StubSubscriberAccount:
+    """Stub subscriber account for tests that expect subscriber_account fixture."""
+    def __init__(self, subscriber):
+        self.id = uuid.uuid4()
+        self.subscriber_id = subscriber.id
+        self.subscriber = subscriber
+
+
+class _StubSubscription:
+    """Stub subscription for tests that expect subscription fixture."""
+    def __init__(self, account):
+        self.id = uuid.uuid4()
+        self.account_id = account.id
+        self.offer_id = uuid.uuid4()
 
 
 @pytest.fixture()
-def subscriber_account(subscriber, db_session):
-    account = SubscriberAccount(
-        subscriber_id=subscriber.id,
-    )
-    db_session.add(account)
-    db_session.commit()
-    db_session.refresh(account)
-    return account
+def subscriber(person):
+    """Stub subscriber fixture (Subscriber model removed)."""
+    return _StubSubscriber(person)
 
 
 @pytest.fixture()
-def ticket(db_session, subscriber_account):
+def subscriber_account(subscriber):
+    """Stub subscriber account fixture (SubscriberAccount model removed)."""
+    return _StubSubscriberAccount(subscriber)
+
+
+@pytest.fixture()
+def subscription(subscriber_account):
+    """Stub subscription fixture (Subscription model removed)."""
+    return _StubSubscription(subscriber_account)
+
+
+@pytest.fixture()
+def ticket(db_session):
     ticket = tickets_service.tickets.create(
         db_session,
         TicketCreate(
-            account_id=subscriber_account.id,
             title="Connectivity issue",
         ),
     )
@@ -253,12 +262,11 @@ def ticket(db_session, subscriber_account):
 
 
 @pytest.fixture()
-def project(db_session, subscriber_account):
+def project(db_session):
     project = projects_service.projects.create(
         db_session,
         ProjectCreate(
             name="Fiber rollout",
-            account_id=subscriber_account.id,
         ),
     )
     return project
@@ -277,12 +285,11 @@ def project_task(db_session, project):
 
 
 @pytest.fixture()
-def work_order(db_session, subscriber_account, project, ticket):
+def work_order(db_session, project, ticket):
     work_order = workforce_service.work_orders.create(
         db_session,
         WorkOrderCreate(
             title="Install ONT",
-            account_id=subscriber_account.id,
             project_id=project.id,
             ticket_id=ticket.id,
         ),
@@ -297,33 +304,6 @@ def auth_env(monkeypatch):
 
 
 @pytest.fixture()
-def pop_site(db_session):
-    """Point of Presence for network tests."""
-    pop_site = network_monitoring_service.pop_sites.create(
-        db_session,
-        PopSiteCreate(
-            name="Test POP",
-            code="POP001",
-        ),
-    )
-    return pop_site
-
-
-@pytest.fixture()
-def network_device(db_session, pop_site):
-    """Network device for monitoring tests."""
-    device = network_monitoring_service.network_devices.create(
-        db_session,
-        NetworkDeviceCreate(
-            name="Test Router",
-            hostname="router-01.test.local",
-            pop_site_id=pop_site.id,
-        ),
-    )
-    return device
-
-
-@pytest.fixture()
 def olt_device(db_session):
     """OLT device for fiber tests."""
     olt = network_service.olt_devices.create(
@@ -334,73 +314,6 @@ def olt_device(db_session):
         ),
     )
     return olt
-
-
-@pytest.fixture()
-def catalog_offer(db_session):
-    """Catalog offer for subscription tests."""
-    offer = catalog_service.offers.create(
-        db_session,
-        CatalogOfferCreate(
-            name="Standard Internet",
-            code="STD-INT",
-            service_type=ServiceType.residential,
-            access_type=AccessType.fiber,
-            price_basis=PriceBasis.flat,
-        ),
-    )
-    # Create offer version linking to offer
-    catalog_service.offer_versions.create(
-        db_session,
-        OfferVersionCreate(
-            offer_id=offer.id,
-            version_number=1,
-            name="Standard Internet v1",
-            service_type=ServiceType.residential,
-            access_type=AccessType.fiber,
-            price_basis=PriceBasis.flat,
-        ),
-    )
-    return offer
-
-
-@pytest.fixture()
-def subscription(db_session, subscriber_account, catalog_offer):
-    """Active subscription for usage tests."""
-    subscription = catalog_service.subscriptions.create(
-        db_session,
-        SubscriptionCreate(
-            account_id=subscriber_account.id,
-            offer_id=catalog_offer.id,
-        ),
-    )
-    return subscription
-
-
-@pytest.fixture()
-def radius_server(db_session):
-    """RADIUS server for auth tests."""
-    server = radius_service.radius_servers.create(
-        db_session,
-        RadiusServerCreate(
-            name="Test RADIUS",
-            host="radius.test.local",
-        ),
-    )
-    return server
-
-
-@pytest.fixture()
-def acs_server(db_session):
-    """TR-069 ACS server for CPE tests."""
-    server = tr069_service.acs_servers.create(
-        db_session,
-        Tr069AcsServerCreate(
-            name="Test ACS",
-            base_url="https://acs.test.local",
-        ),
-    )
-    return server
 
 
 @pytest.fixture()
@@ -493,18 +406,3 @@ def crm_agent_team(db_session, crm_agent, crm_team):
     return link
 
 
-# ============================================================================
-# Network Fixtures
-# ============================================================================
-
-@pytest.fixture()
-def region(db_session):
-    """RegionZone for VLAN tests."""
-    rz = RegionZone(
-        name="Test Region",
-        code="TEST",
-    )
-    db_session.add(rz)
-    db_session.commit()
-    db_session.refresh(rz)
-    return rz

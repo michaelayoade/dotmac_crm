@@ -1,0 +1,120 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}CRM Channels - Integrations{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">CRM Channels</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Configure email, WhatsApp, and other messaging channels per team</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/admin/integrations/channels/new" class="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Add Channel
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid gap-4 sm:grid-cols-4">
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Total</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ stats.total }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Active</p>
+            <p class="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">{{ stats.active }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Email</p>
+            <p class="mt-1 text-2xl font-bold text-blue-600 dark:text-blue-400">{{ stats.by_type.email or 0 }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">WhatsApp</p>
+            <p class="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">{{ stats.by_type.whatsapp or 0 }}</p>
+        </div>
+    </div>
+
+    <!-- Channels Table -->
+    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Team</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Channel Type</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Target</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
+                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% for channel in channels %}
+                    {% set team = team_map.get(channel.team_id | string) %}
+                    {% set channel_type_val = channel.channel_type.value if channel.channel_type else 'unknown' %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-3">
+                                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+                                    <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                </div>
+                                <div>
+                                    <a href="/admin/integrations/channels/{{ channel.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ team.name if team else 'Unknown Team' }}</a>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            {% set type_colors = {'email': 'blue', 'whatsapp': 'green', 'sms': 'purple', 'phone': 'amber', 'web_chat': 'cyan', 'social': 'pink'} %}
+                            {% set color = type_colors.get(channel_type_val, 'slate') %}
+                            <span class="inline-flex items-center rounded-full bg-{{ color }}-100 px-2.5 py-0.5 text-xs font-medium text-{{ color }}-700 dark:bg-{{ color }}-900/30 dark:text-{{ color }}-400">{{ channel_type_val | replace('_', ' ') | title }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% if channel.channel_target_id %}
+                            <span class="font-mono text-xs text-slate-500 dark:text-slate-400">Linked</span>
+                            {% else %}
+                            <span class="text-xs text-slate-400 dark:text-slate-500">Default</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            {% if channel.is_active %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                                Active
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                                <span class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+                                Inactive
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
+                            {{ channel.created_at.strftime('%b %d, %Y') if channel.created_at else '-' }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                            <a href="/admin/integrations/channels/{{ channel.id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="px-6 py-12 text-center">
+                            <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                            <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">No channels configured</h3>
+                            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Get started by adding a channel for a CRM team.</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% set activity_title = "Channels Activity" %}
+    {% set activity_link = "/admin/system/audit" %}
+    {% include "components/data/recent_activity_panel.html" %}
+</div>
+{% endblock %}

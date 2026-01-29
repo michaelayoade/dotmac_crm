@@ -57,15 +57,6 @@ class EventType(enum.Enum):
     provisioning_completed = "provisioning.completed"
     provisioning_failed = "provisioning.failed"
 
-    # Operations - Service Order events (3)
-    service_order_created = "service_order.created"
-    service_order_assigned = "service_order.assigned"
-    service_order_completed = "service_order.completed"
-
-    # Operations - Appointment events (2)
-    appointment_scheduled = "appointment.scheduled"
-    appointment_missed = "appointment.missed"
-
     # Network events (4)
     device_offline = "device.offline"
     device_online = "device.online"
@@ -121,8 +112,6 @@ class Event:
     subscription_id: UUID | None = None
     invoice_id: UUID | None = None
     ticket_id: UUID | None = None
-    service_order_id: UUID | None = None
-
     def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for JSON serialization."""
         def _serialize(value: Any) -> Any:
@@ -148,6 +137,5 @@ class Event:
                 "subscription_id": str(self.subscription_id) if self.subscription_id else None,
                 "invoice_id": str(self.invoice_id) if self.invoice_id else None,
                 "ticket_id": str(self.ticket_id) if self.ticket_id else None,
-                "service_order_id": str(self.service_order_id) if self.service_order_id else None,
             },
         }

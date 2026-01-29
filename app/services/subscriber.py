@@ -1,754 +1,249 @@
-from fastapi import HTTPException
-from sqlalchemy import func
-from sqlalchemy.orm import Session, selectinload
+"""
+Subscriber service for managing synced subscriber data.
 
-from app.models.subscriber import (
-    AccountRole,
-    AccountRoleType,
-    AccountStatus,
-    Address,
-    AddressType,
-    Organization,
-    Reseller,
-    Subscriber,
-    SubscriberAccount,
-    SubscriberCustomField,
-)
-from app.models.domain_settings import SettingDomain
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
-from app.services.response import ListResponseMixin
-from app.models.billing import TaxRate
-from app.models.person import Person
-from app.schemas.subscriber import (
-    AccountRoleCreate,
-    AccountRoleUpdate,
-    AddressCreate,
-    AddressUpdate,
-    OrganizationCreate,
-    OrganizationUpdate,
-    ResellerCreate,
-    ResellerUpdate,
-    SubscriberAccountCreate,
-    SubscriberAccountUpdate,
-    SubscriberCreate,
-    SubscriberCustomFieldCreate,
-    SubscriberCustomFieldUpdate,
-    SubscriberUpdate,
-)
-from app.validators import subscriber as subscriber_validators
-from app.services import settings_spec
-from app.services import numbering
-from app.services import geocoding as geocoding_service
-from app.services.events import emit_event
-from app.services.events.types import EventType
+This service handles subscriber accounts synced from external billing systems
+like Splynx, UCRM, WHMCS, or custom platforms.
+"""
+import uuid
+from datetime import datetime, timezone
+from typing import Any
 
-_validate_enum = validate_enum
+from sqlalchemy import or_, func
+from sqlalchemy.orm import Session, joinedload
+
+from app.models.subscriber import Subscriber, SubscriberStatus
 
 
-def _validate_tax_rate(db: Session, tax_rate_id: str | None):
-    if not tax_rate_id:
-        return None
-    rate = db.get(TaxRate, tax_rate_id)
-    if not rate:
-        raise HTTPException(status_code=404, detail="Tax rate not found")
-    return rate
+class SubscriberManager:
+    """Manager for subscriber operations."""
 
-
-class Organizations(ListResponseMixin):
-    @staticmethod
-    def create(db: Session, payload: OrganizationCreate):
-        organization = Organization(**payload.model_dump())
-        db.add(organization)
-        db.commit()
-        db.refresh(organization)
-        return organization
-
-    @staticmethod
-    def get(db: Session, organization_id: str):
-        organization = db.get(Organization, organization_id)
-        if not organization:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        return organization
-
-    @staticmethod
     def list(
+        self,
         db: Session,
-        name: str | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
-    ):
-        query = db.query(Organization)
-        if name:
-            query = query.filter(Organization.name.ilike(f"%{name}%"))
-        query = apply_ordering(query, order_by, order_dir, {"name": Organization.name})
-        return apply_pagination(query, limit, offset).all()
+        *,
+        search: str | None = None,
+        status: SubscriberStatus | None = None,
+        external_system: str | None = None,
+        person_id: uuid.UUID | None = None,
+        organization_id: uuid.UUID | None = None,
+        is_active: bool | None = True,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Subscriber]:
+        """List subscribers with filters."""
+        query = db.query(Subscriber).options(
+            joinedload(Subscriber.person),
+            joinedload(Subscriber.organization),
+        )
 
-    @staticmethod
-    def update(db: Session, organization_id: str, payload: OrganizationUpdate):
-        organization = db.get(Organization, organization_id)
-        if not organization:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        for key, value in payload.model_dump(exclude_unset=True).items():
-            setattr(organization, key, value)
-        db.commit()
-        db.refresh(organization)
-        return organization
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    Subscriber.subscriber_number.ilike(search_term),
+                    Subscriber.account_number.ilike(search_term),
+                    Subscriber.service_name.ilike(search_term),
+                    Subscriber.external_id.ilike(search_term),
+                )
+            )
 
-    @staticmethod
-    def delete(db: Session, organization_id: str):
-        organization = db.get(Organization, organization_id)
-        if not organization:
-            raise HTTPException(status_code=404, detail="Organization not found")
-        db.delete(organization)
-        db.commit()
+        if status:
+            query = query.filter(Subscriber.status == status)
 
+        if external_system:
+            query = query.filter(Subscriber.external_system == external_system)
 
-class Resellers(ListResponseMixin):
-    @staticmethod
-    def create(db: Session, payload: ResellerCreate):
-        reseller = Reseller(**payload.model_dump())
-        db.add(reseller)
-        db.commit()
-        db.refresh(reseller)
-        return reseller
+        if person_id:
+            query = query.filter(Subscriber.person_id == person_id)
 
-    @staticmethod
-    def get(db: Session, reseller_id: str):
-        reseller = db.get(Reseller, reseller_id)
-        if not reseller:
-            raise HTTPException(status_code=404, detail="Reseller not found")
-        return reseller
+        if organization_id:
+            query = query.filter(Subscriber.organization_id == organization_id)
 
-    @staticmethod
-    def list(
+        if is_active is not None:
+            query = query.filter(Subscriber.is_active == is_active)
+
+        query = query.order_by(Subscriber.created_at.desc())
+        return query.offset(offset).limit(limit).all()
+
+    def count(
+        self,
         db: Session,
-        is_active: bool | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
-    ):
-        query = db.query(Reseller)
-        if is_active is None:
-            query = query.filter(Reseller.is_active.is_(True))
-        else:
-            query = query.filter(Reseller.is_active == is_active)
-        query = apply_ordering(query, order_by, order_dir, {"name": Reseller.name})
-        return apply_pagination(query, limit, offset).all()
+        *,
+        search: str | None = None,
+        status: SubscriberStatus | None = None,
+        external_system: str | None = None,
+        is_active: bool | None = True,
+    ) -> int:
+        """Count subscribers with filters."""
+        query = db.query(func.count(Subscriber.id))
 
-    @staticmethod
-    def update(db: Session, reseller_id: str, payload: ResellerUpdate):
-        reseller = db.get(Reseller, reseller_id)
-        if not reseller:
-            raise HTTPException(status_code=404, detail="Reseller not found")
-        for key, value in payload.model_dump(exclude_unset=True).items():
-            setattr(reseller, key, value)
-        db.commit()
-        db.refresh(reseller)
-        return reseller
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    Subscriber.subscriber_number.ilike(search_term),
+                    Subscriber.account_number.ilike(search_term),
+                    Subscriber.service_name.ilike(search_term),
+                    Subscriber.external_id.ilike(search_term),
+                )
+            )
 
-    @staticmethod
-    def delete(db: Session, reseller_id: str):
-        reseller = db.get(Reseller, reseller_id)
-        if not reseller:
-            raise HTTPException(status_code=404, detail="Reseller not found")
-        db.delete(reseller)
-        db.commit()
+        if status:
+            query = query.filter(Subscriber.status == status)
 
+        if external_system:
+            query = query.filter(Subscriber.external_system == external_system)
 
-class Subscribers(ListResponseMixin):
-    @staticmethod
-    def create(db: Session, payload: SubscriberCreate):
-        subscriber_validators.validate_subscriber_person_id(payload.person_id)
-        person = db.get(Person, payload.person_id)
-        if not person:
-            raise HTTPException(status_code=404, detail="Person not found")
-        existing = (
+        if is_active is not None:
+            query = query.filter(Subscriber.is_active == is_active)
+
+        return query.scalar() or 0
+
+    def get(self, db: Session, subscriber_id: uuid.UUID) -> Subscriber | None:
+        """Get subscriber by ID."""
+        return (
             db.query(Subscriber)
-            .filter(Subscriber.person_id == payload.person_id)
+            .options(
+                joinedload(Subscriber.person),
+                joinedload(Subscriber.organization),
+                joinedload(Subscriber.tickets),
+                joinedload(Subscriber.work_orders),
+                joinedload(Subscriber.projects),
+            )
+            .filter(Subscriber.id == subscriber_id)
             .first()
         )
-        if existing:
-            raise HTTPException(
-                status_code=409,
-                detail="Subscriber already exists for this customer.",
+
+    def get_by_external_id(
+        self, db: Session, external_system: str, external_id: str
+    ) -> Subscriber | None:
+        """Get subscriber by external system reference."""
+        return (
+            db.query(Subscriber)
+            .filter(
+                Subscriber.external_system == external_system,
+                Subscriber.external_id == external_id,
             )
-        data = payload.model_dump()
-        data.pop("organization_id", None)
-        if not data.get("subscriber_number"):
-            generated = numbering.generate_number(
-                db,
-                SettingDomain.subscriber,
-                "subscriber_number",
-                "subscriber_number_enabled",
-                "subscriber_number_prefix",
-                "subscriber_number_padding",
-                "subscriber_number_start",
-            )
-            if generated:
-                data["subscriber_number"] = generated
+            .first()
+        )
+
+    def get_by_subscriber_number(
+        self, db: Session, subscriber_number: str
+    ) -> Subscriber | None:
+        """Get subscriber by subscriber number."""
+        return (
+            db.query(Subscriber)
+            .filter(Subscriber.subscriber_number == subscriber_number)
+            .first()
+        )
+
+    def create(self, db: Session, data: dict[str, Any]) -> Subscriber:
+        """Create a new subscriber."""
         subscriber = Subscriber(**data)
         db.add(subscriber)
         db.commit()
         db.refresh(subscriber)
-
-        # Emit subscriber.created event
-        emit_event(
-            db,
-            EventType.subscriber_created,
-            {
-                "subscriber_id": str(subscriber.id),
-                "subscriber_number": subscriber.subscriber_number,
-                "person_id": str(subscriber.person_id) if subscriber.person_id else None,
-            },
-            subscriber_id=subscriber.id,
-        )
-
         return subscriber
 
-    @staticmethod
-    def get(db: Session, subscriber_id: str):
-        subscriber = db.get(
-            Subscriber,
-            subscriber_id,
-            options=[
-                selectinload(Subscriber.accounts)
-                .selectinload(SubscriberAccount.account_roles)
-                .selectinload(AccountRole.person),
-                selectinload(Subscriber.accounts)
-                .selectinload(SubscriberAccount.account_roles)
-                .selectinload(AccountRole.person),
-                selectinload(Subscriber.addresses),
-            ],
-        )
-        if not subscriber:
-            raise HTTPException(status_code=404, detail="Subscriber not found")
-        return subscriber
-
-    @staticmethod
-    def list(
-        db: Session,
-        person_id: str | None,
-        organization_id: str | None,
-        subscriber_type: str | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
-    ):
-        query = db.query(Subscriber).options(
-            selectinload(Subscriber.accounts)
-            .selectinload(SubscriberAccount.account_roles)
-            .selectinload(AccountRole.person),
-            selectinload(Subscriber.accounts)
-            .selectinload(SubscriberAccount.account_roles)
-            .selectinload(AccountRole.person),
-            selectinload(Subscriber.addresses),
-        )
-        if person_id:
-            query = query.filter(Subscriber.person_id == coerce_uuid(person_id))
-        if organization_id:
-            query = (
-                query.join(Person, Subscriber.person_id == Person.id)
-                .filter(Person.organization_id == coerce_uuid(organization_id))
-            )
-        if subscriber_type:
-            normalized = subscriber_type.strip().lower()
-            if normalized == "person":
-                query = (
-                    query.join(Person, Subscriber.person_id == Person.id)
-                    .filter(Person.organization_id.is_(None))
-                )
-            elif normalized == "organization":
-                query = (
-                    query.join(Person, Subscriber.person_id == Person.id)
-                    .filter(Person.organization_id.is_not(None))
-                )
-            else:
-                raise HTTPException(status_code=400, detail="Invalid subscriber_type")
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {
-                "created_at": Subscriber.created_at,
-                "updated_at": Subscriber.updated_at,
-            },
-        )
-        return apply_pagination(query, limit, offset).all()
-
-    @staticmethod
-    def update(db: Session, subscriber_id: str, payload: SubscriberUpdate):
-        subscriber = db.get(Subscriber, subscriber_id)
-        if not subscriber:
-            raise HTTPException(status_code=404, detail="Subscriber not found")
-        data = payload.model_dump(exclude_unset=True)
-        data.pop("organization_id", None)
-        if "person_id" in data and data["person_id"]:
-            person = db.get(Person, data["person_id"])
-            if not person:
-                raise HTTPException(status_code=404, detail="Person not found")
+    def update(
+        self, db: Session, subscriber: Subscriber, data: dict[str, Any]
+    ) -> Subscriber:
+        """Update an existing subscriber."""
         for key, value in data.items():
-            setattr(subscriber, key, value)
+            if hasattr(subscriber, key):
+                setattr(subscriber, key, value)
+        subscriber.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(subscriber)
-
-        # Emit subscriber.updated event
-        emit_event(
-            db,
-            EventType.subscriber_updated,
-            {
-                "subscriber_id": str(subscriber.id),
-                "subscriber_number": subscriber.subscriber_number,
-                "updated_fields": list(data.keys()),
-            },
-            subscriber_id=subscriber.id,
-        )
-
         return subscriber
 
-    @staticmethod
-    def delete(db: Session, subscriber_id: str):
-        subscriber = db.get(Subscriber, subscriber_id)
-        if not subscriber:
-            raise HTTPException(status_code=404, detail="Subscriber not found")
+    def delete(self, db: Session, subscriber: Subscriber) -> None:
+        """Soft delete a subscriber."""
+        subscriber.is_active = False
+        subscriber.updated_at = datetime.now(timezone.utc)
+        db.commit()
+
+    def hard_delete(self, db: Session, subscriber: Subscriber) -> None:
+        """Permanently delete a subscriber."""
         db.delete(subscriber)
         db.commit()
 
-    @staticmethod
-    def count_stats(db: Session) -> dict:
-        """Return subscriber counts for dashboard stats."""
-        total = db.query(func.count(Subscriber.id)).scalar() or 0
-        active = (
-            db.query(func.count(Subscriber.id))
-            .filter(Subscriber.is_active.is_(True))
-            .scalar() or 0
-        )
-        # Count individuals (persons without organization)
-        persons = (
-            db.query(func.count(Subscriber.id))
-            .join(Person, Subscriber.person_id == Person.id)
-            .filter(Person.organization_id.is_(None))
-            .scalar() or 0
-        )
-        # Count organizations (persons with organization)
-        organizations = (
-            db.query(func.count(Subscriber.id))
-            .join(Person, Subscriber.person_id == Person.id)
-            .filter(Person.organization_id.is_not(None))
-            .scalar() or 0
-        )
-        return {
-            "total": total,
-            "active": active,
-            "persons": persons,
-            "organizations": organizations,
+    # Sync operations
+    def sync_from_external(
+        self,
+        db: Session,
+        external_system: str,
+        external_id: str,
+        data: dict[str, Any],
+    ) -> Subscriber:
+        """
+        Sync subscriber data from external system.
+        Creates or updates subscriber based on external_id.
+        """
+        subscriber = self.get_by_external_id(db, external_system, external_id)
+
+        sync_data = {
+            "external_system": external_system,
+            "external_id": external_id,
+            "last_synced_at": datetime.now(timezone.utc),
+            "sync_error": None,
+            **data,
         }
 
-
-class Accounts(ListResponseMixin):
-    @staticmethod
-    def create(db: Session, payload: SubscriberAccountCreate):
-        subscriber = db.get(Subscriber, payload.subscriber_id)
-        if not subscriber:
-            raise HTTPException(status_code=404, detail="Subscriber not found")
-        if payload.reseller_id:
-            reseller = db.get(Reseller, payload.reseller_id)
-            if not reseller:
-                raise HTTPException(status_code=404, detail="Reseller not found")
-        if payload.tax_rate_id:
-            _validate_tax_rate(db, str(payload.tax_rate_id))
-        data = payload.model_dump()
-        fields_set = payload.model_fields_set
-        if "status" not in fields_set:
-            default_status = settings_spec.resolve_value(
-                db, SettingDomain.subscriber, "default_account_status"
-            )
-            if default_status:
-                data["status"] = _validate_enum(
-                    default_status, AccountStatus, "status"
-                )
-        if not data.get("account_number"):
-            generated = numbering.generate_number(
-                db,
-                SettingDomain.subscriber,
-                "account_number",
-                "account_number_enabled",
-                "account_number_prefix",
-                "account_number_padding",
-                "account_number_start",
-            )
-            if generated:
-                data["account_number"] = generated
-        account = SubscriberAccount(**data)
-        db.add(account)
-        db.commit()
-        db.refresh(account)
-        return account
-
-    @staticmethod
-    def get(db: Session, account_id: str):
-        account = db.get(
-            SubscriberAccount,
-            account_id,
-            options=[
-                selectinload(SubscriberAccount.account_roles).selectinload(AccountRole.person),
-            ],
-        )
-        if not account:
-            raise HTTPException(status_code=404, detail="Subscriber account not found")
-        return account
-
-    @staticmethod
-    def list(
-        db: Session,
-        subscriber_id: str | None,
-        reseller_id: str | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
-    ):
-        query = db.query(SubscriberAccount).options(
-            selectinload(SubscriberAccount.account_roles).selectinload(AccountRole.person),
-            selectinload(SubscriberAccount.subscriber).selectinload(Subscriber.person),
-        )
-        if subscriber_id:
-            query = query.filter(SubscriberAccount.subscriber_id == subscriber_id)
-        if reseller_id:
-            query = query.filter(SubscriberAccount.reseller_id == reseller_id)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {
-                "created_at": SubscriberAccount.created_at,
-                "updated_at": SubscriberAccount.updated_at,
-            },
-        )
-        return apply_pagination(query, limit, offset).all()
-
-    @staticmethod
-    def update(db: Session, account_id: str, payload: SubscriberAccountUpdate):
-        account = db.get(SubscriberAccount, account_id)
-        if not account:
-            raise HTTPException(status_code=404, detail="Subscriber account not found")
-        data = payload.model_dump(exclude_unset=True)
-        if "subscriber_id" in data and data["subscriber_id"]:
-            subscriber = db.get(Subscriber, data["subscriber_id"])
-            if not subscriber:
-                raise HTTPException(status_code=404, detail="Subscriber not found")
-        if "reseller_id" in data and data["reseller_id"]:
-            reseller = db.get(Reseller, data["reseller_id"])
-            if not reseller:
-                raise HTTPException(status_code=404, detail="Reseller not found")
-        if "tax_rate_id" in data and data["tax_rate_id"]:
-            _validate_tax_rate(db, str(data["tax_rate_id"]))
-        for key, value in data.items():
-            setattr(account, key, value)
-        db.commit()
-        db.refresh(account)
-        return account
-
-    @staticmethod
-    def delete(db: Session, account_id: str):
-        account = db.get(SubscriberAccount, account_id)
-        if not account:
-            raise HTTPException(status_code=404, detail="Subscriber account not found")
-        db.delete(account)
-        db.commit()
-
-
-class AccountRoles(ListResponseMixin):
-    @staticmethod
-    def create(db: Session, payload: AccountRoleCreate):
-        account = db.get(SubscriberAccount, payload.account_id)
-        if not account:
-            raise HTTPException(status_code=404, detail="Subscriber account not found")
-        person = db.get(Person, payload.person_id)
-        if not person:
-            raise HTTPException(status_code=404, detail="Person not found")
-        if payload.is_primary:
-            db.query(AccountRole).filter(
-                AccountRole.account_id == payload.account_id,
-                AccountRole.is_primary.is_(True),
-            ).update({"is_primary": False})
-        role = AccountRole(**payload.model_dump())
-        db.add(role)
-        db.commit()
-        db.refresh(role)
-        return role
-
-    @staticmethod
-    def get(db: Session, role_id: str):
-        role = db.get(AccountRole, role_id)
-        if not role:
-            raise HTTPException(status_code=404, detail="Account role not found")
-        return role
-
-    @staticmethod
-    def list(
-        db: Session,
-        account_id: str | None,
-        person_id: str | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
-    ):
-        query = db.query(AccountRole).options(selectinload(AccountRole.person))
-        if account_id:
-            query = query.filter(AccountRole.account_id == account_id)
-        if person_id:
-            query = query.filter(AccountRole.person_id == person_id)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {"created_at": AccountRole.created_at, "updated_at": AccountRole.updated_at},
-        )
-        return apply_pagination(query, limit, offset).all()
-
-    @staticmethod
-    def update(db: Session, role_id: str, payload: AccountRoleUpdate):
-        role = db.get(AccountRole, role_id)
-        if not role:
-            raise HTTPException(status_code=404, detail="Account role not found")
-        data = payload.model_dump(exclude_unset=True)
-        if "account_id" in data and data["account_id"]:
-            account = db.get(SubscriberAccount, data["account_id"])
-            if not account:
-                raise HTTPException(status_code=404, detail="Subscriber account not found")
-        if "person_id" in data and data["person_id"]:
-            person = db.get(Person, data["person_id"])
-            if not person:
-                raise HTTPException(status_code=404, detail="Person not found")
-        if data.get("is_primary"):
-            account_id = data.get("account_id", role.account_id)
-            db.query(AccountRole).filter(
-                AccountRole.account_id == account_id,
-                AccountRole.id != role.id,
-                AccountRole.is_primary.is_(True),
-            ).update({"is_primary": False})
-        for key, value in data.items():
-            setattr(role, key, value)
-        db.commit()
-        db.refresh(role)
-        return role
-
-    @staticmethod
-    def delete(db: Session, role_id: str):
-        role = db.get(AccountRole, role_id)
-        if not role:
-            raise HTTPException(status_code=404, detail="Account role not found")
-        db.delete(role)
-        db.commit()
-
-
-class Addresses(ListResponseMixin):
-    @staticmethod
-    def create(db: Session, payload: AddressCreate):
-        subscriber = db.get(Subscriber, payload.subscriber_id)
-        if not subscriber:
-            raise HTTPException(status_code=404, detail="Subscriber not found")
-        if payload.account_id:
-            account = db.get(SubscriberAccount, payload.account_id)
-            if not account:
-                raise HTTPException(status_code=404, detail="Subscriber account not found")
-            if account.subscriber_id != payload.subscriber_id:
-                raise HTTPException(status_code=400, detail="Account does not belong to subscriber")
-        if payload.tax_rate_id:
-            _validate_tax_rate(db, str(payload.tax_rate_id))
-        data = payload.model_dump()
-        fields_set = payload.model_fields_set
-        if "address_type" not in fields_set:
-            default_type = settings_spec.resolve_value(
-                db, SettingDomain.subscriber, "default_address_type"
-            )
-            if default_type:
-                data["address_type"] = _validate_enum(
-                    default_type, AddressType, "address_type"
-                )
-        if data.get("is_primary"):
-            db.query(Address).filter(
-                Address.subscriber_id == data["subscriber_id"],
-                Address.account_id == data.get("account_id"),
-                Address.address_type == data["address_type"],
-                Address.is_primary.is_(True),
-            ).update({"is_primary": False})
-        data = geocoding_service.geocode_address(db, data)
-        address = Address(**data)
-        db.add(address)
-        db.commit()
-        db.refresh(address)
-        return address
-
-    @staticmethod
-    def get(db: Session, address_id: str):
-        address = db.get(Address, address_id)
-        if not address:
-            raise HTTPException(status_code=404, detail="Address not found")
-        return address
-
-    @staticmethod
-    def list(
-        db: Session,
-        subscriber_id: str | None,
-        account_id: str | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
-    ):
-        query = db.query(Address)
-        if subscriber_id:
-            query = query.filter(Address.subscriber_id == subscriber_id)
-        if account_id:
-            query = query.filter(Address.account_id == account_id)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {"created_at": Address.created_at, "updated_at": Address.updated_at},
-        )
-        return apply_pagination(query, limit, offset).all()
-
-    @staticmethod
-    def update(db: Session, address_id: str, payload: AddressUpdate):
-        address = db.get(Address, address_id)
-        if not address:
-            raise HTTPException(status_code=404, detail="Address not found")
-        data = payload.model_dump(exclude_unset=True)
-        if "subscriber_id" in data:
-            subscriber = db.get(Subscriber, data["subscriber_id"])
-            if not subscriber:
-                raise HTTPException(status_code=404, detail="Subscriber not found")
-        if "account_id" in data and data["account_id"]:
-            subscriber_id = data.get("subscriber_id", address.subscriber_id)
-            account = db.get(SubscriberAccount, data["account_id"])
-            if not account:
-                raise HTTPException(status_code=404, detail="Subscriber account not found")
-            if account.subscriber_id != subscriber_id:
-                raise HTTPException(status_code=400, detail="Account does not belong to subscriber")
-        if "tax_rate_id" in data and data["tax_rate_id"]:
-            _validate_tax_rate(db, str(data["tax_rate_id"]))
-        if data.get("is_primary"):
-            subscriber_id = data.get("subscriber_id", address.subscriber_id)
-            account_id = data.get("account_id", address.account_id)
-            address_type = data.get("address_type", address.address_type)
-            db.query(Address).filter(
-                Address.subscriber_id == subscriber_id,
-                Address.account_id == account_id,
-                Address.address_type == address_type,
-                Address.id != address.id,
-                Address.is_primary.is_(True),
-            ).update({"is_primary": False})
-        if data.get("latitude") is None or data.get("longitude") is None:
-            merged = {
-                "address_line1": address.address_line1,
-                "address_line2": address.address_line2,
-                "city": address.city,
-                "region": address.region,
-                "postal_code": address.postal_code,
-                "country_code": address.country_code,
-                "latitude": address.latitude,
-                "longitude": address.longitude,
-            }
-            merged.update(data)
-            data = geocoding_service.geocode_address(db, merged)
-        for key, value in data.items():
-            setattr(address, key, value)
-        db.commit()
-        db.refresh(address)
-        return address
-
-    @staticmethod
-    def delete(db: Session, address_id: str):
-        address = db.get(Address, address_id)
-        if not address:
-            raise HTTPException(status_code=404, detail="Address not found")
-        db.delete(address)
-        db.commit()
-
-
-class SubscriberCustomFields(ListResponseMixin):
-    @staticmethod
-    def create(db: Session, payload: SubscriberCustomFieldCreate):
-        subscriber = db.get(Subscriber, payload.subscriber_id)
-        if not subscriber:
-            raise HTTPException(status_code=404, detail="Subscriber not found")
-        custom_field = SubscriberCustomField(**payload.model_dump())
-        db.add(custom_field)
-        db.commit()
-        db.refresh(custom_field)
-        return custom_field
-
-    @staticmethod
-    def get(db: Session, custom_field_id: str):
-        custom_field = db.get(SubscriberCustomField, custom_field_id)
-        if not custom_field:
-            raise HTTPException(status_code=404, detail="Subscriber custom field not found")
-        return custom_field
-
-    @staticmethod
-    def list(
-        db: Session,
-        subscriber_id: str | None,
-        is_active: bool | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
-    ):
-        query = db.query(SubscriberCustomField)
-        if subscriber_id:
-            query = query.filter(SubscriberCustomField.subscriber_id == subscriber_id)
-        if is_active is None:
-            query = query.filter(SubscriberCustomField.is_active.is_(True))
+        if subscriber:
+            return self.update(db, subscriber, sync_data)
         else:
-            query = query.filter(SubscriberCustomField.is_active == is_active)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {
-                "created_at": SubscriberCustomField.created_at,
-                "key": SubscriberCustomField.key,
-            },
-        )
-        return apply_pagination(query, limit, offset).all()
+            return self.create(db, sync_data)
 
-    @staticmethod
-    def update(db: Session, custom_field_id: str, payload: SubscriberCustomFieldUpdate):
-        custom_field = db.get(SubscriberCustomField, custom_field_id)
-        if not custom_field:
-            raise HTTPException(status_code=404, detail="Subscriber custom field not found")
-        data = payload.model_dump(exclude_unset=True)
-        if "subscriber_id" in data:
-            subscriber = db.get(Subscriber, data["subscriber_id"])
-            if not subscriber:
-                raise HTTPException(status_code=404, detail="Subscriber not found")
-        for key, value in data.items():
-            setattr(custom_field, key, value)
+    def mark_sync_error(
+        self, db: Session, subscriber: Subscriber, error: str
+    ) -> Subscriber:
+        """Mark a sync error on subscriber."""
+        subscriber.sync_error = error[:500] if error else None
+        subscriber.last_synced_at = datetime.now(timezone.utc)
         db.commit()
-        db.refresh(custom_field)
-        return custom_field
+        db.refresh(subscriber)
+        return subscriber
 
-    @staticmethod
-    def delete(db: Session, custom_field_id: str):
-        custom_field = db.get(SubscriberCustomField, custom_field_id)
-        if not custom_field:
-            raise HTTPException(status_code=404, detail="Subscriber custom field not found")
-        custom_field.is_active = False
+    def get_stats(self, db: Session) -> dict[str, int]:
+        """Get subscriber statistics."""
+        total = db.query(func.count(Subscriber.id)).filter(
+            Subscriber.is_active == True
+        ).scalar() or 0
+
+        by_status = {}
+        for status in SubscriberStatus:
+            count = db.query(func.count(Subscriber.id)).filter(
+                Subscriber.is_active == True,
+                Subscriber.status == status,
+            ).scalar() or 0
+            by_status[status.value] = count
+
+        return {
+            "total": total,
+            **by_status,
+        }
+
+    def link_to_person(
+        self, db: Session, subscriber: Subscriber, person_id: uuid.UUID
+    ) -> Subscriber:
+        """Link subscriber to a person contact."""
+        subscriber.person_id = person_id
+        subscriber.updated_at = datetime.now(timezone.utc)
         db.commit()
+        db.refresh(subscriber)
+        return subscriber
+
+    def link_to_organization(
+        self, db: Session, subscriber: Subscriber, organization_id: uuid.UUID
+    ) -> Subscriber:
+        """Link subscriber to an organization."""
+        subscriber.organization_id = organization_id
+        subscriber.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(subscriber)
+        return subscriber
 
 
-organizations = Organizations()
-resellers = Resellers()
-subscribers = Subscribers()
-accounts = Accounts()
-account_roles = AccountRoles()
-addresses = Addresses()
-subscriber_custom_fields = SubscriberCustomFields()
+# Singleton instance
+subscriber = SubscriberManager()

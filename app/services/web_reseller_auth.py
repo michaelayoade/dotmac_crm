@@ -41,7 +41,7 @@ def reseller_login_submit(
             response = RedirectResponse(url="/reseller/auth/mfa", status_code=303)
             response.set_cookie(
                 key="reseller_mfa_pending",
-                value=result.get("mfa_token", ""),
+                value=str(result.get("mfa_token", "")),
                 httponly=True,
                 secure=True,
                 samesite="lax",
@@ -62,7 +62,7 @@ def reseller_login_submit(
         max_age = reseller_portal.get_remember_max_age(db) if remember else reseller_portal.get_session_max_age(db)
         response.set_cookie(
             key=reseller_portal.SESSION_COOKIE_NAME,
-            value=session_token,
+            value=str(session_token or ""),
             httponly=True,
             secure=True,
             samesite="lax",
@@ -107,7 +107,7 @@ def reseller_mfa_submit(
         response.delete_cookie("reseller_mfa_remember")
         response.set_cookie(
             key=reseller_portal.SESSION_COOKIE_NAME,
-            value=session_token,
+            value=str(session_token or ""),
             httponly=True,
             secure=True,
             samesite="lax",
@@ -150,7 +150,7 @@ def reseller_refresh(request: Request):
     response = Response(status_code=204)
     response.set_cookie(
         key=reseller_portal.SESSION_COOKIE_NAME,
-        value=session_token,
+        value=session_token or "",
         httponly=True,
         secure=True,
         samesite="lax",
