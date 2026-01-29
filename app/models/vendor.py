@@ -125,11 +125,11 @@ class InstallationProject(Base):
     buildout_project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("buildout_projects.id")
     )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id")
+    subscriber_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subscribers.id")
     )
     address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
+        UUID(as_uuid=True)  # FK to addresses removed
     )
     assigned_vendor_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("vendors.id")
@@ -162,8 +162,8 @@ class InstallationProject(Base):
 
     project = relationship("Project")
     buildout_project = relationship("BuildoutProject")
-    account = relationship("SubscriberAccount")
-    address = relationship("Address")
+    subscriber = relationship("Subscriber")
+    # address = relationship("Address")  # Model removed
     assigned_vendor = relationship("Vendor")
     approved_quote = relationship("ProjectQuote", foreign_keys=[approved_quote_id])
     created_by = relationship("Person", foreign_keys=[created_by_person_id])

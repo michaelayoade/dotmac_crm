@@ -12,10 +12,7 @@
                 <span class="text-slate-900 dark:text-white">{{ appointment.id|string|truncate(8, True, '') }}</span>
             </nav>
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Installation Appointment</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Service order
-                <a href="/portal/service-orders/{{ appointment.service_order_id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ appointment.service_order_id }}</a>
-            </p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Installation appointment details</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
             {% set status_val = appointment.status.value if appointment.status else 'proposed' %}
@@ -56,14 +53,6 @@
                     <div class="flex items-center justify-between">
                         <dt>Self Install</dt>
                         <dd class="font-medium text-slate-900 dark:text-white">{{ 'Yes' if appointment.is_self_install else 'No' }}</dd>
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <dt>Service Order</dt>
-                        <dd class="font-medium text-slate-900 dark:text-white">{{ appointment.service_order_id }}</dd>
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <dt>Order Status</dt>
-                        <dd class="font-medium text-slate-900 dark:text-white">{{ service_order.status.value if service_order.status else 'N/A' }}</dd>
                     </div>
                 </dl>
             </div>

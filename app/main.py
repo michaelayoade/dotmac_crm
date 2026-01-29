@@ -30,38 +30,32 @@ from app.api.projects import router as projects_router
 from app.api.tickets import router as tickets_router
 from app.api.workforce import router as workforce_router
 from app.api.external import router as external_router
-from app.api.catalog import router as catalog_router
-from app.api.billing import router as billing_router
 from app.api.sales_orders import router as sales_orders_router
-from app.api.domains import router as domains_router
 from app.api.gis import router as gis_router
 from app.api.geocoding import router as geocoding_router
 from app.api.qualification import router as qualification_router
 from app.api.settings import router as settings_router
-from app.api.imports import router as imports_router
 from app.api.webhooks import router as webhooks_router
 from app.api.connectors import router as connectors_router
 from app.api.integrations import router as integrations_router
 from app.api.persons import router as people_router
 from app.api.customers import router as customers_router
-from app.api.subscribers import router as subscriber_router
 from app.api.search import router as search_router
 from app.api.scheduler import router as scheduler_router
-from app.api.sla_credit import router as sla_credit_router
 from app.api.fiber_plant import router as fiber_plant_router
 from app.api.crm import router as crm_router
+from app.api.sales import router as sales_router
 from app.api.vendor import router as vendor_portal_router
 from app.api.vendors import router as vendors_router
+from app.api.subscribers import router as subscribers_router
 from app.api.wireless_survey import router as wireless_survey_router
 from app.api.wireless_masts import router as wireless_masts_router
 from app.api.nextcloud_talk import router as nextcloud_talk_router
 from app.api.wireguard import router as wireguard_router, public_router as wireguard_public_router
-from app.api.nas import router as nas_router
 from app.api.bandwidth import router as bandwidth_router
 from app.api.validation import router as validation_router
 from app.api.defaults import router as defaults_router
 from app.web_home import router as web_home_router
-from app.web_domains import router as web_domains_router
 from app.web import router as web_router
 from app.db import SessionLocal
 from app.services import audit as audit_service
@@ -73,29 +67,16 @@ from app.services.settings_seed import (
     seed_audit_settings,
     seed_auth_settings,
     seed_auth_policy_settings,
-    seed_billing_settings,
-    seed_catalog_settings,
-    seed_collections_policy_settings,
     seed_comms_settings,
-    seed_collections_settings,
     seed_geocoding_settings,
     seed_gis_settings,
-    seed_imports_settings,
     seed_inventory_settings,
-    seed_lifecycle_settings,
     seed_network_policy_settings,
-    seed_network_monitoring_settings,
     seed_network_settings,
     seed_notification_settings,
-    seed_radius_settings,
-    seed_radius_policy_settings,
     seed_scheduler_settings,
     seed_projects_settings,
     seed_provisioning_settings,
-    seed_tr069_settings,
-    seed_usage_settings,
-    seed_usage_policy_settings,
-    seed_subscriber_settings,
     seed_wireguard_settings,
     seed_workflow_settings,
 )
@@ -336,9 +317,7 @@ _include_api_router(tickets_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(projects_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(workforce_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(external_router, dependencies=[Depends(require_user_auth)])
-_include_api_router(billing_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(sales_orders_router, dependencies=[Depends(require_user_auth)])
-_include_api_router(catalog_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(auth_router, dependencies=[Depends(require_role("admin"))])
 # Only include auth_flow at /api/v1 to avoid conflict with web /auth/login
 app.include_router(auth_flow_router, prefix="/api/v1")
@@ -346,9 +325,6 @@ _include_api_router(rbac_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(people_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(customers_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(search_router, dependencies=[Depends(require_user_auth)])
-_include_api_router(subscriber_router, dependencies=[Depends(require_user_auth)])
-_include_api_router(domains_router, dependencies=[Depends(require_user_auth)])
-_include_api_router(imports_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(audit_router)
 _include_api_router(gis_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(geocoding_router, dependencies=[Depends(require_user_auth)])
@@ -364,17 +340,17 @@ _include_api_router(inventory_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(timecost_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(comms_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(analytics_router, dependencies=[Depends(require_user_auth)])
-_include_api_router(sla_credit_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(fiber_plant_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(crm_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(sales_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(wireless_survey_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(wireless_masts_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(nextcloud_talk_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(wireguard_router, dependencies=[Depends(require_user_auth)])
-_include_api_router(nas_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(bandwidth_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(validation_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(defaults_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)])
 # WireGuard provisioning public endpoints - no auth required (token-based)
 _include_api_router(wireguard_public_router)
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])
@@ -382,7 +358,6 @@ app.include_router(vendors_router, prefix="/api/v1", dependencies=[Depends(requi
 app.include_router(vendor_portal_router, prefix="/api")
 app.include_router(vendor_portal_router, prefix="/api/v1")
 app.include_router(web_home_router)
-app.include_router(web_domains_router)
 app.include_router(web_router)
 
 from app.websocket.router import router as ws_router
@@ -409,29 +384,16 @@ def _start_jobs():
         seed_auth_settings(db)
         seed_auth_policy_settings(db)
         seed_audit_settings(db)
-        seed_billing_settings(db)
-        seed_catalog_settings(db)
-        seed_imports_settings(db)
         seed_gis_settings(db)
-        seed_usage_settings(db)
-        seed_usage_policy_settings(db)
         seed_notification_settings(db)
-        seed_collections_settings(db)
-        seed_collections_policy_settings(db)
         seed_geocoding_settings(db)
-        seed_radius_settings(db)
-        seed_radius_policy_settings(db)
         seed_scheduler_settings(db)
-        seed_subscriber_settings(db)
         seed_provisioning_settings(db)
-        seed_tr069_settings(db)
         seed_projects_settings(db)
         seed_workflow_settings(db)
         seed_network_policy_settings(db)
         seed_network_settings(db)
-        seed_network_monitoring_settings(db)
         seed_inventory_settings(db)
-        seed_lifecycle_settings(db)
         seed_comms_settings(db)
         seed_wireguard_settings(db)
     finally:

@@ -21,7 +21,6 @@ from app.models.qualification import (
 )
 from app.services.response import ListResponseMixin
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
-from app.models.subscriber import Address
 from app.schemas.qualification import (
     BuildoutApproveRequest,
     BuildoutMilestoneCreate,
@@ -228,14 +227,6 @@ class ServiceQualifications(ListResponseMixin):
     def check(db: Session, payload: ServiceQualificationRequest):
         lat = payload.latitude
         lon = payload.longitude
-        if payload.address_id:
-            address = db.get(Address, payload.address_id)
-            if not address:
-                raise HTTPException(status_code=404, detail="Address not found")
-            if address.latitude is None or address.longitude is None:
-                raise HTTPException(status_code=400, detail="Address missing coordinates")
-            lat = address.latitude
-            lon = address.longitude
         if lat is None or lon is None:
             raise HTTPException(status_code=400, detail="Latitude/longitude required")
 
@@ -245,24 +236,24 @@ class ServiceQualifications(ListResponseMixin):
         candidates = query.order_by(CoverageArea.priority.desc(), CoverageArea.created_at.desc()).all()
 
         matches: list[CoverageArea] = []
-        for area in candidates:
+        for candidate in candidates:
             if (
-                area.min_latitude is not None
-                and area.max_latitude is not None
-                and area.min_longitude is not None
-                and area.max_longitude is not None
+                candidate.min_latitude is not None
+                and candidate.max_latitude is not None
+                and candidate.min_longitude is not None
+                and candidate.max_longitude is not None
             ):
-                if not (area.min_latitude <= lat <= area.max_latitude):
+                if not (candidate.min_latitude <= lat <= candidate.max_latitude):
                     continue
-                if not (area.min_longitude <= lon <= area.max_longitude):
+                if not (candidate.min_longitude <= lon <= candidate.max_longitude):
                     continue
-            polygon = _extract_polygon(area.geometry_geojson)
+            polygon = _extract_polygon(candidate.geometry_geojson)
             if _point_in_polygon(lon, lat, polygon):
-                matches.append(area)
+                matches.append(candidate)
 
         reasons: list[str] = []
         status = QualificationStatus.ineligible
-        area = matches[0] if matches else None
+        area: CoverageArea | None = matches[0] if matches else None
         buildout_status = area.buildout_status if area else None
         estimated_install_window = area.buildout_window if area else None
 

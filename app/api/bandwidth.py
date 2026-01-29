@@ -165,7 +165,7 @@ async def get_top_users(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     results = await bandwidth_samples.get_top_users(db, limit, duration)
-    return [TopUserEntry(**r) for r in results]
+    return [TopUserEntry(**r) for r in (results or [])]
 
 
 # Customer portal endpoints (own data only)

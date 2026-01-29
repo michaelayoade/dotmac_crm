@@ -3,14 +3,10 @@ import os
 
 from sqlalchemy.orm import Session
 
-from app.models.subscription_engine import SettingValueType
+from app.models.domain_settings import SettingValueType
 from app.services.domain_settings import (
     auth_settings,
     audit_settings,
-    billing_settings,
-    catalog_settings,
-    subscriber_settings,
-    collections_settings,
     geocoding_settings,
     imports_settings,
     inventory_settings,
@@ -20,13 +16,8 @@ from app.services.domain_settings import (
     notification_settings,
     projects_settings,
     provisioning_settings,
-    radius_settings,
     scheduler_settings,
     workflow_settings,
-    usage_settings,
-    lifecycle_settings,
-    network_monitoring_settings,
-    tr069_settings,
 )
 from app.services.secrets import is_openbao_ref
 
@@ -230,49 +221,6 @@ def seed_gis_settings(db: Session) -> None:
     )
 
 
-def seed_usage_settings(db: Session) -> None:
-    enabled_raw = os.getenv("USAGE_RATING_ENABLED", "true")
-    usage_settings.ensure_by_key(
-        db,
-        key="usage_rating_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=enabled_raw,
-        value_json=enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    usage_settings.ensure_by_key(
-        db,
-        key="usage_rating_interval_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("USAGE_RATING_INTERVAL_SECONDS", "86400"),
-    )
-    warning_enabled_raw = os.getenv("USAGE_WARNING_ENABLED", "true")
-    usage_settings.ensure_by_key(
-        db,
-        key="usage_warning_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=warning_enabled_raw,
-        value_json=warning_enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    usage_settings.ensure_by_key(
-        db,
-        key="usage_warning_thresholds",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("USAGE_WARNING_THRESHOLDS", "0.8,0.9"),
-    )
-    usage_settings.ensure_by_key(
-        db,
-        key="fup_throttle_radius_profile_id",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("USAGE_FUP_THROTTLE_RADIUS_PROFILE_ID", ""),
-    )
-    usage_settings.ensure_by_key(
-        db,
-        key="fup_action",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("USAGE_FUP_ACTION", "throttle"),
-    )
-
-
 def seed_notification_settings(db: Session) -> None:
     enabled_raw = os.getenv("ALERT_NOTIFICATIONS_ENABLED", "true")
     notification_settings.ensure_by_key(
@@ -325,112 +273,6 @@ def seed_notification_settings(db: Session) -> None:
         key="notification_queue_interval_seconds",
         value_type=SettingValueType.integer,
         value_text=os.getenv("NOTIFICATION_QUEUE_INTERVAL_SECONDS", "60"),
-    )
-
-
-def seed_collections_settings(db: Session) -> None:
-    enabled_raw = os.getenv("DUNNING_ENABLED", "true")
-    collections_settings.ensure_by_key(
-        db,
-        key="dunning_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=enabled_raw,
-        value_json=enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="dunning_interval_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("DUNNING_INTERVAL_SECONDS", "86400"),
-    )
-    prepaid_enabled_raw = os.getenv("PREPAID_ENFORCEMENT_ENABLED", "true")
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_enforcement_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=prepaid_enabled_raw,
-        value_json=prepaid_enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_enforcement_interval_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("PREPAID_ENFORCEMENT_INTERVAL_SECONDS", "3600"),
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_blocking_time",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PREPAID_BLOCKING_TIME", "08:00"),
-    )
-    prepaid_skip_weekends_raw = os.getenv("PREPAID_SKIP_WEEKENDS", "false")
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_skip_weekends",
-        value_type=SettingValueType.boolean,
-        value_text=prepaid_skip_weekends_raw,
-        value_json=prepaid_skip_weekends_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    prepaid_skip_holidays_raw = os.getenv("PREPAID_SKIP_HOLIDAYS", "[]")
-    try:
-        prepaid_skip_holidays_value = json.loads(prepaid_skip_holidays_raw)
-    except json.JSONDecodeError:
-        prepaid_skip_holidays_value = []
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_skip_holidays",
-        value_type=SettingValueType.json,
-        value_json=prepaid_skip_holidays_value,
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_grace_days",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("PREPAID_GRACE_DAYS", "0"),
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_deactivation_days",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("PREPAID_DEACTIVATION_DAYS", "0"),
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_default_min_balance",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PREPAID_DEFAULT_MIN_BALANCE", "0.00"),
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_warning_subject",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PREPAID_WARNING_SUBJECT", "Low Balance Warning"),
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_warning_body",
-        value_type=SettingValueType.string,
-        value_text=os.getenv(
-            "PREPAID_WARNING_BODY",
-            "Your prepaid balance is below the minimum threshold ({threshold}). "
-            "Current balance: {balance}. Please top up to avoid suspension.",
-        ),
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_deactivation_subject",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PREPAID_DEACTIVATION_SUBJECT", "Service Deactivated"),
-    )
-    collections_settings.ensure_by_key(
-        db,
-        key="prepaid_deactivation_body",
-        value_type=SettingValueType.string,
-        value_text=os.getenv(
-            "PREPAID_DEACTIVATION_BODY",
-            "Your prepaid balance has been exhausted and service has been deactivated. "
-            "Please contact support to restore service.",
-        ),
     )
 
 
@@ -525,387 +367,6 @@ def seed_scheduler_settings(db: Session) -> None:
     )
 
 
-def seed_radius_settings(db: Session) -> None:
-    radius_settings.ensure_by_key(
-        db,
-        key="auth_server_id",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("RADIUS_AUTH_SERVER_ID", ""),
-    )
-    radius_settings.ensure_by_key(
-        db,
-        key="auth_shared_secret",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("RADIUS_AUTH_SHARED_SECRET", ""),
-        is_secret=True,
-    )
-    radius_settings.ensure_by_key(
-        db,
-        key="auth_dictionary_path",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("RADIUS_AUTH_DICTIONARY", "/etc/raddb/dictionary"),
-    )
-    radius_settings.ensure_by_key(
-        db,
-        key="auth_timeout_sec",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("RADIUS_AUTH_TIMEOUT_SEC", "3"),
-    )
-    coa_enabled_raw = os.getenv("RADIUS_COA_ENABLED", "true")
-    radius_settings.ensure_by_key(
-        db,
-        key="coa_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=coa_enabled_raw,
-        value_json=coa_enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    radius_settings.ensure_by_key(
-        db,
-        key="coa_dictionary_path",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("RADIUS_COA_DICTIONARY", "/etc/raddb/dictionary"),
-    )
-    radius_settings.ensure_by_key(
-        db,
-        key="coa_timeout_sec",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("RADIUS_COA_TIMEOUT_SEC", "3"),
-    )
-    radius_settings.ensure_by_key(
-        db,
-        key="coa_retries",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("RADIUS_COA_RETRIES", "1"),
-    )
-    refresh_raw = os.getenv("RADIUS_REFRESH_SESSIONS_ON_PROFILE_CHANGE", "true")
-    radius_settings.ensure_by_key(
-        db,
-        key="refresh_sessions_on_profile_change",
-        value_type=SettingValueType.boolean,
-        value_text=refresh_raw,
-        value_json=refresh_raw.lower() in {"1", "true", "yes", "on"},
-    )
-
-
-def seed_billing_settings(db: Session) -> None:
-    billing_settings.ensure_by_key(
-        db,
-        key="default_currency",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_DEFAULT_CURRENCY", "NGN"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="default_invoice_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_DEFAULT_INVOICE_STATUS", "draft"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="default_tax_application",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_DEFAULT_TAX_APPLICATION", "exclusive"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="default_payment_method_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_DEFAULT_PAYMENT_METHOD_TYPE", "card"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="default_payment_provider_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_DEFAULT_PAYMENT_PROVIDER_TYPE", "custom"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="default_bank_account_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_DEFAULT_BANK_ACCOUNT_TYPE", "checking"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="default_payment_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_DEFAULT_PAYMENT_STATUS", "pending"),
-    )
-    billing_enabled_raw = os.getenv("BILLING_ENABLED", "true")
-    billing_settings.ensure_by_key(
-        db,
-        key="billing_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=billing_enabled_raw,
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="billing_interval_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("BILLING_INTERVAL_SECONDS", "86400"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="invoice_due_days",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("BILLING_INVOICE_DUE_DAYS", "14"),
-    )
-    invoice_enabled_raw = os.getenv("BILLING_INVOICE_NUMBER_ENABLED", "true")
-    billing_settings.ensure_by_key(
-        db,
-        key="invoice_number_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=invoice_enabled_raw,
-        value_json=invoice_enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="invoice_number_prefix",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_INVOICE_NUMBER_PREFIX", "INV-"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="invoice_number_padding",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("BILLING_INVOICE_NUMBER_PADDING", "6"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="invoice_number_start",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("BILLING_INVOICE_NUMBER_START", "1"),
-    )
-    credit_note_enabled_raw = os.getenv("BILLING_CREDIT_NOTE_NUMBER_ENABLED", "true")
-    billing_settings.ensure_by_key(
-        db,
-        key="credit_note_number_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=credit_note_enabled_raw,
-        value_json=credit_note_enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="credit_note_number_prefix",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("BILLING_CREDIT_NOTE_NUMBER_PREFIX", "CR-"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="credit_note_number_padding",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("BILLING_CREDIT_NOTE_NUMBER_PADDING", "6"),
-    )
-    billing_settings.ensure_by_key(
-        db,
-        key="credit_note_number_start",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("BILLING_CREDIT_NOTE_NUMBER_START", "1"),
-    )
-
-
-def seed_catalog_settings(db: Session) -> None:
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_proration_policy",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_PRORATION_POLICY", "immediate"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_downgrade_policy",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_DOWNGRADE_POLICY", "next_cycle"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_suspension_action",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_SUSPENSION_ACTION", "suspend"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_refund_policy",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_REFUND_POLICY", "none"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_billing_cycle",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_BILLING_CYCLE", "monthly"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_contract_term",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_CONTRACT_TERM", "month_to_month"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_offer_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_OFFER_STATUS", "active"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_subscription_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_SUBSCRIPTION_STATUS", "pending"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_billing_mode",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_BILLING_MODE", "prepaid"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="billing_mode_help_text",
-        value_type=SettingValueType.string,
-        value_text=os.getenv(
-            "CATALOG_BILLING_MODE_HELP_TEXT", "Overrides tariff default."
-        ),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="billing_mode_prepaid_notice",
-        value_type=SettingValueType.string,
-        value_text=os.getenv(
-            "CATALOG_BILLING_MODE_PREPAID_NOTICE", "Balance enforcement applies."
-        ),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="billing_mode_postpaid_notice",
-        value_type=SettingValueType.string,
-        value_text=os.getenv(
-            "CATALOG_BILLING_MODE_POSTPAID_NOTICE",
-            "This subscription follows dunning steps.",
-        ),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_price_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_PRICE_TYPE", "recurring"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_addon_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_ADDON_TYPE", "custom"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_addon_quantity",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("CATALOG_DEFAULT_ADDON_QUANTITY", "1"),
-    )
-    catalog_settings.ensure_by_key(
-        db,
-        key="default_nas_vendor",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("CATALOG_DEFAULT_NAS_VENDOR", "other"),
-    )
-
-
-def seed_subscriber_settings(db: Session) -> None:
-    subscriber_settings.ensure_by_key(
-        db,
-        key="default_account_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SUBSCRIBER_DEFAULT_ACCOUNT_STATUS", "active"),
-    )
-    subscriber_settings.ensure_by_key(
-        db,
-        key="default_address_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SUBSCRIBER_DEFAULT_ADDRESS_TYPE", "service"),
-    )
-    subscriber_settings.ensure_by_key(
-        db,
-        key="default_contact_role",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SUBSCRIBER_DEFAULT_CONTACT_ROLE", "primary"),
-    )
-    subscriber_number_enabled_raw = os.getenv("SUBSCRIBER_NUMBER_ENABLED", "true")
-    subscriber_settings.ensure_by_key(
-        db,
-        key="subscriber_number_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=subscriber_number_enabled_raw,
-        value_json=subscriber_number_enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    subscriber_settings.ensure_by_key(
-        db,
-        key="subscriber_number_prefix",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SUBSCRIBER_NUMBER_PREFIX", "SUB-"),
-    )
-    subscriber_settings.ensure_by_key(
-        db,
-        key="subscriber_number_padding",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SUBSCRIBER_NUMBER_PADDING", "6"),
-    )
-    subscriber_settings.ensure_by_key(
-        db,
-        key="subscriber_number_start",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SUBSCRIBER_NUMBER_START", "1"),
-    )
-    account_number_enabled_raw = os.getenv("SUBSCRIBER_ACCOUNT_NUMBER_ENABLED", "true")
-    subscriber_settings.ensure_by_key(
-        db,
-        key="account_number_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=account_number_enabled_raw,
-        value_json=account_number_enabled_raw.lower() in {"1", "true", "yes", "on"},
-    )
-    subscriber_settings.ensure_by_key(
-        db,
-        key="account_number_prefix",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SUBSCRIBER_ACCOUNT_NUMBER_PREFIX", "ACC-"),
-    )
-    subscriber_settings.ensure_by_key(
-        db,
-        key="account_number_padding",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SUBSCRIBER_ACCOUNT_NUMBER_PADDING", "6"),
-    )
-    subscriber_settings.ensure_by_key(
-        db,
-        key="account_number_start",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SUBSCRIBER_ACCOUNT_NUMBER_START", "1"),
-    )
-
-
-def seed_usage_policy_settings(db: Session) -> None:
-    usage_settings.ensure_by_key(
-        db,
-        key="default_charge_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("USAGE_DEFAULT_CHARGE_STATUS", "staged"),
-    )
-    usage_settings.ensure_by_key(
-        db,
-        key="default_rating_run_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("USAGE_DEFAULT_RATING_RUN_STATUS", "running"),
-    )
-
-
-def seed_collections_policy_settings(db: Session) -> None:
-    collections_settings.ensure_by_key(
-        db,
-        key="default_dunning_case_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("COLLECTIONS_DEFAULT_DUNNING_CASE_STATUS", "open"),
-    )
-
-
 def seed_auth_policy_settings(db: Session) -> None:
     auth_settings.ensure_by_key(
         db,
@@ -924,42 +385,15 @@ def seed_auth_policy_settings(db: Session) -> None:
 def seed_provisioning_settings(db: Session) -> None:
     provisioning_settings.ensure_by_key(
         db,
-        key="default_service_order_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PROVISIONING_DEFAULT_SERVICE_ORDER_STATUS", "draft"),
+        key="nas_backup_retention_interval_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("NAS_BACKUP_RETENTION_INTERVAL", "86400"),
     )
     provisioning_settings.ensure_by_key(
         db,
-        key="default_appointment_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PROVISIONING_DEFAULT_APPOINTMENT_STATUS", "proposed"),
-    )
-    provisioning_settings.ensure_by_key(
-        db,
-        key="default_task_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PROVISIONING_DEFAULT_TASK_STATUS", "pending"),
-    )
-    provisioning_settings.ensure_by_key(
-        db,
-        key="default_vendor",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PROVISIONING_DEFAULT_VENDOR", "other"),
-    )
-    provisioning_settings.ensure_by_key(
-        db,
-        key="default_workflow_id",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("PROVISIONING_DEFAULT_WORKFLOW_ID", ""),
-    )
-
-
-def seed_tr069_settings(db: Session) -> None:
-    tr069_settings.ensure_by_key(
-        db,
-        key="default_acs_server_id",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("TR069_DEFAULT_ACS_SERVER_ID", ""),
+        key="oauth_token_refresh_interval_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("OAUTH_TOKEN_REFRESH_INTERVAL", "86400"),
     )
 
 
@@ -1065,8 +499,6 @@ def seed_workflow_settings(db: Session) -> None:
 
 
 def seed_network_policy_settings(db: Session) -> None:
-    from app.services.domain_settings import network_settings
-
     network_settings.ensure_by_key(
         db,
         key="default_device_type",
@@ -1173,94 +605,6 @@ def seed_network_settings(db: Session) -> None:
     )
 
 
-def seed_radius_policy_settings(db: Session) -> None:
-    radius_settings.ensure_by_key(
-        db,
-        key="default_auth_port",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("RADIUS_DEFAULT_AUTH_PORT", "1812"),
-    )
-
-
-def seed_network_monitoring_settings(db: Session) -> None:
-    network_monitoring_settings.ensure_by_key(
-        db,
-        key="server_health_disk_warn_pct",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SERVER_HEALTH_DISK_WARN_PCT", "80"),
-    )
-    network_monitoring_settings.ensure_by_key(
-        db,
-        key="server_health_disk_crit_pct",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SERVER_HEALTH_DISK_CRIT_PCT", "90"),
-    )
-    network_monitoring_settings.ensure_by_key(
-        db,
-        key="server_health_mem_warn_pct",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SERVER_HEALTH_MEM_WARN_PCT", "80"),
-    )
-    network_monitoring_settings.ensure_by_key(
-        db,
-        key="server_health_mem_crit_pct",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SERVER_HEALTH_MEM_CRIT_PCT", "90"),
-    )
-    network_monitoring_settings.ensure_by_key(
-        db,
-        key="server_health_load_warn",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SERVER_HEALTH_LOAD_WARN", "1.0"),
-    )
-    network_monitoring_settings.ensure_by_key(
-        db,
-        key="server_health_load_crit",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SERVER_HEALTH_LOAD_CRIT", "1.5"),
-    )
-    network_monitoring_settings.ensure_by_key(
-        db,
-        key="network_health_warn_pct",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("NETWORK_HEALTH_WARN_PCT", "90"),
-    )
-    network_monitoring_settings.ensure_by_key(
-        db,
-        key="network_health_crit_pct",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("NETWORK_HEALTH_CRIT_PCT", "70"),
-    )
-    radius_settings.ensure_by_key(
-        db,
-        key="default_acct_port",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("RADIUS_DEFAULT_ACCT_PORT", "1813"),
-    )
-    default_sync_users = os.getenv("RADIUS_DEFAULT_SYNC_USERS", "true")
-    radius_settings.ensure_by_key(
-        db,
-        key="default_sync_users",
-        value_type=SettingValueType.boolean,
-        value_text=default_sync_users,
-        value_json=default_sync_users.lower() in {"1", "true", "yes", "on"},
-    )
-    default_sync_clients = os.getenv("RADIUS_DEFAULT_SYNC_NAS_CLIENTS", "true")
-    radius_settings.ensure_by_key(
-        db,
-        key="default_sync_nas_clients",
-        value_type=SettingValueType.boolean,
-        value_text=default_sync_clients,
-        value_json=default_sync_clients.lower() in {"1", "true", "yes", "on"},
-    )
-    radius_settings.ensure_by_key(
-        db,
-        key="default_sync_status",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("RADIUS_DEFAULT_SYNC_STATUS", "running"),
-    )
-
-
 def seed_inventory_settings(db: Session) -> None:
     inventory_settings.ensure_by_key(
         db,
@@ -1273,15 +617,6 @@ def seed_inventory_settings(db: Session) -> None:
         key="default_material_status",
         value_type=SettingValueType.string,
         value_text=os.getenv("INVENTORY_DEFAULT_MATERIAL_STATUS", "required"),
-    )
-
-
-def seed_lifecycle_settings(db: Session) -> None:
-    lifecycle_settings.ensure_by_key(
-        db,
-        key="default_event_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("LIFECYCLE_DEFAULT_EVENT_TYPE", "other"),
     )
 
 

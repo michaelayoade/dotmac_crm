@@ -173,8 +173,6 @@ function customerWizard() {
         notes: '',
 
         // Quick options (review step)
-        createAccount: true,
-        continueToSubscription: false,
         sendWelcomeEmail: false,
 
         get totalSteps() {
@@ -281,8 +279,6 @@ function customerWizard() {
                 postal_code: this.postalCode,
                 country_code: this.countryCode,
                 // Quick options
-                create_account: this.createAccount,
-                continue_to_subscription: this.continueToSubscription,
                 send_welcome_email: this.sendWelcomeEmail
             };
 

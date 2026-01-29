@@ -1,10 +1,10 @@
+from typing import List
+
 from fastapi import HTTPException
 from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
 from app.models.person import Person
-from app.models.catalog import Subscription
-from app.models.subscriber import SubscriberAccount
 from app.models.tickets import (
     Ticket,
     TicketChannel,
@@ -33,16 +33,6 @@ from app.schemas.tickets import (
     TicketSlaEventUpdate,
     TicketUpdate,
 )
-
-
-def _ensure_account(db: Session, account_id: str):
-    return ensure_exists(db, SubscriberAccount, account_id, "Subscriber account not found")
-
-
-def _ensure_subscription(db: Session, subscription_id: str):
-    subscription = db.get(Subscription, coerce_uuid(subscription_id))
-    if not subscription:
-        raise HTTPException(status_code=404, detail="Subscription not found")
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -76,9 +66,9 @@ def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder
     # Map ticket priority to work order priority
     priority_map = {
         TicketPriority.low: WorkOrderPriority.low,
-        TicketPriority.medium: WorkOrderPriority.normal,
+        TicketPriority.normal: WorkOrderPriority.normal,
         TicketPriority.high: WorkOrderPriority.high,
-        TicketPriority.critical: WorkOrderPriority.urgent,
+        TicketPriority.urgent: WorkOrderPriority.urgent,
     }
     wo_priority = priority_map.get(ticket.priority, WorkOrderPriority.normal)
 
@@ -92,8 +82,7 @@ def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder
         work_type=WorkOrderType.repair,
         status=WorkOrderStatus.draft,
         priority=wo_priority,
-        account_id=ticket.account_id,
-        subscription_id=ticket.subscription_id,
+        subscriber_id=ticket.subscriber_id,
         ticket_id=ticket.id,
     )
     db.add(work_order)
@@ -103,10 +92,6 @@ def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder
 class Tickets(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: TicketCreate):
-        if payload.account_id:
-            _ensure_account(db, str(payload.account_id))
-        if payload.subscription_id:
-            _ensure_subscription(db, str(payload.subscription_id))
         if payload.created_by_person_id:
             _ensure_person(db, str(payload.created_by_person_id))
         if payload.assigned_to_person_id:
@@ -134,8 +119,7 @@ class Tickets(ListResponseMixin):
                 "channel": ticket.channel.value if ticket.channel else None,
             },
             ticket_id=ticket.id,
-            account_id=ticket.account_id,
-            subscription_id=ticket.subscription_id,
+            subscriber_id=ticket.subscriber_id,
         )
 
         return ticket
@@ -150,8 +134,7 @@ class Tickets(ListResponseMixin):
     @staticmethod
     def list(
         db: Session,
-        account_id: str | None,
-        subscription_id: str | None,
+        subscriber_id: str | None,
         status: str | None,
         priority: str | None,
         channel: str | None,
@@ -165,10 +148,8 @@ class Tickets(ListResponseMixin):
         offset: int,
     ):
         query = db.query(Ticket)
-        if account_id:
-            query = query.filter(Ticket.account_id == account_id)
-        if subscription_id:
-            query = query.filter(Ticket.subscription_id == subscription_id)
+        if subscriber_id:
+            query = query.filter(Ticket.subscriber_id == coerce_uuid(subscriber_id))
         if status:
             query = query.filter(Ticket.status == validate_enum(status, TicketStatus, "status"))
         if priority:
@@ -208,6 +189,28 @@ class Tickets(ListResponseMixin):
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
+    def status_stats(db: Session) -> dict:
+        """Get ticket counts by status."""
+        from sqlalchemy import func
+        rows = (
+            db.query(Ticket.status, func.count(Ticket.id))
+            .filter(Ticket.is_active.is_(True))
+            .group_by(Ticket.status)
+            .all()
+        )
+        counts = {status.value if status else "unknown": count for status, count in rows}
+        total = sum(counts.values())
+        return {
+            "total": total,
+            "new": counts.get("new", 0),
+            "open": counts.get("open", 0),
+            "pending": counts.get("pending", 0),
+            "on_hold": counts.get("on_hold", 0),
+            "resolved": counts.get("resolved", 0),
+            "closed": counts.get("closed", 0),
+        }
+
+    @staticmethod
     def update(db: Session, ticket_id: str, payload: TicketUpdate):
         ticket = db.get(Ticket, ticket_id)
         if not ticket:
@@ -215,10 +218,6 @@ class Tickets(ListResponseMixin):
         previous_status = ticket.status
         previous_priority = ticket.priority
         data = payload.model_dump(exclude_unset=True)
-        if "account_id" in data and data["account_id"]:
-            _ensure_account(db, str(data["account_id"]))
-        if "subscription_id" in data and data["subscription_id"]:
-            _ensure_subscription(db, str(data["subscription_id"]))
         if "created_by_person_id" in data and data["created_by_person_id"]:
             _ensure_person(db, str(data["created_by_person_id"]))
         if "assigned_to_person_id" in data and data["assigned_to_person_id"]:
@@ -250,34 +249,41 @@ class Tickets(ListResponseMixin):
         }
         context = {
             "ticket_id": ticket.id,
-            "account_id": ticket.account_id,
-            "subscription_id": ticket.subscription_id,
+            "subscriber_id": ticket.subscriber_id,
         }
 
         if previous_status != new_status:
             if new_status == TicketStatus.resolved:
-                emit_event(db, EventType.ticket_resolved, event_payload, **context)
+                emit_event(
+                    db,
+                    EventType.ticket_resolved,
+                    event_payload,
+                    subscriber_id=ticket.subscriber_id,
+                    ticket_id=ticket.id,
+                )
         # Emit escalated event if priority increased to critical
         if (
             previous_priority != new_priority
-            and new_priority == TicketPriority.critical
-            and previous_priority != TicketPriority.critical
+            and new_priority == TicketPriority.urgent
+            and previous_priority != TicketPriority.urgent
         ):
-            emit_event(db, EventType.ticket_escalated, event_payload, **context)
+            emit_event(
+                db,
+                EventType.ticket_escalated,
+                event_payload,
+                subscriber_id=ticket.subscriber_id,
+                ticket_id=ticket.id,
+            )
 
         return ticket
 
     @staticmethod
-    def bulk_update(db: Session, ticket_ids: list, payload: TicketUpdate) -> int:
+    def bulk_update(db: Session, ticket_ids: List[str], payload: TicketUpdate) -> int:
         if not ticket_ids:
             raise HTTPException(status_code=400, detail="ticket_ids required")
         data = payload.model_dump(exclude_unset=True)
         if not data:
             raise HTTPException(status_code=400, detail="Update payload required")
-        if "account_id" in data and data["account_id"]:
-            _ensure_account(db, str(data["account_id"]))
-        if "subscription_id" in data and data["subscription_id"]:
-            _ensure_subscription(db, str(data["subscription_id"]))
         if "created_by_person_id" in data and data["created_by_person_id"]:
             _ensure_person(db, str(data["created_by_person_id"]))
         if "assigned_to_person_id" in data and data["assigned_to_person_id"]:
@@ -293,7 +299,7 @@ class Tickets(ListResponseMixin):
         return len(tickets)
 
     @staticmethod
-    def bulk_update_response(db: Session, ticket_ids: list, payload: TicketUpdate) -> dict:
+    def bulk_update_response(db: Session, ticket_ids: List[str], payload: TicketUpdate) -> dict:
         updated = Tickets.bulk_update(db, ticket_ids, payload)
         return {"updated": updated}
 

@@ -34,7 +34,15 @@
                             <p class="text-xs text-slate-500 dark:text-slate-400">{{ template.id|string|truncate(8, True, '') }}</p>
                         </td>
                         <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
-                            {{ template.project_type.value | replace('_', ' ') | title if template.project_type else '—' }}
+                            {% if template.project_type %}
+                                {% if template.project_type.value is defined %}
+                                    {{ template.project_type.value | replace('_', ' ') | title }}
+                                {% else %}
+                                    {{ template.project_type | replace('_', ' ') | title }}
+                                {% endif %}
+                            {% else %}
+                                —
+                            {% endif %}
                         </td>
                         <td class="px-6 py-4 text-right text-sm">
                             <a href="/admin/projects/templates/{{ template.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
@@ -45,7 +53,7 @@
                     {% else %}
                     {% set title = "No templates yet" %}
                     {% set message = "Create a template to auto-generate project tasks." %}
-                    {% include "components/empty_state.html" %}
+                    {% include "components/data/empty_state.html" %}
                     {% endif %}
                 </tbody>
             </table>

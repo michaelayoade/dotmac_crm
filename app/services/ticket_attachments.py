@@ -21,22 +21,15 @@ def _validate_attachment(file: UploadFile, content: bytes) -> None:
         raise HTTPException(status_code=400, detail="Unsupported attachment type")
 
 
-def _is_upload_file(value: object) -> bool:
-    return hasattr(value, "filename") and hasattr(value, "file")
-
-
 def _coerce_upload_files(files: UploadFile | list[UploadFile] | None) -> list[UploadFile]:
     if files is None:
         return []
-    if _is_upload_file(files):
-        if not getattr(files, "filename", None):
+    if isinstance(files, UploadFile):
+        if not files.filename:
             return []
-        return [files]  # type: ignore[list-item]
+        return [files]
     if isinstance(files, list):
-        cleaned = [item for item in files if _is_upload_file(item)]
-        if cleaned:
-            return [item for item in cleaned if item.filename]  # type: ignore[return-value]
-        return []
+        return [item for item in files if isinstance(item, UploadFile) and item.filename]
     raise HTTPException(
         status_code=400,
         detail="Attachment upload failed. Please refresh and try again.",
@@ -63,7 +56,7 @@ def prepare_ticket_attachments(files: UploadFile | list[UploadFile] | None) -> l
                 "content": content,
             }
         )
-        file.close()
+        file.file.close()
     return prepared
 
 

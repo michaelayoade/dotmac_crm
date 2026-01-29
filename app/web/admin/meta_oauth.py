@@ -5,6 +5,7 @@ Business accounts to the CRM system.
 """
 
 import os
+from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
@@ -173,12 +174,22 @@ async def meta_oauth_callback(
         )
 
     connector_config_id = state_data.get("connector_config_id")
+    if not isinstance(connector_config_id, str):
+        return RedirectResponse(
+            url="/admin/crm/inbox/settings?meta_error=1&meta_error_detail=Missing%20connector",
+            status_code=303,
+        )
     redirect_after = state_data.get("redirect_after", "/admin/crm/inbox/settings")
 
     # Get Meta settings from database
     settings = meta_oauth.get_meta_settings(db)
     app_id = settings.get("meta_app_id")
     app_secret = settings.get("meta_app_secret")
+    if not isinstance(app_id, str) or not isinstance(app_secret, str):
+        return RedirectResponse(
+            url="/admin/crm/inbox/settings?meta_error=1&meta_error_detail=Missing%20Meta%20credentials",
+            status_code=303,
+        )
     redirect_uri = settings.get("meta_oauth_redirect_uri") or (
         str(request.base_url).rstrip("/") + "/admin/crm/meta/callback"
     )
@@ -194,6 +205,8 @@ async def meta_oauth_callback(
             base_url,
         )
         short_token = short_token_data.get("access_token")
+        if not isinstance(short_token, str):
+            raise ValueError("Meta token exchange failed")
 
         # Exchange for long-lived token
         long_token_data = await meta_oauth.exchange_for_long_lived_token(
@@ -204,6 +217,10 @@ async def meta_oauth_callback(
         )
         long_token = long_token_data.get("access_token")
         token_expires_at = long_token_data.get("expires_at")
+        if not isinstance(long_token, str):
+            raise ValueError("Meta long-lived token exchange failed")
+        if not isinstance(token_expires_at, datetime):
+            token_expires_at = datetime.utcnow()
 
         # Get user's Facebook Pages
         pages = await meta_oauth.get_user_pages(long_token, base_url)
@@ -223,6 +240,8 @@ async def meta_oauth_callback(
 
             # Check for linked Instagram Business Account
             page_token = page.get("access_token", long_token)
+            if not isinstance(page_token, str):
+                page_token = long_token
             ig_account = await meta_oauth.get_instagram_business_account(
                 page["id"],
                 page_token,

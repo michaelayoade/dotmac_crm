@@ -11,7 +11,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.person import Person
-from app.models.subscriber import Subscriber
 from app.models.wireless_survey import SurveyLosPath, SurveyPoint, SurveyPointType, WirelessSiteSurvey
 from app.schemas.wireless_survey import (
     ElevationProfilePoint,
@@ -240,19 +239,11 @@ class WirelessSurveyService:
         projects = projects_service.projects.list_for_site_surveys(db)
         suggested_name = None
         customer_label = None
-        subscriber_uuid = coerce_uuid(subscriber_id) if subscriber_id else None
-        if subscriber_uuid:
-            subscriber = (
-                db.query(Subscriber, Person)
-                .outerjoin(Person, Subscriber.person_id == Person.id)
-                .filter(Subscriber.id == subscriber_uuid)
-                .first()
-            )
-            if subscriber:
-                sub, person = subscriber
-                name = "Unknown Customer"
-                if person:
-                    name = f"{person.first_name or ''} {person.last_name or ''}".strip() or name
+        person_uuid = coerce_uuid(subscriber_id) if subscriber_id else None
+        if person_uuid:
+            person = db.get(Person, person_uuid)
+            if person:
+                name = f"{person.first_name or ''} {person.last_name or ''}".strip() or "Unknown Customer"
                 customer_label = name
                 suggested_name = f"{name} Site Survey"
         return {
@@ -261,7 +252,7 @@ class WirelessSurveyService:
             "initial_lat": initial_lat,
             "initial_lon": initial_lon,
             "suggested_name": suggested_name,
-            "subscriber_id": str(subscriber_uuid) if subscriber_uuid else None,
+            "subscriber_id": str(person_uuid) if person_uuid else None,
             "customer_label": customer_label,
         }
 

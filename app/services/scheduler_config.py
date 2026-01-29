@@ -91,6 +91,23 @@ def _effective_str(
     return str(value)
 
 
+def _coerce_int(value: object | None, default: int) -> int:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    if value is None:
+        return default
+    if isinstance(value, float):
+        return int(value)
+    return default
+
+
 def _sync_scheduled_task(
     db,
     name: str,
@@ -182,7 +199,11 @@ def get_celery_config() -> dict:
         or "redis://localhost:6379/1"
     )
     timezone = timezone or "UTC"
-    config = {"broker_url": broker, "result_backend": backend, "timezone": timezone}
+    config: dict[str, object] = {
+        "broker_url": broker,
+        "result_backend": backend,
+        "timezone": timezone,
+    }
     config["beat_max_loop_interval"] = beat_max_loop_interval
     config["beat_refresh_seconds"] = beat_refresh_seconds
     return config
@@ -351,9 +372,14 @@ def build_beat_schedule() -> dict:
             "NAS_BACKUP_RETENTION_ENABLED",
             True,
         )
-        retention_interval_seconds = resolve_value(
-            session, SettingDomain.provisioning, "nas_backup_retention_interval_seconds"
-        ) or 86400
+        retention_interval_seconds = _coerce_int(
+            resolve_value(
+                session,
+                SettingDomain.provisioning,
+                "nas_backup_retention_interval_seconds",
+            ),
+            86400,
+        )
         retention_interval_seconds = max(retention_interval_seconds, 3600)
         _sync_scheduled_task(
             session,
@@ -370,9 +396,14 @@ def build_beat_schedule() -> dict:
             "OAUTH_TOKEN_REFRESH_ENABLED",
             True,
         )
-        oauth_refresh_interval_seconds = resolve_value(
-            session, SettingDomain.provisioning, "oauth_token_refresh_interval_seconds"
-        ) or 86400
+        oauth_refresh_interval_seconds = _coerce_int(
+            resolve_value(
+                session,
+                SettingDomain.provisioning,
+                "oauth_token_refresh_interval_seconds",
+            ),
+            86400,
+        )
         oauth_refresh_interval_seconds = max(oauth_refresh_interval_seconds, 3600)  # Min: 1 hour
         _sync_scheduled_task(
             session,
@@ -405,9 +436,10 @@ def build_beat_schedule() -> dict:
         )
         if bandwidth_enabled:
             # Process bandwidth stream - runs every 5 seconds
-            bandwidth_stream_interval = resolve_value(
-                session, SettingDomain.bandwidth, "stream_interval_seconds"
-            ) or 5
+            bandwidth_stream_interval = _coerce_int(
+                resolve_value(session, SettingDomain.bandwidth, "stream_interval_seconds"),
+                5,
+            )
             _sync_scheduled_task(
                 session,
                 name="bandwidth_stream_processor",
@@ -417,9 +449,10 @@ def build_beat_schedule() -> dict:
             )
 
             # Aggregate to VictoriaMetrics - runs every minute
-            aggregate_interval = resolve_value(
-                session, SettingDomain.bandwidth, "aggregate_interval_seconds"
-            ) or 60
+            aggregate_interval = _coerce_int(
+                resolve_value(session, SettingDomain.bandwidth, "aggregate_interval_seconds"),
+                60,
+            )
             _sync_scheduled_task(
                 session,
                 name="bandwidth_aggregate_to_metrics",
@@ -429,9 +462,10 @@ def build_beat_schedule() -> dict:
             )
 
             # Cleanup hot data - runs hourly
-            cleanup_interval = resolve_value(
-                session, SettingDomain.bandwidth, "cleanup_interval_seconds"
-            ) or 3600
+            cleanup_interval = _coerce_int(
+                resolve_value(session, SettingDomain.bandwidth, "cleanup_interval_seconds"),
+                3600,
+            )
             _sync_scheduled_task(
                 session,
                 name="bandwidth_cleanup_hot_data",
@@ -441,9 +475,10 @@ def build_beat_schedule() -> dict:
             )
 
             # Trim Redis stream - runs every 10 minutes
-            trim_interval = resolve_value(
-                session, SettingDomain.bandwidth, "trim_interval_seconds"
-            ) or 600
+            trim_interval = _coerce_int(
+                resolve_value(session, SettingDomain.bandwidth, "trim_interval_seconds"),
+                600,
+            )
             _sync_scheduled_task(
                 session,
                 name="bandwidth_trim_stream",
@@ -453,12 +488,14 @@ def build_beat_schedule() -> dict:
             )
 
         # SNMP interface polling and discovery
-        snmp_walk_interval = resolve_value(
-            session, SettingDomain.snmp, "interface_walk_interval_seconds"
-        ) or 300
-        snmp_discovery_interval = resolve_value(
-            session, SettingDomain.snmp, "interface_discovery_interval_seconds"
-        ) or 3600
+        snmp_walk_interval = _coerce_int(
+            resolve_value(session, SettingDomain.snmp, "interface_walk_interval_seconds"),
+            300,
+        )
+        snmp_discovery_interval = _coerce_int(
+            resolve_value(session, SettingDomain.snmp, "interface_discovery_interval_seconds"),
+            3600,
+        )
         _sync_scheduled_task(
             session,
             name="snmp_interface_walk",
@@ -482,12 +519,18 @@ def build_beat_schedule() -> dict:
             "SLA_BREACH_DETECTION_ENABLED",
             True,
         )
-        sla_breach_interval_seconds = resolve_value(
-            session, SettingDomain.workflow, "sla_breach_detection_interval_seconds"
-        ) or 1800
-        sla_breach_min_interval = resolve_value(
-            session, SettingDomain.workflow, "sla_breach_detection_min_interval"
-        ) or 60
+        sla_breach_interval_seconds = _coerce_int(
+            resolve_value(
+                session, SettingDomain.workflow, "sla_breach_detection_interval_seconds"
+            ),
+            1800,
+        )
+        sla_breach_min_interval = _coerce_int(
+            resolve_value(
+                session, SettingDomain.workflow, "sla_breach_detection_min_interval"
+            ),
+            60,
+        )
         sla_breach_interval_seconds = max(sla_breach_interval_seconds, sla_breach_min_interval)
         _sync_scheduled_task(
             session,
@@ -505,9 +548,12 @@ def build_beat_schedule() -> dict:
             "WIREGUARD_LOG_CLEANUP_ENABLED",
             True,
         )
-        wg_log_cleanup_interval = resolve_value(
-            session, SettingDomain.network, "wireguard_log_cleanup_interval_seconds"
-        ) or 86400
+        wg_log_cleanup_interval = _coerce_int(
+            resolve_value(
+                session, SettingDomain.network, "wireguard_log_cleanup_interval_seconds"
+            ),
+            86400,
+        )
         wg_log_cleanup_interval = max(wg_log_cleanup_interval, 3600)  # Min: 1 hour
         _sync_scheduled_task(
             session,
@@ -525,9 +571,12 @@ def build_beat_schedule() -> dict:
             "WIREGUARD_TOKEN_CLEANUP_ENABLED",
             True,
         )
-        wg_token_cleanup_interval = resolve_value(
-            session, SettingDomain.network, "wireguard_token_cleanup_interval_seconds"
-        ) or 3600
+        wg_token_cleanup_interval = _coerce_int(
+            resolve_value(
+                session, SettingDomain.network, "wireguard_token_cleanup_interval_seconds"
+            ),
+            3600,
+        )
         wg_token_cleanup_interval = max(wg_token_cleanup_interval, 300)  # Min: 5 minutes
         _sync_scheduled_task(
             session,
@@ -545,9 +594,12 @@ def build_beat_schedule() -> dict:
             "WIREGUARD_PEER_STATS_SYNC_ENABLED",
             True,
         )
-        wg_stats_sync_interval = resolve_value(
-            session, SettingDomain.network, "wireguard_peer_stats_sync_interval_seconds"
-        ) or 300
+        wg_stats_sync_interval = _coerce_int(
+            resolve_value(
+                session, SettingDomain.network, "wireguard_peer_stats_sync_interval_seconds"
+            ),
+            300,
+        )
         wg_stats_sync_interval = max(wg_stats_sync_interval, 60)  # Min: 1 minute
         _sync_scheduled_task(
             session,
@@ -565,9 +617,12 @@ def build_beat_schedule() -> dict:
             "EVENT_RETRY_ENABLED",
             True,
         )
-        event_retry_interval = resolve_value(
-            session, SettingDomain.scheduler, "event_retry_interval_seconds"
-        ) or 300  # Default: 5 minutes
+        event_retry_interval = _coerce_int(
+            resolve_value(
+                session, SettingDomain.scheduler, "event_retry_interval_seconds"
+            ),
+            300,
+        )  # Default: 5 minutes
         event_retry_interval = max(event_retry_interval, 60)  # Min: 1 minute
         _sync_scheduled_task(
             session,
@@ -585,9 +640,12 @@ def build_beat_schedule() -> dict:
             "EVENT_STALE_CLEANUP_ENABLED",
             True,
         )
-        event_stale_cleanup_interval = resolve_value(
-            session, SettingDomain.scheduler, "event_stale_cleanup_interval_seconds"
-        ) or 600  # Default: 10 minutes
+        event_stale_cleanup_interval = _coerce_int(
+            resolve_value(
+                session, SettingDomain.scheduler, "event_stale_cleanup_interval_seconds"
+            ),
+            600,
+        )  # Default: 10 minutes
         event_stale_cleanup_interval = max(event_stale_cleanup_interval, 60)  # Min: 1 minute
         _sync_scheduled_task(
             session,
@@ -605,9 +663,12 @@ def build_beat_schedule() -> dict:
             "EVENT_OLD_CLEANUP_ENABLED",
             True,
         )
-        event_old_cleanup_interval = resolve_value(
-            session, SettingDomain.scheduler, "event_old_cleanup_interval_seconds"
-        ) or 86400  # Default: daily
+        event_old_cleanup_interval = _coerce_int(
+            resolve_value(
+                session, SettingDomain.scheduler, "event_old_cleanup_interval_seconds"
+            ),
+            86400,
+        )  # Default: daily
         event_old_cleanup_interval = max(event_old_cleanup_interval, 3600)  # Min: 1 hour
         _sync_scheduled_task(
             session,
@@ -616,33 +677,6 @@ def build_beat_schedule() -> dict:
             enabled=event_old_cleanup_enabled,
             interval_seconds=event_old_cleanup_interval,
         )
-
-        # RADIUS sync - syncs NAS devices and users to FreeRADIUS
-        radius_sync_enabled = _effective_bool(
-            session,
-            SettingDomain.radius,
-            "radius_sync_enabled",
-            "RADIUS_SYNC_ENABLED",
-            True,
-        )
-        radius_sync_interval = resolve_value(
-            session, SettingDomain.radius, "radius_sync_interval_seconds"
-        ) or 300  # Default: 5 minutes
-        radius_sync_interval = max(radius_sync_interval, 60)  # Min: 1 minute
-        if radius_sync_enabled:
-            # Get all active sync jobs and schedule them
-            from app.models.radius import RadiusSyncJob
-            sync_jobs = (
-                session.query(RadiusSyncJob)
-                .filter(RadiusSyncJob.is_active.is_(True))
-                .all()
-            )
-            for job in sync_jobs:
-                schedule[f"radius_sync_{job.id}"] = {
-                    "task": "app.tasks.radius.run_radius_sync_job",
-                    "schedule": timedelta(seconds=radius_sync_interval),
-                    "args": [str(job.id)],
-                }
 
         tasks = (
             session.query(ScheduledTask)

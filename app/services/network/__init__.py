@@ -1,41 +1,13 @@
 """Network services package.
 
 This package provides services for managing network infrastructure including:
-- CPE devices and ports
-- VLANs
-- IP address management
 - OLT/PON equipment
 - ONT units
 - Fiber optic infrastructure (strands, segments, splices, etc.)
 - Splitters and FDH cabinets
-
-The package supports both modular imports (from submodules) and legacy imports
-from the main network module for backwards compatibility.
 """
 
-# Import from submodules
-from app.services.network.cpe import (
-    CPEDevices,
-    Ports,
-    Vlans,
-    PortVlans,
-    cpe_devices,
-    ports,
-    vlans,
-    port_vlans,
-)
-from app.services.network.ip import (
-    IpPools,
-    IpBlocks,
-    IPv4Addresses,
-    IPv6Addresses,
-    IPAssignments,
-    ip_pools,
-    ip_blocks,
-    ipv4_addresses,
-    ipv6_addresses,
-    ip_assignments,
-)
+# Import from OLT services
 from app.services.network.olt import (
     OLTDevices,
     PonPorts,
@@ -63,11 +35,9 @@ from app.services.network._legacy import (
     FdhCabinets,
     Splitters,
     SplitterPorts,
-    SplitterPortAssignments,
     fdh_cabinets,
     splitters,
     splitter_ports,
-    splitter_port_assignments,
     # Fiber services
     FiberStrands,
     FiberSpliceClosures,
@@ -87,26 +57,6 @@ from app.services.network._legacy import (
 )
 
 __all__ = [
-    # CPE services
-    "CPEDevices",
-    "cpe_devices",
-    "Ports",
-    "ports",
-    "Vlans",
-    "vlans",
-    "PortVlans",
-    "port_vlans",
-    # IP services
-    "IpPools",
-    "ip_pools",
-    "IpBlocks",
-    "ip_blocks",
-    "IPv4Addresses",
-    "ipv4_addresses",
-    "IPv6Addresses",
-    "ipv6_addresses",
-    "IPAssignments",
-    "ip_assignments",
     # OLT services
     "OLTDevices",
     "olt_devices",
@@ -133,8 +83,6 @@ __all__ = [
     "splitters",
     "SplitterPorts",
     "splitter_ports",
-    "SplitterPortAssignments",
-    "splitter_port_assignments",
     # Fiber services
     "FiberStrands",
     "fiber_strands",

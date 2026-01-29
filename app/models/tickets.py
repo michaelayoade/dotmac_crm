@@ -40,11 +40,8 @@ class Ticket(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id")
-    )
-    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id")
+    subscriber_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subscribers.id")
     )
     created_by_person_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id")
@@ -77,8 +74,7 @@ class Ticket(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
-    account = relationship("SubscriberAccount")
-    subscription = relationship("Subscription")
+    subscriber = relationship("Subscriber", back_populates="tickets")
     created_by = relationship("Person", foreign_keys=[created_by_person_id])
     assigned_to = relationship("Person", foreign_keys=[assigned_to_person_id])
     comments = relationship("TicketComment", back_populates="ticket")

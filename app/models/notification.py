@@ -7,7 +7,19 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-from app.models.network_monitoring import AlertSeverity, AlertStatus
+
+
+class AlertSeverity(enum.Enum):
+    info = "info"
+    warning = "warning"
+    critical = "critical"
+    emergency = "emergency"
+
+
+class AlertStatus(enum.Enum):
+    open = "open"
+    acknowledged = "acknowledged"
+    resolved = "resolved"
 
 
 class NotificationChannel(enum.Enum):
@@ -131,17 +143,11 @@ class AlertNotificationPolicy(Base):
         Enum(NotificationChannel), nullable=False
     )
     recipient: Mapped[str] = mapped_column(String(255), nullable=False)
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    device_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    interface_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("notification_templates.id")
-    )
-    rule_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("alert_rules.id")
-    )
-    device_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("network_devices.id")
-    )
-    interface_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("device_interfaces.id")
     )
     severity_min: Mapped[AlertSeverity] = mapped_column(
         Enum(AlertSeverity), default=AlertSeverity.warning
@@ -170,9 +176,7 @@ class AlertNotificationLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    alert_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("alerts.id"), nullable=False
-    )
+    alert_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     policy_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("alert_notification_policies.id"), nullable=False
     )

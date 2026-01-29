@@ -49,7 +49,7 @@ class FormValidationRequest(BaseModel):
 class FormValidationResponse(BaseModel):
     """Response for form validation."""
     valid: bool
-    errors: dict[str, str]
+    errors: dict[str, str | None]
 
 
 # Validation rules and patterns

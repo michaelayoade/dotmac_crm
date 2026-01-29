@@ -1,282 +1,183 @@
-from __future__ import annotations
-
+"""Subscriber and reseller schemas."""
 from datetime import datetime
-from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field
 
-from app.models.subscriber import AccountRoleType, AccountStatus, AddressType
-from app.models.subscription_engine import SettingValueType
-
-
-class OrganizationBase(BaseModel):
-    name: str = Field(min_length=1, max_length=160)
-    legal_name: str | None = Field(default=None, max_length=200)
-    tax_id: str | None = Field(default=None, max_length=80)
-    domain: str | None = Field(default=None, max_length=120)
-    website: str | None = Field(default=None, max_length=255)
-    address_line1: str | None = Field(default=None, max_length=120)
-    address_line2: str | None = Field(default=None, max_length=120)
-    city: str | None = Field(default=None, max_length=80)
-    region: str | None = Field(default=None, max_length=80)
-    postal_code: str | None = Field(default=None, max_length=20)
-    country_code: str | None = Field(default=None, max_length=2)
-    notes: str | None = None
+from app.models.subscriber import SubscriberStatus
 
 
-class OrganizationCreate(OrganizationBase):
-    pass
-
-
-class OrganizationUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=160)
-    legal_name: str | None = Field(default=None, max_length=200)
-    tax_id: str | None = Field(default=None, max_length=80)
-    domain: str | None = Field(default=None, max_length=120)
-    website: str | None = Field(default=None, max_length=255)
-    address_line1: str | None = Field(default=None, max_length=120)
-    address_line2: str | None = Field(default=None, max_length=120)
-    city: str | None = Field(default=None, max_length=80)
-    region: str | None = Field(default=None, max_length=80)
-    postal_code: str | None = Field(default=None, max_length=20)
-    country_code: str | None = Field(default=None, max_length=2)
-    notes: str | None = None
-
-
-class OrganizationRead(OrganizationBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    created_at: datetime
-    updated_at: datetime
-
-
-class ResellerBase(BaseModel):
-    name: str = Field(min_length=1, max_length=160)
-    code: str | None = Field(default=None, max_length=60)
-    contact_email: str | None = Field(default=None, max_length=255)
-    contact_phone: str | None = Field(default=None, max_length=40)
-    is_active: bool = True
-    notes: str | None = None
-
-
-class ResellerCreate(ResellerBase):
-    pass
-
-
-class ResellerUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=160)
-    code: str | None = Field(default=None, max_length=60)
-    contact_email: str | None = Field(default=None, max_length=255)
-    contact_phone: str | None = Field(default=None, max_length=40)
-    is_active: bool | None = None
-    notes: str | None = None
-
-
-class ResellerRead(ResellerBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    created_at: datetime
-    updated_at: datetime
-
+# ============================================================================
+# Subscriber Schemas (for external sync)
+# ============================================================================
 
 class SubscriberBase(BaseModel):
-    """Subscriber in the unified party model - always linked to a Person."""
-    person_id: UUID  # Required - links to Person
-    subscriber_number: str | None = Field(default=None, max_length=80)
-    is_active: bool = True
-    notes: str | None = None
-    account_start_date: datetime | None = None
-    # Legacy field kept for migration compatibility
+    """Base subscriber schema."""
+    person_id: UUID | None = None
     organization_id: UUID | None = None
+    external_id: str | None = None
+    external_system: str | None = None
+    subscriber_number: str | None = None
+    account_number: str | None = None
+    status: SubscriberStatus = SubscriberStatus.active
+    service_name: str | None = None
+    service_plan: str | None = None
+    service_speed: str | None = None
+    service_address_line1: str | None = None
+    service_address_line2: str | None = None
+    service_city: str | None = None
+    service_region: str | None = None
+    service_postal_code: str | None = None
+    service_country_code: str | None = None
+    balance: str | None = None
+    currency: str | None = None
+    billing_cycle: str | None = None
+    next_bill_date: datetime | None = None
+    activated_at: datetime | None = None
+    notes: str | None = None
 
 
 class SubscriberCreate(SubscriberBase):
+    """Schema for creating a subscriber."""
     pass
 
 
 class SubscriberUpdate(BaseModel):
+    """Schema for updating a subscriber."""
     person_id: UUID | None = None
-    subscriber_number: str | None = Field(default=None, max_length=80)
-    is_active: bool | None = None
-    notes: str | None = None
-    account_start_date: datetime | None = None
-    # Legacy field kept for migration compatibility
     organization_id: UUID | None = None
-
-
-class SubscriberRead(SubscriberBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    created_at: datetime
-    updated_at: datetime
-
-    accounts: list[SubscriberAccountRead] = Field(default_factory=list)
-    addresses: list[AddressRead] = Field(default_factory=list)
-    custom_fields: list["SubscriberCustomFieldRead"] = Field(default_factory=list)
-
-
-class SubscriberAccountBase(BaseModel):
-    subscriber_id: UUID
-    reseller_id: UUID | None = None
-    tax_rate_id: UUID | None = None
-    account_number: str | None = Field(default=None, max_length=80)
-    status: AccountStatus = AccountStatus.active
-    billing_enabled: bool = True
-    billing_person: str | None = Field(default=None, max_length=160)
-    billing_street_1: str | None = Field(default=None, max_length=160)
-    billing_zip_code: str | None = Field(default=None, max_length=20)
-    billing_city: str | None = Field(default=None, max_length=80)
-    deposit: Decimal | None = None
-    payment_method: str | None = Field(default=None, max_length=80)
-    billing_date: int | None = None
-    billing_due: int | None = None
-    grace_period: int | None = None
-    min_balance: Decimal | None = None
-    month_price: Decimal | None = None
+    status: SubscriberStatus | None = None
     notes: str | None = None
 
 
-class SubscriberAccountCreate(SubscriberAccountBase):
-    pass
+class SubscriberSyncData(BaseModel):
+    """Schema for syncing subscriber data from external system."""
+    external_id: str = Field(..., description="ID in external system")
+    subscriber_number: str | None = None
+    account_number: str | None = None
+    status: SubscriberStatus = SubscriberStatus.active
+    service_name: str | None = None
+    service_plan: str | None = None
+    service_speed: str | None = None
+    service_address_line1: str | None = None
+    service_address_line2: str | None = None
+    service_city: str | None = None
+    service_region: str | None = None
+    service_postal_code: str | None = None
+    service_country_code: str | None = None
+    balance: str | None = None
+    currency: str | None = None
+    billing_cycle: str | None = None
+    next_bill_date: datetime | None = None
+    activated_at: datetime | None = None
+    suspended_at: datetime | None = None
+    terminated_at: datetime | None = None
+    person_email: str | None = Field(None, description="Email to match/link person")
+    person_phone: str | None = Field(None, description="Phone to match/link person")
+    sync_metadata: dict | None = None
 
 
-class SubscriberAccountUpdate(BaseModel):
-    subscriber_id: UUID | None = None
-    reseller_id: UUID | None = None
-    tax_rate_id: UUID | None = None
-    account_number: str | None = Field(default=None, max_length=80)
-    status: AccountStatus | None = None
-    billing_enabled: bool | None = None
-    billing_person: str | None = Field(default=None, max_length=160)
-    billing_street_1: str | None = Field(default=None, max_length=160)
-    billing_zip_code: str | None = Field(default=None, max_length=20)
-    billing_city: str | None = Field(default=None, max_length=80)
-    deposit: Decimal | None = None
-    payment_method: str | None = Field(default=None, max_length=80)
-    billing_date: int | None = None
-    billing_due: int | None = None
-    grace_period: int | None = None
-    min_balance: Decimal | None = None
-    month_price: Decimal | None = None
-    notes: str | None = None
+class SubscriberBulkSync(BaseModel):
+    """Schema for bulk sync from external system."""
+    external_system: str = Field(..., description="External system identifier")
+    subscribers: list[SubscriberSyncData]
 
 
-class SubscriberAccountRead(SubscriberAccountBase):
-    model_config = ConfigDict(from_attributes=True)
-
+class PersonSummary(BaseModel):
+    """Summary of linked person."""
     id: UUID
-    created_at: datetime
-    updated_at: datetime
+    first_name: str
+    last_name: str
+    email: str | None = None
+    phone: str | None = None
 
-    account_roles: list["AccountRoleRead"] = Field(default_factory=list)
-
-
-class AddressBase(BaseModel):
-    subscriber_id: UUID
-    account_id: UUID | None = None
-    tax_rate_id: UUID | None = None
-    address_type: AddressType = AddressType.service
-    label: str | None = Field(default=None, max_length=120)
-    address_line1: str = Field(min_length=1, max_length=120)
-    address_line2: str | None = Field(default=None, max_length=120)
-    city: str | None = Field(default=None, max_length=80)
-    region: str | None = Field(default=None, max_length=80)
-    postal_code: str | None = Field(default=None, max_length=20)
-    country_code: str | None = Field(default=None, max_length=2)
-    latitude: float | None = None
-    longitude: float | None = None
-    is_primary: bool = False
+    class Config:
+        from_attributes = True
 
 
-class AddressCreate(AddressBase):
-    pass
-
-
-class AddressUpdate(BaseModel):
-    subscriber_id: UUID | None = None
-    account_id: UUID | None = None
-    tax_rate_id: UUID | None = None
-    address_type: AddressType | None = None
-    label: str | None = Field(default=None, max_length=120)
-    address_line1: str | None = Field(default=None, min_length=1, max_length=120)
-    address_line2: str | None = Field(default=None, max_length=120)
-    city: str | None = Field(default=None, max_length=80)
-    region: str | None = Field(default=None, max_length=80)
-    postal_code: str | None = Field(default=None, max_length=20)
-    country_code: str | None = Field(default=None, max_length=2)
-    latitude: float | None = None
-    longitude: float | None = None
-    is_primary: bool | None = None
-
-
-class AddressRead(AddressBase):
-    model_config = ConfigDict(from_attributes=True)
-
+class OrganizationSummary(BaseModel):
+    """Summary of linked organization."""
     id: UUID
-    created_at: datetime
-    updated_at: datetime
+    name: str
+
+    class Config:
+        from_attributes = True
 
 
-class SubscriberCustomFieldBase(BaseModel):
-    subscriber_id: UUID
-    key: str = Field(min_length=1, max_length=120)
-    value_type: SettingValueType = SettingValueType.string
-    value_text: str | None = None
-    value_json: dict | None = None
-    is_active: bool = True
-
-
-class SubscriberCustomFieldCreate(SubscriberCustomFieldBase):
-    pass
-
-
-class SubscriberCustomFieldUpdate(BaseModel):
-    subscriber_id: UUID | None = None
-    key: str | None = Field(default=None, min_length=1, max_length=120)
-    value_type: SettingValueType | None = None
-    value_text: str | None = None
-    value_json: dict | None = None
-    is_active: bool | None = None
-
-
-class SubscriberCustomFieldRead(SubscriberCustomFieldBase):
-    model_config = ConfigDict(from_attributes=True)
-
+class SubscriberResponse(BaseModel):
+    """Schema for subscriber response."""
     id: UUID
-    created_at: datetime
-    updated_at: datetime
-
-
-class AccountRoleBase(BaseModel):
-    """Links a Person to a SubscriberAccount with a specific role."""
-    account_id: UUID
-    person_id: UUID
-    role: AccountRoleType = AccountRoleType.primary
-    is_primary: bool = False
-    title: str | None = Field(default=None, max_length=120)
-    notes: str | None = None
-
-
-class AccountRoleCreate(AccountRoleBase):
-    pass
-
-
-class AccountRoleUpdate(BaseModel):
-    account_id: UUID | None = None
     person_id: UUID | None = None
-    role: AccountRoleType | None = None
-    is_primary: bool | None = None
-    title: str | None = Field(default=None, max_length=120)
+    organization_id: UUID | None = None
+    external_id: str | None = None
+    external_system: str | None = None
+    subscriber_number: str | None = None
+    account_number: str | None = None
+    status: SubscriberStatus
+    service_name: str | None = None
+    service_plan: str | None = None
+    service_speed: str | None = None
+    service_address_line1: str | None = None
+    service_address_line2: str | None = None
+    service_city: str | None = None
+    service_region: str | None = None
+    service_postal_code: str | None = None
+    service_country_code: str | None = None
+    balance: str | None = None
+    currency: str | None = None
+    billing_cycle: str | None = None
+    next_bill_date: datetime | None = None
+    activated_at: datetime | None = None
+    suspended_at: datetime | None = None
+    terminated_at: datetime | None = None
+    last_synced_at: datetime | None = None
+    sync_error: str | None = None
+    notes: str | None = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    person: PersonSummary | None = None
+    organization: OrganizationSummary | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class SubscriberListResponse(BaseModel):
+    """Schema for paginated subscriber list."""
+    items: list[SubscriberResponse]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+class SubscriberStats(BaseModel):
+    """Schema for subscriber statistics."""
+    total: int
+    active: int
+    suspended: int
+    terminated: int
+    pending: int
+
+
+# ============================================================================
+# Reseller Schemas
+# ============================================================================
+
+class ResellerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    code: str | None = Field(default=None, max_length=60)
+    contact_email: str | None = Field(default=None, max_length=255)
+    contact_phone: str | None = Field(default=None, max_length=40)
+    is_active: bool = True
     notes: str | None = None
 
 
-class AccountRoleRead(AccountRoleBase):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    created_at: datetime
-    updated_at: datetime
+class ResellerUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=160)
+    code: str | None = Field(default=None, max_length=60)
+    contact_email: str | None = Field(default=None, max_length=255)
+    contact_phone: str | None = Field(default=None, max_length=40)
+    is_active: bool | None = None
+    notes: str | None = None

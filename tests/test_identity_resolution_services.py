@@ -3,7 +3,6 @@
 from datetime import datetime, timezone
 
 from app.models.person import Person, PersonChannel, ChannelType as PersonChannelType
-from app.models.subscriber import Subscriber, SubscriberAccount
 from app.models.crm.enums import ChannelType
 from app.services.crm import contact as contact_service
 from app.services.crm import inbox as inbox_service
@@ -77,40 +76,6 @@ def test_phone_channels_link_across_whatsapp_formats(db_session):
     assert channel1.channel_type == PersonChannelType.whatsapp
     assert channel2.channel_type == PersonChannelType.whatsapp
     assert channel2.address == "15558880000"
-
-
-def test_email_inbound_updates_placeholder_email(db_session):
-    person = Person(
-        first_name="Test",
-        last_name="Placeholder",
-        email="whatsapp-15551234567@example.invalid",
-    )
-    db_session.add(person)
-    db_session.commit()
-    db_session.refresh(person)
-
-    subscriber = Subscriber(person_id=person.id)
-    db_session.add(subscriber)
-    db_session.commit()
-    db_session.refresh(subscriber)
-
-    account = SubscriberAccount(subscriber_id=subscriber.id)
-    db_session.add(account)
-    db_session.commit()
-    db_session.refresh(account)
-
-    email_address = "Real.Email@Example.com"
-    resolved_person, channel = inbox_service._resolve_person_for_inbound(
-        db_session,
-        ChannelType.email,
-        email_address,
-        display_name=None,
-        account=account,
-    )
-
-    assert resolved_person.id == person.id
-    assert resolved_person.email == "real.email@example.com"
-    assert channel.address == "real.email@example.com"
 
 
 def test_whatsapp_inbound_links_to_existing_phone(db_session):

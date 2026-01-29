@@ -25,15 +25,15 @@ class ConnectionManager:
     Conversation subscriptions: conversation_id -> set[user_id]
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connections: dict[str, list[WebSocket]] = {}
         self._subscriptions: dict[str, set[str]] = {}
-        self._redis_client = None
-        self._pubsub = None
+        self._redis_client: Any | None = None
+        self._pubsub: Any | None = None
         self._listener_task: asyncio.Task | None = None
         self._running = False
 
-    async def connect(self):
+    async def connect(self) -> None:
         """Initialize Redis connection and start listener."""
         try:
             import redis.asyncio as aioredis
@@ -47,7 +47,7 @@ class ConnectionManager:
         except Exception as exc:
             logger.warning("websocket_manager_redis_failed error=%s", exc)
 
-    async def disconnect(self):
+    async def disconnect(self) -> None:
         """Cleanup Redis connection and stop listener."""
         self._running = False
         if self._listener_task:
@@ -63,11 +63,14 @@ class ConnectionManager:
             await self._redis_client.close()
         logger.info("websocket_manager_disconnected")
 
-    async def _redis_listener(self):
+    async def _redis_listener(self) -> None:
         """Listen for messages from Redis pub/sub and dispatch to local connections."""
         try:
+            if not self._pubsub:
+                return
+            pubsub = self._pubsub
             while self._running:
-                message = await self._pubsub.get_message(
+                message = await pubsub.get_message(
                     ignore_subscribe_messages=True, timeout=1.0
                 )
                 if message and message["type"] == "pmessage":
@@ -79,7 +82,7 @@ class ConnectionManager:
         except Exception as exc:
             logger.error("websocket_redis_listener_error error=%s", exc)
 
-    async def _handle_redis_message(self, channel: str, data: str):
+    async def _handle_redis_message(self, channel: str, data: str) -> None:
         """Process incoming Redis message and dispatch to local connections."""
         try:
             payload = json.loads(data)
@@ -91,7 +94,7 @@ class ConnectionManager:
         except Exception as exc:
             logger.warning("websocket_redis_message_error error=%s", exc)
 
-    async def _dispatch_to_subscribers(self, conversation_id: str, event_data: dict):
+    async def _dispatch_to_subscribers(self, conversation_id: str, event_data: dict) -> None:
         """Send event to all users subscribed to a conversation."""
         user_ids = self._subscriptions.get(conversation_id, set())
 
@@ -104,7 +107,7 @@ class ConnectionManager:
                 except Exception:
                     await self._remove_connection(user_id, ws)
 
-    async def register_connection(self, user_id: str, websocket: WebSocket):
+    async def register_connection(self, user_id: str, websocket: WebSocket) -> None:
         """Register a new WebSocket connection for a user."""
         if user_id not in self._connections:
             self._connections[user_id] = []
@@ -118,11 +121,11 @@ class ConnectionManager:
         )
         await websocket.send_json(ack_event.model_dump(mode="json"))
 
-    async def unregister_connection(self, user_id: str, websocket: WebSocket):
+    async def unregister_connection(self, user_id: str, websocket: WebSocket) -> None:
         """Remove a WebSocket connection."""
         await self._remove_connection(user_id, websocket)
 
-    async def _remove_connection(self, user_id: str, websocket: WebSocket):
+    async def _remove_connection(self, user_id: str, websocket: WebSocket) -> None:
         """Internal method to remove a connection and clean up subscriptions."""
         if user_id in self._connections:
             if websocket in self._connections[user_id]:
@@ -139,7 +142,7 @@ class ConnectionManager:
 
         logger.debug("websocket_unregistered user_id=%s", user_id)
 
-    async def subscribe_conversation(self, user_id: str, conversation_id: str):
+    async def subscribe_conversation(self, user_id: str, conversation_id: str) -> None:
         """Subscribe a user to conversation updates."""
         if conversation_id not in self._subscriptions:
             self._subscriptions[conversation_id] = set()
@@ -150,7 +153,7 @@ class ConnectionManager:
             conversation_id,
         )
 
-    async def unsubscribe_conversation(self, user_id: str, conversation_id: str):
+    async def unsubscribe_conversation(self, user_id: str, conversation_id: str) -> None:
         """Unsubscribe a user from conversation updates."""
         if conversation_id in self._subscriptions:
             self._subscriptions[conversation_id].discard(user_id)
@@ -164,7 +167,7 @@ class ConnectionManager:
 
     async def broadcast_to_conversation(
         self, conversation_id: str, event: WebSocketEvent
-    ):
+    ) -> None:
         """Broadcast an event to all subscribers of a conversation via Redis."""
         event_data = event.model_dump(mode="json")
 
@@ -183,7 +186,7 @@ class ConnectionManager:
         # Also dispatch locally for same-instance delivery
         await self._dispatch_to_subscribers(conversation_id, event_data)
 
-    async def broadcast_to_user(self, user_id: str, event: WebSocketEvent):
+    async def broadcast_to_user(self, user_id: str, event: WebSocketEvent) -> None:
         """Send event directly to a specific user's connections."""
         event_data = event.model_dump(mode="json")
         websockets = self._connections.get(user_id, [])
@@ -195,7 +198,7 @@ class ConnectionManager:
             except Exception:
                 await self._remove_connection(user_id, ws)
 
-    async def send_heartbeat(self, user_id: str, websocket: WebSocket):
+    async def send_heartbeat(self, user_id: str, websocket: WebSocket) -> None:
         """Send heartbeat response to a specific connection."""
         heartbeat = WebSocketEvent(
             event=EventType.HEARTBEAT,

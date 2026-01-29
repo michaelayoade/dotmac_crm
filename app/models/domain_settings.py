@@ -16,7 +16,14 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
-from app.models.subscription_engine import SettingValueType
+
+
+class SettingValueType(enum.Enum):
+    string = "string"
+    integer = "integer"
+    boolean = "boolean"
+    decimal = "decimal"
+    json = "json"
 
 
 class SettingDomain(enum.Enum):
@@ -67,7 +74,9 @@ class DomainSetting(Base):
         Enum(SettingValueType), default=SettingValueType.string
     )
     value_text: Mapped[str | None] = mapped_column(Text)
-    value_json: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
+    value_json: Mapped[dict | list | bool | int | str | None] = mapped_column(
+        JSON(none_as_null=True)
+    )
     is_secret: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

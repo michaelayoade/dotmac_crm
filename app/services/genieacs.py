@@ -545,7 +545,7 @@ class GenieACSClient:
             Parameter value or None if not found
         """
         parts = parameter_path.split(".")
-        current = device
+        current: Any = device
 
         for part in parts:
             if not isinstance(current, dict):

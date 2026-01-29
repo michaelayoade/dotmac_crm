@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
+from typing import List
 from geoalchemy2.functions import ST_Contains, ST_Distance, ST_DWithin, ST_MakePoint, ST_SetSRID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -115,7 +116,7 @@ class GeoLocations(ListResponseMixin):
         radius_meters: float,
         location_type: str | None = None,
         limit: int = 100,
-    ) -> list[GeoLocation]:
+    ) -> List[GeoLocation]:
         """Find locations within a radius using PostGIS spatial query.
 
         Args:
@@ -161,7 +162,7 @@ class GeoLocations(ListResponseMixin):
         area_id: str,
         location_type: str | None = None,
         limit: int = 100,
-    ) -> list[GeoLocation]:
+    ) -> List[GeoLocation]:
         """Find locations within a GeoArea polygon.
 
         Args:
@@ -304,7 +305,7 @@ class GeoAreas(ListResponseMixin):
         latitude: float,
         longitude: float,
         area_type: str | None = None,
-    ) -> list[GeoArea]:
+    ) -> List[GeoArea]:
         """Find all areas that contain a given point.
 
         Args:
@@ -421,7 +422,7 @@ class GeoFeatures(ListResponseMixin):
         max_longitude: float | None,
         limit: int,
         offset: int,
-    ) -> list[GeoFeatureRead]:
+    ) -> List[GeoFeatureRead]:
         return _build_layer_features(
             db,
             layer_key,
@@ -489,9 +490,9 @@ def _build_layer_features(
     max_longitude: float | None,
     limit: int,
     offset: int,
-) -> list[GeoFeatureRead]:
+) -> List[GeoFeatureRead]:
     layer = GeoLayers.get_by_key(db, layer_key)
-    features: list[GeoFeatureRead] = []
+    features: List[GeoFeatureRead] = []
     if layer.source_type.value == "locations":
         locations = GeoLocations.list(
             db,

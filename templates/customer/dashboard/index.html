@@ -49,70 +49,12 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
                     </svg>
                 </a>
-                <a href="/portal/billing"
-                   class="inline-flex items-center justify-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur-sm transition-all hover:bg-white/20">
-                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
-                    </svg>
-                    View Billing
-                </a>
             </div>
         </div>
     </div>
 
     <!-- Account Summary Cards - Staggered with distinct hierarchy -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 stagger-children">
-        <!-- Current Balance - Primary emphasis -->
-        <div class="group relative overflow-hidden rounded-2xl border border-stone-200 bg-white p-6 shadow-premium card-hover dark:border-stone-700 dark:bg-stone-800">
-            <div class="absolute top-0 right-0 w-32 h-32 -mr-8 -mt-8 rounded-full {% if account.balance < 0 %}bg-red-500/10{% else %}bg-emerald-500/10{% endif %} blur-2xl transition-all group-hover:scale-150"></div>
-            <div class="relative">
-                <div class="flex items-center justify-between">
-                    <p class="text-sm font-medium text-stone-500 dark:text-stone-400">Current Balance</p>
-                    <div class="flex h-10 w-10 items-center justify-center rounded-xl {% if account.balance < 0 %}bg-red-100 dark:bg-red-900/30{% else %}bg-emerald-100 dark:bg-emerald-900/30{% endif %}">
-                        <svg class="h-5 w-5 {% if account.balance < 0 %}text-red-600 dark:text-red-400{% else %}text-emerald-600 dark:text-emerald-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
-                    </div>
-                </div>
-                <p class="mt-4 text-3xl font-display font-bold {% if account.balance < 0 %}text-red-600 dark:text-red-400{% else %}text-stone-900 dark:text-white{% endif %}">
-                    {{ "%.2f" | format(account.balance | abs) | replace('.', ',') }}
-                    <span class="text-lg font-medium text-stone-400">NGN</span>
-                </p>
-                {% if account.balance < 0 %}
-                <a href="/portal/billing" class="mt-3 inline-flex items-center gap-1 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 transition-colors">
-                    Pay now
-                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-                    </svg>
-                </a>
-                {% else %}
-                <p class="mt-3 text-sm text-emerald-600 dark:text-emerald-400 font-medium">Account in good standing</p>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Next Bill -->
-        <div class="group relative overflow-hidden rounded-2xl border border-stone-200 bg-white p-6 shadow-premium card-hover dark:border-stone-700 dark:bg-stone-800">
-            <div class="absolute top-0 right-0 w-32 h-32 -mr-8 -mt-8 rounded-full bg-blue-500/10 blur-2xl transition-all group-hover:scale-150"></div>
-            <div class="relative">
-                <div class="flex items-center justify-between">
-                    <p class="text-sm font-medium text-stone-500 dark:text-stone-400">Next Bill</p>
-                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/30">
-                        <svg class="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                        </svg>
-                    </div>
-                </div>
-                <p class="mt-4 text-3xl font-display font-bold text-stone-900 dark:text-white">
-                    {{ "%.2f" | format(account.next_bill_amount) | replace('.', ',') }}
-                    <span class="text-lg font-medium text-stone-400">NGN</span>
-                </p>
-                <p class="mt-3 text-sm text-stone-500 dark:text-stone-400">
-                    Due <span class="font-medium text-stone-700 dark:text-stone-300">{{ account.next_bill_date.strftime('%b %d, %Y') }}</span>
-                </p>
-            </div>
-        </div>
-
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger-children">
         <!-- Service Status -->
         <div class="group relative overflow-hidden rounded-2xl border border-stone-200 bg-white p-6 shadow-premium card-hover dark:border-stone-700 dark:bg-stone-800">
             <div class="absolute top-0 right-0 w-32 h-32 -mr-8 -mt-8 rounded-full {% if service.status == 'active' %}bg-emerald-500/10{% else %}bg-amber-500/10{% endif %} blur-2xl transition-all group-hover:scale-150"></div>
@@ -136,7 +78,7 @@
                     </span>
                     <p class="text-2xl font-display font-bold text-stone-900 dark:text-white capitalize">{{ service.status }}</p>
                 </div>
-                <p class="mt-3 text-sm text-stone-500 dark:text-stone-400">{{ service.plan_name }}</p>
+                <p class="mt-3 text-sm text-stone-500 dark:text-stone-400">{{ service.service_type | default('Internet Service') }}</p>
             </div>
         </div>
 
@@ -163,7 +105,7 @@
         </div>
 
         <!-- Current Bandwidth -->
-        <div class="group relative overflow-hidden rounded-2xl border border-stone-200 bg-white p-6 shadow-premium card-hover dark:border-stone-700 dark:bg-stone-800 sm:col-span-2 lg:col-span-1"
+        <div class="group relative overflow-hidden rounded-2xl border border-stone-200 bg-white p-6 shadow-premium card-hover dark:border-stone-700 dark:bg-stone-800"
              x-data="BandwidthChart.bandwidthWidget({ useMyEndpoints: true })"
              x-init="init()"
              x-on:destroy.window="destroy()">
@@ -190,12 +132,6 @@
                         <span class="text-purple-500">↑</span>
                     </p>
                 </div>
-                <a href="/portal/usage" class="mt-3 inline-flex items-center gap-1 text-sm font-medium text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 transition-colors">
-                    View usage
-                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-                    </svg>
-                </a>
             </div>
         </div>
     </div>
@@ -204,17 +140,9 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Active Services - 2/3 width -->
         <div class="lg:col-span-2 rounded-2xl border border-stone-200 bg-white shadow-premium dark:border-stone-700 dark:bg-stone-800 overflow-hidden">
-            <div class="border-b border-stone-100 px-6 py-4 dark:border-stone-700 flex items-center justify-between">
-                <div>
-                    <h2 class="text-lg font-display font-semibold text-stone-900 dark:text-white">Your Services</h2>
-                    <p class="text-sm text-stone-500 dark:text-stone-400">Active subscriptions and plans</p>
-                </div>
-                <a href="/portal/services" class="inline-flex items-center gap-1 text-sm font-medium text-[var(--color-brand-600)] hover:text-[var(--color-brand-700)] dark:text-[var(--color-brand-400)] transition-colors">
-                    View all
-                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-                    </svg>
-                </a>
+            <div class="border-b border-stone-100 px-6 py-4 dark:border-stone-700">
+                <h2 class="text-lg font-display font-semibold text-stone-900 dark:text-white">Your Services</h2>
+                <p class="text-sm text-stone-500 dark:text-stone-400">Your active service connections</p>
             </div>
             <div class="divide-y divide-stone-100 dark:divide-stone-700">
                 {% for service in services %}
@@ -227,7 +155,7 @@
                         </div>
                         <div>
                             <p class="text-base font-semibold text-stone-900 dark:text-white">{{ service.name }}</p>
-                            <p class="text-sm text-stone-500 dark:text-stone-400">{{ service.speed }} &bull; {{ service.address }}</p>
+                            <p class="text-sm text-stone-500 dark:text-stone-400">{{ service.address | default('') }}</p>
                         </div>
                     </div>
                     <div class="text-right">
@@ -244,7 +172,6 @@
                             </span>
                             {{ service.status | capitalize }}
                         </span>
-                        <p class="mt-2 text-lg font-semibold text-stone-900 dark:text-white">{{ "%.2f" | format(service.monthly_cost) | replace('.', ',') }}<span class="text-sm font-normal text-stone-400">/mo</span></p>
                     </div>
                 </div>
                 {% else %}
@@ -268,38 +195,6 @@
                 <p class="text-sm text-stone-500 dark:text-stone-400">Common tasks at your fingertips</p>
             </div>
             <div class="p-4 space-y-2">
-                <a href="/portal/billing"
-                   class="group flex items-center gap-4 rounded-xl p-4 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/30 transition-transform group-hover:scale-110">
-                        <svg class="h-6 w-6 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
-                        </svg>
-                    </div>
-                    <div class="flex-1">
-                        <p class="text-sm font-semibold text-stone-900 dark:text-white">Make a Payment</p>
-                        <p class="text-xs text-stone-500 dark:text-stone-400">Pay your bill online</p>
-                    </div>
-                    <svg class="h-5 w-5 text-stone-300 dark:text-stone-600 transition-transform group-hover:translate-x-1 group-hover:text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                    </svg>
-                </a>
-
-                <a href="/portal/billing"
-                   class="group flex items-center gap-4 rounded-xl p-4 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/30 transition-transform group-hover:scale-110">
-                        <svg class="h-6 w-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                        </svg>
-                    </div>
-                    <div class="flex-1">
-                        <p class="text-sm font-semibold text-stone-900 dark:text-white">View Invoices</p>
-                        <p class="text-xs text-stone-500 dark:text-stone-400">Download statements</p>
-                    </div>
-                    <svg class="h-5 w-5 text-stone-300 dark:text-stone-600 transition-transform group-hover:translate-x-1 group-hover:text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                    </svg>
-                </a>
-
                 <a href="/portal/support/new"
                    class="group flex items-center gap-4 rounded-xl p-4 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all">
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-900/30 transition-transform group-hover:scale-110">
@@ -346,21 +241,17 @@
             <div class="px-6 py-4 flex items-center gap-4 hover:bg-stone-50 dark:hover:bg-stone-700/30 transition-colors">
                 <div class="relative">
                     <div class="flex h-10 w-10 items-center justify-center rounded-full
-                        {% if activity.type == 'payment' %}bg-emerald-100 dark:bg-emerald-900/30
-                        {% elif activity.type == 'invoice' %}bg-blue-100 dark:bg-blue-900/30
-                        {% elif activity.type == 'ticket' %}bg-violet-100 dark:bg-violet-900/30
+                        {% if activity.type == 'ticket' %}bg-violet-100 dark:bg-violet-900/30
+                        {% elif activity.type == 'work_order' %}bg-emerald-100 dark:bg-emerald-900/30
                         {% else %}bg-stone-100 dark:bg-stone-700{% endif %}">
-                        {% if activity.type == 'payment' %}
-                        <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                        </svg>
-                        {% elif activity.type == 'invoice' %}
-                        <svg class="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                        </svg>
-                        {% elif activity.type == 'ticket' %}
+                        {% if activity.type == 'ticket' %}
                         <svg class="h-5 w-5 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/>
+                        </svg>
+                        {% elif activity.type == 'work_order' %}
+                        <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                         </svg>
                         {% else %}
                         <svg class="h-5 w-5 text-stone-600 dark:text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -373,11 +264,6 @@
                     <p class="text-sm font-medium text-stone-900 dark:text-white">{{ activity.description }}</p>
                     <p class="text-xs text-stone-500 dark:text-stone-400">{{ activity.date.strftime('%b %d, %Y at %I:%M %p') }}</p>
                 </div>
-                {% if activity.amount %}
-                <span class="text-sm font-semibold tabular-nums {% if activity.type == 'payment' %}text-emerald-600 dark:text-emerald-400{% else %}text-stone-900 dark:text-white{% endif %}">
-                    {% if activity.type == 'payment' %}-{% endif %}{{ "%.2f" | format(activity.amount) | replace('.', ',') }} NGN
-                </span>
-                {% endif %}
             </div>
             {% else %}
             <div class="px-6 py-12 text-center">

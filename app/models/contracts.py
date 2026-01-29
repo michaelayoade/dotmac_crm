@@ -18,7 +18,7 @@ class ContractSignature(Base):
     - Who signed it (signer_name, signer_email)
     - When it was signed (signed_at)
     - Digital fingerprint (ip_address, user_agent)
-    - Context (account_id, service_order_id, document_id)
+    - Context (account_id, document_id)
     """
     __tablename__ = "contract_signatures"
 
@@ -27,11 +27,8 @@ class ContractSignature(Base):
     )
 
     # Links to related entities
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id"), nullable=False
-    )
-    service_order_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("service_orders.id")
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True)  # FK to subscriber_accounts removed
     )
     document_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("legal_documents.id")
@@ -68,6 +65,5 @@ class ContractSignature(Base):
     )
 
     # Relationships
-    account = relationship("SubscriberAccount")
-    service_order = relationship("ServiceOrder")
+    # account = relationship("SubscriberAccount")  # Model removed
     document = relationship("LegalDocument")

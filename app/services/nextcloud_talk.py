@@ -19,7 +19,14 @@ _DEFAULT_TIMEOUT = 30.0  # fallback when settings unavailable
 def get_nextcloud_talk_timeout(db: Session | None = None) -> float:
     """Get the Nextcloud Talk API timeout from settings."""
     timeout = resolve_value(db, SettingDomain.comms, "nextcloud_talk_timeout_seconds") if db else None
-    return float(timeout) if timeout else _DEFAULT_TIMEOUT
+    if isinstance(timeout, (int, float)):
+        return float(timeout)
+    if isinstance(timeout, str):
+        try:
+            return float(timeout)
+        except ValueError:
+            return _DEFAULT_TIMEOUT
+    return _DEFAULT_TIMEOUT
 
 
 class NextcloudTalkError(Exception):

@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.projects import ProjectTask, TaskStatus
 from app.models.tickets import Ticket, TicketStatus
-from app.models.provisioning import AppointmentStatus, InstallAppointment, ServiceOrder, ServiceOrderStatus
 from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
 from app.models.workflow import (
     ProjectTaskStatusTransition,
@@ -686,47 +685,11 @@ def transition_work_order(
     if rule and rule.requires_note and not payload.note:
         raise HTTPException(status_code=400, detail="Transition note required")
     work_order.status = to_status
-    appointment = None
-    if work_order.metadata_ and work_order.metadata_.get("install_appointment_id"):
-        appointment = _get_by_id(
-            db, InstallAppointment, work_order.metadata_.get("install_appointment_id")
-        )
-    if not appointment and work_order.service_order_id:
-        appointment = (
-            db.query(InstallAppointment)
-            .filter(InstallAppointment.service_order_id == work_order.service_order_id)
-            .order_by(InstallAppointment.scheduled_start.desc())
-            .first()
-        )
     now = datetime.now(timezone.utc)
     if to_status == WorkOrderStatus.in_progress:
         work_order.started_at = work_order.started_at or now
-        if appointment and appointment.status not in (
-            AppointmentStatus.completed,
-            AppointmentStatus.canceled,
-        ):
-            appointment.status = AppointmentStatus.confirmed
-    if to_status == WorkOrderStatus.dispatched:
-        if appointment and appointment.status not in (
-            AppointmentStatus.completed,
-            AppointmentStatus.canceled,
-        ):
-            appointment.status = AppointmentStatus.confirmed
     if to_status == WorkOrderStatus.completed:
         work_order.completed_at = work_order.completed_at or now
-        if appointment:
-            appointment.status = AppointmentStatus.completed
-        if work_order.service_order_id:
-            service_order = _get_by_id(db, ServiceOrder, work_order.service_order_id)
-            if service_order:
-                service_order.status = ServiceOrderStatus.active
-    if to_status == WorkOrderStatus.canceled:
-        if appointment:
-            appointment.status = AppointmentStatus.canceled
-        if work_order.service_order_id:
-            service_order = _get_by_id(db, ServiceOrder, work_order.service_order_id)
-            if service_order:
-                service_order.status = ServiceOrderStatus.canceled
     db.commit()
     db.refresh(work_order)
     return work_order
@@ -1001,88 +964,6 @@ class TicketAssignments:
         db.commit()
         db.refresh(ticket)
         return ticket
-
-
-def _auto_create_work_order_for_service_order(db: Session, service_order: ServiceOrder) -> WorkOrder | None:
-    """Auto-create a work order when a service order is scheduled.
-
-    Returns the existing work order if one already exists, or creates a new one.
-    """
-    # Check if work order already exists for this service order
-    existing = (
-        db.query(WorkOrder)
-        .filter(WorkOrder.service_order_id == service_order.id)
-        .filter(WorkOrder.is_active.is_(True))
-        .first()
-    )
-    if existing:
-        return existing
-
-    # Get account name for title
-    account_name = "Customer"
-    if service_order.account and service_order.account.subscriber:
-        if service_order.account.subscriber.person:
-            account_name = service_order.account.subscriber.person.name or "Customer"
-
-    work_order = WorkOrder(
-        title=f"Installation - {account_name}",
-        work_type=WorkOrderType.install,
-        status=WorkOrderStatus.scheduled,
-        priority=WorkOrderPriority.normal,
-        account_id=service_order.account_id,
-        subscription_id=service_order.subscription_id,
-        service_order_id=service_order.id,
-    )
-    db.add(work_order)
-    return work_order
-
-
-def transition_service_order(
-    db: Session,
-    service_order_id: str,
-    payload: StatusTransitionRequest,
-    skip_contract_check: bool = False,
-) -> ServiceOrder:
-    """Transition a service order to a new status.
-
-    Auto-creates a work order when transitioning to 'scheduled'.
-    Blocks transition to 'provisioning' or 'active' if contract not signed.
-
-    Args:
-        db: Database session
-        service_order_id: Service order ID
-        payload: Status transition request
-        skip_contract_check: If True, skip the contract signature check
-
-    Raises:
-        HTTPException: If service order not found or contract not signed
-    """
-    from app.services.contracts import contract_signatures
-
-    service_order = _get_by_id(db, ServiceOrder, service_order_id)
-    if not service_order:
-        raise HTTPException(status_code=404, detail="Service order not found")
-
-    to_status = validate_enum(payload.to_status, ServiceOrderStatus, "to_status")
-
-    # Block transition to fulfillment stages if contract not signed
-    fulfillment_stages = {ServiceOrderStatus.provisioning, ServiceOrderStatus.active}
-    if to_status in fulfillment_stages and not skip_contract_check:
-        if not contract_signatures.is_signed(db, service_order_id):
-            raise HTTPException(
-                status_code=400,
-                detail="Contract must be signed before fulfillment. "
-                f"Please sign at: /portal/service-orders/{service_order_id}/contract",
-            )
-
-    # Auto-create work order when scheduled
-    if to_status == ServiceOrderStatus.scheduled:
-        _auto_create_work_order_for_service_order(db, service_order)
-
-    service_order.status = to_status
-    db.commit()
-    db.refresh(service_order)
-    return service_order
 
 
 ticket_transitions = TicketTransitions()

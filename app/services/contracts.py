@@ -7,8 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.models.contracts import ContractSignature
 from app.models.legal import LegalDocument, LegalDocumentType
-from app.models.provisioning import ServiceOrder
-from app.models.subscriber import SubscriberAccount
 from app.schemas.contracts import ContractSignatureCreate
 from app.services.common import coerce_uuid
 
@@ -30,16 +28,7 @@ class ContractSignatures:
         Raises:
             HTTPException: If account not found
         """
-        # Validate account exists
-        account = db.get(SubscriberAccount, payload.account_id)
-        if not account:
-            raise HTTPException(status_code=404, detail="Account not found")
-
-        # Validate service order if provided
-        if payload.service_order_id:
-            service_order = db.get(ServiceOrder, payload.service_order_id)
-            if not service_order:
-                raise HTTPException(status_code=404, detail="Service order not found")
+        # Account validation removed - SubscriberAccount no longer exists
 
         data = payload.model_dump()
         if not data.get("signed_at"):
@@ -71,40 +60,6 @@ class ContractSignatures:
         return signature
 
     @staticmethod
-    def get_for_service_order(
-        db: Session, service_order_id: str
-    ) -> ContractSignature | None:
-        """Get the contract signature for a service order.
-
-        Args:
-            db: Database session
-            service_order_id: Service order ID
-
-        Returns:
-            ContractSignature or None if not signed
-        """
-        return (
-            db.query(ContractSignature)
-            .filter(ContractSignature.service_order_id == coerce_uuid(service_order_id))
-            .filter(ContractSignature.is_active.is_(True))
-            .order_by(ContractSignature.signed_at.desc())
-            .first()
-        )
-
-    @staticmethod
-    def is_signed(db: Session, service_order_id: str) -> bool:
-        """Check if a service order has a signed contract.
-
-        Args:
-            db: Database session
-            service_order_id: Service order ID
-
-        Returns:
-            True if signed, False otherwise
-        """
-        signature = ContractSignatures.get_for_service_order(db, service_order_id)
-        return signature is not None
-
     @staticmethod
     def list_for_account(
         db: Session, account_id: str, limit: int = 100, offset: int = 0

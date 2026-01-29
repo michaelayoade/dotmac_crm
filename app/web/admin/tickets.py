@@ -9,7 +9,7 @@ from typing import Optional
 
 from app.db import SessionLocal
 from app.services import tickets as tickets_service
-from app.services import subscriber as subscriber_service
+from app.services.subscriber import subscriber as subscriber_service
 from app.services.common import coerce_uuid
 from app.services import audit as audit_service
 from app.services.audit_helpers import extract_changes, format_changes, log_audit_event, model_to_dict, diff_dicts
@@ -17,7 +17,9 @@ from app.models.person import Person
 from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import MessageDirection, ChannelType
-from app.models.subscriber import Subscriber, SubscriberAccount, AccountStatus
+from app.models.subscriber import Organization, Reseller, Subscriber
+
+
 from app.services.person import People as people_service
 
 templates = Jinja2Templates(directory="templates")
@@ -117,22 +119,12 @@ def _build_activity_feed(db: Session, events: list) -> list[dict]:
     return activities
 
 
-def _build_account_label(account: SubscriberAccount | None) -> str:
-    if not account:
+def _build_subscriber_label(subscriber: Subscriber | None) -> str:
+    if not subscriber:
         return ""
-    label = "Account"
-    subscriber = getattr(account, "subscriber", None)
-    if subscriber:
-        if getattr(subscriber, "person", None):
-            person = subscriber.person
-            label = person.display_name or f"{person.first_name} {person.last_name}".strip()
-        elif getattr(subscriber, "person", None) and subscriber.person.organization:
-            label = subscriber.person.organization.name
-    if account.account_number:
-        if label:
-            label = f"{label} ({account.account_number})"
-        else:
-            label = account.account_number
+    label = subscriber.display_name
+    if subscriber.subscriber_number:
+        return f"{label} ({subscriber.subscriber_number})"
     return label or ""
 
 
@@ -144,38 +136,24 @@ def _map_channel_to_ticket(channel_type: ChannelType | None) -> str | None:
     return None
 
 
-def _select_account_for_subscriber(db: Session, subscriber_id: str) -> SubscriberAccount | None:
-    accounts = subscriber_service.accounts.list(
-        db=db,
-        subscriber_id=subscriber_id,
-        reseller_id=None,
-        order_by="created_at",
-        order_dir="desc",
-        limit=50,
-        offset=0,
-    )
-    if not accounts:
+def _select_subscriber_by_id(db: Session, subscriber_id: str) -> Subscriber | None:
+    try:
+        return subscriber_service.get(db, coerce_uuid(subscriber_id))
+    except Exception:
         return None
-    for account in accounts:
-        if getattr(account, "status", None) == AccountStatus.active:
-            return account
-    return accounts[0]
 
 
 def _resolve_subscriber_from_contact(db: Session, person: Person | None) -> Subscriber | None:
     if not person:
         return None
-
-    subscriber = (
-        db.query(Subscriber)
-        .filter(Subscriber.person_id == person.id)
-        .filter(Subscriber.is_active.is_(True))
-        .first()
+    matches = subscriber_service.list(
+        db,
+        person_id=person.id,
+        organization_id=person.organization_id,
+        limit=1,
+        offset=0,
     )
-    if subscriber:
-        return subscriber
-
-    return None
+    return matches[0] if matches else None
 
 
 def get_db():
@@ -243,49 +221,18 @@ def tickets_list(
             subscriber_id = coerce_uuid(subscriber)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid subscriber") from exc
-        subscriber_obj = None
-        try:
-            subscriber_obj = subscriber_service.subscribers.get(db, str(subscriber_id))
-        except HTTPException:
-            subscriber_obj = None
+        subscriber_obj = subscriber_service.get(db, subscriber_id)
         if subscriber_obj:
-            if subscriber_obj.person:
-                first = subscriber_obj.person.first_name or ""
-                last = subscriber_obj.person.last_name or ""
-                subscriber_display = f"{first} {last}".strip()
-                if not subscriber_display:
-                    subscriber_display = subscriber_obj.person.display_name or "Subscriber"
-            elif subscriber_obj.organization:
-                subscriber_display = (
-                    subscriber_obj.organization.legal_name
-                    or subscriber_obj.organization.name
-                    or "Subscriber"
-                )
-            else:
-                subscriber_display = "Subscriber"
+            subscriber_display = subscriber_obj.display_name or "Subscriber"
             subscriber_url = f"/admin/subscribers/{subscriber_obj.id}"
-        accounts = subscriber_service.accounts.list(
-            db=db,
-            subscriber_id=str(subscriber_id),
-            reseller_id=None,
-            order_by="created_at",
-            order_dir="desc",
-            limit=1000,
-            offset=0,
-        )
-        account_ids = [account.id for account in accounts]
-        if account_ids:
-            base_query = db.query(Ticket).filter(Ticket.account_id.in_(account_ids))
+            base_query = db.query(Ticket).filter(Ticket.subscriber_id == subscriber_obj.id)
             tickets = _filter_tickets(base_query).limit(per_page).offset(offset).all()
-            all_tickets = _filter_tickets(base_query).limit(1000).offset(0).all()
         else:
             tickets = []
-            all_tickets = []
     else:
         tickets = tickets_service.tickets.list(
             db=db,
-            account_id=None,
-            subscription_id=None,
+            subscriber_id=None,
             status=status if status else None,
             priority=priority if priority else None,
             channel=channel if channel else None,
@@ -299,37 +246,8 @@ def tickets_list(
             offset=offset,
         )
 
-        all_tickets = tickets_service.tickets.list(
-            db=db,
-            account_id=None,
-            subscription_id=None,
-            status=None,
-            priority=None,
-            channel=None,
-            search=None,
-            created_by_person_id=None,
-            assigned_to_person_id=None,
-            is_active=None,
-            order_by="created_at",
-            order_dir="desc",
-            limit=1000,
-            offset=0,
-        )
-
     # Get stats by status
-    def get_status(obj):
-        s = getattr(obj, "status", "")
-        return s.value if hasattr(s, "value") else str(s)
-
-    stats = {
-        "total": len(all_tickets),
-        "new": sum(1 for t in all_tickets if get_status(t) == "new"),
-        "open": sum(1 for t in all_tickets if get_status(t) == "open"),
-        "pending": sum(1 for t in all_tickets if get_status(t) == "pending"),
-        "on_hold": sum(1 for t in all_tickets if get_status(t) == "on_hold"),
-        "resolved": sum(1 for t in all_tickets if get_status(t) == "resolved"),
-        "closed": sum(1 for t in all_tickets if get_status(t) == "closed"),
-    }
+    stats = tickets_service.tickets.status_stats(db)
 
     from app.web.admin import get_sidebar_stats, get_current_user
     sidebar_stats = get_sidebar_stats(db)
@@ -382,22 +300,22 @@ def ticket_create(
     conversation_id: Optional[str] = Query(None),
     title: Optional[str] = Query(None),
     description: Optional[str] = Query(None),
-    account_id: Optional[str] = Query(None),
+    subscriber_id: Optional[str] = Query(None),
     channel: Optional[str] = Query(None),
     subscriber: Optional[str] = Query(None),
     customer: Optional[str] = Query(None),
     modal: Optional[bool] = Query(False),
 ):
     from app.web.admin import get_sidebar_stats, get_current_user
-    from app.services import subscriber as subscriber_service
+    # subscriber_service removed
     from app.services import dispatch as dispatch_service
 
     prefill = {
         "conversation_id": None,
         "title": None,
         "description": None,
-        "account_id": None,
-        "account_label": "",
+        "subscriber_id": None,
+        "subscriber_label": "",
         "channel": None,
         "customer": None,
     }
@@ -444,48 +362,10 @@ def ticket_create(
                 first_inbound.body.strip() if first_inbound and first_inbound.body else ""
             )
             prefill["customer"] = contact_name
-            if conversation.account_id:
-                account = db.get(SubscriberAccount, conversation.account_id)
-                if account and account.subscriber_id:
-                    subscriber_account = _select_account_for_subscriber(
-                        db, str(account.subscriber_id)
-                    )
-                    if subscriber_account:
-                        prefill["account_id"] = str(subscriber_account.id)
-                        prefill["account_label"] = _build_account_label(subscriber_account)
-                    else:
-                        prefill["account_id"] = str(conversation.account_id)
-                        prefill["account_label"] = _build_account_label(account)
-                else:
-                    resolved_subscriber = None
-                    if conversation.subscriber_id:
-                        resolved_subscriber = db.get(Subscriber, conversation.subscriber_id)
-                    if not resolved_subscriber:
-                        resolved_subscriber = _resolve_subscriber_from_contact(db, contact)
-                    if resolved_subscriber:
-                        subscriber_account = _select_account_for_subscriber(
-                            db, str(resolved_subscriber.id)
-                        )
-                        if subscriber_account:
-                            prefill["account_id"] = str(subscriber_account.id)
-                            prefill["account_label"] = _build_account_label(subscriber_account)
-                            account = None
-                    if account:
-                        prefill["account_id"] = str(conversation.account_id)
-                        prefill["account_label"] = _build_account_label(account)
-            else:
-                subscriber_id = None
-                if conversation.subscriber_id:
-                    subscriber_id = str(conversation.subscriber_id)
-                else:
-                    subscriber = _resolve_subscriber_from_contact(db, contact)
-                    if subscriber:
-                        subscriber_id = str(subscriber.id)
-                if subscriber_id:
-                    account = _select_account_for_subscriber(db, subscriber_id)
-                    if account:
-                        prefill["account_id"] = str(account.id)
-                        prefill["account_label"] = _build_account_label(account)
+            resolved_subscriber = _resolve_subscriber_from_contact(db, contact)
+            if resolved_subscriber:
+                prefill["subscriber_id"] = str(resolved_subscriber.id)
+                prefill["subscriber_label"] = _build_subscriber_label(resolved_subscriber)
             prefill["channel"] = _map_channel_to_ticket(
                 last_inbound.channel_type if last_inbound else None
             )
@@ -496,28 +376,20 @@ def ticket_create(
         prefill["description"] = description
     if customer:
         prefill["customer"] = customer
-    if account_id:
-        prefill["account_id"] = account_id
-        account = db.get(SubscriberAccount, account_id)
-        prefill["account_label"] = _build_account_label(account)
+    if subscriber_id:
+        prefill["subscriber_id"] = subscriber_id
+        subscriber_obj = _select_subscriber_by_id(db, subscriber_id)
+        prefill["subscriber_label"] = _build_subscriber_label(subscriber_obj)
     elif subscriber:
-        account = _select_account_for_subscriber(db, subscriber)
-        if account:
-            prefill["account_id"] = str(account.id)
-            prefill["account_label"] = _build_account_label(account)
+        subscriber_obj = _select_subscriber_by_id(db, subscriber)
+        if subscriber_obj:
+            prefill["subscriber_id"] = str(subscriber_obj.id)
+            prefill["subscriber_label"] = _build_subscriber_label(subscriber_obj)
     if channel and channel in {c.value for c in TicketChannel}:
         prefill["channel"] = channel
 
-    # Get accounts for dropdown
-    accounts = subscriber_service.accounts.list(
-        db=db,
-        subscriber_id=None,
-        reseller_id=None,
-        order_by="created_at",
-        order_dir="desc",
-        limit=500,
-        offset=0,
-    )
+    # Subscribers are resolved via typeahead
+    accounts: list[dict[str, str]] = []
 
     # Get technicians for assignment
     technicians = dispatch_service.technicians.list(
@@ -560,7 +432,7 @@ def ticket_create_post(
     request: Request,
     title: str = Form(...),
     description: Optional[str] = Form(None),
-    account_id: Optional[str] = Form(None),
+    subscriber_id: Optional[str] = Form(None),
     customer: Optional[str] = Form(None),
     assigned_to_person_id: Optional[str] = Form(None),
     priority: str = Form("normal"),
@@ -576,7 +448,7 @@ def ticket_create_post(
     from app.web.admin import get_sidebar_stats, get_current_user
     from app.schemas.tickets import TicketCreate
     from app.models.tickets import TicketPriority, TicketChannel, TicketStatus
-    from app.services import subscriber as subscriber_service
+    # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
     from uuid import UUID
@@ -621,19 +493,18 @@ def ticket_create_post(
         if due_at:
             due_datetime = datetime.fromisoformat(due_at)
 
-        metadata = {}
+        metadata: dict[str, object] = {}
         if saved_attachments:
             metadata["attachments"] = saved_attachments
         if customer and customer.strip():
             metadata["customer"] = customer.strip()
-        if not metadata:
-            metadata = None
+        metadata_value: dict[str, object] | None = metadata or None
 
         current_user = get_current_user(request)
         payload = TicketCreate(
             title=title,
             description=description if description else None,
-            account_id=UUID(account_id) if account_id else None,
+            subscriber_id=UUID(subscriber_id) if subscriber_id else None,
             assigned_to_person_id=UUID(assigned_to_person_id) if assigned_to_person_id else None,
             created_by_person_id=UUID(current_user["person_id"]) if current_user and current_user.get("person_id") else None,
             priority=priority_map.get(priority, TicketPriority.normal),
@@ -641,7 +512,7 @@ def ticket_create_post(
             status=status_map.get(status, TicketStatus.new),
             due_at=due_datetime,
             tags=tag_list,
-            metadata_=metadata,
+            metadata_=metadata_value,
         )
         ticket = tickets_service.tickets.create(db=db, payload=payload)
         if conversation_id:
@@ -666,15 +537,7 @@ def ticket_create_post(
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
         # Re-fetch data for form
-        accounts = subscriber_service.accounts.list(
-            db=db,
-            subscriber_id=None,
-            reseller_id=None,
-            order_by="created_at",
-            order_dir="desc",
-            limit=500,
-            offset=0,
-        )
+        accounts: list[dict[str, str]] = []  # subscriber_service removed
         technicians = dispatch_service.technicians.list(
             db=db,
             person_id=None,
@@ -717,7 +580,7 @@ def ticket_edit(
 ):
     """Edit support ticket form."""
     from app.web.admin import get_sidebar_stats, get_current_user
-    from app.services import subscriber as subscriber_service
+    # subscriber_service removed
     from app.services import dispatch as dispatch_service
 
     try:
@@ -729,15 +592,7 @@ def ticket_edit(
             status_code=404,
         )
 
-    accounts = subscriber_service.accounts.list(
-        db=db,
-        subscriber_id=None,
-        reseller_id=None,
-        order_by="created_at",
-        order_dir="desc",
-        limit=500,
-        offset=0,
-    )
+    accounts: list[dict[str, str]] = []  # subscriber_service removed
     technicians = dispatch_service.technicians.list(
         db=db,
         person_id=None,
@@ -777,7 +632,7 @@ def ticket_edit_post(
     ticket_id: str,
     title: str = Form(...),
     description: Optional[str] = Form(None),
-    account_id: Optional[str] = Form(None),
+    subscriber_id: Optional[str] = Form(None),
     customer: Optional[str] = Form(None),
     assigned_to_person_id: Optional[str] = Form(None),
     priority: str = Form("normal"),
@@ -791,7 +646,7 @@ def ticket_edit_post(
     """Update a support ticket."""
     from app.schemas.tickets import TicketUpdate
     from app.models.tickets import TicketPriority, TicketChannel, TicketStatus
-    from app.services import subscriber as subscriber_service
+    # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
     from app.web.admin import get_current_user, get_sidebar_stats
@@ -813,8 +668,7 @@ def ticket_edit_post(
         before_state = model_to_dict(
             ticket,
             include={
-                "account_id",
-                "subscription_id",
+                "subscriber_id",
                 "created_by_person_id",
                 "assigned_to_person_id",
                 "title",
@@ -897,7 +751,7 @@ def ticket_edit_post(
         update_data = {
             "title": title,
             "description": description if description else None,
-            "account_id": UUID(account_id) if account_id else None,
+            "subscriber_id": UUID(subscriber_id) if subscriber_id else None,
             "assigned_to_person_id": UUID(assigned_to_person_id) if assigned_to_person_id else None,
             "priority": priority_map.get(priority, ticket.priority),
             "channel": channel_map.get(channel, ticket.channel),
@@ -920,8 +774,7 @@ def ticket_edit_post(
         after_state = model_to_dict(
             updated_ticket,
             include={
-                "account_id",
-                "subscription_id",
+                "subscriber_id",
                 "created_by_person_id",
                 "assigned_to_person_id",
                 "title",
@@ -951,15 +804,7 @@ def ticket_edit_post(
         return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
-        accounts = subscriber_service.accounts.list(
-            db=db,
-            subscriber_id=None,
-            reseller_id=None,
-            order_by="created_at",
-            order_dir="desc",
-            limit=500,
-            offset=0,
-        )
+        accounts: list[dict[str, str]] = []  # subscriber_service removed
         technicians = dispatch_service.technicians.list(
             db=db,
             person_id=None,
@@ -1083,13 +928,9 @@ def update_ticket_status(
         ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
         old_status = ticket.status.value if ticket.status else None
 
-        update_data = {"status": new_status}
-        if status == "resolved":
-            update_data["resolved_at"] = datetime.now(timezone.utc)
-        elif status == "closed":
-            update_data["closed_at"] = datetime.now(timezone.utc)
-
-        payload = TicketUpdate(**update_data)
+        resolved_at = datetime.now(timezone.utc) if status == "resolved" else None
+        closed_at = datetime.now(timezone.utc) if status == "closed" else None
+        payload = TicketUpdate(status=new_status, resolved_at=resolved_at, closed_at=closed_at)
         tickets_service.tickets.update(db=db, ticket_id=ticket_id, payload=payload)
         current_user = get_current_user(request)
         _log_activity(

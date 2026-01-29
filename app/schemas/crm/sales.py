@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -38,6 +38,7 @@ class PipelineStageBase(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     order_index: int = 0
     is_active: bool = True
+    default_probability: int = Field(default=50, ge=0, le=100)
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 
@@ -49,6 +50,7 @@ class PipelineStageUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     order_index: int | None = None
     is_active: bool | None = None
+    default_probability: int | None = Field(default=None, ge=0, le=100)
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 
@@ -70,6 +72,9 @@ class LeadBase(BaseModel):
     status: LeadStatus = LeadStatus.new
     estimated_value: Decimal | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
+    probability: int | None = Field(default=None, ge=0, le=100)
+    expected_close_date: date | None = None
+    lost_reason: str | None = Field(default=None, max_length=200)
     notes: str | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
     is_active: bool = True
@@ -88,6 +93,9 @@ class LeadUpdate(BaseModel):
     status: LeadStatus | None = None
     estimated_value: Decimal | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
+    probability: int | None = Field(default=None, ge=0, le=100)
+    expected_close_date: date | None = None
+    lost_reason: str | None = Field(default=None, max_length=200)
     notes: str | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
     is_active: bool | None = None
@@ -97,6 +105,7 @@ class LeadRead(LeadBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: UUID
+    weighted_value: Decimal | None = None
     created_at: datetime
     updated_at: datetime
 

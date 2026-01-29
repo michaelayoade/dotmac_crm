@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
-    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
@@ -22,37 +21,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from app.db import Base
-
-
-class DeviceType(enum.Enum):
-    ont = "ont"
-    router = "router"
-    modem = "modem"
-    cpe = "cpe"
-
-
-class DeviceStatus(enum.Enum):
-    active = "active"
-    inactive = "inactive"
-    retired = "retired"
-
-
-class PortType(enum.Enum):
-    pon = "pon"
-    ethernet = "ethernet"
-    wifi = "wifi"
-    mgmt = "mgmt"
-
-
-class PortStatus(enum.Enum):
-    up = "up"
-    down = "down"
-    disabled = "disabled"
-
-
-class IPVersion(enum.Enum):
-    ipv4 = "ipv4"
-    ipv6 = "ipv6"
 
 
 class OltPortType(enum.Enum):
@@ -102,302 +70,6 @@ class SplitterPortType(enum.Enum):
     output = "output"
 
 
-class CPEDevice(Base):
-    __tablename__ = "cpe_devices"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id"), nullable=False
-    )
-    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id")
-    )
-    service_address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
-    )
-    device_type: Mapped[DeviceType] = mapped_column(
-        Enum(DeviceType), default=DeviceType.ont
-    )
-    status: Mapped[DeviceStatus] = mapped_column(
-        Enum(DeviceStatus, name="cpe_devicestatus"), default=DeviceStatus.active
-    )
-    serial_number: Mapped[str | None] = mapped_column(String(120))
-    model: Mapped[str | None] = mapped_column(String(120))
-    vendor: Mapped[str | None] = mapped_column(String(120))
-    mac_address: Mapped[str | None] = mapped_column(String(64))
-    installed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    account = relationship("SubscriberAccount", back_populates="cpe_devices")
-    subscription = relationship("Subscription", back_populates="cpe_devices")
-    service_address = relationship("Address")
-    ports = relationship("Port", back_populates="device")
-
-
-class Port(Base):
-    __tablename__ = "ports"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    device_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("cpe_devices.id"), nullable=False
-    )
-    name: Mapped[str] = mapped_column(String(80), nullable=False)
-    port_type: Mapped[PortType] = mapped_column(
-        Enum(PortType), default=PortType.ethernet
-    )
-    status: Mapped[PortStatus] = mapped_column(
-        Enum(PortStatus), default=PortStatus.down
-    )
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    device = relationship("CPEDevice", back_populates="ports")
-    vlans = relationship("PortVlan", back_populates="port")
-
-    @hybrid_property
-    def is_active(self) -> bool:
-        return self.status != PortStatus.disabled
-
-
-class Vlan(Base):
-    __tablename__ = "vlans"
-    __table_args__ = (
-        UniqueConstraint("region_id", "tag", name="uq_vlans_region_tag"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    region_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("region_zones.id"), nullable=False
-    )
-    tag: Mapped[int] = mapped_column(Integer, nullable=False)
-    name: Mapped[str | None] = mapped_column(String(120))
-    description: Mapped[str | None] = mapped_column(Text)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    port_links = relationship("PortVlan", back_populates="vlan")
-    region = relationship("RegionZone")
-
-
-class PortVlan(Base):
-    __tablename__ = "port_vlans"
-    __table_args__ = (UniqueConstraint("port_id", "vlan_id", name="uq_port_vlans_port_vlan"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    port_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ports.id"), nullable=False
-    )
-    vlan_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("vlans.id"), nullable=False
-    )
-    is_tagged: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    port = relationship("Port", back_populates="vlans")
-    vlan = relationship("Vlan", back_populates="port_links")
-
-
-class IPAssignment(Base):
-    __tablename__ = "ip_assignments"
-    __table_args__ = (
-        UniqueConstraint(
-            "ipv4_address_id", name="uq_ip_assignments_ipv4_address_id"
-        ),
-        UniqueConstraint(
-            "ipv6_address_id", name="uq_ip_assignments_ipv6_address_id"
-        ),
-        CheckConstraint(
-            "(ip_version = 'ipv4' AND ipv4_address_id IS NOT NULL AND ipv6_address_id IS NULL) OR "
-            "(ip_version = 'ipv6' AND ipv6_address_id IS NOT NULL AND ipv4_address_id IS NULL)",
-            name="ck_ip_assignments_version_address",
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id"), nullable=False
-    )
-    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id")
-    )
-    subscription_add_on_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscription_add_ons.id")
-    )
-    service_address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
-    )
-    ip_version: Mapped[IPVersion] = mapped_column(
-        Enum(IPVersion), default=IPVersion.ipv4
-    )
-    ipv4_address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ipv4_addresses.id")
-    )
-    ipv6_address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ipv6_addresses.id")
-    )
-    prefix_length: Mapped[int | None] = mapped_column(Integer)
-    gateway: Mapped[str | None] = mapped_column(String(64))
-    dns_primary: Mapped[str | None] = mapped_column(String(64))
-    dns_secondary: Mapped[str | None] = mapped_column(String(64))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    account = relationship("SubscriberAccount", back_populates="ip_assignments")
-    subscription = relationship("Subscription", back_populates="ip_assignments")
-    subscription_add_on = relationship("SubscriptionAddOn")
-    service_address = relationship("Address")
-    ipv4_address = relationship("IPv4Address", back_populates="assignment")
-    ipv6_address = relationship("IPv6Address", back_populates="assignment")
-
-
-class IpPool(Base):
-    __tablename__ = "ip_pools"
-    __table_args__ = (UniqueConstraint("name", name="uq_ip_pools_name"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    ip_version: Mapped[IPVersion] = mapped_column(
-        Enum(IPVersion), default=IPVersion.ipv4
-    )
-    cidr: Mapped[str] = mapped_column(String(64), nullable=False)
-    gateway: Mapped[str | None] = mapped_column(String(64))
-    dns_primary: Mapped[str | None] = mapped_column(String(64))
-    dns_secondary: Mapped[str | None] = mapped_column(String(64))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    blocks = relationship("IpBlock", back_populates="pool")
-    ipv4_addresses = relationship("IPv4Address", back_populates="pool")
-    ipv6_addresses = relationship("IPv6Address", back_populates="pool")
-
-
-class IpBlock(Base):
-    __tablename__ = "ip_blocks"
-    __table_args__ = (
-        UniqueConstraint("pool_id", "cidr", name="uq_ip_blocks_pool_cidr"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    pool_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ip_pools.id"), nullable=False
-    )
-    cidr: Mapped[str] = mapped_column(String(64), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    pool = relationship("IpPool", back_populates="blocks")
-
-
-class IPv4Address(Base):
-    __tablename__ = "ipv4_addresses"
-    __table_args__ = (
-        UniqueConstraint("address", name="uq_ipv4_addresses_address"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    address: Mapped[str] = mapped_column(String(15), nullable=False)
-    pool_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ip_pools.id")
-    )
-    is_reserved: Mapped[bool] = mapped_column(Boolean, default=False)
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    assignment = relationship(
-        "IPAssignment", back_populates="ipv4_address", uselist=False
-    )
-    pool = relationship("IpPool", back_populates="ipv4_addresses")
-
-
-class IPv6Address(Base):
-    __tablename__ = "ipv6_addresses"
-    __table_args__ = (
-        UniqueConstraint("address", name="uq_ipv6_addresses_address"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    address: Mapped[str] = mapped_column(String(64), nullable=False)
-    pool_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ip_pools.id")
-    )
-    is_reserved: Mapped[bool] = mapped_column(Boolean, default=False)
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    assignment = relationship(
-        "IPAssignment", back_populates="ipv6_address", uselist=False
-    )
-    pool = relationship("IpPool", back_populates="ipv6_addresses")
-
-
 class OLTDevice(Base):
     __tablename__ = "olt_devices"
     __table_args__ = (
@@ -414,6 +86,8 @@ class OLTDevice(Base):
     vendor: Mapped[str | None] = mapped_column(String(120))
     model: Mapped[str | None] = mapped_column(String(120))
     serial_number: Mapped[str | None] = mapped_column(String(120))
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -658,14 +332,8 @@ class OntAssignment(Base):
     pon_port_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pon_ports.id"), nullable=False
     )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id")
-    )
-    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id")
-    )
-    service_address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
+    person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id")
     )
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -680,9 +348,7 @@ class OntAssignment(Base):
 
     ont_unit = relationship("OntUnit", back_populates="assignments")
     pon_port = relationship("PonPort", back_populates="ont_assignments")
-    account = relationship("SubscriberAccount", back_populates="ont_assignments")
-    subscription = relationship("Subscription", back_populates="ont_assignments")
-    service_address = relationship("Address")
+    person = relationship("Person")
 
 
 class FdhCabinet(Base):
@@ -696,9 +362,7 @@ class FdhCabinet(Base):
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     code: Mapped[str | None] = mapped_column(String(80))
-    region_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("region_zones.id")
-    )
+    region_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
     geom = mapped_column(Geometry("POINT", srid=4326), nullable=True)
@@ -713,7 +377,6 @@ class FdhCabinet(Base):
     )
 
     splitters = relationship("Splitter", back_populates="fdh")
-    region = relationship("RegionZone")
 
 
 class Splitter(Base):
@@ -773,50 +436,7 @@ class SplitterPort(Base):
     )
 
     splitter = relationship("Splitter", back_populates="ports")
-    assignments = relationship("SplitterPortAssignment", back_populates="splitter_port")
     pon_links = relationship("PonPortSplitterLink", back_populates="splitter_port")
-
-
-class SplitterPortAssignment(Base):
-    __tablename__ = "splitter_port_assignments"
-    __table_args__ = (
-        UniqueConstraint(
-            "splitter_port_id",
-            "active",
-            name="uq_splitter_port_assignments_port_active",
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    splitter_port_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("splitter_ports.id"), nullable=False
-    )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriber_accounts.id")
-    )
-    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscriptions.id")
-    )
-    service_address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
-    )
-    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    active: Mapped[bool] = mapped_column(Boolean, default=True)
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
-
-    splitter_port = relationship("SplitterPort", back_populates="assignments")
-    account = relationship("SubscriberAccount")
-    subscription = relationship("Subscription")
-    service_address = relationship("Address")
 
 
 class FiberStrand(Base):
@@ -961,6 +581,7 @@ class FiberSplice(Base):
     tray_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("fiber_splice_trays.id")
     )
+    position: Mapped[int | None] = mapped_column(Integer)
     splice_type: Mapped[str | None] = mapped_column(String(80))
     loss_db: Mapped[float | None] = mapped_column(Float)
     notes: Mapped[str | None] = mapped_column(Text)

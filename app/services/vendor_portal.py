@@ -25,6 +25,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _coerce_ttl(value: object | None, default: int) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return default
+
+
 def _initials(person: Person) -> str:
     first = (person.first_name or "").strip()[:1]
     last = (person.last_name or "").strip()[:1]
@@ -177,10 +185,9 @@ def _session_ttl_seconds(remember: bool, db: Session | None = None) -> int:
     """Get session TTL in seconds, using configurable settings when db is available."""
     if remember:
         ttl = resolve_value(db, SettingDomain.auth, "vendor_remember_ttl_seconds") if db else None
-        return ttl if ttl is not None else _DEFAULT_REMEMBER_TTL
-    else:
-        ttl = resolve_value(db, SettingDomain.auth, "vendor_session_ttl_seconds") if db else None
-        return ttl if ttl is not None else _DEFAULT_SESSION_TTL
+        return _coerce_ttl(ttl, _DEFAULT_REMEMBER_TTL)
+    ttl = resolve_value(db, SettingDomain.auth, "vendor_session_ttl_seconds") if db else None
+    return _coerce_ttl(ttl, _DEFAULT_SESSION_TTL)
 
 
 def get_session_max_age(db: Session | None = None) -> int:

@@ -22,7 +22,7 @@ def get_current_customer_from_request(request: Request, db: Session) -> dict | N
 
 
 @router.get("/login", response_class=HTMLResponse)
-def customer_login_page(request: Request, error: str = None, next: str = None):
+def customer_login_page(request: Request, error: str | None = None, next: str | None = None):
     """Display the customer login page."""
     return web_customer_auth_service.customer_login_page(request, error, next)
 

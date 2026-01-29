@@ -25,6 +25,15 @@ from app.services.common import coerce_uuid
 from app.models.rbac import Role, PersonRole
 
 templates = Jinja2Templates(directory="templates")
+
+
+def _form_str(value: object | None) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _form_str_opt(value: object | None) -> str | None:
+    value_str = _form_str(value).strip()
+    return value_str or None
 router = APIRouter(prefix="/vendors", tags=["web-admin-vendors"])
 _DEFAULT_VENDOR_ROLE = "vendors"
 
@@ -91,7 +100,7 @@ def _assign_role_by_name(db: Session, person_id: str, role_name: str) -> None:
         return
     rbac_service.person_roles.create(
         db,
-        PersonRoleCreate(person_id=person_id, role_id=role.id),
+        PersonRoleCreate(person_id=coerce_uuid(person_id), role_id=role.id),
     )
 
 
@@ -156,26 +165,26 @@ def vendor_edit(vendor_id: str, request: Request, db: Session = Depends(get_db))
 async def vendor_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     create_user = bool(form.get("create_user"))
-    payload = {
-        "name": (form.get("name") or "").strip(),
-        "code": (form.get("code") or "").strip() or None,
-        "contact_name": (form.get("contact_name") or "").strip() or None,
-        "contact_email": (form.get("contact_email") or "").strip() or None,
-        "contact_phone": (form.get("contact_phone") or "").strip() or None,
-        "license_number": (form.get("license_number") or "").strip() or None,
-        "service_area": (form.get("service_area") or "").strip() or None,
-        "notes": (form.get("notes") or "").strip() or None,
-        "is_active": bool(form.get("is_active")),
+    is_active = bool(form.get("is_active"))
+    payload: dict[str, str | None] = {
+        "name": _form_str(form.get("name")).strip(),
+        "code": _form_str_opt(form.get("code")),
+        "contact_name": _form_str_opt(form.get("contact_name")),
+        "contact_email": _form_str_opt(form.get("contact_email")),
+        "contact_phone": _form_str_opt(form.get("contact_phone")),
+        "license_number": _form_str_opt(form.get("license_number")),
+        "service_area": _form_str_opt(form.get("service_area")),
+        "notes": _form_str_opt(form.get("notes")),
     }
-    user_payload = None
+    user_payload: dict[str, str | None] | None = None
     if create_user:
         user_payload = {
-            "first_name": (form.get("user_first_name") or "").strip(),
-            "last_name": (form.get("user_last_name") or "").strip(),
-            "email": (form.get("user_email") or "").strip(),
-            "username": (form.get("user_username") or "").strip(),
-            "password": (form.get("user_password") or "").strip(),
-            "role": (form.get("user_role") or "").strip() or None,
+            "first_name": _form_str(form.get("user_first_name")).strip(),
+            "last_name": _form_str(form.get("user_last_name")).strip(),
+            "email": _form_str(form.get("user_email")).strip(),
+            "username": _form_str(form.get("user_username")).strip(),
+            "password": _form_str(form.get("user_password")).strip(),
+            "role": _form_str_opt(form.get("user_role")),
         }
         missing = [key for key, value in user_payload.items() if key != "role" and not value]
         if missing:
@@ -198,7 +207,34 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
             )
             return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
     try:
-        data = VendorCreate(**payload)
+        code = payload.get("code") if isinstance(payload.get("code"), str) else None
+        contact_name = (
+            payload.get("contact_name") if isinstance(payload.get("contact_name"), str) else None
+        )
+        contact_email = (
+            payload.get("contact_email") if isinstance(payload.get("contact_email"), str) else None
+        )
+        contact_phone = (
+            payload.get("contact_phone") if isinstance(payload.get("contact_phone"), str) else None
+        )
+        license_number = (
+            payload.get("license_number") if isinstance(payload.get("license_number"), str) else None
+        )
+        service_area = (
+            payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
+        )
+        notes = payload.get("notes") if isinstance(payload.get("notes"), str) else None
+        data = VendorCreate(
+            name=str(payload.get("name") or "").strip(),
+            code=code,
+            contact_name=contact_name,
+            contact_email=contact_email,
+            contact_phone=contact_phone,
+            license_number=license_number,
+            service_area=service_area,
+            notes=notes,
+            is_active=is_active,
+        )
     except ValidationError as exc:
         context = _base_context(request, db, active_page="vendors")
         roles = rbac_service.roles.list(
@@ -222,13 +258,18 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
     if user_payload:
         try:
             role_name = user_payload["role"] or _DEFAULT_VENDOR_ROLE
+            first_name = user_payload["first_name"] or ""
+            last_name = user_payload["last_name"] or ""
+            email = user_payload["email"] or ""
+            username = user_payload["username"] or ""
+            password = user_payload["password"] or ""
             person = _create_person_credential(
                 db=db,
-                first_name=user_payload["first_name"],
-                last_name=user_payload["last_name"],
-                email=user_payload["email"],
-                username=user_payload["username"],
-                password=user_payload["password"],
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                username=username,
+                password=password,
             )
             _assign_role_by_name(db, str(person.id), role_name)
             link = VendorUser(
@@ -263,19 +304,46 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
 @router.post("/{vendor_id}", response_class=HTMLResponse)
 async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    payload = {
-        "name": (form.get("name") or "").strip(),
-        "code": (form.get("code") or "").strip() or None,
-        "contact_name": (form.get("contact_name") or "").strip() or None,
-        "contact_email": (form.get("contact_email") or "").strip() or None,
-        "contact_phone": (form.get("contact_phone") or "").strip() or None,
-        "license_number": (form.get("license_number") or "").strip() or None,
-        "service_area": (form.get("service_area") or "").strip() or None,
-        "notes": (form.get("notes") or "").strip() or None,
-        "is_active": bool(form.get("is_active")),
+    is_active = bool(form.get("is_active"))
+    payload: dict[str, str | None] = {
+        "name": _form_str(form.get("name")).strip(),
+        "code": _form_str_opt(form.get("code")),
+        "contact_name": _form_str_opt(form.get("contact_name")),
+        "contact_email": _form_str_opt(form.get("contact_email")),
+        "contact_phone": _form_str_opt(form.get("contact_phone")),
+        "license_number": _form_str_opt(form.get("license_number")),
+        "service_area": _form_str_opt(form.get("service_area")),
+        "notes": _form_str_opt(form.get("notes")),
     }
     try:
-        data = VendorUpdate(**payload)
+        update_code = payload.get("code") if isinstance(payload.get("code"), str) else None
+        update_contact_name = (
+            payload.get("contact_name") if isinstance(payload.get("contact_name"), str) else None
+        )
+        update_contact_email = (
+            payload.get("contact_email") if isinstance(payload.get("contact_email"), str) else None
+        )
+        update_contact_phone = (
+            payload.get("contact_phone") if isinstance(payload.get("contact_phone"), str) else None
+        )
+        update_license_number = (
+            payload.get("license_number") if isinstance(payload.get("license_number"), str) else None
+        )
+        update_service_area = (
+            payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
+        )
+        update_notes = payload.get("notes") if isinstance(payload.get("notes"), str) else None
+        data = VendorUpdate(
+            name=payload.get("name") if isinstance(payload.get("name"), str) else None,
+            code=update_code,
+            contact_name=update_contact_name,
+            contact_email=update_contact_email,
+            contact_phone=update_contact_phone,
+            license_number=update_license_number,
+            service_area=update_service_area,
+            notes=update_notes,
+            is_active=is_active,
+        )
     except ValidationError as exc:
         context = _base_context(request, db, active_page="vendors")
         payload.update({"id": vendor_id})
@@ -329,7 +397,7 @@ def vendor_projects_list(request: Request, db: Session = Depends(get_db)):
         db=db,
         status=None,
         vendor_id=None,
-        account_id=None,
+        subscriber_id=None,
         project_id=None,
         is_active=True,
         order_by="created_at",
@@ -358,8 +426,6 @@ def vendor_quotes_list(request: Request, db: Session = Depends(get_db)):
         project_id=None,
         vendor_id=None,
         status=None,
-        party_status=None,
-        organization_id=None,
         is_active=True,
         order_by="created_at",
         order_dir="desc",
@@ -448,8 +514,8 @@ def vendor_detail(vendor_id: str, request: Request, db: Session = Depends(get_db
 @router.post("/{vendor_id}/users/link", response_class=HTMLResponse)
 async def vendor_user_link(vendor_id: str, request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    person_id = (form.get("person_id") or "").strip()
-    role = (form.get("role") or "").strip() or _DEFAULT_VENDOR_ROLE
+    person_id = _form_str(form.get("person_id")).strip()
+    role = _form_str(form.get("role")).strip() or _DEFAULT_VENDOR_ROLE
     if not person_id:
         return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)
     existing = (
@@ -476,12 +542,12 @@ async def vendor_user_link(vendor_id: str, request: Request, db: Session = Depen
 async def vendor_user_create(vendor_id: str, request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     fields = {
-        "first_name": (form.get("first_name") or "").strip(),
-        "last_name": (form.get("last_name") or "").strip(),
-        "email": (form.get("email") or "").strip(),
-        "username": (form.get("username") or "").strip(),
-        "password": (form.get("password") or "").strip(),
-        "role": (form.get("role") or "").strip() or _DEFAULT_VENDOR_ROLE,
+        "first_name": _form_str(form.get("first_name")).strip(),
+        "last_name": _form_str(form.get("last_name")).strip(),
+        "email": _form_str(form.get("email")).strip(),
+        "username": _form_str(form.get("username")).strip(),
+        "password": _form_str(form.get("password")).strip(),
+        "role": _form_str(form.get("role")).strip() or _DEFAULT_VENDOR_ROLE,
     }
     if not all([fields["first_name"], fields["last_name"], fields["email"], fields["username"], fields["password"]]):
         context = _base_context(request, db, active_page="vendors")
@@ -490,6 +556,8 @@ async def vendor_user_create(vendor_id: str, request: Request, db: Session = Dep
             db=db,
             email=None,
             status=None,
+            party_status=None,
+            organization_id=None,
             is_active=True,
             order_by="last_name",
             order_dir="asc",
@@ -539,6 +607,8 @@ async def vendor_user_create(vendor_id: str, request: Request, db: Session = Dep
             db=db,
             email=None,
             status=None,
+            party_status=None,
+            organization_id=None,
             is_active=True,
             order_by="last_name",
             order_dir="asc",

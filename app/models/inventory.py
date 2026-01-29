@@ -49,7 +49,7 @@ class InventoryLocation(Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     code: Mapped[str | None] = mapped_column(String(80))
     address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("addresses.id")
+        UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -59,7 +59,7 @@ class InventoryLocation(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
-    address = relationship("Address")
+    # address = relationship("Address")  # Model removed
 
 
 class InventoryStock(Base):

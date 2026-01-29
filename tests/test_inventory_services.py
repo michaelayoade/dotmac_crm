@@ -16,7 +16,6 @@ from app.models.inventory import (
     ReservationStatus,
     WorkOrderMaterial,
 )
-from app.models.subscriber import Address
 from app.models.workforce import WorkOrder
 from app.schemas.inventory import (
     InventoryItemCreate,
@@ -302,25 +301,6 @@ class TestInventoryLocations:
         assert result.name == "Main Warehouse"
         assert result.code == "WH-001"
 
-    def test_create_inventory_location_with_address(self, db_session, subscriber):
-        """Test creating location with address."""
-        addr = Address(
-            subscriber_id=subscriber.id,
-            address_line1="123 Warehouse Rd",
-            city="Somewhere",
-            region="CA",
-            postal_code="90210",
-        )
-        db_session.add(addr)
-        db_session.commit()
-
-        payload = InventoryLocationCreate(
-            name="Addressed Location",
-            address_id=addr.id,
-        )
-        result = inventory_service.inventory_locations.create(db_session, payload)
-        assert result.address_id == addr.id
-
     def test_create_inventory_location_address_not_found(self, db_session):
         """Test creating location with invalid address."""
         payload = InventoryLocationCreate(
@@ -393,25 +373,6 @@ class TestInventoryLocations:
         )
         assert result.name == "Updated"
         assert result.code == "UPD-001"
-
-    def test_update_inventory_location_with_address(self, db_session, subscriber):
-        """Test updating location with new address."""
-        location = InventoryLocation(name="Location")
-        addr = Address(
-            subscriber_id=subscriber.id,
-            address_line1="456 New Rd",
-            city="Elsewhere",
-            region="NY",
-            postal_code="10001",
-        )
-        db_session.add_all([location, addr])
-        db_session.commit()
-
-        payload = InventoryLocationUpdate(address_id=addr.id)
-        result = inventory_service.inventory_locations.update(
-            db_session, str(location.id), payload
-        )
-        assert result.address_id == addr.id
 
     def test_update_inventory_location_address_not_found(self, db_session):
         """Test updating location with invalid address."""

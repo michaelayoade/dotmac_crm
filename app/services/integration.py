@@ -121,6 +121,69 @@ class IntegrationTargets(ListResponseMixin):
         target.is_active = False
         db.commit()
 
+    @staticmethod
+    def get_channel_state(
+        db: Session,
+        target_type: IntegrationTargetType,
+        connector_type: ConnectorType,
+    ) -> dict | None:
+        """Get channel state for CRM integration (email or whatsapp)."""
+        target = (
+            db.query(IntegrationTarget)
+            .join(ConnectorConfig, ConnectorConfig.id == IntegrationTarget.connector_config_id)
+            .filter(IntegrationTarget.target_type == target_type)
+            .filter(IntegrationTarget.is_active.is_(True))
+            .filter(ConnectorConfig.connector_type == connector_type)
+            .order_by(IntegrationTarget.created_at.desc())
+            .first()
+        )
+        if not target or not target.connector_config:
+            return None
+
+        config = target.connector_config
+        metadata = config.metadata_ if isinstance(config.metadata_, dict) else {}
+        auth_config = config.auth_config if isinstance(config.auth_config, dict) else {}
+
+        result = {
+            "target_id": str(target.id),
+            "connector_id": str(config.id),
+            "name": target.name or config.name,
+            "auth_config": auth_config,
+        }
+
+        if connector_type == ConnectorType.email:
+            job = (
+                db.query(IntegrationJob)
+                .filter(IntegrationJob.target_id == target.id)
+                .filter(IntegrationJob.job_type == IntegrationJobType.import_)
+                .order_by(IntegrationJob.created_at.desc())
+                .first()
+            )
+            smtp = metadata.get("smtp")
+            imap = metadata.get("imap")
+            pop3 = metadata.get("pop3")
+            poll_interval = None
+            if job:
+                if job.interval_seconds is not None:
+                    poll_interval = job.interval_seconds
+                elif job.interval_minutes:
+                    poll_interval = job.interval_minutes * 60
+            result.update({
+                "smtp": smtp,
+                "imap": imap,
+                "pop3": pop3,
+                "poll_interval_seconds": poll_interval,
+                "polling_active": bool(job and job.is_active),
+                "receiving_enabled": bool((imap or pop3) and job and job.is_active),
+            })
+        elif connector_type == ConnectorType.whatsapp:
+            result.update({
+                "base_url": config.base_url,
+                "phone_number_id": metadata.get("phone_number_id"),
+            })
+
+        return result
+
 
 class IntegrationJobs(ListResponseMixin):
     @staticmethod
@@ -235,6 +298,19 @@ class IntegrationJobs(ListResponseMixin):
         db.commit()
 
     @staticmethod
+    def disable_import_jobs_for_target(db: Session, target_id: str) -> int:
+        """Disable all active import jobs for a target."""
+        count = (
+            db.query(IntegrationJob)
+            .filter(IntegrationJob.target_id == target_id)
+            .filter(IntegrationJob.job_type == IntegrationJobType.import_)
+            .filter(IntegrationJob.is_active.is_(True))
+            .update({"is_active": False})
+        )
+        db.commit()
+        return count
+
+    @staticmethod
     def run(db: Session, job_id: str):
         job = db.get(IntegrationJob, coerce_uuid(job_id))
         if not job:
@@ -336,3 +412,37 @@ def refresh_schedule(db: Session) -> dict[str, object]:
         "scheduled_jobs": count,
         "detail": "Celery beat loads schedules at startup. Restart beat to apply changes.",
     }
+
+
+def reset_stuck_runs(db: Session, target_id: str) -> int:
+    """Reset stuck running runs for a target's import job.
+
+    Returns the number of runs reset.
+    """
+    job = (
+        db.query(IntegrationJob)
+        .filter(IntegrationJob.target_id == coerce_uuid(target_id))
+        .filter(IntegrationJob.job_type == IntegrationJobType.import_)
+        .order_by(IntegrationJob.created_at.desc())
+        .first()
+    )
+    if not job:
+        return 0
+
+    count = (
+        db.query(IntegrationRun)
+        .filter(
+            IntegrationRun.job_id == job.id,
+            IntegrationRun.status == IntegrationRunStatus.running,
+        )
+        .update(
+            {
+                "status": IntegrationRunStatus.failed,
+                "finished_at": datetime.now(timezone.utc),
+                "error": "reset via inbox settings",
+            },
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    return count

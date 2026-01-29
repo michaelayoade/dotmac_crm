@@ -1,183 +1,10 @@
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.billing import Invoice
-from app.models.catalog import CatalogOffer, NasDevice, Subscription
-from app.models.network_monitoring import NetworkDevice, PopSite
 from app.models.person import Person
-from app.models.subscriber import AccountRole, Organization, Reseller, Subscriber, SubscriberAccount
+from app.models.subscriber import Organization, Reseller, Subscriber
 from app.models.vendor import Vendor
 from app.services.response import list_response
-
-
-def _account_label(account: SubscriberAccount) -> str:
-    subscriber = account.subscriber
-    if subscriber and subscriber.person:
-        if subscriber.person.organization:
-            base = subscriber.person.organization.name
-        else:
-            base = f"{subscriber.person.first_name} {subscriber.person.last_name}"
-    else:
-        base = "Account"
-    if account.account_number:
-        return f"{base} ({account.account_number})"
-    return base
-
-
-def _subscriber_label(subscriber: Subscriber) -> str:
-    if subscriber.person:
-        if subscriber.person.organization:
-            return subscriber.person.organization.name
-        return f"{subscriber.person.first_name} {subscriber.person.last_name}"
-    return "Subscriber"
-
-
-def _subscription_label(subscription: Subscription) -> str:
-    offer_name = subscription.offer.name if subscription.offer else "Subscription"
-    account_label = _account_label(subscription.account) if subscription.account else ""
-    if account_label:
-        return f"{offer_name} - {account_label}"
-    return offer_name
-
-
-def _contact_label(role: AccountRole) -> str:
-    person = role.person
-    label = f"{person.first_name} {person.last_name}" if person else "Contact"
-    account_label = _account_label(role.account) if role.account else None
-    return f"{label} - {account_label}" if account_label else label
-
-
-def _invoice_label(invoice: Invoice) -> str:
-    number = invoice.invoice_number or "Invoice"
-    account_label = _account_label(invoice.account) if invoice.account else ""
-    balance = invoice.balance_due if invoice.balance_due is not None else invoice.total
-    if balance is not None:
-        amount_label = f"{invoice.currency} {balance:,.2f}"
-        if account_label:
-            return f"{number} - {account_label} · {amount_label}"
-        return f"{number} · {amount_label}"
-    if account_label:
-        return f"{number} - {account_label}"
-    return number
-
-
-def accounts(db: Session, query: str, limit: int) -> list[dict]:
-    term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(SubscriberAccount)
-        .join(Subscriber, SubscriberAccount.subscriber_id == Subscriber.id)
-        .outerjoin(Person, Subscriber.person_id == Person.id)
-        .outerjoin(Organization, Person.organization_id == Organization.id)
-        .options(
-            joinedload(SubscriberAccount.subscriber)
-            .joinedload(Subscriber.person),
-        )
-        .filter(
-            or_(
-                SubscriberAccount.account_number.ilike(like_term),
-                Person.first_name.ilike(like_term),
-                Person.last_name.ilike(like_term),
-                Person.email.ilike(like_term),
-                Organization.name.ilike(like_term),
-                Organization.domain.ilike(like_term),
-            )
-        )
-        .limit(limit)
-        .all()
-    )
-    return [{"id": account.id, "label": _account_label(account)} for account in results]
-
-
-def subscribers(db: Session, query: str, limit: int) -> list[dict]:
-    term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(Subscriber)
-        .outerjoin(Person, Subscriber.person_id == Person.id)
-        .outerjoin(Organization, Person.organization_id == Organization.id)
-        .options(joinedload(Subscriber.person).joinedload(Person.organization))
-        .filter(
-            or_(
-                Person.first_name.ilike(like_term),
-                Person.last_name.ilike(like_term),
-                Person.email.ilike(like_term),
-                Organization.name.ilike(like_term),
-                Organization.domain.ilike(like_term),
-            )
-        )
-        .limit(limit)
-        .all()
-    )
-    return [{"id": sub.id, "label": _subscriber_label(sub)} for sub in results]
-
-
-def subscriptions(db: Session, query: str, limit: int) -> list[dict]:
-    term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(Subscription)
-        .join(SubscriberAccount, Subscription.account_id == SubscriberAccount.id)
-        .join(CatalogOffer, Subscription.offer_id == CatalogOffer.id)
-        .outerjoin(Subscriber, SubscriberAccount.subscriber_id == Subscriber.id)
-        .outerjoin(Person, Subscriber.person_id == Person.id)
-        .outerjoin(Organization, Person.organization_id == Organization.id)
-        .options(
-            joinedload(Subscription.account)
-            .joinedload(SubscriberAccount.subscriber)
-            .joinedload(Subscriber.person),
-            joinedload(Subscription.account)
-            .joinedload(SubscriberAccount.subscriber)
-            .joinedload(Subscriber.person)
-            .joinedload(Person.organization),
-            joinedload(Subscription.offer),
-        )
-        .filter(
-            or_(
-                CatalogOffer.name.ilike(like_term),
-                SubscriberAccount.account_number.ilike(like_term),
-                Person.first_name.ilike(like_term),
-                Person.last_name.ilike(like_term),
-                Person.email.ilike(like_term),
-                Organization.name.ilike(like_term),
-            )
-        )
-        .limit(limit)
-        .all()
-    )
-    return [{"id": sub.id, "label": _subscription_label(sub)} for sub in results]
-
-
-def contacts(db: Session, query: str, limit: int) -> list[dict]:
-    term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(AccountRole)
-        .join(SubscriberAccount, AccountRole.account_id == SubscriberAccount.id)
-        .outerjoin(Subscriber, SubscriberAccount.subscriber_id == Subscriber.id)
-        .outerjoin(Person, Subscriber.person_id == Person.id)
-        .outerjoin(Organization, Person.organization_id == Organization.id)
-        .options(joinedload(AccountRole.account).joinedload(SubscriberAccount.subscriber))
-        .filter(
-            or_(
-                Person.first_name.ilike(like_term),
-                Person.last_name.ilike(like_term),
-                SubscriberAccount.account_number.ilike(like_term),
-                Organization.name.ilike(like_term),
-            )
-        )
-        .limit(limit)
-        .all()
-    )
-    return [{"id": role.id, "label": _contact_label(role)} for role in results]
 
 
 def people(db: Session, query: str, limit: int) -> list[dict]:
@@ -209,157 +36,49 @@ def people(db: Session, query: str, limit: int) -> list[dict]:
     return items
 
 
-def invoices(db: Session, query: str, limit: int, account_id: str | None = None) -> list[dict]:
-    term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    query_base = (
-        db.query(Invoice)
-        .join(SubscriberAccount, Invoice.account_id == SubscriberAccount.id)
-        .outerjoin(Subscriber, SubscriberAccount.subscriber_id == Subscriber.id)
-        .outerjoin(Person, Subscriber.person_id == Person.id)
-        .outerjoin(Organization, Person.organization_id == Organization.id)
-        .options(joinedload(Invoice.account).joinedload(SubscriberAccount.subscriber))
-        .filter(
-            or_(
-                Invoice.invoice_number.ilike(like_term),
-                SubscriberAccount.account_number.ilike(like_term),
-                Person.first_name.ilike(like_term),
-                Person.last_name.ilike(like_term),
-                Organization.name.ilike(like_term),
-            )
-        )
-    )
-    if account_id:
-        query_base = query_base.filter(Invoice.account_id == account_id)
-    results = query_base.limit(limit).all()
-    return [{"id": invoice.id, "label": _invoice_label(invoice)} for invoice in results]
-
-
-def accounts_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(accounts(db, query, limit), limit, 0)
-
-
-def subscribers_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(subscribers(db, query, limit), limit, 0)
-
-
-def subscriptions_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(subscriptions(db, query, limit), limit, 0)
-
-
-def contacts_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(contacts(db, query, limit), limit, 0)
-
-
-def invoices_response(db: Session, query: str, limit: int, account_id: str | None = None) -> dict:
-    return list_response(invoices(db, query, limit, account_id), limit, 0)
-
-
 def people_response(db: Session, query: str, limit: int) -> dict:
     return list_response(people(db, query, limit), limit, 0)
 
 
-def nas_devices(db: Session, query: str, limit: int) -> list[dict]:
-    """Search NAS devices by name or IP."""
+def subscribers(db: Session, query: str, limit: int) -> list[dict]:
+    """Search subscribers by subscriber number, account number, name, or external ID."""
     term = (query or "").strip()
     if not term:
         return []
     like_term = f"%{term}%"
     results = (
-        db.query(NasDevice)
+        db.query(Subscriber)
+        .outerjoin(Person, Subscriber.person_id == Person.id)
+        .outerjoin(Organization, Subscriber.organization_id == Organization.id)
+        .options(
+            joinedload(Subscriber.person),
+            joinedload(Subscriber.organization),
+        )
         .filter(
             or_(
-                NasDevice.name.ilike(like_term),
-                NasDevice.code.ilike(like_term),
-                NasDevice.ip_address.ilike(like_term),
-                NasDevice.management_ip.ilike(like_term),
-                NasDevice.nas_ip.ilike(like_term),
+                Subscriber.subscriber_number.ilike(like_term),
+                Subscriber.account_number.ilike(like_term),
+                Subscriber.external_id.ilike(like_term),
+                Person.first_name.ilike(like_term),
+                Person.last_name.ilike(like_term),
+                Person.email.ilike(like_term),
+                Organization.name.ilike(like_term),
             )
         )
-        .filter(NasDevice.is_active == True)
         .limit(limit)
         .all()
     )
     items = []
-    for device in results:
-        label = device.name
-        if device.management_ip:
-            label = f"{label} ({device.management_ip})"
-        elif device.ip_address:
-            label = f"{label} ({device.ip_address})"
-        items.append({"id": device.id, "label": label})
+    for subscriber in results:
+        label = subscriber.display_name
+        if subscriber.subscriber_number:
+            label = f"{label} ({subscriber.subscriber_number})"
+        items.append({"id": subscriber.id, "label": label})
     return items
 
 
-def nas_devices_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(nas_devices(db, query, limit), limit, 0)
-
-
-def network_devices(db: Session, query: str, limit: int) -> list[dict]:
-    """Search network devices by name or management IP."""
-    term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(NetworkDevice)
-        .filter(
-            or_(
-                NetworkDevice.name.ilike(like_term),
-                NetworkDevice.hostname.ilike(like_term),
-                NetworkDevice.mgmt_ip.ilike(like_term),
-            )
-        )
-        .filter(NetworkDevice.is_active == True)
-        .limit(limit)
-        .all()
-    )
-    items = []
-    for device in results:
-        label = device.name
-        if device.mgmt_ip:
-            label = f"{label} ({device.mgmt_ip})"
-        items.append({"id": device.id, "label": label})
-    return items
-
-
-def network_devices_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(network_devices(db, query, limit), limit, 0)
-
-
-def pop_sites(db: Session, query: str, limit: int) -> list[dict]:
-    """Search POP sites by name or location."""
-    term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(PopSite)
-        .filter(
-            or_(
-                PopSite.name.ilike(like_term),
-                PopSite.code.ilike(like_term),
-                PopSite.city.ilike(like_term),
-                PopSite.region.ilike(like_term),
-            )
-        )
-        .filter(PopSite.is_active == True)
-        .limit(limit)
-        .all()
-    )
-    items = []
-    for site in results:
-        label = site.name
-        if site.city:
-            label = f"{label} ({site.city})"
-        items.append({"id": site.id, "label": label})
-    return items
-
-
-def pop_sites_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(pop_sites(db, query, limit), limit, 0)
+def subscribers_response(db: Session, query: str, limit: int) -> dict:
+    return list_response(subscribers(db, query, limit), limit, 0)
 
 
 def vendors(db: Session, query: str, limit: int) -> list[dict]:
@@ -437,35 +156,49 @@ def organizations_response(db: Session, query: str, limit: int) -> dict:
     return list_response(organizations(db, query, limit), limit, 0)
 
 
-def catalog_offers(db: Session, query: str, limit: int) -> list[dict]:
-    """Search catalog offers by name."""
+def network_devices_response(db: Session, query: str, limit: int) -> dict:
+    """Search network devices by name."""
+    from app.models.network import OLTDevice
     term = (query or "").strip()
     if not term:
-        return []
+        return list_response([], limit, 0)
     like_term = f"%{term}%"
     results = (
-        db.query(CatalogOffer)
+        db.query(OLTDevice)
         .filter(
             or_(
-                CatalogOffer.name.ilike(like_term),
-                CatalogOffer.code.ilike(like_term),
+                OLTDevice.name.ilike(like_term),
+                OLTDevice.hostname.ilike(like_term),
+                OLTDevice.mgmt_ip.ilike(like_term),
             )
         )
-        .filter(CatalogOffer.is_active == True)
         .limit(limit)
         .all()
     )
-    items = []
-    for offer in results:
-        label = offer.name
-        if offer.code:
-            label = f"{label} ({offer.code})"
-        items.append({"id": offer.id, "label": label})
-    return items
+    items = [{"id": d.id, "label": d.name or d.hostname or d.mgmt_ip} for d in results]
+    return list_response(items, limit, 0)
 
 
-def catalog_offers_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(catalog_offers(db, query, limit), limit, 0)
+def pop_sites_response(db: Session, query: str, limit: int) -> dict:
+    """Search POP sites by name."""
+    from app.models.gis import GeoLocation, GeoLocationType
+    term = (query or "").strip()
+    if not term:
+        return list_response([], limit, 0)
+    like_term = f"%{term}%"
+    results = (
+        db.query(GeoLocation)
+        .filter(
+            or_(
+                GeoLocation.name.ilike(like_term),
+            )
+        )
+        .filter(GeoLocation.location_type == GeoLocationType.pop)
+        .limit(limit)
+        .all()
+    )
+    items = [{"id": p.id, "label": p.name} for p in results]
+    return list_response(items, limit, 0)
 
 
 def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
@@ -483,12 +216,11 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
     like_term = f"%{term}%"
     categories = []
 
-    # Search customers/subscribers
+    # Search people (customers)
     customer_results = (
-        db.query(Subscriber)
-        .outerjoin(Person, Subscriber.person_id == Person.id)
+        db.query(Person)
         .outerjoin(Organization, Person.organization_id == Organization.id)
-        .options(joinedload(Subscriber.person).joinedload(Person.organization))
+        .options(joinedload(Person.organization))
         .filter(
             or_(
                 Person.first_name.ilike(like_term),
@@ -506,80 +238,12 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
             "icon": "users",
             "items": [
                 {
-                    "id": str(sub.id),
-                    "label": _subscriber_label(sub),
-                    "url": f"/admin/subscribers/{sub.id}",
+                    "id": str(p.id),
+                    "label": f"{p.first_name} {p.last_name}".strip() or p.email or "Person",
+                    "url": f"/admin/customers/{p.id}",
                     "type": "customer",
                 }
-                for sub in customer_results
-            ],
-        })
-
-    # Search accounts
-    account_results = (
-        db.query(SubscriberAccount)
-        .join(Subscriber, SubscriberAccount.subscriber_id == Subscriber.id)
-        .outerjoin(Person, Subscriber.person_id == Person.id)
-        .outerjoin(Organization, Person.organization_id == Organization.id)
-        .options(
-            joinedload(SubscriberAccount.subscriber).joinedload(Subscriber.person),
-            joinedload(SubscriberAccount.subscriber).joinedload(Subscriber.person).joinedload(Person.organization),
-        )
-        .filter(
-            or_(
-                SubscriberAccount.account_number.ilike(like_term),
-                Person.first_name.ilike(like_term),
-                Person.last_name.ilike(like_term),
-                Organization.name.ilike(like_term),
-            )
-        )
-        .limit(limit_per_type)
-        .all()
-    )
-    if account_results:
-        categories.append({
-            "name": "Accounts",
-            "icon": "credit-card",
-            "items": [
-                {
-                    "id": str(acc.id),
-                    "label": _account_label(acc),
-                    "url": f"/admin/billing/accounts/{acc.id}",
-                    "type": "account",
-                }
-                for acc in account_results
-            ],
-        })
-
-    # Search invoices
-    invoice_results = (
-        db.query(Invoice)
-        .join(SubscriberAccount, Invoice.account_id == SubscriberAccount.id)
-        .outerjoin(Subscriber, SubscriberAccount.subscriber_id == Subscriber.id)
-        .outerjoin(Person, Subscriber.person_id == Person.id)
-        .outerjoin(Organization, Person.organization_id == Organization.id)
-        .options(joinedload(Invoice.account).joinedload(SubscriberAccount.subscriber))
-        .filter(
-            or_(
-                Invoice.invoice_number.ilike(like_term),
-                SubscriberAccount.account_number.ilike(like_term),
-            )
-        )
-        .limit(limit_per_type)
-        .all()
-    )
-    if invoice_results:
-        categories.append({
-            "name": "Invoices",
-            "icon": "document-text",
-            "items": [
-                {
-                    "id": str(inv.id),
-                    "label": _invoice_label(inv),
-                    "url": f"/admin/billing/invoices/{inv.id}",
-                    "type": "invoice",
-                }
-                for inv in invoice_results
+                for p in customer_results
             ],
         })
 
@@ -589,7 +253,7 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
         .filter(
             or_(
                 Ticket.title.ilike(like_term),
-                Ticket.ticket_number.ilike(like_term),
+                Ticket.description.ilike(like_term),
             )
         )
         .limit(limit_per_type)
@@ -602,7 +266,7 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
             "items": [
                 {
                     "id": str(t.id),
-                    "label": f"#{t.ticket_number} - {t.title}" if t.ticket_number else t.title,
+                    "label": t.title or f"Ticket {t.id}",
                     "url": f"/admin/support/tickets/{t.id}",
                     "type": "ticket",
                 }
@@ -616,7 +280,7 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
         .filter(
             or_(
                 WorkOrder.title.ilike(like_term),
-                WorkOrder.work_order_number.ilike(like_term),
+                WorkOrder.description.ilike(like_term),
             )
         )
         .limit(limit_per_type)
@@ -629,7 +293,7 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
             "items": [
                 {
                     "id": str(wo.id),
-                    "label": f"#{wo.work_order_number} - {wo.title}" if wo.work_order_number else wo.title,
+                    "label": wo.title or f"Work Order {wo.id}",
                     "url": f"/admin/operations/work-orders/{wo.id}",
                     "type": "work_order",
                 }

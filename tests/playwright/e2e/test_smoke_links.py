@@ -109,7 +109,7 @@ def test_customer_portal_internal_links_smoke(user_page, settings):
     _crawl_links(
         user_page,
         settings.base_url,
-        ["/portal/dashboard", "/portal/billing", "/portal/support"],
+        ["/portal/dashboard", "/portal/support", "/portal/installations"],
         max_pages,
     )
 
@@ -123,10 +123,6 @@ def test_public_internal_links_smoke(admin_page, settings):
             "/",
             "/auth/login",
             "/auth/forgot-password",
-            "/web/network",
-            "/web/usage",
-            "/web/billing",
-            "/web/catalog",
             "/web/projects",
             "/web/tickets",
         ],

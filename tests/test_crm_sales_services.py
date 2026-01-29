@@ -1035,3 +1035,264 @@ def test_update_quote_line_item_not_found(db_session):
         )
     assert exc_info.value.status_code == 404
     assert "Quote line item not found" in exc_info.value.detail
+
+
+# =============================================================================
+# Lead Sales Fields Tests
+# =============================================================================
+
+
+def test_create_lead_with_probability(db_session, person):
+    """Test creating a lead with probability."""
+    from datetime import date
+
+    lead = sales_service.Leads.create(
+        db_session,
+        LeadCreate(
+            title="Probability Test Lead",
+            person_id=person.id,
+            estimated_value=Decimal("10000.00"),
+            probability=75,
+            expected_close_date=date(2026, 3, 15),
+        ),
+    )
+    assert lead.probability == 75
+    assert lead.expected_close_date == date(2026, 3, 15)
+    assert lead.weighted_value == Decimal("7500.00")
+
+
+def test_lead_weighted_value_none_when_no_probability(db_session, person):
+    """Test weighted_value is None when probability is not set."""
+    lead = sales_service.Leads.create(
+        db_session,
+        LeadCreate(
+            title="No Probability Lead",
+            person_id=person.id,
+            estimated_value=Decimal("10000.00"),
+        ),
+    )
+    assert lead.probability is None
+    assert lead.weighted_value is None
+
+
+def test_update_lead_with_sales_fields(db_session, person):
+    """Test updating lead with sales fields."""
+    from datetime import date
+
+    lead = sales_service.Leads.create(
+        db_session,
+        LeadCreate(title="Update Sales Fields Lead", person_id=person.id),
+    )
+
+    updated = sales_service.Leads.update(
+        db_session,
+        str(lead.id),
+        LeadUpdate(
+            estimated_value=Decimal("50000.00"),
+            probability=60,
+            expected_close_date=date(2026, 6, 1),
+            status=LeadStatus.lost,
+            lost_reason="Competitor chosen",
+        ),
+    )
+
+    assert updated.estimated_value == Decimal("50000.00")
+    assert updated.probability == 60
+    assert updated.expected_close_date == date(2026, 6, 1)
+    assert updated.status == LeadStatus.lost
+    assert updated.lost_reason == "Competitor chosen"
+    assert updated.weighted_value == Decimal("30000.00")
+
+
+# =============================================================================
+# Pipeline Stage Default Probability Tests
+# =============================================================================
+
+
+def test_create_pipeline_stage_with_default_probability(db_session):
+    """Test creating a pipeline stage with default probability."""
+    pipeline = sales_service.Pipelines.create(
+        db_session, PipelineCreate(name="Probability Stage Pipeline")
+    )
+    stage = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(
+            pipeline_id=pipeline.id,
+            name="Negotiation",
+            order_index=3,
+            default_probability=80,
+        ),
+    )
+    assert stage.default_probability == 80
+
+
+def test_create_pipeline_stage_default_probability_default(db_session):
+    """Test pipeline stage default probability defaults to 50."""
+    pipeline = sales_service.Pipelines.create(
+        db_session, PipelineCreate(name="Default Prob Pipeline")
+    )
+    stage = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(
+            pipeline_id=pipeline.id,
+            name="Initial",
+        ),
+    )
+    assert stage.default_probability == 50
+
+
+# =============================================================================
+# Kanban View Tests
+# =============================================================================
+
+
+def test_kanban_view_empty(db_session):
+    """Test kanban view with no data."""
+    result = sales_service.Leads.kanban_view(db_session, pipeline_id=None)
+    assert "columns" in result
+    assert "records" in result
+    assert isinstance(result["columns"], list)
+    assert isinstance(result["records"], list)
+
+
+def test_kanban_view_with_pipeline(db_session, person):
+    """Test kanban view filtered by pipeline."""
+    pipeline = sales_service.Pipelines.create(
+        db_session, PipelineCreate(name="Kanban Test Pipeline")
+    )
+    stage1 = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(
+            pipeline_id=pipeline.id,
+            name="Stage 1",
+            order_index=1,
+            default_probability=20,
+        ),
+    )
+    stage2 = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(
+            pipeline_id=pipeline.id,
+            name="Stage 2",
+            order_index=2,
+            default_probability=50,
+        ),
+    )
+
+    lead = sales_service.Leads.create(
+        db_session,
+        LeadCreate(
+            title="Kanban Lead",
+            person_id=person.id,
+            pipeline_id=pipeline.id,
+            stage_id=stage1.id,
+            estimated_value=Decimal("5000.00"),
+            probability=25,
+        ),
+    )
+
+    result = sales_service.Leads.kanban_view(db_session, pipeline_id=str(pipeline.id))
+
+    assert len(result["columns"]) == 2
+    assert result["columns"][0]["id"] == str(stage1.id)
+    assert result["columns"][0]["default_probability"] == 20
+
+    assert len(result["records"]) >= 1
+    lead_record = next((r for r in result["records"] if r["id"] == str(lead.id)), None)
+    assert lead_record is not None
+    assert lead_record["stage"] == str(stage1.id)
+    assert lead_record["estimated_value"] == 5000.0
+    assert lead_record["probability"] == 25
+    assert lead_record["url"] == f"/admin/crm/leads/{lead.id}"
+
+
+def test_update_stage_moves_lead(db_session, person):
+    """Test update_stage moves lead to new stage."""
+    pipeline = sales_service.Pipelines.create(
+        db_session, PipelineCreate(name="Stage Move Pipeline")
+    )
+    stage1 = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(
+            pipeline_id=pipeline.id,
+            name="First",
+            order_index=1,
+            default_probability=10,
+        ),
+    )
+    stage2 = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(
+            pipeline_id=pipeline.id,
+            name="Second",
+            order_index=2,
+            default_probability=60,
+        ),
+    )
+
+    lead = sales_service.Leads.create(
+        db_session,
+        LeadCreate(
+            title="Move Stage Lead",
+            person_id=person.id,
+            pipeline_id=pipeline.id,
+            stage_id=stage1.id,
+        ),
+    )
+
+    result = sales_service.Leads.update_stage(db_session, str(lead.id), str(stage2.id))
+
+    assert result["stage_id"] == str(stage2.id)
+    assert result["pipeline_id"] == str(pipeline.id)
+
+    # Probability should be set from stage default since lead didn't have one
+    db_session.refresh(lead)
+    assert lead.stage_id == stage2.id
+    assert lead.probability == 60
+
+
+def test_update_stage_preserves_existing_probability(db_session, person):
+    """Test update_stage preserves existing probability."""
+    pipeline = sales_service.Pipelines.create(
+        db_session, PipelineCreate(name="Preserve Prob Pipeline")
+    )
+    stage1 = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(
+            pipeline_id=pipeline.id,
+            name="First",
+            default_probability=10,
+        ),
+    )
+    stage2 = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(
+            pipeline_id=pipeline.id,
+            name="Second",
+            default_probability=60,
+        ),
+    )
+
+    lead = sales_service.Leads.create(
+        db_session,
+        LeadCreate(
+            title="Keep Prob Lead",
+            person_id=person.id,
+            pipeline_id=pipeline.id,
+            stage_id=stage1.id,
+            probability=45,  # Custom probability
+        ),
+    )
+
+    sales_service.Leads.update_stage(db_session, str(lead.id), str(stage2.id))
+
+    db_session.refresh(lead)
+    # Probability should remain 45, not be overwritten by stage default
+    assert lead.probability == 45
+
+
+def test_update_stage_not_found(db_session):
+    """Test update_stage with non-existent lead raises 404."""
+    with pytest.raises(HTTPException) as exc_info:
+        sales_service.Leads.update_stage(db_session, str(uuid.uuid4()), str(uuid.uuid4()))
+    assert exc_info.value.status_code == 404

@@ -65,18 +65,6 @@
                         {% endif %}
                     </dd>
                 </div>
-                <div>
-                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Service Order</dt>
-                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">
-                        {% if work_order.service_order_id %}
-                            <a href="/admin/operations/service-orders/{{ work_order.service_order_id }}" class="text-primary-600 hover:text-primary-700">
-                                {{ work_order.service_order_id | string | truncate(8, True, '') }}
-                            </a>
-                        {% else %}
-                            —
-                        {% endif %}
-                    </dd>
-                </div>
                 <div class="sm:col-span-2">
                     <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Description</dt>
                     <dd class="mt-1 text-sm text-slate-900 dark:text-white whitespace-pre-wrap">

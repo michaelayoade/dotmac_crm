@@ -5,24 +5,8 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import settings
 from app.db import Base
-from app.models import (  # noqa: F401
-    auth,
-    bandwidth,
-    catalog,
-    collections,
-    lifecycle,
-    network,
-    network_monitoring,
-    person,
-    provisioning,
-    radius,
-    sequence,
-    snmp,
-    subscriber,
-    subscription_engine,
-    tr069,
-    usage,
-)
+# Import all models to ensure they are registered with Base.metadata
+from app.models import *  # noqa: F401, F403
 
 config = context.config
 

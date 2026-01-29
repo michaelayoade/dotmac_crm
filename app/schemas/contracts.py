@@ -11,7 +11,6 @@ class ContractSignatureCreate(BaseModel):
     """Schema for creating a contract signature."""
 
     account_id: UUID
-    service_order_id: Optional[UUID] = None
     document_id: Optional[UUID] = None
     signer_name: str = Field(..., min_length=1, max_length=200)
     signer_email: EmailStr
@@ -26,7 +25,6 @@ class ContractSignatureRead(BaseModel):
 
     id: UUID
     account_id: UUID
-    service_order_id: Optional[UUID]
     document_id: Optional[UUID]
     signer_name: str
     signer_email: str

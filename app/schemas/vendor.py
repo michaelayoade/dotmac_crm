@@ -54,7 +54,7 @@ class VendorRead(VendorBase):
 class InstallationProjectBase(BaseModel):
     project_id: UUID
     buildout_project_id: UUID | None = None
-    account_id: UUID | None = None
+    subscriber_id: UUID | None = None
     address_id: UUID | None = None
     assigned_vendor_id: UUID | None = None
     assignment_type: VendorAssignmentType | None = None
@@ -73,7 +73,7 @@ class InstallationProjectCreate(InstallationProjectBase):
 
 class InstallationProjectUpdate(BaseModel):
     buildout_project_id: UUID | None = None
-    account_id: UUID | None = None
+    subscriber_id: UUID | None = None
     address_id: UUID | None = None
     assigned_vendor_id: UUID | None = None
     assignment_type: VendorAssignmentType | None = None

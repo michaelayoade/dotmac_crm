@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from app.models.auth import AuthProvider, MFAMethod, MFAMethodType, Session as AuthSession, SessionStatus, UserCredential
 from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.subscription_engine import SettingValueType
+from app.models.domain_settings import SettingValueType
 from app.schemas.auth_flow import LogoutResponse, TokenResponse
 from app.services import auth_flow as auth_flow_service
 

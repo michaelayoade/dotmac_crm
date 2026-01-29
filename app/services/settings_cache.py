@@ -62,7 +62,7 @@ class SettingsCache:
             r = get_settings_redis()
             cache_key = SettingsCache._cache_key(domain, key)
             value = r.get(cache_key)
-            if value is not None:
+            if isinstance(value, str):
                 return json.loads(value)
         except redis.RedisError as exc:
             logger.warning(f"Settings cache get failed: {exc}")
@@ -146,13 +146,15 @@ class SettingsCache:
         Returns:
             Dict mapping keys to their cached values (missing keys are omitted)
         """
-        result = {}
+        result: dict[str, Any] = {}
         try:
             r = get_settings_redis()
             cache_keys = [SettingsCache._cache_key(domain, k) for k in keys]
             values = r.mget(cache_keys)
+            if not isinstance(values, list):
+                return result
             for key, value in zip(keys, values):
-                if value is not None:
+                if isinstance(value, str):
                     try:
                         result[key] = json.loads(value)
                     except json.JSONDecodeError:

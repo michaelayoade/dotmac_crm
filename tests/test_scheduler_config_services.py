@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.subscription_engine import SettingValueType
+from app.models.domain_settings import SettingValueType
 from app.models.scheduler import ScheduleType, ScheduledTask
 from app.services import scheduler_config
 

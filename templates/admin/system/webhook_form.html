@@ -84,38 +84,6 @@
                         </div>
                     </label>
                     <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
-                        <input type="checkbox" name="events" value="subscription.created" {% if endpoint and 'subscription.created' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
-                        <div>
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">subscription.created</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">New subscription activated</p>
-                        </div>
-                    </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
-                        <input type="checkbox" name="events" value="invoice.created" {% if endpoint and 'invoice.created' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
-                        <div>
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">invoice.created</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">Invoice generated</p>
-                        </div>
-                    </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
-                        <input type="checkbox" name="events" value="invoice.paid" {% if endpoint and 'invoice.paid' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
-                        <div>
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">invoice.paid</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">Invoice payment received</p>
-                        </div>
-                    </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
-                        <input type="checkbox" name="events" value="payment.received" {% if endpoint and 'payment.received' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
-                        <div>
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">payment.received</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">Payment processed</p>
-                        </div>
-                    </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
                         <input type="checkbox" name="events" value="provisioning.completed" {% if endpoint and 'provisioning.completed' in subscribed_events %}checked{% endif %}
                             class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
                         <div>
@@ -132,11 +100,27 @@
                         </div>
                     </label>
                     <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
-                        <input type="checkbox" name="events" value="usage.recorded" {% if endpoint and 'usage.recorded' in subscribed_events %}checked{% endif %}
+                        <input type="checkbox" name="events" value="ticket.created" {% if endpoint and 'ticket.created' in subscribed_events %}checked{% endif %}
                             class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
                         <div>
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">usage.recorded</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">Usage data recorded</p>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">ticket.created</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Support ticket opened</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
+                        <input type="checkbox" name="events" value="work_order.completed" {% if endpoint and 'work_order.completed' in subscribed_events %}checked{% endif %}
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">work_order.completed</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Work order finished</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
+                        <input type="checkbox" name="events" value="project.status_changed" {% if endpoint and 'project.status_changed' in subscribed_events %}checked{% endif %}
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">project.status_changed</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Project status updated</p>
                         </div>
                     </label>
                 </div>

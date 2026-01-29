@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import subprocess
+from typing import Any
 from pathlib import Path
 from uuid import UUID
 
@@ -93,9 +94,9 @@ class WireGuardSystemService:
             "PostDown = sysctl -w net.ipv6.conf.all.forwarding=0",
         ])
 
-        routes = []
+        routes: list[str] = []
         if server.metadata_:
-            routes = server.metadata_.get("routes") or []
+            routes = [str(route) for route in server.metadata_.get("routes") or []]
 
         if routes:
             lines.append("")
@@ -390,12 +391,13 @@ class WireGuardSystemService:
         Returns:
             Dict with interface status and peer info
         """
-        status = {
+        peers: list[dict[str, Any]] = []
+        status: dict[str, Any] = {
             "interface": interface_name,
             "is_up": False,
             "public_key": None,
             "listen_port": None,
-            "peers": [],
+            "peers": peers,
         }
 
         try:
@@ -434,7 +436,7 @@ class WireGuardSystemService:
                             "tx_bytes": int(parts[6]),
                             "persistent_keepalive": int(parts[7]) if parts[7] != "off" else 0,
                         }
-                        status["peers"].append(peer)
+                        peers.append(peer)
 
         except Exception as e:
             logger.error(f"Failed to get interface status: {e}")

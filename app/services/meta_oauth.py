@@ -30,10 +30,26 @@ logger = get_logger(__name__)
 _DEFAULT_META_TIMEOUT = 30  # fallback when settings unavailable
 
 
+def _coerce_int(value: object | None, default: int) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return default
+
+
+def _coerce_str(value: object | None, default: str) -> str:
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return default
+    return str(value)
+
+
 def _get_meta_api_timeout(db: Session | None = None) -> int:
     """Get the Meta API timeout from settings."""
     timeout = resolve_value(db, SettingDomain.comms, "meta_api_timeout_seconds") if db else None
-    return timeout if timeout else _DEFAULT_META_TIMEOUT
+    return _coerce_int(timeout, _DEFAULT_META_TIMEOUT)
 
 
 def get_meta_settings(db: Session) -> dict:
@@ -70,7 +86,7 @@ META_OAUTH_BASE_URL = "https://www.facebook.com"
 
 def _get_meta_graph_api_version(db: Session | None) -> str:
     version = resolve_value(db, SettingDomain.comms, "meta_graph_api_version") if db else None
-    return version or settings.meta_graph_api_version
+    return _coerce_str(version, settings.meta_graph_api_version)
 
 
 def _get_meta_graph_base_url(db: Session | None) -> str:

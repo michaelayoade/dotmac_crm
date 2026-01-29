@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.network_monitoring import AlertSeverity, AlertStatus
+from app.models.notification import AlertSeverity, AlertStatus
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.notification import (
     AlertNotificationLog,

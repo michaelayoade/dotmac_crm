@@ -6,6 +6,7 @@ class ChannelType(enum.Enum):
     whatsapp = "whatsapp"
     facebook_messenger = "facebook_messenger"
     instagram_dm = "instagram_dm"
+    note = "note"
 
 
 class ConversationStatus(enum.Enum):
@@ -18,6 +19,7 @@ class ConversationStatus(enum.Enum):
 class MessageDirection(enum.Enum):
     inbound = "inbound"
     outbound = "outbound"
+    internal = "internal"
 
 
 class MessageStatus(enum.Enum):

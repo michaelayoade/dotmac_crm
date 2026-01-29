@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
-from app.models.catalog import NasDevice
 from app.models.person import Person
 from app.models.wireguard import WireGuardPeerStatus
 from app.schemas.wireguard import (
@@ -371,13 +370,13 @@ async def server_create(
         errors.append("Router host is required when router sync is enabled")
 
     # Parse DNS servers
-    dns_list = None
+    dns_list: list[str] | None = None
     if dns_servers:
         dns_list = [s.strip() for s in dns_servers.split(",") if s.strip()]
     vpn_address = (vpn_address or "").strip()
     if not vpn_address:
         vpn_address = vpn_defaults.get("vpn_address") or "10.10.0.1/24"
-    vpn_address_v6 = (vpn_address_v6 or "").strip() or None
+    vpn_address_v6_value = (vpn_address_v6 or "").strip() or None
 
     routes_list, route_errors = _parse_route_cidrs(vpn_routes)
     errors.extend(route_errors)
@@ -397,7 +396,7 @@ async def server_create(
                     "public_host": public_host,
                     "public_port": public_port,
                     "vpn_address": vpn_address,
-                    "vpn_address_v6": vpn_address_v6,
+                    "vpn_address_v6": vpn_address_v6_value,
                     "mtu": mtu,
                     "dns_servers": dns_servers,
                     "vpn_routes": vpn_routes,
@@ -422,7 +421,7 @@ async def server_create(
             public_host=public_host or None,
             public_port=public_port,
             vpn_address=vpn_address,
-            vpn_address_v6=vpn_address_v6,
+            vpn_address_v6=vpn_address_v6_value,
             mtu=mtu,
             dns_servers=dns_list,
             is_active=is_active,
@@ -570,13 +569,13 @@ async def server_update(
         errors.append("Router host is required when router sync is enabled")
 
     # Parse DNS servers
-    dns_list = None
+    dns_list: list[str] | None = None
     if dns_servers:
         dns_list = [s.strip() for s in dns_servers.split(",") if s.strip()]
     vpn_address = (vpn_address or "").strip()
     if not vpn_address:
         vpn_address = server_before.vpn_address or vpn_defaults.get("vpn_address") or "10.10.0.1/24"
-    vpn_address_v6 = (vpn_address_v6 or "").strip() or None
+    vpn_address_v6_value = (vpn_address_v6 or "").strip() or None
 
     routes_list, route_errors = _parse_route_cidrs(vpn_routes)
     errors.extend(route_errors)
@@ -596,7 +595,7 @@ async def server_update(
                     "public_host": public_host,
                     "public_port": public_port,
                     "vpn_address": vpn_address,
-                    "vpn_address_v6": vpn_address_v6,
+                    "vpn_address_v6": vpn_address_v6_value,
                     "mtu": mtu,
                     "dns_servers": dns_servers,
                     "vpn_routes": vpn_routes,
@@ -621,7 +620,7 @@ async def server_update(
             public_host=public_host or None,
             public_port=public_port,
             vpn_address=vpn_address,
-            vpn_address_v6=vpn_address_v6,
+            vpn_address_v6=vpn_address_v6_value,
             mtu=mtu,
             dns_servers=dns_list,
             is_active=is_active,
@@ -931,7 +930,7 @@ async def peer_create(
     lan_subnets_list, lan_subnet_errors = _parse_lan_subnets(lan_subnets)
     errors.extend(lan_subnet_errors)
 
-    peer_address_v6 = (peer_address_v6 or "").strip() or None
+    peer_address_v6_value = (peer_address_v6 or "").strip() or None
     if errors:
         return templates.TemplateResponse(
             "admin/network/vpn/peer_form.html",
@@ -944,7 +943,7 @@ async def peer_create(
                     "name": name,
                     "description": description,
                     "peer_address": peer_address,
-                    "peer_address_v6": peer_address_v6,
+                    "peer_address_v6": peer_address_v6_value,
                     "persistent_keepalive": persistent_keepalive,
                     "known_subnets": known_subnets,
                     "lan_subnets": lan_subnets,
@@ -954,23 +953,22 @@ async def peer_create(
         )
 
     try:
-        metadata = {}
+        metadata: dict[str, list[str]] = {}
         if known_subnets_list:
             metadata["known_subnets"] = known_subnets_list
         if lan_subnets_list:
             metadata["lan_subnets"] = lan_subnets_list
-        if not metadata:
-            metadata = None
+        metadata_value: dict[str, list[str]] | None = metadata or None
         payload = WireGuardPeerCreate(
             server_id=server_id,
             name=name,
             description=description or None,
             peer_address=peer_address or None,
-            peer_address_v6=peer_address_v6,
+            peer_address_v6=peer_address_v6_value,
             persistent_keepalive=persistent_keepalive,
             use_preshared_key=use_preshared_key,
             notes=notes or None,
-            metadata_=metadata,
+            metadata_=metadata_value,
         )
         created = wg_service.wg_peers.create(db, payload)
 
@@ -1129,7 +1127,7 @@ async def peer_update(
     lan_subnets_list, lan_subnet_errors = _parse_lan_subnets(lan_subnets)
     errors.extend(lan_subnet_errors)
 
-    peer_address_v6 = (peer_address_v6 or "").strip() or None
+    peer_address_v6_value = (peer_address_v6 or "").strip() or None
     if errors:
         return templates.TemplateResponse(
             "admin/network/vpn/peer_form.html",
@@ -1142,7 +1140,7 @@ async def peer_update(
                     "name": name,
                     "description": description,
                     "peer_address": peer_address,
-                    "peer_address_v6": peer_address_v6,
+                    "peer_address_v6": peer_address_v6_value,
                     "persistent_keepalive": persistent_keepalive,
                     "known_subnets": known_subnets,
                     "lan_subnets": lan_subnets,
@@ -1152,10 +1150,14 @@ async def peer_update(
         )
 
     try:
-        previous_lan_subnets = []
-        if peer.metadata_:
-            previous_lan_subnets = peer.metadata_.get("lan_subnets") or []
-        metadata = dict(peer.metadata_ or {})
+        previous_lan_subnets: list[str] = []
+        if isinstance(peer.metadata_, dict):
+            lan_value = peer.metadata_.get("lan_subnets")
+            if isinstance(lan_value, list):
+                previous_lan_subnets = [str(item) for item in lan_value if item]
+        metadata: dict[str, list[str]] = (
+            dict(peer.metadata_) if isinstance(peer.metadata_, dict) else {}
+        )
         if known_subnets_list:
             metadata["known_subnets"] = known_subnets_list
         else:
@@ -1164,18 +1166,17 @@ async def peer_update(
             metadata["lan_subnets"] = lan_subnets_list
         else:
             metadata.pop("lan_subnets", None)
-        if not metadata:
-            metadata = None
+        metadata_value: dict[str, list[str]] | None = metadata or None
 
         payload = WireGuardPeerUpdate(
             name=name,
             description=description or None,
             peer_address=peer_address or None,
-            peer_address_v6=peer_address_v6,
+            peer_address_v6=peer_address_v6_value,
             persistent_keepalive=persistent_keepalive,
             status=WireGuardPeerStatus(status),
             notes=notes or None,
-            metadata_=metadata,
+            metadata_=metadata_value,
         )
         updated_peer = wg_service.wg_peers.update(db, peer_id, payload)
 

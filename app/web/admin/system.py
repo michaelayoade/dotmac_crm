@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional
+from typing import Optional, cast
 from uuid import UUID
 
 from app.db import SessionLocal
@@ -24,7 +24,7 @@ from app.models.projects import TaskStatus
 from app.models.projects import Project, ProjectTask, ProjectComment, ProjectTaskComment
 from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
 from app.models.vendor import VendorUser
-from app.models.subscriber import ResellerUser, Subscriber
+from app.models.subscriber import ResellerUser
 from app.models.tickets import Ticket, TicketComment, TicketStatus
 from app.models.workflow import WorkflowEntityType
 from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote, WorkOrderStatus
@@ -32,7 +32,6 @@ from app.models.webhook import WebhookDelivery, WebhookDeliveryStatus, WebhookEn
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.person import PersonCreate, PersonUpdate
 from app.schemas.settings import DomainSettingUpdate
-from app.schemas.billing import BankAccountCreate, BankAccountUpdate
 from app.schemas.workflow import (
     ProjectTaskStatusTransitionCreate,
     SlaPolicyCreate,
@@ -58,7 +57,6 @@ from app.services import (
     scheduler as scheduler_service,
     person as person_service,
     workflow as workflow_service,
-    billing as billing_service,
 )
 from app.services import settings_spec
 from app.services.auth_flow import hash_password
@@ -106,33 +104,60 @@ def system_health_page(request: Request, db: Session = Depends(get_db)):
     from app.web.admin import get_sidebar_stats, get_current_user
 
     health = system_health_service.get_system_health()
-    thresholds = {
-        "disk_warn_pct": settings_spec.resolve_value(
+    thresholds: dict[str, float | None] = {
+        "disk_warn_pct": cast(
+            float | None,
+            settings_spec.resolve_value(
             db, SettingDomain.network_monitoring, "server_health_disk_warn_pct"
+            ),
         ),
-        "disk_crit_pct": settings_spec.resolve_value(
+        "disk_crit_pct": cast(
+            float | None,
+            settings_spec.resolve_value(
             db, SettingDomain.network_monitoring, "server_health_disk_crit_pct"
+            ),
         ),
-        "mem_warn_pct": settings_spec.resolve_value(
+        "mem_warn_pct": cast(
+            float | None,
+            settings_spec.resolve_value(
             db, SettingDomain.network_monitoring, "server_health_mem_warn_pct"
+            ),
         ),
-        "mem_crit_pct": settings_spec.resolve_value(
+        "mem_crit_pct": cast(
+            float | None,
+            settings_spec.resolve_value(
             db, SettingDomain.network_monitoring, "server_health_mem_crit_pct"
+            ),
         ),
-        "load_warn": settings_spec.resolve_value(
+        "load_warn": cast(
+            float | None,
+            settings_spec.resolve_value(
             db, SettingDomain.network_monitoring, "server_health_load_warn"
+            ),
         ),
-        "load_crit": settings_spec.resolve_value(
+        "load_crit": cast(
+            float | None,
+            settings_spec.resolve_value(
             db, SettingDomain.network_monitoring, "server_health_load_crit"
+            ),
         ),
     }
     for key, value in thresholds.items():
-        try:
-            thresholds[key] = float(value) if value is not None else None
-        except (TypeError, ValueError):
+        if value is None:
             thresholds[key] = None
+            continue
+        if isinstance(value, (int, float)):
+            thresholds[key] = float(value)
+            continue
+        if isinstance(value, str):
+            try:
+                thresholds[key] = float(value)
+            except ValueError:
+                thresholds[key] = None
+            continue
+        thresholds[key] = None
     health_status = system_health_service.evaluate_health(health, thresholds)
-    context = {
+    context: dict[str, object] = {
         "request": request,
         "active_page": "system-health",
         "active_menu": "system",
@@ -144,16 +169,25 @@ def system_health_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/system/health.html", context)
 
 
-def _form_bool(value: str | None) -> bool:
-    if value is None:
+def _form_bool(value: object | None) -> bool:
+    value_str = _form_str(value).strip().lower()
+    if not value_str:
         return False
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return value_str in {"1", "true", "yes", "on"}
+
+
+def _form_str(value: object | None) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _form_str_opt(value: object | None) -> str | None:
+    value_str = _form_str(value).strip()
+    return value_str or None
 
 
 def _linked_user_labels(db: Session, person_id) -> list[str]:
     checks = [
         ("CRM agent", db.query(CrmAgent.id).filter(CrmAgent.person_id == person_id)),
-        ("Subscribers", db.query(Subscriber.id).filter(Subscriber.person_id == person_id)),
         ("CRM conversations", db.query(Conversation.id).filter(Conversation.person_id == person_id)),
         ("CRM assignments", db.query(ConversationAssignment.id).filter(ConversationAssignment.assigned_by_id == person_id)),
         ("CRM leads", db.query(Lead.id).filter(Lead.person_id == person_id)),
@@ -257,12 +291,12 @@ def _settings_domains() -> list[dict]:
 
 
 # Domain groupings by business function
+# Note: billing, catalog, collections, usage, radius domains have been removed
 SETTINGS_DOMAIN_GROUPS = {
     "Enforcement": [ENFORCEMENT_DOMAIN],
-    "Billing & Payments": ["billing", "collections", "usage"],
     "Notifications": ["notification", "comms"],
-    "Services & Catalog": ["catalog", "subscriber", "provisioning", "lifecycle"],
-    "Network": ["network", "network_monitoring", "radius", "bandwidth", "gis", "geocoding"],
+    "Services": ["subscriber", "provisioning"],
+    "Network": ["network", "network_monitoring", "bandwidth", "gis", "geocoding"],
     "Operations": ["workflow", "projects", "scheduler", "inventory"],
     "Security & System": ["auth", "audit", "imports"],
 }
@@ -628,7 +662,7 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
         limit=200,
         offset=0,
     )
-    context = {
+    context: dict[str, object] = {
         "request": request,
         "active_page": "workflow",
         "active_menu": "system",
@@ -660,6 +694,51 @@ def system_overview(request: Request, db: Session = Depends(get_db)):
             "active_menu": "system",
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
+        },
+    )
+
+
+@router.get("/configuration", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:read"))])
+def system_configuration(request: Request, db: Session = Depends(get_db)):
+    """System configuration overview."""
+    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.models.connector import ConnectorConfig
+    from app.models.webhook import WebhookEndpoint
+    from app.models.projects import ProjectTemplate
+    from app.models.crm.team import CrmAgent
+    from app.models.wireguard import WireGuardServer
+
+    pop_sites_count = 0
+    vpn_servers_count = (
+        db.query(WireGuardServer).filter(WireGuardServer.is_active.is_(True)).count()
+    )
+    connectors_count = (
+        db.query(ConnectorConfig).filter(ConnectorConfig.is_active.is_(True)).count()
+    )
+    webhooks_count = (
+        db.query(WebhookEndpoint).filter(WebhookEndpoint.is_active.is_(True)).count()
+    )
+    project_templates_count = (
+        db.query(ProjectTemplate).filter(ProjectTemplate.is_active.is_(True)).count()
+    )
+    crm_agents_count = (
+        db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).count()
+    )
+
+    return templates.TemplateResponse(
+        "admin/system/configuration/index.html",
+        {
+            "request": request,
+            "active_page": "configuration",
+            "active_menu": "system",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "pop_sites_count": pop_sites_count,
+            "vpn_servers_count": vpn_servers_count,
+            "connectors_count": connectors_count,
+            "webhooks_count": webhooks_count,
+            "project_templates_count": project_templates_count,
+            "crm_agents_count": crm_agents_count,
         },
     )
 
@@ -793,7 +872,7 @@ def user_profile(request: Request, db: Session = Depends(get_db)):
                 ApiKey.revoked_at.is_(None)
             ).count()
 
-    context = {
+    context: dict[str, object] = {
         "request": request,
         "active_page": "users",
         "active_menu": "system",
@@ -862,7 +941,7 @@ def user_profile_update(
             ApiKey.revoked_at.is_(None)
         ).count()
 
-    context = {
+    context: dict[str, object] = {
         "request": request,
         "active_page": "users",
         "active_menu": "system",
@@ -985,7 +1064,7 @@ def user_edit(request: Request, user_id: str, db: Session = Depends(get_db)):
             "current_role_ids": current_role_ids,
             "all_permissions": all_permissions,
             "direct_permission_ids": direct_permission_ids,
-            "can_update_password": _is_admin_request(request),
+            "can_update_password": False,
             "active_page": "users",
             "active_menu": "system",
             "current_user": get_current_user(request),
@@ -1012,27 +1091,37 @@ async def user_edit_submit(
 
     # Parse form data manually to handle multiple checkbox values
     form_data = await request.form()
-    first_name = form_data.get("first_name", "")
-    last_name = form_data.get("last_name", "")
-    display_name = form_data.get("display_name")
-    email = form_data.get("email", "")
-    phone = form_data.get("phone")
+    first_name = _form_str(form_data.get("first_name"))
+    last_name = _form_str(form_data.get("last_name"))
+    display_name = _form_str_opt(form_data.get("display_name"))
+    email = _form_str(form_data.get("email"))
+    phone = _form_str_opt(form_data.get("phone"))
     is_active = form_data.get("is_active")
-    new_password = form_data.get("new_password")
-    confirm_password = form_data.get("confirm_password")
-    require_password_change = form_data.get("require_password_change")
+    new_password = _form_str_opt(form_data.get("new_password"))
+    confirm_password = _form_str_opt(form_data.get("confirm_password"))
+    require_password_change = _form_str_opt(form_data.get("require_password_change"))
 
     # Get multiple values for role_ids and direct_permission_ids
-    role_ids = form_data.getlist("role_ids")
-    direct_permission_ids = form_data.getlist("direct_permission_ids")
+    role_ids = [
+        value
+        for value in (_form_str(item).strip() for item in form_data.getlist("role_ids"))
+        if value
+    ]
+    direct_permission_ids = [
+        value
+        for value in (
+            _form_str(item).strip() for item in form_data.getlist("direct_permission_ids")
+        )
+        if value
+    ]
 
     status_value = "active" if _form_bool(is_active) else "inactive"
     payload = PersonUpdate(
         first_name=first_name.strip(),
         last_name=last_name.strip(),
-        display_name=display_name.strip() if display_name else None,
+        display_name=display_name,
         email=email.strip(),
-        phone=phone.strip() if phone else None,
+        phone=phone,
         is_active=_form_bool(is_active),
         status=status_value,
     )
@@ -1085,33 +1174,7 @@ async def user_edit_submit(
         )
 
         if new_password or confirm_password:
-            if not _is_admin_request(request):
-                raise ValueError("Only admins can update passwords.")
-            if not new_password or not confirm_password:
-                raise ValueError("Password and confirmation are required.")
-            if new_password != confirm_password:
-                raise ValueError("Passwords do not match.")
-            must_change = _form_bool(require_password_change)
-            updated = db.query(UserCredential).filter(
-                UserCredential.person_id == person.id,
-                UserCredential.is_active.is_(True),
-            ).update(
-                {
-                    "password_hash": hash_password(new_password),
-                    "must_change_password": must_change,
-                    "password_updated_at": datetime.now(timezone.utc),
-                }
-            )
-            if not updated:
-                auth_service.user_credentials.create(
-                    db,
-                    UserCredentialCreate(
-                        person_id=person.id,
-                        username=email.strip(),
-                        password_hash=hash_password(new_password),
-                        must_change_password=must_change,
-                    ),
-                )
+            raise ValueError("Password updates are disabled on this page.")
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -1128,7 +1191,7 @@ async def user_edit_submit(
                 "current_role_ids": current_role_ids,
                 "all_permissions": all_permissions,
                 "direct_permission_ids": direct_permission_ids_set,
-                "can_update_password": _is_admin_request(request),
+                "can_update_password": False,
                 "active_page": "users",
                 "active_menu": "system",
                 "current_user": get_current_user(request),
@@ -1273,27 +1336,11 @@ def user_create(
 
 @router.delete("/users/{user_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:assign"))])
 def user_delete(request: Request, user_id: str, db: Session = Depends(get_db)):
-    person = person_service.people.get(db, user_id)
-    if person.is_active:
-        return _blocked_delete_response(request, [], detail="Deactivate user before deleting.")
-    linked = _linked_user_labels(db, person.id)
-    if linked:
-        return _blocked_delete_response(request, linked)
     try:
-        db.query(UserCredential).filter(UserCredential.person_id == person.id).delete(synchronize_session=False)
-        db.query(MFAMethod).filter(MFAMethod.person_id == person.id).delete(synchronize_session=False)
-        db.query(AuthSession).filter(AuthSession.person_id == person.id).delete(synchronize_session=False)
-        db.query(ApiKey).filter(ApiKey.person_id == person.id).delete(synchronize_session=False)
-        db.query(PersonRole).filter(PersonRole.person_id == person.id).delete(synchronize_session=False)
-        db.query(PersonPermission).filter(PersonPermission.person_id == person.id).delete(synchronize_session=False)
-        db.query(VendorUser).filter(VendorUser.person_id == person.id).delete(synchronize_session=False)
-        db.query(ResellerUser).filter(ResellerUser.person_id == person.id).delete(synchronize_session=False)
-        db.delete(person)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        linked = _linked_user_labels(db, person.id)
-        return _blocked_delete_response(request, linked)
+        person_service.people.hard_delete_user(db, user_id)
+    except HTTPException as e:
+        linked = person_service.people.linked_user_labels(db, user_id) if "Linked" in str(e.detail) else []
+        return _blocked_delete_response(request, linked, detail=e.detail)
     if request.headers.get("HX-Request"):
         return Response(status_code=200, headers={"HX-Redirect": "/admin/system/users"})
     return RedirectResponse(url="/admin/system/users", status_code=303)
@@ -1532,12 +1579,14 @@ def role_update(
             .filter(RolePermission.role_id == role.id)
             .all()
         )
-        existing_ids = {link.permission_id: link for link in existing_links}
-        for permission_id, link in existing_ids.items():
-            if permission_id not in desired_ids:
+        existing_ids: dict[UUID, RolePermission] = {
+            link.permission_id: link for link in existing_links
+        }
+        for perm_id, link in existing_ids.items():
+            if perm_id not in desired_ids:
                 db.delete(link)
-        for permission_id in desired_ids - set(existing_ids.keys()):
-            db.add(RolePermission(role_id=role.id, permission_id=permission_id))
+        for perm_id in desired_ids - set(existing_ids.keys()):
+            db.add(RolePermission(role_id=role.id, permission_id=perm_id))
         db.commit()
     except Exception as exc:
         permissions = rbac_service.permissions.list(
@@ -1759,7 +1808,7 @@ def permission_delete(
 
 
 @router.get("/api-keys", response_class=HTMLResponse)
-def api_keys_list(request: Request, new_key: str = None, db: Session = Depends(get_db)):
+def api_keys_list(request: Request, new_key: str | None = None, db: Session = Depends(get_db)):
     from app.web.admin import get_sidebar_stats, get_current_user
 
     current_user = get_current_user(request)
@@ -1771,7 +1820,7 @@ def api_keys_list(request: Request, new_key: str = None, db: Session = Depends(g
             ApiKey.person_id == coerce_uuid(person_id)
         ).order_by(ApiKey.created_at.desc()).all()
 
-    context = {
+    context: dict[str, object] = {
         "request": request,
         "active_page": "api-keys",
         "active_menu": "system",
@@ -1788,7 +1837,7 @@ def api_keys_list(request: Request, new_key: str = None, db: Session = Depends(g
 def api_key_new(request: Request, db: Session = Depends(get_db)):
     from app.web.admin import get_sidebar_stats, get_current_user
 
-    context = {
+    context: dict[str, object] = {
         "request": request,
         "active_page": "api-keys",
         "active_menu": "system",
@@ -1842,7 +1891,7 @@ def api_key_create(
             status_code=303
         )
     except Exception as e:
-        context = {
+        context: dict[str, object] = {
             "request": request,
             "active_page": "api-keys",
             "active_menu": "system",
@@ -1898,7 +1947,7 @@ def webhooks_list(request: Request, db: Session = Depends(get_db)):
 def webhook_new(request: Request, db: Session = Depends(get_db)):
     from app.web.admin import get_sidebar_stats, get_current_user
 
-    context = {
+    context: dict[str, object] = {
         "request": request,
         "active_page": "webhooks",
         "active_menu": "system",
@@ -1941,7 +1990,7 @@ def webhook_create(
 
         return RedirectResponse(url="/admin/system/webhooks", status_code=303)
     except Exception as e:
-        context = {
+        context: dict[str, object] = {
             "request": request,
             "active_page": "webhooks",
             "active_menu": "system",
@@ -2034,9 +2083,16 @@ def audit_log(
     """View audit log."""
     offset = (page - 1) * per_page
 
+    actor_id_value: str | None = None
+    if actor_id:
+        try:
+            actor_id_value = str(UUID(actor_id))
+        except ValueError:
+            actor_id_value = None
+
     events = audit_service.audit_events.list(
         db=db,
-        actor_id=UUID(actor_id) if actor_id else None,
+        actor_id=actor_id_value,
         actor_type=None,
         action=action if action else None,
         entity_type=entity_type if entity_type else None,
@@ -2129,7 +2185,7 @@ def audit_log(
 
     all_events = audit_service.audit_events.list(
         db=db,
-        actor_id=UUID(actor_id) if actor_id else None,
+        actor_id=actor_id_value,
         actor_type=None,
         action=action if action else None,
         entity_type=entity_type if entity_type else None,
@@ -2281,11 +2337,10 @@ def scheduler_task_disable(request: Request, task_id: str, db: Session = Depends
 @router.post("/scheduler/{task_id}/run", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:write"))])
 def scheduler_task_run(request: Request, task_id: str, db: Session = Depends(get_db)):
     """Manually trigger a scheduled task."""
-    from app.schemas.scheduler import ScheduledTaskUpdate
-    # Update last_run_at to indicate manual trigger (actual execution would be async)
-    scheduler_service.scheduled_tasks.update(
-        db, task_id, ScheduledTaskUpdate(last_run_at=datetime.now(timezone.utc))
-    )
+    task = scheduler_service.scheduled_tasks.get(db, task_id)
+    scheduler_service.enqueue_task(task.task_name, task.args_json, task.kwargs_json)
+    task.last_run_at = datetime.now(timezone.utc)
+    db.commit()
     return RedirectResponse(url=f"/admin/system/scheduler/{task_id}", status_code=303)
 
 
@@ -2307,10 +2362,13 @@ def workflow_overview(request: Request, db: Session = Depends(get_db)):
 async def workflow_policy_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     try:
+        entity_type_raw = _form_str(form.get("entity_type")).strip()
+        if not entity_type_raw:
+            raise ValueError("Entity type is required.")
         payload = SlaPolicyCreate(
-            name=(form.get("name") or "").strip(),
-            entity_type=(form.get("entity_type") or "").strip(),
-            description=(form.get("description") or "").strip() or None,
+            name=_form_str(form.get("name")).strip(),
+            entity_type=WorkflowEntityType(entity_type_raw),
+            description=_form_str_opt(form.get("description")),
             is_active=_form_bool(form.get("is_active")),
         )
         workflow_service.sla_policies.create(db=db, payload=payload)
@@ -2325,12 +2383,16 @@ async def workflow_policy_create(request: Request, db: Session = Depends(get_db)
 async def workflow_target_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     try:
-        target_minutes = int(form.get("target_minutes") or "0")
-        warning_raw = (form.get("warning_minutes") or "").strip()
+        target_minutes_raw = _form_str(form.get("target_minutes")).strip() or "0"
+        target_minutes = int(target_minutes_raw)
+        warning_raw = _form_str(form.get("warning_minutes")).strip()
         warning_minutes = int(warning_raw) if warning_raw else None
+        policy_id_raw = _form_str(form.get("policy_id")).strip()
+        if not policy_id_raw:
+            raise ValueError("Policy is required.")
         payload = SlaTargetCreate(
-            policy_id=(form.get("policy_id") or "").strip(),
-            priority=(form.get("priority") or "").strip() or None,
+            policy_id=coerce_uuid(policy_id_raw),
+            priority=_form_str_opt(form.get("priority")),
             target_minutes=target_minutes,
             warning_minutes=warning_minutes,
             is_active=_form_bool(form.get("is_active")),
@@ -2348,8 +2410,8 @@ async def workflow_ticket_transition_create(request: Request, db: Session = Depe
     form = await request.form()
     try:
         payload = TicketStatusTransitionCreate(
-            from_status=(form.get("from_status") or "").strip(),
-            to_status=(form.get("to_status") or "").strip(),
+            from_status=_form_str(form.get("from_status")).strip(),
+            to_status=_form_str(form.get("to_status")).strip(),
             requires_note=_form_bool(form.get("requires_note")),
             is_active=_form_bool(form.get("is_active")),
         )
@@ -2366,8 +2428,8 @@ async def workflow_work_order_transition_create(request: Request, db: Session = 
     form = await request.form()
     try:
         payload = WorkOrderStatusTransitionCreate(
-            from_status=(form.get("from_status") or "").strip(),
-            to_status=(form.get("to_status") or "").strip(),
+            from_status=_form_str(form.get("from_status")).strip(),
+            to_status=_form_str(form.get("to_status")).strip(),
             requires_note=_form_bool(form.get("requires_note")),
             is_active=_form_bool(form.get("is_active")),
         )
@@ -2384,8 +2446,8 @@ async def workflow_project_task_transition_create(request: Request, db: Session 
     form = await request.form()
     try:
         payload = ProjectTaskStatusTransitionCreate(
-            from_status=(form.get("from_status") or "").strip(),
-            to_status=(form.get("to_status") or "").strip(),
+            from_status=_form_str(form.get("from_status")).strip(),
+            to_status=_form_str(form.get("to_status")).strip(),
             requires_note=_form_bool(form.get("requires_note")),
             is_active=_form_bool(form.get("is_active")),
         )
@@ -2432,8 +2494,9 @@ async def settings_update(
 ):
     """Update system settings for a domain."""
     form = await request.form()
-    domain_value = domain or form.get("domain")
+    domain_value = domain or _form_str_opt(form.get("domain"))
     errors: list[str] = []
+    SettingValue = dict[str, object] | list[object] | bool | int | str | None
     if domain_value == ENFORCEMENT_DOMAIN:
         specs = _enforcement_specs()
         for spec in specs:
@@ -2442,29 +2505,31 @@ async def settings_update(
                 errors.append(f"{spec.key}: Settings service not configured.")
                 continue
             raw = form.get(spec.key)
-            if spec.is_secret and (raw is None or raw == ""):
+            raw_value = _form_str_opt(raw)
+            if spec.is_secret and not raw_value:
                 continue
+            value: SettingValue
             if spec.value_type == settings_spec.SettingValueType.boolean:
-                value = _form_bool(raw)
+                value = _form_bool(raw_value)
             elif spec.value_type == settings_spec.SettingValueType.integer:
-                if raw in (None, ""):
-                    value = spec.default
+                if not raw_value:
+                    value = cast(SettingValue, spec.default)
                 else:
                     try:
-                        value = int(raw)
+                        value = int(raw_value)
                     except ValueError:
                         errors.append(f"{spec.key}: Value must be an integer.")
                         continue
             else:
-                if raw in (None, ""):
+                if not raw_value:
                     if spec.value_type == settings_spec.SettingValueType.string:
-                        value = spec.default if spec.default is not None else ""
+                        value = cast(SettingValue, spec.default) if spec.default is not None else ""
                     elif spec.value_type == settings_spec.SettingValueType.json:
-                        value = spec.default if spec.default is not None else {}
+                        value = cast(SettingValue, spec.default) if spec.default is not None else {}
                     else:
-                        value = spec.default
+                        value = cast(SettingValue, spec.default)
                 else:
-                    value = raw
+                    value = raw_value
             if spec.allowed and value is not None and value not in spec.allowed:
                 errors.append(f"{spec.key}: Value must be one of {', '.join(sorted(spec.allowed))}.")
                 continue
@@ -2478,7 +2543,8 @@ async def settings_update(
             if value is None:
                 value_text, value_json = None, None
             else:
-                value_text, value_json = settings_spec.normalize_for_db(spec, value)
+                value_text, value_json_raw = settings_spec.normalize_for_db(spec, value)
+                value_json = cast(SettingValue, value_json_raw)
             payload = DomainSettingUpdate(
                 value_type=spec.value_type,
                 value_text=value_text,
@@ -2497,43 +2563,52 @@ async def settings_update(
         else:
             for spec in specs:
                 raw = form.get(spec.key)
-                if spec.is_secret and (raw is None or raw == ""):
+                raw_value = _form_str_opt(raw)
+                if spec.is_secret and not raw_value:
                     continue
+                value_setting: SettingValue
                 if spec.value_type == settings_spec.SettingValueType.boolean:
-                    value = _form_bool(raw)
+                    value_setting = _form_bool(raw_value)
                 elif spec.value_type == settings_spec.SettingValueType.integer:
-                    if raw in (None, ""):
-                        value = spec.default
+                    if not raw_value:
+                        value_setting = cast(SettingValue, spec.default)
                     else:
                         try:
-                            value = int(raw)
+                            value_setting = int(raw_value)
                         except ValueError:
                             errors.append(f"{spec.key}: Value must be an integer.")
                             continue
                 else:
-                    if raw in (None, ""):
+                    if not raw_value:
                         if spec.value_type == settings_spec.SettingValueType.string:
-                            value = spec.default if spec.default is not None else ""
+                            value_setting = (
+                                cast(SettingValue, spec.default) if spec.default is not None else ""
+                            )
                         elif spec.value_type == settings_spec.SettingValueType.json:
-                            value = spec.default if spec.default is not None else {}
+                            value_setting = (
+                                cast(SettingValue, spec.default) if spec.default is not None else {}
+                            )
                         else:
-                            value = spec.default
+                            value_setting = cast(SettingValue, spec.default)
                     else:
-                        value = raw
-                if spec.allowed and value is not None and value not in spec.allowed:
+                        value_setting = raw_value
+                if spec.allowed and value_setting is not None and value_setting not in spec.allowed:
                     errors.append(f"{spec.key}: Value must be one of {', '.join(sorted(spec.allowed))}.")
                     continue
-                if isinstance(value, int):
-                    if spec.min_value is not None and value < spec.min_value:
+                if isinstance(value_setting, int):
+                    if spec.min_value is not None and value_setting < spec.min_value:
                         errors.append(f"{spec.key}: Minimum value is {spec.min_value}.")
                         continue
-                    if spec.max_value is not None and value > spec.max_value:
+                    if spec.max_value is not None and value_setting > spec.max_value:
                         errors.append(f"{spec.key}: Maximum value is {spec.max_value}.")
                         continue
-                if value is None:
+                if value_setting is None:
                     value_text, value_json = None, None
                 else:
-                    value_text, value_json = settings_spec.normalize_for_db(spec, value)
+                    value_text, value_json_raw = settings_spec.normalize_for_db(
+                        spec, value_setting
+                    )
+                    value_json = cast(SettingValue, value_json_raw)
                 payload = DomainSettingUpdate(
                     value_type=spec.value_type,
                     value_text=value_text,
@@ -2565,125 +2640,125 @@ async def settings_update(
     )
 
 
-@router.post(
-    "/settings/bank-accounts",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_permission("billing:write"))],
-)
-async def settings_bank_account_create(request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    try:
-        account_id = (form.get("account_id") or "").strip()
-        if not account_id:
-            raise HTTPException(status_code=400, detail="Account is required.")
-        account_type = (form.get("account_type") or "").strip() or None
-        bank_name = (form.get("bank_name") or "").strip() or None
-        account_last4 = (form.get("account_last4") or "").strip() or None
-        routing_last4 = (form.get("routing_last4") or "").strip() or None
-        token = (form.get("token") or "").strip() or None
-        payload = BankAccountCreate(
-            account_id=account_id,
-            bank_name=bank_name,
-            account_type=account_type,
-            account_last4=account_last4,
-            routing_last4=routing_last4,
-            token=token,
-            is_default=_form_bool(form.get("is_default")),
-            is_active=_form_bool(form.get("is_active")) if form.get("is_active") is not None else True,
+@router.post("/settings/test-smtp", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:read"))])
+def test_smtp_connection(request: Request, db: Session = Depends(get_db)):
+    """Test SMTP connection (HTMX endpoint)."""
+    from app.services.email import test_smtp_connection as smtp_test, _get_smtp_config
+
+    config = _get_smtp_config(db)
+    success, error = smtp_test(config, db=db)
+
+    if success:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
+            '<div class="flex items-center gap-2">'
+            '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
+            '<span>SMTP connection successful!</span>'
+            '</div>'
+            '</div>',
+            status_code=200,
         )
-        billing_service.bank_accounts.create(db, payload)
-        return RedirectResponse(
-            url="/admin/system/settings?domain=billing#bank-accounts", status_code=303
-        )
-    except Exception as exc:
-        error = exc.detail if hasattr(exc, "detail") else str(exc)
-        settings_context = _build_settings_context(db, "billing")
-        base_url = str(request.base_url).rstrip("/")
-        crm_meta_callback_url = base_url + "/webhooks/crm/meta"
-        crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
-        from app.web.admin import get_sidebar_stats, get_current_user
-        return templates.TemplateResponse(
-            "admin/system/settings.html",
-            {
-                "request": request,
-                **settings_context,
-                "crm_meta_callback_url": crm_meta_callback_url,
-                "crm_meta_oauth_redirect_url": crm_meta_oauth_redirect_url,
-                "active_page": "settings",
-                "active_menu": "system",
-                "current_user": get_current_user(request),
-                "sidebar_stats": get_sidebar_stats(db),
-                "bank_account_error": error or "Unable to create bank account.",
-            },
-            status_code=400,
+    else:
+        error_msg = error or "Unknown error"
+        return HTMLResponse(
+            f'<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f'<div class="flex items-center gap-2">'
+            f'<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+            f'<span>SMTP test failed: {error_msg}</span>'
+            f'</div>'
+            f'</div>',
+            status_code=200,
         )
 
 
-@router.post(
-    "/settings/bank-accounts/{bank_account_id}",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_permission("billing:write"))],
-)
-async def settings_bank_account_update(
-    request: Request, bank_account_id: UUID, db: Session = Depends(get_db)
-):
-    form = await request.form()
-    try:
-        data: dict[str, object] = {}
-        if "bank_name" in form:
-            data["bank_name"] = (form.get("bank_name") or "").strip() or None
-        if "account_type" in form:
-            account_type = (form.get("account_type") or "").strip()
-            data["account_type"] = account_type or None
-        if "account_last4" in form:
-            data["account_last4"] = (form.get("account_last4") or "").strip() or None
-        if "routing_last4" in form:
-            data["routing_last4"] = (form.get("routing_last4") or "").strip() or None
-        if "is_default" in form:
-            data["is_default"] = _form_bool(form.get("is_default"))
-        if "is_active" in form:
-            data["is_active"] = _form_bool(form.get("is_active"))
-        token = (form.get("token") or "").strip()
-        if token:
-            data["token"] = token
-        payload = BankAccountUpdate(**data)
-        billing_service.bank_accounts.update(db, str(bank_account_id), payload)
-        return RedirectResponse(
-            url="/admin/system/settings?domain=billing#bank-accounts", status_code=303
-        )
-    except Exception as exc:
-        error = exc.detail if hasattr(exc, "detail") else str(exc)
-        settings_context = _build_settings_context(db, "billing")
-        base_url = str(request.base_url).rstrip("/")
-        crm_meta_callback_url = base_url + "/webhooks/crm/meta"
-        crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
-        from app.web.admin import get_sidebar_stats, get_current_user
-        return templates.TemplateResponse(
-            "admin/system/settings.html",
-            {
-                "request": request,
-                **settings_context,
-                "crm_meta_callback_url": crm_meta_callback_url,
-                "crm_meta_oauth_redirect_url": crm_meta_oauth_redirect_url,
-                "active_page": "settings",
-                "active_menu": "system",
-                "current_user": get_current_user(request),
-                "sidebar_stats": get_sidebar_stats(db),
-                "bank_account_error": error or "Unable to update bank account.",
-            },
-            status_code=400,
+@router.post("/users/{user_id}/resend-invite", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:assign"))])
+def resend_user_invitation(request: Request, user_id: str, db: Session = Depends(get_db)):
+    """Resend invitation email to a pending user (HTMX endpoint)."""
+    person = person_service.people.get(db, user_id)
+    if not person:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            'User not found.'
+            '</div>',
+            status_code=404,
         )
 
-
-@router.post(
-    "/settings/bank-accounts/{bank_account_id}/deactivate",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_permission("billing:write"))],
-)
-def settings_bank_account_deactivate(
-    bank_account_id: UUID, db: Session = Depends(get_db)
-):
-    billing_service.bank_accounts.delete(db, str(bank_account_id))
-    return RedirectResponse(
-        url="/admin/system/settings?domain=billing#bank-accounts", status_code=303
+    # Get user's credential
+    credential = (
+        db.query(UserCredential)
+        .filter(UserCredential.person_id == person.id)
+        .filter(UserCredential.is_active.is_(True))
+        .first()
     )
+
+    if not credential:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            'No active credentials found for this user.'
+            '</div>',
+            status_code=400,
+        )
+
+    if not credential.must_change_password:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">'
+            'This user has already set their password.'
+            '</div>',
+            status_code=400,
+        )
+
+    if not person.email:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            'User has no email address configured.'
+            '</div>',
+            status_code=400,
+        )
+
+    # Generate a new password reset token and send invitation email
+    try:
+        reset_payload = auth_flow_service.request_password_reset(db, person.email)
+        if not reset_payload:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+                'Failed to generate invitation token.'
+                '</div>',
+                status_code=500,
+            )
+
+        reset_token = reset_payload.get("token")
+        if not reset_token:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+                'Failed to generate invitation token.'
+                '</div>',
+                status_code=500,
+            )
+
+        person_name = person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or None
+        success = email_service.send_user_invite_email(db, person.email, reset_token, person_name)
+
+        if success:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
+                '<div class="flex items-center gap-2">'
+                '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
+                f'<span>Invitation sent to {person.email}</span>'
+                '</div>'
+                '</div>',
+                status_code=200,
+            )
+        else:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+                'Failed to send invitation email. Check SMTP settings.'
+                '</div>',
+                status_code=500,
+            )
+    except Exception as exc:
+        return HTMLResponse(
+            f'<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f'Error: {str(exc)}'
+            f'</div>',
+            status_code=500,
+        )

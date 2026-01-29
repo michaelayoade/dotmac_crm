@@ -6,18 +6,47 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.network import (
-    DeviceStatus,
-    DeviceType,
     FiberEndpointType,
     FiberSegmentType,
     FiberStrandStatus,
-    IPVersion,
     ODNEndpointType,
     OltPortType,
-    PortStatus,
-    PortType,
     SplitterPortType,
 )
+import enum
+
+
+# Stub enums for removed models (schemas reference these but models removed)
+class DeviceStatus(str, enum.Enum):
+    active = "active"
+    inactive = "inactive"
+    maintenance = "maintenance"
+
+
+class DeviceType(str, enum.Enum):
+    ont = "ont"
+    router = "router"
+    switch = "switch"
+    other = "other"
+
+
+class IPVersion(str, enum.Enum):
+    ipv4 = "ipv4"
+    ipv6 = "ipv6"
+
+
+class PortStatus(str, enum.Enum):
+    available = "available"
+    in_use = "in_use"
+    disabled = "disabled"
+    down = "down"
+    up = "up"
+
+
+class PortType(str, enum.Enum):
+    ethernet = "ethernet"
+    fiber = "fiber"
+    uplink = "uplink"
 
 
 class CPEDeviceBase(BaseModel):
@@ -72,7 +101,7 @@ class PortBase(BaseModel):
 
 class PortCreate(PortBase):
     model_config = ConfigDict(extra="forbid")
-    device_id: UUID | None = None
+    device_id: UUID | None = None  # type: ignore[assignment]
 
     @model_validator(mode="after")
     def _resolve_device(self) -> "PortCreate":
@@ -334,6 +363,8 @@ class OLTDeviceBase(BaseModel):
     vendor: str | None = Field(default=None, max_length=120)
     model: str | None = Field(default=None, max_length=120)
     serial_number: str | None = Field(default=None, max_length=120)
+    latitude: float | None = None
+    longitude: float | None = None
     notes: str | None = None
     is_active: bool = True
 
@@ -349,6 +380,8 @@ class OLTDeviceUpdate(BaseModel):
     vendor: str | None = Field(default=None, max_length=120)
     model: str | None = Field(default=None, max_length=120)
     serial_number: str | None = Field(default=None, max_length=120)
+    latitude: float | None = None
+    longitude: float | None = None
     notes: str | None = None
     is_active: bool | None = None
 
@@ -372,7 +405,7 @@ class PonPortBase(BaseModel):
 
 class PonPortCreate(PonPortBase):
     model_config = ConfigDict(extra="forbid")
-    name: str | None = Field(default=None, min_length=1, max_length=120)
+    name: str | None = Field(default=None, min_length=1, max_length=120)  # type: ignore[assignment]
     card_id: UUID | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
@@ -688,7 +721,7 @@ class FiberStrandBase(BaseModel):
 
 class FiberStrandCreate(FiberStrandBase):
     model_config = ConfigDict(extra="forbid")
-    cable_name: str | None = Field(default=None, min_length=1, max_length=160)
+    cable_name: str | None = Field(default=None, min_length=1, max_length=160)  # type: ignore[assignment]
     segment_id: UUID | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
@@ -783,9 +816,9 @@ class FiberSpliceBase(BaseModel):
 
 class FiberSpliceCreate(FiberSpliceBase):
     model_config = ConfigDict(extra="forbid")
-    closure_id: UUID | None = None
-    from_strand_id: UUID | None = None
-    to_strand_id: UUID | None = None
+    closure_id: UUID | None = None  # type: ignore[assignment]
+    from_strand_id: UUID | None = None  # type: ignore[assignment]
+    to_strand_id: UUID | None = None  # type: ignore[assignment]
     position: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")

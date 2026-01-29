@@ -1,446 +1,288 @@
-from fastapi import APIRouter, Depends, Query, status
+"""Subscriber API endpoints."""
+import math
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.schemas.common import ListResponse
 
-from app.db import SessionLocal
+from app.db import get_db
+from app.models.subscriber import SubscriberStatus
 from app.schemas.subscriber import (
-    AccountRoleCreate,
-    AccountRoleRead,
-    AccountRoleUpdate,
-    AddressCreate,
-    AddressRead,
-    AddressUpdate,
-    OrganizationCreate,
-    OrganizationRead,
-    OrganizationUpdate,
-    ResellerCreate,
-    ResellerRead,
-    ResellerUpdate,
-    SubscriberAccountCreate,
-    SubscriberAccountRead,
-    SubscriberAccountUpdate,
     SubscriberCreate,
-    SubscriberCustomFieldCreate,
-    SubscriberCustomFieldRead,
-    SubscriberCustomFieldUpdate,
-    SubscriberRead,
     SubscriberUpdate,
+    SubscriberResponse,
+    SubscriberListResponse,
+    SubscriberStats,
+    SubscriberBulkSync,
 )
-from app.services import subscriber as subscriber_service
+from app.services.subscriber import subscriber as subscriber_service
 
-router = APIRouter()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+router = APIRouter(prefix="/subscribers", tags=["subscribers"])
 
 
-@router.post(
-    "/organizations",
-    response_model=OrganizationRead,
-    status_code=status.HTTP_201_CREATED,
-    tags=["organizations"],
-)
-def create_organization(payload: OrganizationCreate, db: Session = Depends(get_db)):
-    return subscriber_service.organizations.create(db, payload)
-
-
-@router.get(
-    "/organizations/{organization_id}",
-    response_model=OrganizationRead,
-    tags=["organizations"],
-)
-def get_organization(organization_id: str, db: Session = Depends(get_db)):
-    return subscriber_service.organizations.get(db, organization_id)
-
-
-@router.get("/organizations", response_model=ListResponse[OrganizationRead], tags=["organizations"])
-def list_organizations(
-    name: str | None = Query(default=None, max_length=160),
-    order_by: str = Query(default="name"),
-    order_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
-):
-    return subscriber_service.organizations.list_response(
-        db, name, order_by, order_dir, limit, offset
-    )
-
-
-@router.patch(
-    "/organizations/{organization_id}",
-    response_model=OrganizationRead,
-    tags=["organizations"],
-)
-def update_organization(
-    organization_id: str, payload: OrganizationUpdate, db: Session = Depends(get_db)
-):
-    return subscriber_service.organizations.update(db, organization_id, payload)
-
-
-@router.delete(
-    "/organizations/{organization_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["organizations"],
-)
-def delete_organization(organization_id: str, db: Session = Depends(get_db)):
-    subscriber_service.organizations.delete(db, organization_id)
-
-
-@router.post(
-    "/resellers",
-    response_model=ResellerRead,
-    status_code=status.HTTP_201_CREATED,
-    tags=["resellers"],
-)
-def create_reseller(payload: ResellerCreate, db: Session = Depends(get_db)):
-    return subscriber_service.resellers.create(db, payload)
-
-
-@router.get(
-    "/resellers/{reseller_id}",
-    response_model=ResellerRead,
-    tags=["resellers"],
-)
-def get_reseller(reseller_id: str, db: Session = Depends(get_db)):
-    return subscriber_service.resellers.get(db, reseller_id)
-
-
-@router.get("/resellers", response_model=ListResponse[ResellerRead], tags=["resellers"])
-def list_resellers(
-    is_active: bool | None = None,
-    order_by: str = Query(default="name"),
-    order_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
-):
-    return subscriber_service.resellers.list_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
-
-
-@router.patch(
-    "/resellers/{reseller_id}",
-    response_model=ResellerRead,
-    tags=["resellers"],
-)
-def update_reseller(
-    reseller_id: str, payload: ResellerUpdate, db: Session = Depends(get_db)
-):
-    return subscriber_service.resellers.update(db, reseller_id, payload)
-
-
-@router.delete(
-    "/resellers/{reseller_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["resellers"],
-)
-def delete_reseller(reseller_id: str, db: Session = Depends(get_db)):
-    subscriber_service.resellers.delete(db, reseller_id)
-
-
-@router.post(
-    "/subscribers",
-    response_model=SubscriberRead,
-    status_code=status.HTTP_201_CREATED,
-    tags=["subscribers"],
-)
-def create_subscriber(payload: SubscriberCreate, db: Session = Depends(get_db)):
-    return subscriber_service.subscribers.create(db, payload)
-
-
-@router.get(
-    "/subscribers/{subscriber_id}",
-    response_model=SubscriberRead,
-    tags=["subscribers"],
-)
-def get_subscriber(subscriber_id: str, db: Session = Depends(get_db)):
-    return subscriber_service.subscribers.get(db, subscriber_id)
-
-
-@router.get(
-    "/subscribers",
-    response_model=ListResponse[SubscriberRead],
-    tags=["subscribers"],
-)
+@router.get("", response_model=SubscriberListResponse)
 def list_subscribers(
-    subscriber_type: str | None = None,
-    person_id: str | None = None,
-    organization_id: str | None = None,
-    order_by: str = Query(default="created_at"),
-    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
+    search: str | None = Query(None, description="Search by number, name, or external ID"),
+    status: SubscriberStatus | None = Query(None, description="Filter by status"),
+    external_system: str | None = Query(None, description="Filter by external system"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
 ):
-    return subscriber_service.subscribers.list_response(
-        db, person_id, organization_id, subscriber_type, order_by, order_dir, limit, offset
+    """List subscribers with pagination and filtering."""
+    offset = (page - 1) * per_page
+
+    items = subscriber_service.list(
+        db,
+        search=search,
+        status=status,
+        external_system=external_system,
+        limit=per_page,
+        offset=offset,
+    )
+
+    total = subscriber_service.count(
+        db,
+        search=search,
+        status=status,
+        external_system=external_system,
+    )
+
+    pages = math.ceil(total / per_page) if total > 0 else 1
+
+    return SubscriberListResponse(
+        items=[SubscriberResponse.model_validate(s) for s in items],
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
     )
 
 
-@router.patch(
-    "/subscribers/{subscriber_id}",
-    response_model=SubscriberRead,
-    tags=["subscribers"],
-)
+@router.get("/stats", response_model=SubscriberStats)
+def get_subscriber_stats(db: Session = Depends(get_db)):
+    """Get subscriber statistics."""
+    stats = subscriber_service.get_stats(db)
+    return SubscriberStats(**stats)
+
+
+@router.get("/{subscriber_id}", response_model=SubscriberResponse)
+def get_subscriber(
+    subscriber_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """Get a subscriber by ID."""
+    sub = subscriber_service.get(db, subscriber_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscriber not found")
+    return SubscriberResponse.model_validate(sub)
+
+
+@router.post("", response_model=SubscriberResponse, status_code=201)
+def create_subscriber(
+    data: SubscriberCreate,
+    db: Session = Depends(get_db),
+):
+    """Create a new subscriber (manual creation)."""
+    sub = subscriber_service.create(db, data.model_dump(exclude_unset=True))
+    return SubscriberResponse.model_validate(sub)
+
+
+@router.patch("/{subscriber_id}", response_model=SubscriberResponse)
 def update_subscriber(
-    subscriber_id: str, payload: SubscriberUpdate, db: Session = Depends(get_db)
-):
-    return subscriber_service.subscribers.update(db, subscriber_id, payload)
-
-
-@router.delete(
-    "/subscribers/{subscriber_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["subscribers"],
-)
-def delete_subscriber(subscriber_id: str, db: Session = Depends(get_db)):
-    subscriber_service.subscribers.delete(db, subscriber_id)
-
-
-@router.post(
-    "/subscriber-accounts",
-    response_model=SubscriberAccountRead,
-    status_code=status.HTTP_201_CREATED,
-    tags=["subscriber-accounts"],
-)
-def create_subscriber_account(
-    payload: SubscriberAccountCreate, db: Session = Depends(get_db)
-):
-    return subscriber_service.accounts.create(db, payload)
-
-
-@router.get(
-    "/subscriber-accounts/{account_id}",
-    response_model=SubscriberAccountRead,
-    tags=["subscriber-accounts"],
-)
-def get_subscriber_account(account_id: str, db: Session = Depends(get_db)):
-    return subscriber_service.accounts.get(db, account_id)
-
-
-@router.get(
-    "/subscriber-accounts",
-    response_model=ListResponse[SubscriberAccountRead],
-    tags=["subscriber-accounts"],
-)
-def list_subscriber_accounts(
-    subscriber_id: str | None = None,
-    reseller_id: str | None = None,
-    order_by: str = Query(default="created_at"),
-    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    subscriber_id: UUID,
+    data: SubscriberUpdate,
     db: Session = Depends(get_db),
 ):
-    return subscriber_service.accounts.list_response(
-        db, subscriber_id, reseller_id, order_by, order_dir, limit, offset
-    )
+    """Update a subscriber (limited fields - most data comes from sync)."""
+    sub = subscriber_service.get(db, subscriber_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscriber not found")
+
+    update_data = data.model_dump(exclude_unset=True, exclude_none=True)
+    sub = subscriber_service.update(db, sub, update_data)
+    return SubscriberResponse.model_validate(sub)
 
 
-@router.patch(
-    "/subscriber-accounts/{account_id}",
-    response_model=SubscriberAccountRead,
-    tags=["subscriber-accounts"],
-)
-def update_subscriber_account(
-    account_id: str, payload: SubscriberAccountUpdate, db: Session = Depends(get_db)
-):
-    return subscriber_service.accounts.update(db, account_id, payload)
-
-
-@router.delete(
-    "/subscriber-accounts/{account_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["subscriber-accounts"],
-)
-def delete_subscriber_account(account_id: str, db: Session = Depends(get_db)):
-    subscriber_service.accounts.delete(db, account_id)
-
-
-@router.post(
-    "/account-roles",
-    response_model=AccountRoleRead,
-    status_code=status.HTTP_201_CREATED,
-    tags=["account-roles"],
-)
-def create_account_role(payload: AccountRoleCreate, db: Session = Depends(get_db)):
-    return subscriber_service.account_roles.create(db, payload)
-
-
-@router.get(
-    "/account-roles/{role_id}",
-    response_model=AccountRoleRead,
-    tags=["account-roles"],
-)
-def get_account_role(role_id: str, db: Session = Depends(get_db)):
-    return subscriber_service.account_roles.get(db, role_id)
-
-
-@router.get(
-    "/account-roles",
-    response_model=ListResponse[AccountRoleRead],
-    tags=["account-roles"],
-)
-def list_account_roles(
-    account_id: str | None = None,
-    person_id: str | None = None,
-    order_by: str = Query(default="created_at"),
-    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+@router.delete("/{subscriber_id}", status_code=204)
+def delete_subscriber(
+    subscriber_id: UUID,
     db: Session = Depends(get_db),
 ):
-    return subscriber_service.account_roles.list_response(
-        db, account_id, person_id, order_by, order_dir, limit, offset
-    )
+    """Soft delete a subscriber."""
+    sub = subscriber_service.get(db, subscriber_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscriber not found")
+    subscriber_service.delete(db, sub)
 
 
-@router.patch(
-    "/account-roles/{role_id}",
-    response_model=AccountRoleRead,
-    tags=["account-roles"],
-)
-def update_account_role(
-    role_id: str, payload: AccountRoleUpdate, db: Session = Depends(get_db)
-):
-    return subscriber_service.account_roles.update(db, role_id, payload)
-
-
-@router.delete(
-    "/account-roles/{role_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["account-roles"],
-)
-def delete_account_role(role_id: str, db: Session = Depends(get_db)):
-    subscriber_service.account_roles.delete(db, role_id)
-
-
-@router.post(
-    "/addresses",
-    response_model=AddressRead,
-    status_code=status.HTTP_201_CREATED,
-    tags=["addresses"],
-)
-def create_address(payload: AddressCreate, db: Session = Depends(get_db)):
-    return subscriber_service.addresses.create(db, payload)
-
-
-@router.get(
-    "/addresses/{address_id}",
-    response_model=AddressRead,
-    tags=["addresses"],
-)
-def get_address(address_id: str, db: Session = Depends(get_db)):
-    return subscriber_service.addresses.get(db, address_id)
-
-
-@router.get(
-    "/addresses",
-    response_model=ListResponse[AddressRead],
-    tags=["addresses"],
-)
-def list_addresses(
-    subscriber_id: str | None = None,
-    account_id: str | None = None,
-    order_by: str = Query(default="created_at"),
-    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+@router.post("/{subscriber_id}/link-person", response_model=SubscriberResponse)
+def link_subscriber_to_person(
+    subscriber_id: UUID,
+    person_id: UUID,
     db: Session = Depends(get_db),
 ):
-    return subscriber_service.addresses.list_response(
-        db, subscriber_id, account_id, order_by, order_dir, limit, offset
-    )
+    """Link a subscriber to a person contact."""
+    sub = subscriber_service.get(db, subscriber_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscriber not found")
+    sub = subscriber_service.link_to_person(db, sub, person_id)
+    return SubscriberResponse.model_validate(sub)
 
 
-@router.patch(
-    "/addresses/{address_id}",
-    response_model=AddressRead,
-    tags=["addresses"],
-)
-def update_address(
-    address_id: str, payload: AddressUpdate, db: Session = Depends(get_db)
-):
-    return subscriber_service.addresses.update(db, address_id, payload)
-
-
-@router.delete(
-    "/addresses/{address_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["addresses"],
-)
-def delete_address(address_id: str, db: Session = Depends(get_db)):
-    subscriber_service.addresses.delete(db, address_id)
-
-
-@router.post(
-    "/subscriber-custom-fields",
-    response_model=SubscriberCustomFieldRead,
-    status_code=status.HTTP_201_CREATED,
-    tags=["subscriber-custom-fields"],
-)
-def create_subscriber_custom_field(
-    payload: SubscriberCustomFieldCreate, db: Session = Depends(get_db)
-):
-    return subscriber_service.subscriber_custom_fields.create(db, payload)
-
-
-@router.get(
-    "/subscriber-custom-fields/{custom_field_id}",
-    response_model=SubscriberCustomFieldRead,
-    tags=["subscriber-custom-fields"],
-)
-def get_subscriber_custom_field(custom_field_id: str, db: Session = Depends(get_db)):
-    return subscriber_service.subscriber_custom_fields.get(db, custom_field_id)
-
-
-@router.get(
-    "/subscriber-custom-fields",
-    response_model=ListResponse[SubscriberCustomFieldRead],
-    tags=["subscriber-custom-fields"],
-)
-def list_subscriber_custom_fields(
-    subscriber_id: str | None = None,
-    is_active: bool | None = None,
-    order_by: str = Query(default="created_at"),
-    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+@router.post("/{subscriber_id}/link-organization", response_model=SubscriberResponse)
+def link_subscriber_to_organization(
+    subscriber_id: UUID,
+    organization_id: UUID,
     db: Session = Depends(get_db),
 ):
-    return subscriber_service.subscriber_custom_fields.list_response(
-        db, subscriber_id, is_active, order_by, order_dir, limit, offset
-    )
+    """Link a subscriber to an organization."""
+    sub = subscriber_service.get(db, subscriber_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscriber not found")
+    sub = subscriber_service.link_to_organization(db, sub, organization_id)
+    return SubscriberResponse.model_validate(sub)
 
 
-@router.patch(
-    "/subscriber-custom-fields/{custom_field_id}",
-    response_model=SubscriberCustomFieldRead,
-    tags=["subscriber-custom-fields"],
-)
-def update_subscriber_custom_field(
-    custom_field_id: str,
-    payload: SubscriberCustomFieldUpdate,
+# ============================================================================
+# Sync Endpoints (for external billing system integration)
+# ============================================================================
+
+@router.post("/sync", response_model=dict)
+def sync_subscribers(
+    data: SubscriberBulkSync,
     db: Session = Depends(get_db),
 ):
-    return subscriber_service.subscriber_custom_fields.update(
-        db, custom_field_id, payload
-    )
+    """
+    Bulk sync subscribers from external billing system.
+
+    This endpoint is called by integration jobs or webhooks from
+    external systems (Splynx, UCRM, WHMCS, etc.) to push subscriber
+    data into the platform.
+    """
+    errors: list[dict[str, str]] = []
+    created = 0
+    updated = 0
+
+    for sub_data in data.subscribers:
+        try:
+            existing = subscriber_service.get_by_external_id(
+                db, data.external_system, sub_data.external_id
+            )
+
+            sync_data = sub_data.model_dump(
+                exclude={"person_email", "person_phone"},
+                exclude_unset=True,
+            )
+
+            subscriber_service.sync_from_external(
+                db,
+                external_system=data.external_system,
+                external_id=sub_data.external_id,
+                data=sync_data,
+            )
+
+            if existing:
+                updated += 1
+            else:
+                created += 1
+
+        except Exception as e:
+            db.rollback()
+            errors.append({
+                "external_id": sub_data.external_id,
+                "error": str(e),
+            })
+
+    return {
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+    }
 
 
-@router.delete(
-    "/subscriber-custom-fields/{custom_field_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["subscriber-custom-fields"],
-)
-def delete_subscriber_custom_field(
-    custom_field_id: str, db: Session = Depends(get_db)
+@router.post("/sync/webhook/{external_system}")
+def sync_webhook(
+    external_system: str,
+    payload: dict,
+    db: Session = Depends(get_db),
 ):
-    subscriber_service.subscriber_custom_fields.delete(db, custom_field_id)
+    """
+    Webhook endpoint for real-time sync from external systems.
+
+    Each external system may send different payload formats.
+    This endpoint normalizes the data and syncs.
+    """
+    # Parse based on external system
+    if external_system == "splynx":
+        return _handle_splynx_webhook(db, payload)
+    elif external_system == "ucrm":
+        return _handle_ucrm_webhook(db, payload)
+    else:
+        # Generic handling - expect normalized format
+        return _handle_generic_webhook(db, external_system, payload)
+
+
+def _handle_splynx_webhook(db: Session, payload: dict) -> dict:
+    """Handle Splynx webhook payload."""
+    # Splynx sends customer data in specific format
+    # Map to our normalized format
+    external_id = str(payload.get("id"))
+    data = {
+        "external_id": external_id,
+        "subscriber_number": payload.get("login"),
+        "status": _map_splynx_status(payload.get("status")),
+        "service_name": payload.get("tariff_name"),
+        "balance": str(payload.get("balance", 0)),
+        "service_address_line1": payload.get("street"),
+        "service_city": payload.get("city"),
+    }
+
+    sub = subscriber_service.sync_from_external(db, "splynx", external_id, data)
+    return {"status": "ok", "subscriber_id": str(sub.id)}
+
+
+def _handle_ucrm_webhook(db: Session, payload: dict) -> dict:
+    """Handle UCRM/UNMS webhook payload."""
+    # UCRM format mapping
+    client = payload.get("client", {})
+    external_id = str(client.get("id"))
+    data = {
+        "external_id": external_id,
+        "subscriber_number": client.get("userIdent"),
+        "status": _map_ucrm_status(client.get("isActive")),
+        "service_name": payload.get("servicePlanName"),
+        "balance": str(client.get("accountBalance", 0)),
+    }
+
+    sub = subscriber_service.sync_from_external(db, "ucrm", external_id, data)
+    return {"status": "ok", "subscriber_id": str(sub.id)}
+
+
+def _handle_generic_webhook(db: Session, external_system: str, payload: dict) -> dict:
+    """Handle generic webhook with normalized format."""
+    external_id = payload.get("external_id") or payload.get("id")
+    if not external_id:
+        raise HTTPException(status_code=400, detail="external_id or id required")
+
+    sub = subscriber_service.sync_from_external(db, external_system, str(external_id), payload)
+    return {"status": "ok", "subscriber_id": str(sub.id)}
+
+
+def _map_splynx_status(status: str | int | None) -> SubscriberStatus:
+    """Map Splynx status to our status enum."""
+    status_map = {
+        "active": SubscriberStatus.active,
+        "blocked": SubscriberStatus.suspended,
+        "inactive": SubscriberStatus.terminated,
+        "new": SubscriberStatus.pending,
+        1: SubscriberStatus.active,
+        2: SubscriberStatus.suspended,
+        0: SubscriberStatus.terminated,
+    }
+    return status_map.get(status, SubscriberStatus.active)
+
+
+def _map_ucrm_status(is_active: bool | None) -> SubscriberStatus:
+    """Map UCRM active status to our status enum."""
+    return SubscriberStatus.active if is_active else SubscriberStatus.suspended

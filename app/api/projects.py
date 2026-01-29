@@ -1,13 +1,8 @@
-from datetime import date, datetime, time, timezone
-
 from fastapi import APIRouter, Depends, Query, status
-from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.projects import Project, ProjectStatus
 from app.schemas.common import ListResponse
 from app.schemas.projects import (
     ProjectCreate,
@@ -44,7 +39,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
 
 @router.get("/projects", response_model=ListResponse[ProjectRead], tags=["projects"])
 def list_projects(
-    account_id: str | None = None,
+    subscriber_id: str | None = None,
     status: str | None = None,
     priority: str | None = None,
     owner_person_id: str | None = None,
@@ -58,7 +53,7 @@ def list_projects(
 ):
     return projects_service.projects.list_response(
         db,
-        account_id,
+        subscriber_id,
         status,
         priority,
         owner_person_id,
@@ -87,67 +82,17 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
 
 @router.get("/projects/charts/summary", tags=["projects"])
 def projects_chart_summary(db: Session = Depends(get_db)):
-    rows = (
-        db.query(Project.status, func.count(Project.id))
-        .filter(Project.is_active.is_(True))
-        .group_by(Project.status)
-        .all()
-    )
-    counts = {status.value: count for status, count in rows if status}
-    data = [
-        {"status": status.value, "count": counts.get(status.value, 0)}
-        for status in ProjectStatus
-    ]
-    return {"series": [{"label": "Projects", "data": data}]}
+    return projects_service.projects.chart_summary(db)
 
 
 @router.get("/projects/kanban", tags=["projects"])
 def projects_kanban(db: Session = Depends(get_db)):
-    columns = [
-        {"id": status.value, "title": status.value.replace("_", " ").title()}
-        for status in ProjectStatus
-    ]
-    projects = (
-        db.query(Project)
-        .filter(Project.is_active.is_(True))
-        .order_by(Project.updated_at.desc())
-        .all()
-    )
-    records = []
-    for project in projects:
-        records.append(
-            {
-                "id": str(project.id),
-                "name": project.name,
-                "project_type": project.project_type.value if project.project_type else None,
-                "status": project.status.value if project.status else None,
-                "due_date": project.due_at.date().isoformat() if project.due_at else None,
-            }
-        )
-    return {"columns": columns, "records": records}
+    return projects_service.projects.kanban_view(db)
 
 
 @router.get("/projects/gantt", tags=["projects"])
 def projects_gantt(db: Session = Depends(get_db)):
-    projects = (
-        db.query(Project)
-        .filter(Project.is_active.is_(True))
-        .order_by(Project.updated_at.desc())
-        .all()
-    )
-    items = []
-    for project in projects:
-        start_dt = project.start_at or project.created_at
-        due_dt = project.due_at or start_dt
-        items.append(
-            {
-                "id": str(project.id),
-                "name": project.name,
-                "start_date": start_dt.date().isoformat() if start_dt else None,
-                "due_date": due_dt.date().isoformat() if due_dt else None,
-            }
-        )
-    return {"items": items}
+    return projects_service.projects.gantt_view(db)
 
 
 class ProjectGanttUpdate(BaseModel):
@@ -158,30 +103,7 @@ class ProjectGanttUpdate(BaseModel):
 
 @router.post("/projects/gantt/due-date", tags=["projects"])
 def projects_gantt_due_date(payload: ProjectGanttUpdate, db: Session = Depends(get_db)):
-    project = db.get(Project, payload.id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    field_map = {
-        "due_date": "due_at",
-        "start_date": "start_at",
-        "completed_date": "completed_at",
-        "due_at": "due_at",
-        "start_at": "start_at",
-        "completed_at": "completed_at",
-    }
-    if payload.field not in field_map:
-        raise HTTPException(status_code=400, detail="Invalid field")
-    try:
-        target_day = date.fromisoformat(payload.value)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid date") from exc
-    setattr(
-        project,
-        field_map[payload.field],
-        datetime.combine(target_day, time(23, 59, 59), tzinfo=timezone.utc),
-    )
-    db.commit()
-    return {"status": "ok", "field": payload.field, "value": target_day.isoformat()}
+    return projects_service.projects.update_gantt_date(db, payload.id, payload.field, payload.value)
 
 
 class ProjectKanbanMove(BaseModel):
@@ -195,15 +117,7 @@ class ProjectKanbanMove(BaseModel):
 
 @router.post("/projects/kanban/move", tags=["projects"])
 def projects_kanban_move(payload: ProjectKanbanMove, db: Session = Depends(get_db)):
-    project = db.get(Project, payload.id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    try:
-        project.status = ProjectStatus(payload.to)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid status") from exc
-    db.commit()
-    return {"status": "ok"}
+    return projects_service.projects.update_status(db, payload.id, payload.to)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])

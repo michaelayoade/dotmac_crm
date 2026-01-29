@@ -1,4 +1,7 @@
+from datetime import date, datetime, time, timezone
+
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.person import Person
@@ -15,7 +18,6 @@ from app.models.projects import (
     TaskPriority,
     TaskStatus,
 )
-from app.models.subscriber import SubscriberAccount
 from app.models.tickets import Ticket
 from app.models.workforce import WorkOrder
 from app.models.domain_settings import SettingDomain
@@ -48,12 +50,6 @@ def _ensure_person(db: Session, person_id: str):
         raise HTTPException(status_code=404, detail="Person not found")
 
 
-def _ensure_account(db: Session, account_id: str):
-    account = db.get(SubscriberAccount, coerce_uuid(account_id))
-    if not account:
-        raise HTTPException(status_code=404, detail="Subscriber account not found")
-
-
 def _ensure_project_template(db: Session, template_id: str):
     template = db.get(ProjectTemplate, coerce_uuid(template_id))
     if not template:
@@ -73,8 +69,6 @@ class Projects(ListResponseMixin):
 
     @staticmethod
     def create(db: Session, payload: ProjectCreate):
-        if payload.account_id:
-            _ensure_account(db, str(payload.account_id))
         if payload.created_by_person_id:
             _ensure_person(db, str(payload.created_by_person_id))
         if payload.owner_person_id:
@@ -121,7 +115,7 @@ class Projects(ListResponseMixin):
     @staticmethod
     def list(
         db: Session,
-        account_id: str | None,
+        subscriber_id: str | None,
         status: str | None,
         priority: str | None,
         owner_person_id: str | None,
@@ -133,8 +127,8 @@ class Projects(ListResponseMixin):
         offset: int,
     ):
         query = db.query(Project)
-        if account_id:
-            query = query.filter(Project.account_id == account_id)
+        if subscriber_id:
+            query = query.filter(Project.subscriber_id == coerce_uuid(subscriber_id))
         if status:
             query = query.filter(Project.status == validate_enum(status, ProjectStatus, "status"))
         if priority:
@@ -158,14 +152,123 @@ class Projects(ListResponseMixin):
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
+    def chart_summary(db: Session) -> dict:
+        """Get status count aggregation for chart display."""
+        rows = (
+            db.query(Project.status, func.count(Project.id))
+            .filter(Project.is_active.is_(True))
+            .group_by(Project.status)
+            .all()
+        )
+        counts = {status.value: count for status, count in rows if status}
+        data = [
+            {"status": status.value, "count": counts.get(status.value, 0)}
+            for status in ProjectStatus
+        ]
+        return {"series": [{"label": "Projects", "data": data}]}
+
+    @staticmethod
+    def kanban_view(db: Session) -> dict:
+        """Get kanban board columns and project records."""
+        columns = [
+            {"id": status.value, "title": status.value.replace("_", " ").title()}
+            for status in ProjectStatus
+        ]
+        projects_list = (
+            db.query(Project)
+            .filter(Project.is_active.is_(True))
+            .order_by(Project.updated_at.desc())
+            .all()
+        )
+        records = []
+        for project in projects_list:
+            records.append({
+                "id": str(project.id),
+                "name": project.name,
+                "project_type": project.project_type.value if project.project_type else None,
+                "status": project.status.value if project.status else None,
+                "due_date": project.due_at.date().isoformat() if project.due_at else None,
+            })
+        return {"columns": columns, "records": records}
+
+    @staticmethod
+    def gantt_view(db: Session) -> dict:
+        """Get gantt chart items with dates."""
+        projects_list = (
+            db.query(Project)
+            .filter(Project.is_active.is_(True))
+            .order_by(Project.updated_at.desc())
+            .all()
+        )
+        items = []
+        for project in projects_list:
+            start_dt = project.start_at or project.created_at
+            due_dt = project.due_at or start_dt
+            items.append({
+                "id": str(project.id),
+                "name": project.name,
+                "start_date": start_dt.date().isoformat() if start_dt else None,
+                "due_date": due_dt.date().isoformat() if due_dt else None,
+            })
+        return {"items": items}
+
+    @staticmethod
+    def update_gantt_date(db: Session, project_id: str, field: str, value: str) -> dict:
+        """Update a date field on a project from gantt chart drag."""
+        project = db.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        field_map = {
+            "due_date": "due_at",
+            "start_date": "start_at",
+            "completed_date": "completed_at",
+            "due_at": "due_at",
+            "start_at": "start_at",
+            "completed_at": "completed_at",
+        }
+        if field not in field_map:
+            raise HTTPException(status_code=400, detail="Invalid field")
+        try:
+            target_day = date.fromisoformat(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid date") from exc
+        setattr(
+            project,
+            field_map[field],
+            datetime.combine(target_day, time(23, 59, 59), tzinfo=timezone.utc),
+        )
+        db.commit()
+        return {"status": "ok", "field": field, "value": target_day.isoformat()}
+
+    @staticmethod
+    def update_status(db: Session, project_id: str, new_status: str) -> dict:
+        """Move a project to a new status (kanban card move)."""
+        project = db.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        try:
+            project.status = ProjectStatus(new_status)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid status") from exc
+        db.commit()
+        return {"status": "ok"}
+
+    @staticmethod
+    def delete(db: Session, project_id: str):
+        """Soft delete a project."""
+        project = db.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project.is_active = False
+        db.commit()
+
+    @staticmethod
     def update(db: Session, project_id: str, payload: ProjectUpdate):
         project = db.get(Project, project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         previous_template_id = str(project.project_template_id) if project.project_template_id else None
         data = payload.model_dump(exclude_unset=True)
-        if "account_id" in data and data["account_id"]:
-            _ensure_account(db, str(data["account_id"]))
         if "created_by_person_id" in data and data["created_by_person_id"]:
             _ensure_person(db, str(data["created_by_person_id"]))
         if "owner_person_id" in data and data["owner_person_id"]:
@@ -362,14 +465,6 @@ class ProjectTemplateTasks(ListResponseMixin):
             if template_task.priority:
                 data["priority"] = template_task.priority
             db.add(ProjectTask(**data))
-        db.commit()
-
-    @staticmethod
-    def delete(db: Session, project_id: str):
-        project = db.get(Project, project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        project.is_active = False
         db.commit()
 
 

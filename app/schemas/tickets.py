@@ -10,8 +10,7 @@ from app.models.tickets import TicketChannel, TicketPriority, TicketStatus
 
 class TicketBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    account_id: UUID | None = None
-    subscription_id: UUID | None = None
+    subscriber_id: UUID | None = None
     created_by_person_id: UUID | None = None
     assigned_to_person_id: UUID | None = None
     title: str = Field(min_length=1, max_length=200)
@@ -36,8 +35,7 @@ class TicketCreate(TicketBase):
 
 class TicketUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    account_id: UUID | None = None
-    subscription_id: UUID | None = None
+    subscriber_id: UUID | None = None
     created_by_person_id: UUID | None = None
     assigned_to_person_id: UUID | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)

@@ -58,7 +58,7 @@ def require_audit_auth(
     authorization: str | None = Header(default=None),
     x_session_token: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
-    request: Request = None,
+    request: Request | None = None,
     db: Session = Depends(_get_db),
 ):
     token = _extract_bearer_token(authorization) or x_session_token
@@ -115,7 +115,7 @@ def require_audit_auth(
 
 def require_user_auth(
     authorization: str | None = Header(default=None),
-    request: Request = None,
+    request: Request | None = None,
     db: Session = Depends(_get_db),
 ):
     token = _extract_bearer_token(authorization)

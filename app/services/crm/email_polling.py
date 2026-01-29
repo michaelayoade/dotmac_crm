@@ -16,6 +16,7 @@ from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.crm.conversation import MessageAttachment
 from app.schemas.crm.inbox import EmailWebhookPayload
 from app.services.crm import inbox as inbox_service
+from app.services.common import coerce_uuid
 from app.logging import get_logger
 
 logger = get_logger(__name__)
@@ -50,7 +51,8 @@ def _self_addresses_from_config(config: ConnectorConfig, auth_config: dict) -> s
             if normalized:
                 addresses.add(normalized)
     metadata = config.metadata_ if isinstance(config.metadata_, dict) else {}
-    smtp_config = metadata.get("smtp") if isinstance(metadata.get("smtp"), dict) else {}
+    smtp_value = metadata.get("smtp")
+    smtp_config: dict[str, object] = smtp_value if isinstance(smtp_value, dict) else {}
     for key in ("username", "from_email", "from"):
         value = smtp_config.get(key)
         normalized = _normalize_email_address(value) if isinstance(value, str) else None
@@ -66,28 +68,38 @@ def _is_self_sender(from_addr: str | None, config: ConnectorConfig, auth_config:
     return sender in _self_addresses_from_config(config, auth_config)
 
 
+def _payload_to_bytes(value: object | None) -> bytes:
+    if isinstance(value, bytes):
+        return value
+    if value is None:
+        return b""
+    if isinstance(value, str):
+        return value.encode("utf-8", errors="replace")
+    return str(value).encode("utf-8", errors="replace")
+
+
 def _extract_body(msg: email.message.Message) -> str:
     if msg.is_multipart():
         for part in msg.walk():
             content_type = part.get_content_type()
             disposition = part.get("Content-Disposition", "")
             if content_type == "text/plain" and "attachment" not in disposition:
-                payload = part.get_payload(decode=True)
+                payload = _payload_to_bytes(part.get_payload(decode=True))
                 charset = part.get_content_charset() or "utf-8"
                 return (payload or b"").decode(charset, errors="replace")
         for part in msg.walk():
             if part.get_content_type() == "text/html":
-                payload = part.get_payload(decode=True)
+                payload = _payload_to_bytes(part.get_payload(decode=True))
                 charset = part.get_content_charset() or "utf-8"
                 return (payload or b"").decode(charset, errors="replace")
         return ""
-    payload = msg.get_payload(decode=True)
+    payload = _payload_to_bytes(msg.get_payload(decode=True))
     charset = msg.get_content_charset() or "utf-8"
     return (payload or b"").decode(charset, errors="replace")
 
 
-def _extract_attachments(msg: email.message.Message) -> list[dict]:
-    attachments = []
+def _extract_attachments(msg: email.message.Message) -> list[dict[str, object]]:
+    attachments: list[dict[str, object]] = []
     if not msg.is_multipart():
         return attachments
     for part in msg.walk():
@@ -96,7 +108,13 @@ def _extract_attachments(msg: email.message.Message) -> list[dict]:
         content_id = part.get("Content-ID")
         if "attachment" not in disposition and not filename and not content_id:
             continue
-        payload = part.get_payload(decode=True) or b""
+        raw_payload = part.get_payload(decode=True)
+        if isinstance(raw_payload, bytes):
+            payload = raw_payload
+        elif raw_payload is None:
+            payload = b""
+        else:
+            payload = str(raw_payload).encode("utf-8", errors="replace")
         attachments.append(
             {
                 "file_name": _decode_header(filename) if filename else None,
@@ -136,12 +154,19 @@ def _imap_poll(
     auth_config: dict,
     target_id: str | None = None,
 ) -> int:
-    host = imap_config.get("host")
+    host_value = imap_config.get("host")
+    host = str(host_value) if host_value else None
     port = int(imap_config.get("port") or 993)
     use_ssl = bool(imap_config.get("use_ssl", True))
     username = auth_config.get("username")
     password = auth_config.get("password")
-    if not host or not username or not password:
+    if (
+        not host
+        or not isinstance(username, str)
+        or not isinstance(password, str)
+        or not username
+        or not password
+    ):
         raise HTTPException(status_code=400, detail="IMAP config incomplete")
 
     last_uid = None
@@ -151,13 +176,14 @@ def _imap_poll(
 
     client = imaplib.IMAP4_SSL(host, port) if use_ssl else imaplib.IMAP4(host, port)
     client.login(username, password)
-    client.select(imap_config.get("mailbox", "INBOX"))
+    mailbox = imap_config.get("mailbox", "INBOX")
+    client.select(mailbox if isinstance(mailbox, str) else "INBOX")
 
     if last_uid:
         criteria = f"(UID {last_uid + 1}:*)"
-        _, data = client.uid("search", None, criteria)
+        _, data = client.uid("search", "UTF-8", criteria)
     else:
-        _, data = client.uid("search", None, "UNSEEN")
+        _, data = client.uid("search", "UTF-8", "UNSEEN")
     uids = data[0].split() if data and data[0] else []
 
     processed = 0
@@ -167,7 +193,8 @@ def _imap_poll(
             continue
         raw = msg_data[0][1]
         msg = email.message_from_bytes(raw)
-        from_addr = parseaddr(msg.get("From"))[1]
+        from_header = msg.get("From") or ""
+        from_addr = parseaddr(from_header)[1]
         if _is_self_sender(from_addr, config, auth_config):
             try:
                 uid_int = int(uid)
@@ -198,17 +225,18 @@ def _imap_poll(
                 received_at = None
         body = _extract_body(msg)
         attachments = _extract_attachments(msg)
+        uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
         payload = EmailWebhookPayload(
             contact_address=from_addr,
-            contact_name=_decode_header(parseaddr(msg.get("From"))[0]) or None,
+            contact_name=_decode_header(parseaddr(from_header)[0]) or None,
             message_id=message_id,
-            channel_target_id=target_id,
+            channel_target_id=coerce_uuid(target_id) if target_id else None,
             subject=subject,
             body=body or "",
             received_at=received_at,
             metadata={
                 "source": "imap",
-                "uid": uid.decode(),
+                "uid": uid_str,
                 "reply_to": reply_to,
                 "to": to_addrs,
                 "cc": cc_addrs,
@@ -243,12 +271,19 @@ def _pop3_poll(
     auth_config: dict,
     target_id: str | None = None,
 ) -> int:
-    host = pop3_config.get("host")
+    host_value = pop3_config.get("host")
+    host = str(host_value) if host_value else None
     port = int(pop3_config.get("port") or 995)
     use_ssl = bool(pop3_config.get("use_ssl", True))
     username = auth_config.get("username")
     password = auth_config.get("password")
-    if not host or not username or not password:
+    if (
+        not host
+        or not isinstance(username, str)
+        or not isinstance(password, str)
+        or not username
+        or not password
+    ):
         raise HTTPException(status_code=400, detail="POP3 config incomplete")
 
     metadata = dict(config.metadata_ or {})
@@ -274,7 +309,8 @@ def _pop3_poll(
         _, lines, _ = client.retr(int(msg_num))
         raw = b"\n".join(lines)
         msg = email.message_from_bytes(raw)
-        from_addr = parseaddr(msg.get("From"))[1]
+        from_header = msg.get("From") or ""
+        from_addr = parseaddr(from_header)[1]
         if _is_self_sender(from_addr, config, auth_config):
             last_uidl = uidl
             continue
@@ -302,9 +338,9 @@ def _pop3_poll(
         attachments = _extract_attachments(msg)
         payload = EmailWebhookPayload(
             contact_address=from_addr,
-            contact_name=_decode_header(parseaddr(msg.get("From"))[0]) or None,
+            contact_name=_decode_header(parseaddr(from_header)[0]) or None,
             message_id=message_id,
-            channel_target_id=target_id,
+            channel_target_id=coerce_uuid(target_id) if target_id else None,
             subject=subject,
             body=body or "",
             received_at=received_at,

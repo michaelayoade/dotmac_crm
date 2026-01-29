@@ -1,11 +1,8 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.catalog import Subscription
 from app.models.person import Person
 from app.models.projects import Project
-from app.models.provisioning import ServiceOrder
-from app.models.subscriber import Address, SubscriberAccount
 from app.models.tickets import Ticket
 from app.models.workforce import (
     WorkOrder,
@@ -39,24 +36,6 @@ def _ensure_person(db: Session, person_id: str):
         raise HTTPException(status_code=404, detail="Person not found")
 
 
-def _ensure_account(db: Session, account_id: str):
-    account = db.get(SubscriberAccount, coerce_uuid(account_id))
-    if not account:
-        raise HTTPException(status_code=404, detail="Subscriber account not found")
-
-
-def _ensure_subscription(db: Session, subscription_id: str):
-    subscription = db.get(Subscription, coerce_uuid(subscription_id))
-    if not subscription:
-        raise HTTPException(status_code=404, detail="Subscription not found")
-
-
-def _ensure_service_order(db: Session, service_order_id: str):
-    order = db.get(ServiceOrder, coerce_uuid(service_order_id))
-    if not order:
-        raise HTTPException(status_code=404, detail="Service order not found")
-
-
 def _ensure_ticket(db: Session, ticket_id: str):
     ticket = db.get(Ticket, coerce_uuid(ticket_id))
     if not ticket:
@@ -69,27 +48,13 @@ def _ensure_project(db: Session, project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
 
 
-def _ensure_address(db: Session, address_id: str):
-    address = db.get(Address, coerce_uuid(address_id))
-    if not address:
-        raise HTTPException(status_code=404, detail="Address not found")
-
-
 class WorkOrders(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: WorkOrderCreate):
-        if payload.account_id:
-            _ensure_account(db, str(payload.account_id))
-        if payload.subscription_id:
-            _ensure_subscription(db, str(payload.subscription_id))
-        if payload.service_order_id:
-            _ensure_service_order(db, str(payload.service_order_id))
         if payload.ticket_id:
             _ensure_ticket(db, str(payload.ticket_id))
         if payload.project_id:
             _ensure_project(db, str(payload.project_id))
-        if payload.address_id:
-            _ensure_address(db, str(payload.address_id))
         if payload.assigned_to_person_id:
             _ensure_person(db, str(payload.assigned_to_person_id))
         work_order = WorkOrder(**payload.model_dump())
@@ -108,9 +73,7 @@ class WorkOrders(ListResponseMixin):
     @staticmethod
     def list(
         db: Session,
-        account_id: str | None,
-        subscription_id: str | None,
-        service_order_id: str | None,
+        subscriber_id: str | None,
         ticket_id: str | None,
         project_id: str | None,
         assigned_to_person_id: str | None,
@@ -124,12 +87,8 @@ class WorkOrders(ListResponseMixin):
         offset: int,
     ):
         query = db.query(WorkOrder)
-        if account_id:
-            query = query.filter(WorkOrder.account_id == account_id)
-        if subscription_id:
-            query = query.filter(WorkOrder.subscription_id == subscription_id)
-        if service_order_id:
-            query = query.filter(WorkOrder.service_order_id == service_order_id)
+        if subscriber_id:
+            query = query.filter(WorkOrder.subscriber_id == coerce_uuid(subscriber_id))
         if ticket_id:
             query = query.filter(WorkOrder.ticket_id == ticket_id)
         if project_id:
@@ -158,7 +117,11 @@ class WorkOrders(ListResponseMixin):
             query,
             order_by,
             order_dir,
-            {"created_at": WorkOrder.created_at, "status": WorkOrder.status},
+            {
+                "created_at": WorkOrder.created_at,
+                "status": WorkOrder.status,
+                "scheduled_start": WorkOrder.scheduled_start,
+            },
         )
         return apply_pagination(query, limit, offset).all()
 
@@ -168,18 +131,10 @@ class WorkOrders(ListResponseMixin):
         if not work_order:
             raise HTTPException(status_code=404, detail="Work order not found")
         data = payload.model_dump(exclude_unset=True)
-        if "account_id" in data and data["account_id"]:
-            _ensure_account(db, str(data["account_id"]))
-        if "subscription_id" in data and data["subscription_id"]:
-            _ensure_subscription(db, str(data["subscription_id"]))
-        if "service_order_id" in data and data["service_order_id"]:
-            _ensure_service_order(db, str(data["service_order_id"]))
         if "ticket_id" in data and data["ticket_id"]:
             _ensure_ticket(db, str(data["ticket_id"]))
         if "project_id" in data and data["project_id"]:
             _ensure_project(db, str(data["project_id"]))
-        if "address_id" in data and data["address_id"]:
-            _ensure_address(db, str(data["address_id"]))
         if "assigned_to_person_id" in data and data["assigned_to_person_id"]:
             _ensure_person(db, str(data["assigned_to_person_id"]))
         for key, value in data.items():

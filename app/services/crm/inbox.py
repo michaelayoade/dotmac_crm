@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import os
 import hashlib
 import re
 import uuid
@@ -8,9 +9,8 @@ from email.utils import getaddresses
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import String, cast, func, or_
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import selectinload
+from sqlalchemy import String, and_, cast, func, or_
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.domain_settings import SettingDomain
@@ -24,7 +24,6 @@ from app.models.integration import (
 from app.models.person import ChannelType as PersonChannelType, Person, PersonChannel
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
-from app.models.subscriber import AccountRole, AccountStatus, Subscriber, SubscriberAccount
 from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import EmailWebhookPayload, InboxSendRequest, WhatsAppWebhookPayload
 from app.services import email as email_service
@@ -32,18 +31,32 @@ from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm import email_polling
+from app.logic.crm_inbox_logic import (
+    ChannelType as LogicChannelType,
+    LogicService,
+    MessageContext,
+    InboundSelfMessageContext,
+    InboundDedupeContext,
+)
+from typing import cast as typing_cast
 from app.logging import get_logger
 from app.services.settings_spec import resolve_value
 
 _DEFAULT_WHATSAPP_TIMEOUT = 10  # fallback when settings unavailable
 
 logger = get_logger(__name__)
+USE_INBOX_LOGIC_SERVICE = os.getenv("USE_INBOX_LOGIC_SERVICE", "0") == "1"
+_logic_service = LogicService()
 
 
 def _get_whatsapp_api_timeout(db: Session) -> int:
     """Get the WhatsApp API timeout from settings."""
     timeout = resolve_value(db, SettingDomain.comms, "whatsapp_api_timeout_seconds")
-    return timeout if timeout else _DEFAULT_WHATSAPP_TIMEOUT
+    if isinstance(timeout, int):
+        return timeout
+    if isinstance(timeout, str) and timeout.isdigit():
+        return int(timeout)
+    return _DEFAULT_WHATSAPP_TIMEOUT
 
 
 def _now():
@@ -232,7 +245,7 @@ def _set_message_send_error(
     response_text: str | None = None,
 ) -> None:
     metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
-    error_payload = {
+    error_payload: dict[str, object] = {
         "channel": channel,
         "error": error,
     }
@@ -351,9 +364,10 @@ def _extract_self_email_addresses(config: ConnectorConfig | None) -> set[str]:
     addresses: set[str] = set()
     if not config:
         return addresses
-    auth_config = config.auth_config if isinstance(config.auth_config, dict) else {}
-    metadata = config.metadata_ if isinstance(config.metadata_, dict) else {}
-    smtp_config = metadata.get("smtp") if isinstance(metadata.get("smtp"), dict) else {}
+    auth_config: dict[str, object] = config.auth_config if isinstance(config.auth_config, dict) else {}
+    metadata: dict[str, object] = config.metadata_ if isinstance(config.metadata_, dict) else {}
+    smtp_value = metadata.get("smtp")
+    smtp_config: dict[str, object] = smtp_value if isinstance(smtp_value, dict) else {}
 
     for value in (
         auth_config.get("username"),
@@ -465,7 +479,7 @@ def _is_self_whatsapp_message(
 
 
 def _extract_subscription_identifiers(metadata: dict | None) -> dict:
-    identifiers = {
+    identifiers: dict[str, str | None] = {
         "account_id": None,
         "subscriber_id": None,
         "account_number": None,
@@ -495,255 +509,38 @@ def _extract_subscription_identifiers(metadata: dict | None) -> dict:
     return identifiers
 
 
-def _subscriber_query_options():
-    return [
-        selectinload(Subscriber.accounts)
-        .selectinload(SubscriberAccount.account_roles)
-        .selectinload(AccountRole.person)
-        .selectinload(Person.channels),
-        selectinload(Subscriber.person),
-    ]
+# Subscriber/Account functions removed - these return None as stubs
+def _load_account_with_context(db: Session, account_id):
+    return None
 
 
-def _account_query_options():
-    return [
-        selectinload(SubscriberAccount.subscriber).selectinload(Subscriber.person),
-        selectinload(SubscriberAccount.account_roles)
-        .selectinload(AccountRole.person)
-        .selectinload(Person.channels),
-    ]
+def _load_subscriber_with_context(db: Session, subscriber_id):
+    return None
 
 
-def _select_account_from_subscriber(subscriber: Subscriber | None) -> SubscriberAccount | None:
-    if not subscriber or not subscriber.accounts:
-        return None
-    for account in subscriber.accounts:
-        if account.status == AccountStatus.active:
-            return account
-    return subscriber.accounts[0]
-
-
-def _load_account_with_context(db: Session, account_id) -> SubscriberAccount | None:
-    return (
-        db.query(SubscriberAccount)
-        .options(*_account_query_options())
-        .filter(SubscriberAccount.id == account_id)
-        .first()
-    )
-
-
-def _load_subscriber_with_context(db: Session, subscriber_id) -> Subscriber | None:
-    return (
-        db.query(Subscriber)
-        .options(*_subscriber_query_options())
-        .filter(Subscriber.id == subscriber_id)
-        .first()
-    )
-
-
+# Subscriber/Account resolution removed - stub functions return None
 def _resolve_account_from_identifiers(
     db: Session,
     address: str | None,
     channel_type: ChannelType,
     metadata: dict | None,
-) -> tuple[SubscriberAccount | None, Subscriber | None]:
-    def _resolve_account_from_email(email_value: str | None) -> SubscriberAccount | None:
-        normalized_email = _normalize_email_address(email_value)
-        if not normalized_email:
-            return None
-        channel = (
-            db.query(PersonChannel)
-            .filter(PersonChannel.channel_type == PersonChannelType.email)
-            .filter(func.lower(PersonChannel.address) == normalized_email)
-            .first()
-        )
-        if channel:
-            return (
-                db.query(SubscriberAccount)
-                .options(*_account_query_options())
-                .join(AccountRole, AccountRole.account_id == SubscriberAccount.id)
-                .filter(AccountRole.person_id == channel.person_id)
-                .first()
-            )
-        person = db.query(Person).filter(func.lower(Person.email) == normalized_email).first()
-        if person:
-            return (
-                db.query(SubscriberAccount)
-                .options(*_account_query_options())
-                .join(AccountRole, AccountRole.account_id == SubscriberAccount.id)
-                .filter(AccountRole.person_id == person.id)
-                .first()
-            )
-        return None
-
-    def _resolve_account_from_phone(phone_value: str | None) -> SubscriberAccount | None:
-        raw_value = phone_value.strip() if isinstance(phone_value, str) else None
-        normalized_phone = _normalize_phone_address(phone_value)
-        if not normalized_phone and not raw_value:
-            return None
-        channel = (
-            db.query(PersonChannel)
-            .filter(PersonChannel.channel_type == PersonChannelType.phone)
-            .filter(
-                or_(
-                    PersonChannel.address == normalized_phone,
-                    PersonChannel.address == raw_value,
-                )
-            )
-            .first()
-        )
-        if channel:
-            return (
-                db.query(SubscriberAccount)
-                .options(*_account_query_options())
-                .join(AccountRole, AccountRole.account_id == SubscriberAccount.id)
-                .filter(AccountRole.person_id == channel.person_id)
-                .first()
-            )
-        person = db.query(Person).filter(
-            or_(
-                Person.phone == normalized_phone,
-                Person.phone == raw_value,
-            )
-        ).first()
-        if person:
-            return (
-                db.query(SubscriberAccount)
-                .options(*_account_query_options())
-                .join(AccountRole, AccountRole.account_id == SubscriberAccount.id)
-                .filter(AccountRole.person_id == person.id)
-                .first()
-            )
-        return None
-
-    identifiers = _extract_subscription_identifiers(metadata)
-    account = None
-    subscriber = None
-
-    account_id = identifiers.get("account_id")
-    if account_id:
-        try:
-            account = _load_account_with_context(db, coerce_uuid(account_id))
-        except Exception:
-            account = None
-
-    subscriber_id = identifiers.get("subscriber_id")
-    if not account and subscriber_id:
-        try:
-            subscriber = _load_subscriber_with_context(db, coerce_uuid(subscriber_id))
-        except Exception:
-            subscriber = None
-        account = _select_account_from_subscriber(subscriber)
-
-    account_number = identifiers.get("account_number") or identifiers.get("customer_id")
-    if not account and account_number:
-        account = (
-            db.query(SubscriberAccount)
-            .options(*_account_query_options())
-            .filter(SubscriberAccount.account_number == account_number)
-            .first()
-        )
-
-    subscriber_number = identifiers.get("subscriber_number")
-    if not account and subscriber_number:
-        subscriber = (
-            db.query(Subscriber)
-            .options(*_subscriber_query_options())
-            .filter(Subscriber.subscriber_number == subscriber_number)
-            .first()
-        )
-        account = _select_account_from_subscriber(subscriber)
-
-    if not account and address:
-        if channel_type == ChannelType.email:
-            email = _normalize_email_address(address)
-            account = _resolve_account_from_email(email)
-        elif channel_type == ChannelType.whatsapp:
-            phone = _normalize_phone_address(address)
-            account = _resolve_account_from_phone(phone)
-
-    if not account and metadata and isinstance(metadata, dict):
-        email = metadata.get("email")
-        email_value = _normalize_email_address(email) if isinstance(email, str) else None
-        if email_value:
-            account = _resolve_account_from_email(email_value)
-        if not account:
-            phone = metadata.get("phone")
-            phone_value = _normalize_phone_address(phone) if isinstance(phone, str) else None
-            if phone_value:
-                account = _resolve_account_from_phone(phone_value)
-
-    if account:
-        subscriber = account.subscriber
-
-    return account, subscriber
+):
+    """Stub function - subscriber/account resolution removed."""
+    return None, None
 
 
-def _resolve_display_name_from_account(account: SubscriberAccount | None) -> str | None:
-    if not account:
-        return None
-    subscriber = account.subscriber
-    if subscriber and subscriber.person:
-        person = subscriber.person
-        if person.organization:
-            return person.organization.name
-        return person.display_name or " ".join(
-            part for part in [person.first_name, person.last_name] if part
-        ).strip()
-    if account.billing_person:
-        return account.billing_person
-    for role in account.account_roles or []:
-        person = role.person
-        if person:
-            full_name = person.display_name or " ".join(
-                part for part in [person.first_name, person.last_name] if part
-            ).strip()
-            if full_name:
-                return full_name
+def _resolve_display_name_from_account(account) -> str | None:
+    """Stub function - returns None since accounts removed."""
     return None
 
 
-def _resolve_email_from_account(account: SubscriberAccount | None) -> str | None:
-    if not account:
-        return None
-    subscriber = account.subscriber
-    if subscriber and subscriber.person and subscriber.person.email:
-        return subscriber.person.email
-    for role in account.account_roles or []:
-        person = role.person
-        if not person:
-            continue
-        if person.email:
-            return person.email
-        for channel in person.channels or []:
-            if channel.channel_type == PersonChannelType.email:
-                if channel.is_primary:
-                    return channel.address
-        for channel in person.channels or []:
-            if channel.channel_type == PersonChannelType.email:
-                return channel.address
+def _resolve_email_from_account(account) -> str | None:
+    """Stub function - returns None since accounts removed."""
     return None
 
 
-def _resolve_phone_from_account(account: SubscriberAccount | None) -> str | None:
-    if not account:
-        return None
-    subscriber = account.subscriber
-    if subscriber and subscriber.person and subscriber.person.phone:
-        return subscriber.person.phone
-    for role in account.account_roles or []:
-        person = role.person
-        if not person:
-            continue
-        if person.phone:
-            return person.phone
-        for channel in person.channels or []:
-            if channel.channel_type == PersonChannelType.phone:
-                if channel.is_primary:
-                    return channel.address
-        for channel in person.channels or []:
-            if channel.channel_type == PersonChannelType.phone:
-                return channel.address
+def _resolve_phone_from_account(account) -> str | None:
+    """Stub function - returns None since accounts removed."""
     return None
 
 
@@ -793,7 +590,7 @@ def _resolve_person_for_inbound(
     channel_type: ChannelType,
     address: str,
     display_name: str | None,
-    account: SubscriberAccount | None,
+    account=None,
 ):
     person_channel_type = PersonChannelType(channel_type.value)
     normalized_address = _normalize_channel_address(channel_type, address)
@@ -812,10 +609,7 @@ def _resolve_person_for_inbound(
         return existing_channel.person, existing_channel
 
     person = None
-    if account and account.subscriber and account.subscriber.person_id:
-        person = db.get(Person, account.subscriber.person_id)
-
-    if not person and channel_type == ChannelType.email:
+    if channel_type == ChannelType.email:
         person = (
             db.query(Person)
             .filter(func.lower(Person.email) == normalized_address)
@@ -862,56 +656,10 @@ def _resolve_person_for_inbound(
 def _apply_account_to_person(
     db: Session,
     person: Person,
-    account: SubscriberAccount | None,
+    account=None,
 ):
-    if not account:
-        return
-    subscriber = account.subscriber
-    metadata = dict(person.metadata_ or {}) if isinstance(person.metadata_, dict) else {}
-    updated = False
-
-    display_name = _resolve_display_name_from_account(account)
-    if display_name and not person.display_name:
-        person.display_name = display_name
-        updated = True
-
-    email = _resolve_email_from_account(account)
-    normalized_email = _normalize_email_address(email)
-    if normalized_email and not person.email:
-        person.email = normalized_email
-        updated = True
-
-    phone = _resolve_phone_from_account(account)
-    normalized_phone = _normalize_phone_address(phone)
-    if normalized_phone and not person.phone:
-        person.phone = normalized_phone
-        updated = True
-
-    if account.id:
-        if metadata.get("account_id") != str(account.id):
-            metadata["account_id"] = str(account.id)
-            updated = True
-        if account.account_number and metadata.get("account_number") != account.account_number:
-            metadata["account_number"] = account.account_number
-            updated = True
-        if account.account_number and metadata.get("customer_id") != account.account_number:
-            metadata["customer_id"] = account.account_number
-            updated = True
-        if account.status and metadata.get("account_status") != account.status.value:
-            metadata["account_status"] = account.status.value
-            updated = True
-    if subscriber:
-        if metadata.get("subscriber_id") != str(subscriber.id):
-            metadata["subscriber_id"] = str(subscriber.id)
-            updated = True
-        if subscriber.subscriber_number and metadata.get("subscriber_number") != subscriber.subscriber_number:
-            metadata["subscriber_number"] = subscriber.subscriber_number
-            updated = True
-
-    if updated:
-        person.metadata_ = metadata or None
-        db.commit()
-        db.refresh(person)
+    """Stub function - subscriber/account removed, does nothing."""
+    pass
 
 
 def _find_duplicate_inbound_message(
@@ -1029,12 +777,27 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
         target = _resolve_integration_target(db, ChannelType.whatsapp, None)
 
     config = _resolve_connector_config(db, target, ChannelType.whatsapp) if target else None
-    if _is_self_whatsapp_message(payload, config):
-        logger.info(
-            "whatsapp_inbound_skip_self contact_address=%s",
-            payload.contact_address,
+    if USE_INBOX_LOGIC_SERVICE:
+        business_number = _extract_whatsapp_business_number(payload.metadata, config)
+        self_ctx = InboundSelfMessageContext(
+            channel_type="whatsapp",
+            sender_address=payload.contact_address,
+            metadata=payload.metadata,
+            business_number=business_number,
         )
-        return None
+        if _logic_service.decide_inbound_self_message(self_ctx):
+            logger.info(
+                "whatsapp_inbound_skip_self contact_address=%s",
+                payload.contact_address,
+            )
+            return None
+    else:
+        if _is_self_whatsapp_message(payload, config):
+            logger.info(
+                "whatsapp_inbound_skip_self contact_address=%s",
+                payload.contact_address,
+            )
+            return None
 
     account, subscriber = _resolve_account_from_identifiers(
         db,
@@ -1050,19 +813,42 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
         account,
     )
     _apply_account_to_person(db, person, account)
-    existing = _find_duplicate_inbound_message(
-        db,
-        ChannelType.whatsapp,
-        channel.id,
-        target.id if target else None,
-        payload.message_id,
-        None,
-        payload.body,
-        received_at,
-    )
+    if USE_INBOX_LOGIC_SERVICE:
+        dedupe_ctx = InboundDedupeContext(
+            channel_type="whatsapp",
+            contact_address=payload.contact_address,
+            subject=None,
+            body=payload.body,
+            received_at_iso=received_at.isoformat() if received_at else None,
+            message_id=payload.message_id,
+        )
+        dedupe_decision = _logic_service.decide_inbound_dedupe(dedupe_ctx)
+        existing = _find_duplicate_inbound_message(
+            db,
+            ChannelType.whatsapp,
+            channel.id,
+            target.id if target else None,
+            dedupe_decision.message_id,
+            None,
+            payload.body,
+            received_at,
+            dedupe_across_targets=dedupe_decision.dedupe_across_targets,
+        )
+    else:
+        existing = _find_duplicate_inbound_message(
+            db,
+            ChannelType.whatsapp,
+            channel.id,
+            target.id if target else None,
+            payload.message_id,
+            None,
+            payload.body,
+            received_at,
+        )
     if existing:
         return existing
     person_id = _resolve_person_for_contact(person)
+    person_uuid = coerce_uuid(person_id)
     subscriber_id = None
     account_id = None
     if account:
@@ -1079,7 +865,7 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
         conversation = conversation_service.Conversations.create(
             db,
             ConversationCreate(
-                person_id=person_id,
+                person_id=person_uuid,
                 is_active=True,  # Ensure new conversations are visible in the inbox UI.
             ),
         )
@@ -1100,14 +886,14 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
             body=payload.body,
             external_id=payload.message_id,
             received_at=received_at,
-            metadata=payload.metadata,
+            metadata_=payload.metadata,
         ),
     )
     from app.websocket.broadcaster import broadcast_new_message
     broadcast_new_message(message, conversation)
     from app.websocket.broadcaster import broadcast_conversation_summary
     broadcast_conversation_summary(
-        conversation.id,
+        str(conversation.id),
         _build_conversation_summary(db, conversation, message),
     )
     return message
@@ -1133,9 +919,21 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         target = _resolve_integration_target(db, ChannelType.email, None)
 
     config = _resolve_connector_config(db, target, ChannelType.email) if target else None
-    if _is_self_email_message(payload, config):
-        logger.info("email_inbound_skip_self from=%s", payload.contact_address)
-        return None
+    if USE_INBOX_LOGIC_SERVICE:
+        self_addresses = _extract_self_email_addresses(config)
+        self_ctx = InboundSelfMessageContext(
+            channel_type="email",
+            sender_address=payload.contact_address,
+            metadata=payload.metadata,
+            self_email_addresses=self_addresses,
+        )
+        if _logic_service.decide_inbound_self_message(self_ctx):
+            logger.info("email_inbound_skip_self from=%s", payload.contact_address)
+            return None
+    else:
+        if _is_self_email_message(payload, config):
+            logger.info("email_inbound_skip_self from=%s", payload.contact_address)
+            return None
 
     account, subscriber = _resolve_account_from_identifiers(
         db,
@@ -1151,26 +949,49 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         account,
     )
     _apply_account_to_person(db, person, account)
-    external_id = _normalize_external_id(payload.message_id)
-    if not external_id:
-        external_id = _build_inbound_dedupe_id(
+    if USE_INBOX_LOGIC_SERVICE:
+        dedupe_ctx = InboundDedupeContext(
+            channel_type="email",
+            contact_address=payload.contact_address,
+            subject=payload.subject,
+            body=payload.body,
+            received_at_iso=received_at.isoformat() if received_at else None,
+            message_id=payload.message_id,
+        )
+        dedupe_decision = _logic_service.decide_inbound_dedupe(dedupe_ctx)
+        external_id = dedupe_decision.message_id
+        existing = _find_duplicate_inbound_message(
+            db,
             ChannelType.email,
-            payload.contact_address,
+            channel.id,
+            target.id if target else None,
+            external_id,
             payload.subject,
             payload.body,
-            payload.received_at,
+            received_at,
+            dedupe_across_targets=dedupe_decision.dedupe_across_targets,
         )
-    existing = _find_duplicate_inbound_message(
-        db,
-        ChannelType.email,
-        channel.id,
-        target.id if target else None,
-        external_id,
-        payload.subject,
-        payload.body,
-        received_at,
-        dedupe_across_targets=True,
-    )
+    else:
+        external_id = _normalize_external_id(payload.message_id)
+        if not external_id:
+            external_id = _build_inbound_dedupe_id(
+                ChannelType.email,
+                payload.contact_address,
+                payload.subject,
+                payload.body,
+                payload.received_at,
+            )
+        existing = _find_duplicate_inbound_message(
+            db,
+            ChannelType.email,
+            channel.id,
+            target.id if target else None,
+            external_id,
+            payload.subject,
+            payload.body,
+            received_at,
+            dedupe_across_targets=True,
+        )
     logger.info(
         "EMAIL_MESSAGE_RECEIVED subject=%s message_id=%s duplicate=%s",
         payload.subject,
@@ -1205,10 +1026,11 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         payload.subject,
         metadata,
     )
+    person_uuid = coerce_uuid(person_id)
     if not conversation and _metadata_indicates_comment(metadata) and payload.subject:
         conversation = (
             db.query(Conversation)
-            .filter(Conversation.person_id == coerce_uuid(person_id))
+            .filter(Conversation.person_id == person_uuid)
             .filter(Conversation.subject.ilike(payload.subject))
             .order_by(Conversation.updated_at.desc())
             .first()
@@ -1238,7 +1060,7 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         conversation = conversation_service.Conversations.create(
             db,
             ConversationCreate(
-                person_id=person_id,
+                person_id=person_uuid,
                 subject=payload.subject,
                 is_active=True,  # Ensure new conversations are visible in the inbox UI.
             ),
@@ -1248,7 +1070,7 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         conversation.status = ConversationStatus.open
         db.commit()
         db.refresh(conversation)
-    elif conversation.person_id != person_id:
+    elif conversation.person_id != person_uuid:
         logger.warning(
             "email_reply_conversation_mismatch conversation_id=%s sender_person_id=%s conversation_person_id=%s",
             conversation.id,
@@ -1268,14 +1090,14 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
             body=payload.body,
             external_id=external_id,
             received_at=received_at,
-            metadata=metadata,
+            metadata_=metadata,
         ),
     )
     from app.websocket.broadcaster import broadcast_new_message
     broadcast_new_message(message, conversation)
     from app.websocket.broadcaster import broadcast_conversation_summary
     broadcast_conversation_summary(
-        conversation.id,
+        str(conversation.id),
         _build_conversation_summary(db, conversation, message),
     )
     return message
@@ -1288,21 +1110,49 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         raise HTTPException(status_code=404, detail="Contact not found")
 
     last_inbound = _get_last_inbound_message(db, conversation.id)
-    if last_inbound and last_inbound.channel_type != payload.channel_type:
-        raise HTTPException(
-            status_code=400,
-            detail="Reply channel does not match the originating channel",
-        )
-
     resolved_channel_target_id = payload.channel_target_id
-    if last_inbound and last_inbound.channel_target_id:
-        if resolved_channel_target_id and last_inbound.channel_target_id != resolved_channel_target_id:
+    if USE_INBOX_LOGIC_SERVICE:
+        requested_channel_type: LogicChannelType = typing_cast(
+            LogicChannelType, payload.channel_type.value
+        )
+        last_inbound_channel_type: LogicChannelType | None = typing_cast(
+            LogicChannelType | None,
+            last_inbound.channel_type.value if last_inbound and last_inbound.channel_type else None,
+        )
+        ctx = MessageContext(
+            conversation_id=str(conversation.id),
+            person_id=str(person.id),
+            requested_channel_type=requested_channel_type,
+            requested_channel_target_id=str(payload.channel_target_id) if payload.channel_target_id else None,
+            last_inbound_channel_type=last_inbound_channel_type,
+            last_inbound_channel_target_id=str(last_inbound.channel_target_id) if last_inbound and last_inbound.channel_target_id else None,
+            last_inbound_received_at_iso=last_inbound.received_at.isoformat() if last_inbound and last_inbound.received_at else None,
+            now_iso=_now().isoformat(),
+        )
+        decision = _logic_service.decide_send_message(ctx)
+        if decision.status == "deny":
+            raise HTTPException(status_code=400, detail=decision.reason or "Message not allowed")
+
+        if decision.channel_type != payload.channel_type.value:
+            payload = payload.model_copy(update={"channel_type": ChannelType(decision.channel_type)})
+
+        if decision.channel_target_id and not payload.channel_target_id:
+            resolved_channel_target_id = coerce_uuid(decision.channel_target_id)
+    else:
+        if last_inbound and last_inbound.channel_type != payload.channel_type:
             raise HTTPException(
                 status_code=400,
-                detail="Reply channel target does not match the originating channel",
+                detail="Reply channel does not match the originating channel",
             )
-        if not resolved_channel_target_id:
-            resolved_channel_target_id = last_inbound.channel_target_id
+
+        if last_inbound and last_inbound.channel_target_id:
+            if resolved_channel_target_id and last_inbound.channel_target_id != resolved_channel_target_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Reply channel target does not match the originating channel",
+                )
+            if not resolved_channel_target_id:
+                resolved_channel_target_id = last_inbound.channel_target_id
 
     if payload.channel_type == ChannelType.email and not payload.person_channel_id:
         email_address = _normalize_email_address(person.email) if person.email else None
@@ -1767,3 +1617,235 @@ def poll_email_targets(db: Session, target_id: str | None = None) -> dict:
         result = email_polling.poll_email_connector(db, config)
         processed_total += int(result.get("processed") or 0)
     return {"processed": processed_total}
+
+
+def list_inbox_conversations(
+    db: Session,
+    channel: ChannelType | None = None,
+    status: ConversationStatus | None = None,
+    search: str | None = None,
+    exclude_superseded_resolved: bool = True,
+    limit: int = 50,
+) -> list[tuple]:
+    """List inbox conversations with latest message and unread count.
+
+    Returns a list of tuples: (Conversation, latest_message_dict, unread_count)
+    where latest_message_dict contains: body, channel_type, received_at, sent_at, created_at, last_message_at
+    """
+    query = (
+        db.query(Conversation)
+        .options(
+            selectinload(Conversation.contact).selectinload(Person.channels),
+            selectinload(Conversation.assignments),
+        )
+        .filter(Conversation.is_active.is_(True))
+    )
+
+    if status:
+        query = query.filter(Conversation.status == status)
+
+    if channel:
+        subq = (
+            db.query(Message.conversation_id)
+            .filter(Message.channel_type == channel)
+            .distinct()
+        )
+        query = query.filter(Conversation.id.in_(subq))
+
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.join(Conversation.contact).filter(
+            (Person.display_name.ilike(search_term))
+            | (Person.email.ilike(search_term))
+            | (Person.phone.ilike(search_term))
+            | (Conversation.subject.ilike(search_term))
+        )
+
+    if exclude_superseded_resolved and (not status or status != ConversationStatus.resolved):
+        other = aliased(Conversation)
+        newer_open = (
+            db.query(other.id)
+            .filter(other.person_id == Conversation.person_id)
+            .filter(other.status.in_([ConversationStatus.open, ConversationStatus.pending]))
+            .filter(other.is_active.is_(True))
+            .filter(other.updated_at > Conversation.updated_at)
+            .exists()
+        )
+        query = query.filter(
+            ~((Conversation.status == ConversationStatus.resolved) & newer_open)
+        )
+
+    last_message_ts = func.coalesce(
+        Message.received_at,
+        Message.sent_at,
+        Message.created_at,
+    )
+    latest_message_subq = (
+        db.query(
+            Message.conversation_id.label("conv_id"),
+            Message.body.label("body"),
+            Message.channel_type.label("channel_type"),
+            Message.received_at.label("received_at"),
+            Message.sent_at.label("sent_at"),
+            Message.created_at.label("created_at"),
+            last_message_ts.label("last_message_at"),
+            func.row_number()
+            .over(
+                partition_by=Message.conversation_id,
+                order_by=last_message_ts.desc(),
+            )
+            .label("rnk"),
+        )
+    ).subquery()
+
+    unread_subq = (
+        db.query(
+            Message.conversation_id.label("conv_id"),
+            func.count(Message.id).label("unread_count"),
+        )
+        .filter(Message.direction == MessageDirection.inbound)
+        .filter(Message.status == MessageStatus.received)
+        .filter(Message.read_at.is_(None))
+        .group_by(Message.conversation_id)
+        .subquery()
+    )
+
+    query = query.outerjoin(
+        latest_message_subq,
+        and_(
+            latest_message_subq.c.conv_id == Conversation.id,
+            latest_message_subq.c.rnk == 1,
+        ),
+    ).outerjoin(
+        unread_subq,
+        unread_subq.c.conv_id == Conversation.id,
+    )
+
+    query = query.order_by(
+        Conversation.last_message_at.desc().nullslast(),
+        Conversation.updated_at.desc(),
+    )
+
+    conversations_raw = (
+        query.add_columns(
+            latest_message_subq.c.body,
+            latest_message_subq.c.channel_type,
+            latest_message_subq.c.received_at,
+            latest_message_subq.c.sent_at,
+            latest_message_subq.c.created_at,
+            latest_message_subq.c.last_message_at,
+            unread_subq.c.unread_count,
+        )
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for row in conversations_raw:
+        conv = row[0]
+        latest_message = None
+        if row[1] is not None or row[2] is not None:
+            latest_message = {
+                "body": row[1],
+                "channel_type": row[2],
+                "received_at": row[3],
+                "sent_at": row[4],
+                "created_at": row[5],
+                "last_message_at": row[6],
+            }
+        unread_count = row[7] or 0
+        result.append((conv, latest_message, unread_count))
+
+    return result
+
+
+def get_inbox_stats(db: Session) -> dict:
+    """Get inbox statistics efficiently.
+
+    Returns: {total, open, pending, snoozed, resolved, unread}
+    Uses single GROUP BY query instead of loading all conversations.
+    """
+    # Single query with GROUP BY for status counts
+    status_counts = (
+        db.query(
+            Conversation.status,
+            func.count(Conversation.id).label("count"),
+        )
+        .filter(Conversation.is_active.is_(True))
+        .group_by(Conversation.status)
+        .all()
+    )
+
+    # Build stats dict from results
+    stats = {
+        "all": 0,
+        "open": 0,
+        "pending": 0,
+        "snoozed": 0,
+        "resolved": 0,
+        "unread": 0,
+    }
+
+    for status, count in status_counts:
+        stats["all"] += count
+        if status == ConversationStatus.open:
+            stats["open"] = count
+        elif status == ConversationStatus.pending:
+            stats["pending"] = count
+        elif status == ConversationStatus.snoozed:
+            stats["snoozed"] = count
+        elif status == ConversationStatus.resolved:
+            stats["resolved"] = count
+
+    stats["unread"] = int(
+        db.query(func.count(Message.id))
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(Message.direction == MessageDirection.inbound)
+        .filter(Message.status == MessageStatus.received)
+        .filter(Message.read_at.is_(None))
+        .scalar()
+        or 0
+    )
+
+    return stats
+
+
+def get_channel_stats(db: Session) -> dict[str, int]:
+    """Get conversation counts per channel in a single query.
+
+    Returns: {email: N, whatsapp: N, ...}
+    """
+    from app.models.crm.comments import SocialComment
+
+    channel_stats = {}
+
+    # Use a single query with group by for better performance
+    channel_counts = (
+        db.query(
+            Message.channel_type,
+            func.count(func.distinct(Message.conversation_id)).label("conv_count"),
+        )
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(Conversation.is_active.is_(True))
+        .group_by(Message.channel_type)
+        .all()
+    )
+
+    # Initialize all channel types to 0
+    for ct in ChannelType:
+        channel_stats[ct.value] = 0
+
+    # Fill in actual counts
+    for channel_type, count in channel_counts:
+        if channel_type:
+            channel_stats[channel_type.value] = count
+
+    # Add comments count
+    channel_stats["comments"] = (
+        db.query(SocialComment)
+        .filter(SocialComment.is_active.is_(True))
+        .count()
+    )
+
+    return channel_stats

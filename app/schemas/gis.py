@@ -14,6 +14,8 @@ class GeoLocationBase(BaseModel):
     longitude: float
     address_id: UUID | None = None
     pop_site_id: UUID | None = None
+    olt_device_id: UUID | None = None
+    fdh_cabinet_id: UUID | None = None
     metadata_: dict | None = Field(
         default=None,
         serialization_alias="metadata",
@@ -35,6 +37,8 @@ class GeoLocationUpdate(BaseModel):
     longitude: float | None = None
     address_id: UUID | None = None
     pop_site_id: UUID | None = None
+    olt_device_id: UUID | None = None
+    fdh_cabinet_id: UUID | None = None
     metadata_: dict | None = Field(
         default=None,
         serialization_alias="metadata",

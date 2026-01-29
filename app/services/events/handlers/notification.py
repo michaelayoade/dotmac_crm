@@ -106,15 +106,6 @@ class NotificationHandler:
 
     def _resolve_recipient(self, db: Session, event: Event) -> str | None:
         """Resolve the notification recipient from event context."""
-        # Try to get email from account
-        if event.account_id:
-            from app.models.subscriber import SubscriberAccount
-
-            account = db.get(SubscriberAccount, event.account_id)
-            if account and account.subscriber and account.subscriber.person:
-                if account.subscriber.person.email:
-                    return account.subscriber.person.email
-
         # Check if email is in payload
         if "email" in event.payload:
             return event.payload["email"]

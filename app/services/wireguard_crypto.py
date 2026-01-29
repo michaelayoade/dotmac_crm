@@ -139,8 +139,12 @@ def get_encryption_key() -> bytes | None:
             _encryption_warning_logged = True
         return None
 
+    if key_str is not None and not isinstance(key_str, str):
+        key_str = str(key_str)
+
     try:
         # Key should be URL-safe base64 encoded 32-byte key
+        assert isinstance(key_str, str)
         return key_str.encode("ascii")
     except Exception:
         return None

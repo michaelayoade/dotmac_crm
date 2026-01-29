@@ -64,8 +64,8 @@ def login_submit(
                 key="mfa_pending",
                 value=result.get("mfa_token", ""),
                 httponly=True,
-                secure=True,
-                samesite="none",
+                secure=False,  # Set to True in production with HTTPS
+                samesite="lax",
                 max_age=300,
             )
             return response
@@ -76,8 +76,8 @@ def login_submit(
             key="session_token",
             value=result.get("access_token", ""),
             httponly=True,
-            secure=True,
-            samesite="none",
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",
             max_age=max_age,
         )
         refresh_token = result.get("refresh_token")
@@ -126,10 +126,11 @@ def mfa_submit(
         return RedirectResponse(url="/auth/login", status_code=303)
     redirect_url = _safe_next(next_url)
     try:
-        result = auth_flow_service.auth_flow.verify_mfa(
+        result = auth_flow_service.auth_flow.mfa_verify(
             db=db,
             mfa_token=mfa_token,
             code=code,
+            request=request,
         )
         response = RedirectResponse(url=redirect_url, status_code=303)
         response.delete_cookie("mfa_pending")
@@ -137,8 +138,8 @@ def mfa_submit(
             key="session_token",
             value=result.get("access_token", ""),
             httponly=True,
-            secure=True,
-            samesite="none",
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",
         )
         refresh_token = result.get("refresh_token")
         if refresh_token:
@@ -161,7 +162,7 @@ def forgot_password_page(request: Request, success: bool = False):
 
 def forgot_password_submit(request: Request, db: Session, email: str):
     try:
-        auth_flow_service.auth_flow.request_password_reset(db=db, email=email)
+        auth_flow_service.request_password_reset(db=db, email=email)
     except Exception:
         pass
     return templates.TemplateResponse(
@@ -222,8 +223,8 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
         key="session_token",
         value=result.get("access_token", ""),
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
     )
     refresh_token = result.get("refresh_token")
     if refresh_token:

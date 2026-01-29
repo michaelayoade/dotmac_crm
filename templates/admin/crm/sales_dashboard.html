@@ -1,0 +1,229 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Sales Dashboard - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Sales Dashboard</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track your sales pipeline and team performance.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <form method="get" class="flex items-center gap-2">
+                <select name="pipeline_id" onchange="this.form.submit()"
+                        class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Pipelines</option>
+                    {% for pipeline in pipelines %}
+                    <option value="{{ pipeline.id }}" {% if selected_pipeline_id == pipeline.id|string %}selected{% endif %}>{{ pipeline.name }}</option>
+                    {% endfor %}
+                </select>
+            </form>
+            <a href="/admin/crm/sales/pipeline{% if selected_pipeline_id %}?pipeline_id={{ selected_pipeline_id }}{% endif %}"
+               class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+                Pipeline Board
+            </a>
+            <a href="/admin/crm/leads/new" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                New Lead
+            </a>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pipeline Value</p>
+            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                {{ "{:,.0f}".format(metrics.pipeline_value) }}
+            </p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Weighted Value</p>
+            <p class="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                {{ "{:,.0f}".format(metrics.weighted_value) }}
+            </p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Open Deals</p>
+            <p class="mt-2 text-2xl font-bold text-blue-600 dark:text-blue-400">{{ metrics.open_deals }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Win Rate</p>
+            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                {% if metrics.win_rate is not none %}{{ metrics.win_rate }}%{% else %}—{% endif %}
+            </p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Avg Deal Size</p>
+            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                {% if metrics.avg_deal_size is not none %}{{ "{:,.0f}".format(metrics.avg_deal_size) }}{% else %}—{% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <!-- Pipeline Funnel Chart -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Pipeline by Stage</h2>
+            </div>
+            <div class="p-5">
+                {% if metrics.stages %}
+                <div class="space-y-3">
+                    {% for stage in metrics.stages %}
+                    {% set max_value = metrics.pipeline_value if metrics.pipeline_value > 0 else 1 %}
+                    {% set pct = (stage.value / max_value * 100) if max_value > 0 else 0 %}
+                    <div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="font-medium text-slate-900 dark:text-white">{{ stage.name }}</span>
+                            <span class="text-slate-500 dark:text-slate-400">{{ stage.count }} deals &middot; {{ "{:,.0f}".format(stage.value) }}</span>
+                        </div>
+                        <div class="mt-1.5 h-2 w-full rounded-full bg-slate-100 dark:bg-slate-700">
+                            <div class="h-2 rounded-full bg-primary-500" style="width: {{ pct }}%"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-sm text-slate-500 dark:text-slate-400">No stage data available.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Forecast Chart -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Revenue Forecast</h2>
+            </div>
+            <div class="p-5">
+                <div class="chart-container" style="height: 240px;">
+                    <canvas id="forecastChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Leaderboard and Recent Deals -->
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <!-- Agent Leaderboard -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Sales Leaderboard</h2>
+            </div>
+            <div class="divide-y divide-slate-100 dark:divide-slate-700">
+                {% if agent_performance %}
+                {% for agent in agent_performance %}
+                <div class="flex items-center gap-4 px-5 py-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-primary-600 text-sm font-semibold text-white">
+                        {{ loop.index }}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-900 dark:text-white truncate">{{ agent.name }}</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">
+                            {{ agent.deals_won }} won &middot; {{ agent.win_rate or 0 }}% win rate
+                        </p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{{ "{:,.0f}".format(agent.won_value) }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="px-5 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No agent performance data available.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Recent Deals -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Recent Opportunities</h2>
+                <a href="/admin/crm/leads" class="text-xs font-medium text-primary-600 hover:text-primary-700">View All</a>
+            </div>
+            <div class="divide-y divide-slate-100 dark:divide-slate-700">
+                {% if recent_leads %}
+                {% for lead in recent_leads %}
+                {% set person = person_map.get(lead.person_id|string) %}
+                <a href="/admin/crm/leads/{{ lead.id }}" class="flex items-center gap-4 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-900 dark:text-white truncate">
+                            {{ lead.title or ('Lead #' ~ (lead.id|string|truncate(8, True, ''))) }}
+                        </p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">
+                            {% if person %}{{ person.display_name or (person.first_name ~ ' ' ~ person.last_name) }}{% else %}—{% endif %}
+                            &middot;
+                            {{ lead.status.value|replace('_', ' ')|title if lead.status else 'New' }}
+                        </p>
+                    </div>
+                    <div class="text-right">
+                        {% if lead.estimated_value %}
+                        <p class="text-sm font-semibold text-slate-900 dark:text-white">{{ "{:,.0f}".format(lead.estimated_value) }}</p>
+                        {% if lead.probability is not none %}
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ lead.probability }}% probability</p>
+                        {% endif %}
+                        {% else %}
+                        <p class="text-sm text-slate-400">—</p>
+                        {% endif %}
+                    </div>
+                </a>
+                {% endfor %}
+                {% else %}
+                <div class="px-5 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No recent opportunities.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const colors = {
+        primary: { 500: '#6366f1', 400: '#818cf8' },
+        emerald: { 500: '#10b981', 400: '#34d399' },
+        slate: { 300: '#cbd5e1', 400: '#94a3b8' }
+    };
+
+    // Forecast Chart
+    const forecastCtx = document.getElementById('forecastChart');
+    if (forecastCtx && typeof DotmacCharts !== 'undefined') {
+        const forecastData = {{ forecast | tojson }};
+        const labels = forecastData.map(f => f.month_label);
+        const expectedValues = forecastData.map(f => f.expected_value);
+        const weightedValues = forecastData.map(f => f.weighted_value);
+
+        DotmacCharts.createAreaChart(forecastCtx, {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Expected',
+                    data: expectedValues,
+                    color: colors.slate[400],
+                    fillColor: colors.slate[400] + '20',
+                },
+                {
+                    label: 'Weighted',
+                    data: weightedValues,
+                    color: colors.emerald[500],
+                    fillColor: colors.emerald[500] + '20',
+                }
+            ]
+        });
+    }
+});
+</script>
+{% endblock %}

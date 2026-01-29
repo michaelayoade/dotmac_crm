@@ -27,10 +27,10 @@ class EventDispatcher:
     enabling retry of failed handlers and providing an audit trail.
     """
 
-    def __init__(self):
-        self._handlers: list = []
+    def __init__(self) -> None:
+        self._handlers: list[Any] = []
 
-    def register_handler(self, handler):
+    def register_handler(self, handler: Any) -> None:
         """Register an event handler."""
         self._handlers.append(handler)
 
@@ -52,7 +52,7 @@ class EventDispatcher:
         )
 
         # 1. Persist event before processing
-        event_record = EventStore(
+        event_record: EventStore | None = EventStore(
             event_id=event.event_id,
             event_type=event.event_type.value,
             payload=event.payload,
@@ -63,7 +63,6 @@ class EventDispatcher:
             subscription_id=event.subscription_id,
             invoice_id=event.invoice_id,
             ticket_id=event.ticket_id,
-            service_order_id=event.service_order_id,
         )
         db.add(event_record)
         try:
@@ -97,7 +96,7 @@ class EventDispatcher:
             try:
                 if failed_handlers:
                     event_record.status = EventStatus.failed
-                    event_record.failed_handlers = failed_handlers
+                    event_record.failed_handlers = {"handlers": failed_handlers}
                     event_record.error = json.dumps([fh["error"] for fh in failed_handlers])
                 else:
                     event_record.status = EventStatus.completed
@@ -109,7 +108,7 @@ class EventDispatcher:
                 )
                 db.rollback()
 
-    def retry_event(self, db: Session, event_record) -> bool:
+    def retry_event(self, db: Session, event_record: Any) -> bool:
         """Retry processing a failed event.
 
         Args:
@@ -132,7 +131,6 @@ class EventDispatcher:
             subscription_id=event_record.subscription_id,
             invoice_id=event_record.invoice_id,
             ticket_id=event_record.ticket_id,
-            service_order_id=event_record.service_order_id,
         )
 
         # Get handlers that failed previously
@@ -195,20 +193,11 @@ def get_dispatcher() -> EventDispatcher:
 def _initialize_handlers(dispatcher: EventDispatcher) -> None:
     """Initialize and register all event handlers."""
     from app.services.events.handlers.webhook import WebhookHandler
-    from app.services.events.handlers.lifecycle import LifecycleHandler
     from app.services.events.handlers.notification import NotificationHandler
-    from app.services.events.handlers.provisioning import ProvisioningHandler
-    from app.services.events.handlers.enforcement import EnforcementHandler
-
     dispatcher.register_handler(WebhookHandler())
-    dispatcher.register_handler(LifecycleHandler())
     dispatcher.register_handler(NotificationHandler())
-    dispatcher.register_handler(ProvisioningHandler())
-    dispatcher.register_handler(EnforcementHandler())
 
-    logger.info(
-        "Event handlers initialized: webhook, lifecycle, notification, provisioning, enforcement"
-    )
+    logger.info("Event handlers initialized: webhook, notification")
 
 
 def emit_event(
@@ -222,7 +211,6 @@ def emit_event(
     subscription_id: UUID | str | None = None,
     invoice_id: UUID | str | None = None,
     ticket_id: UUID | str | None = None,
-    service_order_id: UUID | str | None = None,
 ) -> Event:
     """Emit an event to all registered handlers.
 
@@ -242,8 +230,6 @@ def emit_event(
         subscription_id: Related subscription ID
         invoice_id: Related invoice ID
         ticket_id: Related ticket ID
-        service_order_id: Related service order ID
-
     Returns:
         The created Event object
 
@@ -267,6 +253,20 @@ def emit_event(
             return value
         return UUID(value)
 
+    subscription_scoped = {
+        EventType.subscription_created,
+        EventType.subscription_activated,
+        EventType.subscription_suspended,
+        EventType.subscription_resumed,
+        EventType.subscription_canceled,
+        EventType.subscription_upgraded,
+        EventType.subscription_downgraded,
+        EventType.subscription_expiring,
+        EventType.subscription_expired,
+    }
+    if subscription_id and event_type not in subscription_scoped:
+        subscription_id = None
+
     event = Event(
         event_type=event_type,
         payload=payload,
@@ -276,7 +276,6 @@ def emit_event(
         subscription_id=to_uuid(subscription_id),
         invoice_id=to_uuid(invoice_id),
         ticket_id=to_uuid(ticket_id),
-        service_order_id=to_uuid(service_order_id),
     )
 
     dispatcher = get_dispatcher()

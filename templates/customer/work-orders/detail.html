@@ -64,16 +64,6 @@
                         </dd>
                     </div>
                     <div class="flex items-center justify-between">
-                        <dt>Service Order</dt>
-                        <dd class="font-medium text-slate-900 dark:text-white">
-                            {% if work_order.service_order %}
-                            <a href="/portal/service-orders/{{ work_order.service_order_id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">SO-{{ work_order.service_order_id|string|truncate(8, True, '')|upper }}</a>
-                            {% else %}
-                            N/A
-                            {% endif %}
-                        </dd>
-                    </div>
-                    <div class="flex items-center justify-between">
                         <dt>Project</dt>
                         <dd class="font-medium text-slate-900 dark:text-white">
                             {% if work_order.project %}

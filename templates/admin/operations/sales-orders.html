@@ -1,4 +1,5 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import action_button, icon_plus %}
 
 {% block title %}Sales Orders - Operations{% endblock %}
 
@@ -8,6 +9,9 @@
         <div>
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Sales Orders</h1>
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track quotes converted into revenue</p>
+        </div>
+        <div class="flex items-center gap-2">
+            {{ action_button("New Quote", "/admin/crm/quotes/new", icon_plus(), "primary", "emerald", "green") }}
         </div>
     </div>
 
@@ -74,9 +78,9 @@
                         </td>
                         <td class="px-4 py-3">
                             {% if order.account_id %}
-                            <a href="/admin/billing/accounts/{{ order.account_id }}" class="text-sm text-slate-900 hover:text-primary-600 dark:text-white">
+                            <span class="text-sm text-slate-900 dark:text-white">
                                 {{ order.account.account_number|default(order.account_id|string|truncate(8, True, '')) }}
-                            </a>
+                            </span>
                             {% else %}
                             <span class="text-sm text-slate-500 dark:text-slate-400">-</span>
                             {% endif %}
