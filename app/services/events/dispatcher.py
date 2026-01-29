@@ -136,7 +136,14 @@ class EventDispatcher:
         # Get handlers that failed previously
         failed_handler_names = set()
         if event_record.failed_handlers:
-            failed_handler_names = {fh["handler"] for fh in event_record.failed_handlers}
+            failed_raw = event_record.failed_handlers
+            if isinstance(failed_raw, dict):
+                failed_list = failed_raw.get("handlers") or []
+            else:
+                failed_list = failed_raw
+            failed_handler_names = {
+                fh["handler"] for fh in failed_list if isinstance(fh, dict) and fh.get("handler")
+            }
 
         # Update retry count and status
         event_record.retry_count += 1

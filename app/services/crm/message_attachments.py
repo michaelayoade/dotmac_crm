@@ -36,7 +36,7 @@ def _coerce_upload_files(files: UploadFile | list[UploadFile] | None) -> list[Up
     )
 
 
-def prepare_message_attachments(files: UploadFile | list[UploadFile] | None) -> list[dict]:
+async def prepare_message_attachments(files: UploadFile | list[UploadFile] | None) -> list[dict]:
     uploads = _coerce_upload_files(files)
     if not uploads:
         return []
@@ -44,7 +44,7 @@ def prepare_message_attachments(files: UploadFile | list[UploadFile] | None) -> 
     for file in uploads:
         if not file.filename:
             continue
-        content = file.file.read()
+        content = await file.read()
         _validate_attachment(file, content)
         stored_name = f"{uuid.uuid4().hex}{Path(file.filename).suffix}"
         prepared.append(
@@ -56,7 +56,7 @@ def prepare_message_attachments(files: UploadFile | list[UploadFile] | None) -> 
                 "content": content,
             }
         )
-        file.file.close()
+        await file.close()
     return prepared
 
 
