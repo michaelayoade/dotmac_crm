@@ -71,7 +71,16 @@ from app.schemas.network import (
     SplitterPortUpdate,
     SplitterUpdate,
 )
-from app.services.common import apply_ordering, apply_pagination, validate_enum
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+
+
+def _safe_get(db: Session, model, item_id: object):
+    try:
+        if item_id is None:
+            raise ValueError("Missing id")
+        return db.get(model, coerce_uuid(item_id))
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Resource not found") from exc
 
 
 class OLTDevices(ListResponseMixin):
@@ -85,7 +94,7 @@ class OLTDevices(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, device_id: str):
-        device = db.get(OLTDevice, device_id)
+        device = _safe_get(db, OLTDevice, device_id)
         if not device:
             raise HTTPException(status_code=404, detail="OLT device not found")
         return device
@@ -114,7 +123,7 @@ class OLTDevices(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, device_id: str, payload: OLTDeviceUpdate):
-        device = db.get(OLTDevice, device_id)
+        device = _safe_get(db, OLTDevice, device_id)
         if not device:
             raise HTTPException(status_code=404, detail="OLT device not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -125,7 +134,7 @@ class OLTDevices(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, device_id: str):
-        device = db.get(OLTDevice, device_id)
+        device = _safe_get(db, OLTDevice, device_id)
         if not device:
             raise HTTPException(status_code=404, detail="OLT device not found")
         device.is_active = False
@@ -135,15 +144,15 @@ class OLTDevices(ListResponseMixin):
 class PonPorts(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: PonPortCreate):
-        olt = db.get(OLTDevice, payload.olt_id)
+        olt = _safe_get(db, OLTDevice, payload.olt_id)
         if not olt:
             raise HTTPException(status_code=404, detail="OLT device not found")
         if payload.olt_card_port_id:
-            card_port = db.get(OltCardPort, payload.olt_card_port_id)
+            card_port = _safe_get(db, OltCardPort, payload.olt_card_port_id)
             if not card_port:
                 raise HTTPException(status_code=404, detail="OLT card port not found")
         elif payload.card_id:
-            card = db.get(OltCard, payload.card_id)
+            card = _safe_get(db, OltCard, payload.card_id)
             if not card:
                 raise HTTPException(status_code=404, detail="OLT card not found")
             if card.shelf and str(card.shelf.olt_id) != str(payload.olt_id):
@@ -171,7 +180,7 @@ class PonPorts(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, port_id: str):
-        port = db.get(PonPort, port_id)
+        port = _safe_get(db, PonPort, port_id)
         if not port or not port.is_active:
             raise HTTPException(status_code=404, detail="PON port not found")
         return port
@@ -211,16 +220,16 @@ class PonPorts(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, port_id: str, payload: PonPortUpdate):
-        port = db.get(PonPort, port_id)
+        port = _safe_get(db, PonPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="PON port not found")
         data = payload.model_dump(exclude_unset=True)
         if "olt_id" in data:
-            olt = db.get(OLTDevice, data["olt_id"])
+            olt = _safe_get(db, OLTDevice, data["olt_id"])
             if not olt:
                 raise HTTPException(status_code=404, detail="OLT device not found")
         if "olt_card_port_id" in data and data["olt_card_port_id"]:
-            card_port = db.get(OltCardPort, data["olt_card_port_id"])
+            card_port = _safe_get(db, OltCardPort, data["olt_card_port_id"])
             if not card_port:
                 raise HTTPException(status_code=404, detail="OLT card port not found")
         for key, value in data.items():
@@ -231,7 +240,7 @@ class PonPorts(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, port_id: str):
-        port = db.get(PonPort, port_id)
+        port = _safe_get(db, PonPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="PON port not found")
         port.is_active = False
@@ -272,7 +281,7 @@ class OntUnits(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, unit_id: str):
-        unit = db.get(OntUnit, unit_id)
+        unit = _safe_get(db, OntUnit, unit_id)
         if not unit:
             raise HTTPException(status_code=404, detail="ONT unit not found")
         return unit
@@ -301,7 +310,7 @@ class OntUnits(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, unit_id: str, payload: OntUnitUpdate):
-        unit = db.get(OntUnit, unit_id)
+        unit = _safe_get(db, OntUnit, unit_id)
         if not unit:
             raise HTTPException(status_code=404, detail="ONT unit not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -312,7 +321,7 @@ class OntUnits(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, unit_id: str):
-        unit = db.get(OntUnit, unit_id)
+        unit = _safe_get(db, OntUnit, unit_id)
         if not unit:
             raise HTTPException(status_code=404, detail="ONT unit not found")
         unit.is_active = False
@@ -330,7 +339,7 @@ class OntAssignments(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, assignment_id: str):
-        assignment = db.get(OntAssignment, assignment_id)
+        assignment = _safe_get(db, OntAssignment, assignment_id)
         if not assignment:
             raise HTTPException(status_code=404, detail="ONT assignment not found")
         return assignment
@@ -360,7 +369,7 @@ class OntAssignments(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, assignment_id: str, payload: OntAssignmentUpdate):
-        assignment = db.get(OntAssignment, assignment_id)
+        assignment = _safe_get(db, OntAssignment, assignment_id)
         if not assignment:
             raise HTTPException(status_code=404, detail="ONT assignment not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -371,7 +380,7 @@ class OntAssignments(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, assignment_id: str):
-        assignment = db.get(OntAssignment, assignment_id)
+        assignment = _safe_get(db, OntAssignment, assignment_id)
         if not assignment:
             raise HTTPException(status_code=404, detail="ONT assignment not found")
         db.delete(assignment)
@@ -381,7 +390,7 @@ class OntAssignments(ListResponseMixin):
 class OltShelves(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: OltShelfCreate):
-        olt = db.get(OLTDevice, payload.olt_id)
+        olt = _safe_get(db, OLTDevice, payload.olt_id)
         if not olt:
             raise HTTPException(status_code=404, detail="OLT device not found")
         shelf = OltShelf(**payload.model_dump())
@@ -392,7 +401,7 @@ class OltShelves(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, shelf_id: str):
-        shelf = db.get(OltShelf, shelf_id)
+        shelf = _safe_get(db, OltShelf, shelf_id)
         if not shelf:
             raise HTTPException(status_code=404, detail="OLT shelf not found")
         return shelf
@@ -419,12 +428,12 @@ class OltShelves(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, shelf_id: str, payload: OltShelfUpdate):
-        shelf = db.get(OltShelf, shelf_id)
+        shelf = _safe_get(db, OltShelf, shelf_id)
         if not shelf:
             raise HTTPException(status_code=404, detail="OLT shelf not found")
         data = payload.model_dump(exclude_unset=True)
         if "olt_id" in data:
-            olt = db.get(OLTDevice, data["olt_id"])
+            olt = _safe_get(db, OLTDevice, data["olt_id"])
             if not olt:
                 raise HTTPException(status_code=404, detail="OLT device not found")
         for key, value in data.items():
@@ -435,7 +444,7 @@ class OltShelves(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, shelf_id: str):
-        shelf = db.get(OltShelf, shelf_id)
+        shelf = _safe_get(db, OltShelf, shelf_id)
         if not shelf:
             raise HTTPException(status_code=404, detail="OLT shelf not found")
         db.delete(shelf)
@@ -445,7 +454,7 @@ class OltShelves(ListResponseMixin):
 class OltCards(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: OltCardCreate):
-        shelf = db.get(OltShelf, payload.shelf_id)
+        shelf = _safe_get(db, OltShelf, payload.shelf_id)
         if not shelf:
             raise HTTPException(status_code=404, detail="OLT shelf not found")
         card = OltCard(**payload.model_dump())
@@ -456,7 +465,7 @@ class OltCards(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, card_id: str):
-        card = db.get(OltCard, card_id)
+        card = _safe_get(db, OltCard, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="OLT card not found")
         return card
@@ -483,12 +492,12 @@ class OltCards(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, card_id: str, payload: OltCardUpdate):
-        card = db.get(OltCard, card_id)
+        card = _safe_get(db, OltCard, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="OLT card not found")
         data = payload.model_dump(exclude_unset=True)
         if "shelf_id" in data:
-            shelf = db.get(OltShelf, data["shelf_id"])
+            shelf = _safe_get(db, OltShelf, data["shelf_id"])
             if not shelf:
                 raise HTTPException(status_code=404, detail="OLT shelf not found")
         for key, value in data.items():
@@ -499,7 +508,7 @@ class OltCards(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, card_id: str):
-        card = db.get(OltCard, card_id)
+        card = _safe_get(db, OltCard, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="OLT card not found")
         db.delete(card)
@@ -509,7 +518,7 @@ class OltCards(ListResponseMixin):
 class OltCardPorts(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: OltCardPortCreate):
-        card = db.get(OltCard, payload.card_id)
+        card = _safe_get(db, OltCard, payload.card_id)
         if not card:
             raise HTTPException(status_code=404, detail="OLT card not found")
         port = OltCardPort(**payload.model_dump())
@@ -520,7 +529,7 @@ class OltCardPorts(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, port_id: str):
-        port = db.get(OltCardPort, port_id)
+        port = _safe_get(db, OltCardPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="OLT card port not found")
         return port
@@ -552,12 +561,12 @@ class OltCardPorts(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, port_id: str, payload: OltCardPortUpdate):
-        port = db.get(OltCardPort, port_id)
+        port = _safe_get(db, OltCardPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="OLT card port not found")
         data = payload.model_dump(exclude_unset=True)
         if "card_id" in data:
-            card = db.get(OltCard, data["card_id"])
+            card = _safe_get(db, OltCard, data["card_id"])
             if not card:
                 raise HTTPException(status_code=404, detail="OLT card not found")
         for key, value in data.items():
@@ -568,7 +577,7 @@ class OltCardPorts(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, port_id: str):
-        port = db.get(OltCardPort, port_id)
+        port = _safe_get(db, OltCardPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="OLT card port not found")
         db.delete(port)
@@ -586,7 +595,7 @@ class FdhCabinets(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, cabinet_id: str):
-        cabinet = db.get(FdhCabinet, cabinet_id)
+        cabinet = _safe_get(db, FdhCabinet, cabinet_id)
         if not cabinet:
             raise HTTPException(status_code=404, detail="FDH cabinet not found")
         return cabinet
@@ -613,7 +622,7 @@ class FdhCabinets(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, cabinet_id: str, payload: FdhCabinetUpdate):
-        cabinet = db.get(FdhCabinet, cabinet_id)
+        cabinet = _safe_get(db, FdhCabinet, cabinet_id)
         if not cabinet:
             raise HTTPException(status_code=404, detail="FDH cabinet not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -624,7 +633,7 @@ class FdhCabinets(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, cabinet_id: str):
-        cabinet = db.get(FdhCabinet, cabinet_id)
+        cabinet = _safe_get(db, FdhCabinet, cabinet_id)
         if not cabinet:
             raise HTTPException(status_code=404, detail="FDH cabinet not found")
         db.delete(cabinet)
@@ -635,7 +644,7 @@ class Splitters(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: SplitterCreate):
         if payload.fdh_id:
-            cabinet = db.get(FdhCabinet, payload.fdh_id)
+            cabinet = _safe_get(db, FdhCabinet, payload.fdh_id)
             if not cabinet:
                 raise HTTPException(status_code=404, detail="FDH cabinet not found")
         data = payload.model_dump()
@@ -660,7 +669,7 @@ class Splitters(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, splitter_id: str):
-        splitter = db.get(Splitter, splitter_id)
+        splitter = _safe_get(db, Splitter, splitter_id)
         if not splitter:
             raise HTTPException(status_code=404, detail="Splitter not found")
         return splitter
@@ -687,12 +696,12 @@ class Splitters(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, splitter_id: str, payload: SplitterUpdate):
-        splitter = db.get(Splitter, splitter_id)
+        splitter = _safe_get(db, Splitter, splitter_id)
         if not splitter:
             raise HTTPException(status_code=404, detail="Splitter not found")
         data = payload.model_dump(exclude_unset=True)
         if "fdh_id" in data and data["fdh_id"]:
-            cabinet = db.get(FdhCabinet, data["fdh_id"])
+            cabinet = _safe_get(db, FdhCabinet, data["fdh_id"])
             if not cabinet:
                 raise HTTPException(status_code=404, detail="FDH cabinet not found")
         for key, value in data.items():
@@ -703,7 +712,7 @@ class Splitters(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, splitter_id: str):
-        splitter = db.get(Splitter, splitter_id)
+        splitter = _safe_get(db, Splitter, splitter_id)
         if not splitter:
             raise HTTPException(status_code=404, detail="Splitter not found")
         db.delete(splitter)
@@ -713,7 +722,7 @@ class Splitters(ListResponseMixin):
 class SplitterPorts(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: SplitterPortCreate):
-        splitter = db.get(Splitter, payload.splitter_id)
+        splitter = _safe_get(db, Splitter, payload.splitter_id)
         if not splitter:
             raise HTTPException(status_code=404, detail="Splitter not found")
         port = SplitterPort(**payload.model_dump())
@@ -724,7 +733,7 @@ class SplitterPorts(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, port_id: str):
-        port = db.get(SplitterPort, port_id)
+        port = _safe_get(db, SplitterPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="Splitter port not found")
         return port
@@ -757,7 +766,7 @@ class SplitterPorts(ListResponseMixin):
 
     @staticmethod
     def utilization(db: Session, splitter_id: str):
-        splitter = db.get(Splitter, splitter_id)
+        splitter = _safe_get(db, Splitter, splitter_id)
         if not splitter:
             raise HTTPException(status_code=404, detail="Splitter not found")
         total_ports = (
@@ -784,12 +793,12 @@ class SplitterPorts(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, port_id: str, payload: SplitterPortUpdate):
-        port = db.get(SplitterPort, port_id)
+        port = _safe_get(db, SplitterPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="Splitter port not found")
         data = payload.model_dump(exclude_unset=True)
         if "splitter_id" in data:
-            splitter = db.get(Splitter, data["splitter_id"])
+            splitter = _safe_get(db, Splitter, data["splitter_id"])
             if not splitter:
                 raise HTTPException(status_code=404, detail="Splitter not found")
         for key, value in data.items():
@@ -800,7 +809,7 @@ class SplitterPorts(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, port_id: str):
-        port = db.get(SplitterPort, port_id)
+        port = _safe_get(db, SplitterPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="Splitter port not found")
         db.delete(port)
@@ -812,7 +821,7 @@ class FiberStrands(ListResponseMixin):
     def create(db: Session, payload: FiberStrandCreate):
         segment = None
         if payload.segment_id:
-            segment = db.get(FiberSegment, payload.segment_id)
+            segment = _safe_get(db, FiberSegment, payload.segment_id)
             if not segment:
                 raise HTTPException(status_code=404, detail="Fiber segment not found")
         data = payload.model_dump(exclude={"segment_id"})
@@ -838,7 +847,7 @@ class FiberStrands(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, strand_id: str):
-        strand = db.get(FiberStrand, strand_id)
+        strand = _safe_get(db, FiberStrand, strand_id)
         if not strand:
             raise HTTPException(status_code=404, detail="Fiber strand not found")
         return strand
@@ -857,7 +866,7 @@ class FiberStrands(ListResponseMixin):
     ):
         query = db.query(FiberStrand)
         if segment_id:
-            segment = db.get(FiberSegment, segment_id)
+            segment = _safe_get(db, FiberSegment, segment_id)
             if not segment:
                 raise HTTPException(status_code=404, detail="Fiber segment not found")
             if segment.fiber_strand_id:
@@ -885,7 +894,7 @@ class FiberStrands(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, strand_id: str, payload: FiberStrandUpdate):
-        strand = db.get(FiberStrand, strand_id)
+        strand = _safe_get(db, FiberStrand, strand_id)
         if not strand:
             raise HTTPException(status_code=404, detail="Fiber strand not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -896,7 +905,7 @@ class FiberStrands(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, strand_id: str):
-        strand = db.get(FiberStrand, strand_id)
+        strand = _safe_get(db, FiberStrand, strand_id)
         if not strand:
             raise HTTPException(status_code=404, detail="Fiber strand not found")
         strand.is_active = False
@@ -914,7 +923,7 @@ class FiberSpliceClosures(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, closure_id: str):
-        closure = db.get(FiberSpliceClosure, closure_id)
+        closure = _safe_get(db, FiberSpliceClosure, closure_id)
         if not closure:
             raise HTTPException(status_code=404, detail="Fiber splice closure not found")
         return closure
@@ -943,7 +952,7 @@ class FiberSpliceClosures(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, closure_id: str, payload: FiberSpliceClosureUpdate):
-        closure = db.get(FiberSpliceClosure, closure_id)
+        closure = _safe_get(db, FiberSpliceClosure, closure_id)
         if not closure:
             raise HTTPException(status_code=404, detail="Fiber splice closure not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -954,7 +963,7 @@ class FiberSpliceClosures(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, closure_id: str):
-        closure = db.get(FiberSpliceClosure, closure_id)
+        closure = _safe_get(db, FiberSpliceClosure, closure_id)
         if not closure:
             raise HTTPException(status_code=404, detail="Fiber splice closure not found")
         closure.is_active = False
@@ -966,17 +975,17 @@ class FiberSplices(ListResponseMixin):
     def create(db: Session, payload: FiberSpliceCreate):
         data = payload.model_dump(exclude={"position"})
         if payload.closure_id and payload.from_strand_id and payload.to_strand_id:
-            closure = db.get(FiberSpliceClosure, payload.closure_id)
+            closure = _safe_get(db, FiberSpliceClosure, payload.closure_id)
             if not closure:
                 raise HTTPException(status_code=404, detail="Fiber splice closure not found")
-            from_strand = db.get(FiberStrand, payload.from_strand_id)
+            from_strand = _safe_get(db, FiberStrand, payload.from_strand_id)
             if not from_strand:
                 raise HTTPException(status_code=404, detail="Fiber strand not found")
-            to_strand = db.get(FiberStrand, payload.to_strand_id)
+            to_strand = _safe_get(db, FiberStrand, payload.to_strand_id)
             if not to_strand:
                 raise HTTPException(status_code=404, detail="Fiber strand not found")
         elif payload.tray_id:
-            tray = db.get(FiberSpliceTray, payload.tray_id)
+            tray = _safe_get(db, FiberSpliceTray, payload.tray_id)
             if not tray:
                 raise HTTPException(status_code=404, detail="Fiber splice tray not found")
             data["tray_id"] = tray.id
@@ -1006,7 +1015,7 @@ class FiberSplices(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, splice_id: str):
-        splice = db.get(FiberSplice, splice_id)
+        splice = _safe_get(db, FiberSplice, splice_id)
         if not splice:
             raise HTTPException(status_code=404, detail="Fiber splice not found")
         return splice
@@ -1042,20 +1051,20 @@ class FiberSplices(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, splice_id: str, payload: FiberSpliceUpdate):
-        splice = db.get(FiberSplice, splice_id)
+        splice = _safe_get(db, FiberSplice, splice_id)
         if not splice:
             raise HTTPException(status_code=404, detail="Fiber splice not found")
         data = payload.model_dump(exclude_unset=True)
         if "closure_id" in data:
-            closure = db.get(FiberSpliceClosure, data["closure_id"])
+            closure = _safe_get(db, FiberSpliceClosure, data["closure_id"])
             if not closure:
                 raise HTTPException(status_code=404, detail="Fiber splice closure not found")
         if "from_strand_id" in data:
-            from_strand = db.get(FiberStrand, data["from_strand_id"])
+            from_strand = _safe_get(db, FiberStrand, data["from_strand_id"])
             if not from_strand:
                 raise HTTPException(status_code=404, detail="Fiber strand not found")
         if "to_strand_id" in data:
-            to_strand = db.get(FiberStrand, data["to_strand_id"])
+            to_strand = _safe_get(db, FiberStrand, data["to_strand_id"])
             if not to_strand:
                 raise HTTPException(status_code=404, detail="Fiber strand not found")
         for key, value in data.items():
@@ -1066,7 +1075,7 @@ class FiberSplices(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, splice_id: str):
-        splice = db.get(FiberSplice, splice_id)
+        splice = _safe_get(db, FiberSplice, splice_id)
         if not splice:
             raise HTTPException(status_code=404, detail="Fiber splice not found")
         db.delete(splice)
@@ -1084,7 +1093,7 @@ class FiberSpliceTrays(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, tray_id: str):
-        tray = db.get(FiberSpliceTray, tray_id)
+        tray = _safe_get(db, FiberSpliceTray, tray_id)
         if not tray:
             raise HTTPException(status_code=404, detail="Fiber splice tray not found")
         return tray
@@ -1111,7 +1120,7 @@ class FiberSpliceTrays(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, tray_id: str, payload: FiberSpliceTrayUpdate):
-        tray = db.get(FiberSpliceTray, tray_id)
+        tray = _safe_get(db, FiberSpliceTray, tray_id)
         if not tray:
             raise HTTPException(status_code=404, detail="Fiber splice tray not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -1122,7 +1131,7 @@ class FiberSpliceTrays(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, tray_id: str):
-        tray = db.get(FiberSpliceTray, tray_id)
+        tray = _safe_get(db, FiberSpliceTray, tray_id)
         if not tray:
             raise HTTPException(status_code=404, detail="Fiber splice tray not found")
         db.delete(tray)
@@ -1140,7 +1149,7 @@ class FiberTerminationPoints(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, point_id: str):
-        point = db.get(FiberTerminationPoint, point_id)
+        point = _safe_get(db, FiberTerminationPoint, point_id)
         if not point:
             raise HTTPException(status_code=404, detail="Fiber termination point not found")
         return point
@@ -1175,7 +1184,7 @@ class FiberTerminationPoints(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, point_id: str, payload: FiberTerminationPointUpdate):
-        point = db.get(FiberTerminationPoint, point_id)
+        point = _safe_get(db, FiberTerminationPoint, point_id)
         if not point:
             raise HTTPException(status_code=404, detail="Fiber termination point not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -1186,7 +1195,7 @@ class FiberTerminationPoints(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, point_id: str):
-        point = db.get(FiberTerminationPoint, point_id)
+        point = _safe_get(db, FiberTerminationPoint, point_id)
         if not point:
             raise HTTPException(status_code=404, detail="Fiber termination point not found")
         db.delete(point)
@@ -1204,7 +1213,7 @@ class FiberSegments(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, segment_id: str):
-        segment = db.get(FiberSegment, segment_id)
+        segment = _safe_get(db, FiberSegment, segment_id)
         if not segment:
             raise HTTPException(status_code=404, detail="Fiber segment not found")
         return segment
@@ -1242,7 +1251,7 @@ class FiberSegments(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, segment_id: str, payload: FiberSegmentUpdate):
-        segment = db.get(FiberSegment, segment_id)
+        segment = _safe_get(db, FiberSegment, segment_id)
         if not segment:
             raise HTTPException(status_code=404, detail="Fiber segment not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -1253,7 +1262,7 @@ class FiberSegments(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, segment_id: str):
-        segment = db.get(FiberSegment, segment_id)
+        segment = _safe_get(db, FiberSegment, segment_id)
         if not segment:
             raise HTTPException(status_code=404, detail="Fiber segment not found")
         segment.is_active = False
@@ -1271,7 +1280,7 @@ class PonPortSplitterLinks(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, link_id: str):
-        link = db.get(PonPortSplitterLink, link_id)
+        link = _safe_get(db, PonPortSplitterLink, link_id)
         if not link:
             raise HTTPException(status_code=404, detail="PON port link not found")
         return link
@@ -1306,7 +1315,7 @@ class PonPortSplitterLinks(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, link_id: str, payload: PonPortSplitterLinkUpdate):
-        link = db.get(PonPortSplitterLink, link_id)
+        link = _safe_get(db, PonPortSplitterLink, link_id)
         if not link:
             raise HTTPException(status_code=404, detail="PON port link not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -1317,7 +1326,7 @@ class PonPortSplitterLinks(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, link_id: str):
-        link = db.get(PonPortSplitterLink, link_id)
+        link = _safe_get(db, PonPortSplitterLink, link_id)
         if not link:
             raise HTTPException(status_code=404, detail="PON port link not found")
         db.delete(link)
@@ -1335,7 +1344,7 @@ class OltPowerUnits(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, unit_id: str):
-        unit = db.get(OltPowerUnit, unit_id)
+        unit = _safe_get(db, OltPowerUnit, unit_id)
         if not unit:
             raise HTTPException(status_code=404, detail="OLT power unit not found")
         return unit
@@ -1367,7 +1376,7 @@ class OltPowerUnits(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, unit_id: str, payload: OltPowerUnitUpdate):
-        unit = db.get(OltPowerUnit, unit_id)
+        unit = _safe_get(db, OltPowerUnit, unit_id)
         if not unit:
             raise HTTPException(status_code=404, detail="OLT power unit not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -1378,7 +1387,7 @@ class OltPowerUnits(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, unit_id: str):
-        unit = db.get(OltPowerUnit, unit_id)
+        unit = _safe_get(db, OltPowerUnit, unit_id)
         if not unit:
             raise HTTPException(status_code=404, detail="OLT power unit not found")
         unit.is_active = False
@@ -1396,7 +1405,7 @@ class OltSfpModules(ListResponseMixin):
 
     @staticmethod
     def get(db: Session, module_id: str):
-        module = db.get(OltSfpModule, module_id)
+        module = _safe_get(db, OltSfpModule, module_id)
         if not module:
             raise HTTPException(status_code=404, detail="OLT SFP module not found")
         return module
@@ -1428,7 +1437,7 @@ class OltSfpModules(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, module_id: str, payload: OltSfpModuleUpdate):
-        module = db.get(OltSfpModule, module_id)
+        module = _safe_get(db, OltSfpModule, module_id)
         if not module:
             raise HTTPException(status_code=404, detail="OLT SFP module not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
@@ -1439,7 +1448,7 @@ class OltSfpModules(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, module_id: str):
-        module = db.get(OltSfpModule, module_id)
+        module = _safe_get(db, OltSfpModule, module_id)
         if not module:
             raise HTTPException(status_code=404, detail="OLT SFP module not found")
         module.is_active = False

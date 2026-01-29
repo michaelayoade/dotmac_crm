@@ -2146,7 +2146,7 @@ async def upload_conversation_attachments(
     if not conversation:
         return JSONResponse({"detail": "Conversation not found"}, status_code=404)
 
-    prepared = message_attachment_service.prepare_message_attachments(files)
+    prepared = await message_attachment_service.prepare_message_attachments(files)
     if not prepared:
         return JSONResponse({"detail": "No attachments provided"}, status_code=400)
     saved = message_attachment_service.save_message_attachments(prepared)
