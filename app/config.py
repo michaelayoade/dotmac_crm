@@ -73,5 +73,10 @@ class Settings:
         f"https://graph.facebook.com/{os.getenv('META_GRAPH_API_VERSION', 'v19.0')}",
     )
 
+    # ERPNext integration settings
+    erpnext_url: str | None = os.getenv("ERPNEXT_URL")
+    erpnext_api_key: str | None = os.getenv("ERPNEXT_API_KEY")
+    erpnext_api_secret: str | None = os.getenv("ERPNEXT_API_SECRET")
+
 
 settings = Settings()
