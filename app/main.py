@@ -83,6 +83,7 @@ from app.services.settings_seed import (
 )
 from app.logging import configure_logging
 from app.observability import ObservabilityMiddleware
+from app.middleware.api_rate_limit import APIRateLimitMiddleware
 from app.telemetry import setup_otel
 from app.errors import register_error_handlers
 
@@ -95,52 +96,65 @@ _AUDIT_SETTINGS_LOCK = Lock()
 configure_logging()
 setup_otel(app)
 app.add_middleware(ObservabilityMiddleware)
+app.add_middleware(APIRateLimitMiddleware)  # Global API rate limiting
 register_error_handlers(app)
+
+
+@app.middleware("http")
+async def shared_db_session_middleware(request: Request, call_next):
+    """
+    Create a shared database session for middleware operations.
+
+    This consolidates multiple SessionLocal() calls into one per request,
+    reducing connection pool pressure and improving performance.
+    """
+    db = SessionLocal()
+    request.state.middleware_db = db
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        db.close()
 
 
 @app.middleware("http")
 async def audit_middleware(request: Request, call_next):
     response: Response
     path = request.url.path
-    db = SessionLocal()
+    db: Session = getattr(request.state, "middleware_db", None) or SessionLocal()
+    owns_db = not hasattr(request.state, "middleware_db")
     try:
         audit_settings = _load_audit_settings(db)
-    finally:
-        db.close()
-    if not audit_settings["enabled"]:
-        return await call_next(request)
-    track_read = request.method == "GET" and (
-        request.headers.get(audit_settings["read_trigger_header"], "").lower() == "true"
-        or request.query_params.get(audit_settings["read_trigger_query"]) == "true"
-    )
-    should_log = request.method in audit_settings["methods"] or track_read
-    if _is_audit_path_skipped(path, audit_settings["skip_paths"]):
-        should_log = False
-    try:
-        response = await call_next(request)
-    except Exception:
-        if should_log:
-            db = SessionLocal()
-            try:
+        if not audit_settings["enabled"]:
+            return await call_next(request)
+        track_read = request.method == "GET" and (
+            request.headers.get(audit_settings["read_trigger_header"], "").lower() == "true"
+            or request.query_params.get(audit_settings["read_trigger_query"]) == "true"
+        )
+        should_log = request.method in audit_settings["methods"] or track_read
+        if _is_audit_path_skipped(path, audit_settings["skip_paths"]):
+            should_log = False
+        try:
+            response = await call_next(request)
+        except Exception:
+            if should_log:
                 audit_service.audit_events.log_request(
                     db, request, Response(status_code=500)
                 )
-            finally:
-                db.close()
-        raise
-    if should_log:
-        db = SessionLocal()
-        try:
+            raise
+        if should_log:
             audit_service.audit_events.log_request(db, request, response)
-        finally:
+        return response
+    finally:
+        if owns_db:
             db.close()
-    return response
 
 
 @app.middleware("http")
 async def branding_middleware(request: Request, call_next):
     """Attach branding settings to request state for templates."""
-    db = SessionLocal()
+    db: Session = getattr(request.state, "middleware_db", None) or SessionLocal()
+    owns_db = not hasattr(request.state, "middleware_db")
     try:
         company_name = settings_spec.resolve_value(db, SettingDomain.comms, "company_name")
         logo_url = settings_spec.resolve_value(db, SettingDomain.comms, "brand_logo_url")
@@ -150,7 +164,8 @@ async def branding_middleware(request: Request, call_next):
         logo_url = None
         favicon_url = None
     finally:
-        db.close()
+        if owns_db:
+            db.close()
     request.state.branding = {
         "company_name": company_name or "Dotmac",
         "logo_url": logo_url,

@@ -190,3 +190,35 @@ The project has transitioned from subscription management to omni-channel. Legac
 - ✅ Billing/Catalog/Usage services removed
 - ✅ All orphaned imports cleaned
 - ✅ Subscriber model cleaned (no stubs)
+
+## Architectural Improvements
+
+### N+1 Query Prevention
+Use window functions for batch loading related records:
+```python
+# Good: Batch load with window function
+subq = db.query(
+    Model.parent_id,
+    Model.value,
+    func.row_number().over(partition_by=Model.parent_id, order_by=Model.created_at).label("rn")
+).subquery()
+first_per_parent = db.query(subq).filter(subq.c.rn == 1).all()
+
+# Bad: N+1 loop
+for parent in parents:
+    child = db.query(Child).filter(Child.parent_id == parent.id).first()  # N queries!
+```
+
+### Middleware DB Session
+Middleware shares a single DB session via `request.state.middleware_db`:
+```python
+# Access shared session in middleware
+db = getattr(request.state, "middleware_db", None) or SessionLocal()
+```
+
+### API Rate Limiting
+Global rate limiting via `APIRateLimitMiddleware` (100 req/min default):
+- Configure via `API_RATE_LIMIT` and `API_RATE_WINDOW` env vars
+- Uses Redis with in-memory fallback
+- Adds `X-RateLimit-*` headers to responses
+- Exempt paths: `/health`, `/metrics`, `/static/`, `/docs`
