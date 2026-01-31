@@ -184,19 +184,9 @@ Each portal has separate auth:
 
 ## Refactoring Status
 
-The project is transitioning from subscription management to omni-channel. Known cleanup needed:
+The project has transitioned from subscription management to omni-channel. Legacy cleanup completed:
 
-### Critical (Blocking)
-- [ ] `app/tasks/__init__.py:17` - Remove SNMP task import
-- [ ] `app/schemas/imports.py:16-17` - Remove SNMP/TR069 imports
-- [ ] `app/web/admin/crm.py:2999` - Remove catalog service reference
-
-### Files to Delete
-- [ ] `app/services/snmp.py` - Orphaned
-- [ ] `app/services/tr069.py` - Orphaned
-- [ ] `app/schemas/snmp.py` - Orphaned
-- [ ] `app/schemas/tr069.py` - Orphaned
-- [ ] Test files for deleted modules (billing, catalog, usage, etc.)
-
-### Models with Stubs to Clean
-- [ ] `app/models/subscriber.py` - Has stub classes for removed billing
+- ✅ SNMP/TR069 modules removed
+- ✅ Billing/Catalog/Usage services removed
+- ✅ All orphaned imports cleaned
+- ✅ Subscriber model cleaned (no stubs)
