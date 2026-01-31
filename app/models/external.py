@@ -16,6 +16,11 @@ class ExternalEntityType(enum.Enum):
     project_task = "project_task"
     work_order = "work_order"
     work_order_note = "work_order_note"
+    # Added for ERPNext import
+    person = "person"
+    subscriber = "subscriber"
+    lead = "lead"
+    quote = "quote"
 
 
 class ExternalReference(Base):

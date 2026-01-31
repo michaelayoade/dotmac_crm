@@ -1219,3 +1219,301 @@ def channel_test(request: Request, channel_id: str, db: Session = Depends(get_db
             '</div>',
             status_code=200,
         )
+
+
+# ==================== ERPNext Import ====================
+
+def _get_erpnext_env_config() -> dict[str, str | None]:
+    """Get ERPNext configuration from environment variables."""
+    from app.config import settings
+    return {
+        "url": settings.erpnext_url,
+        "api_key": settings.erpnext_api_key,
+        "api_secret": settings.erpnext_api_secret,
+    }
+
+
+def _erpnext_env_configured() -> bool:
+    """Check if ERPNext is configured via environment variables."""
+    config = _get_erpnext_env_config()
+    return all([config["url"], config["api_key"], config["api_secret"]])
+
+
+@router.get("/erpnext", response_class=HTMLResponse)
+def erpnext_import_page(request: Request, db: Session = Depends(get_db)):
+    """ERPNext one-time import configuration page."""
+    # Get ERPNext connector if configured
+    from app.models.connector import ConnectorType
+
+    erpnext_connectors = connector_service.connector_configs.list(
+        db=db,
+        connector_type=ConnectorType.erpnext if hasattr(ConnectorType, "erpnext") else None,
+        auth_type=None,
+        is_active=True,
+        order_by="name",
+        order_dir="asc",
+        limit=100,
+        offset=0,
+    )
+
+    # Also get generic connectors that might be used for ERPNext
+    all_connectors = connector_service.connector_configs.list(
+        db=db,
+        connector_type=None,
+        auth_type=None,
+        is_active=True,
+        order_by="name",
+        order_dir="asc",
+        limit=100,
+        offset=0,
+    )
+
+    # Check if environment variables are configured
+    env_config = _get_erpnext_env_config()
+    env_configured = _erpnext_env_configured()
+
+    context = _base_context(request, db, active_page="erpnext")
+    context.update({
+        "connectors": all_connectors,
+        "erpnext_connectors": erpnext_connectors,
+        "env_configured": env_configured,
+        "env_url": env_config["url"],
+    })
+    return templates.TemplateResponse("admin/integrations/erpnext/index.html", context)
+
+
+@router.post("/erpnext/test", response_class=HTMLResponse)
+def erpnext_test_connection(
+    request: Request,
+    connector_id: str | None = Form(None),
+    base_url: str | None = Form(None),
+    api_key: str | None = Form(None),
+    api_secret: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Test ERPNext API connection (HTMX)."""
+    from app.services.erpnext import ERPNextClient
+    from app.services.erpnext.client import ERPNextError
+
+    # Get credentials from environment, connector, or form
+    if connector_id == "env":
+        # Use environment variables
+        env_config = _get_erpnext_env_config()
+        base_url = env_config["url"]
+        api_key = env_config["api_key"]
+        api_secret = env_config["api_secret"]
+    elif connector_id:
+        try:
+            connector = connector_service.connector_configs.get(db, connector_id)
+            base_url = connector.base_url
+            auth_config = connector.auth_config or {}
+            api_key = auth_config.get("api_key")
+            api_secret = auth_config.get("api_secret")
+        except HTTPException:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+                'Connector not found.'
+                '</div>',
+                status_code=404,
+            )
+
+    if not base_url or not api_key or not api_secret:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            'Missing required credentials: base_url, api_key, api_secret'
+            '</div>',
+            status_code=400,
+        )
+
+    try:
+        client = ERPNextClient(base_url, api_key, api_secret)
+        client.test_connection()
+        return HTMLResponse(
+            '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
+            f'Successfully connected to ERPNext at {base_url}'
+            '</div>',
+            status_code=200,
+        )
+    except ERPNextError as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f'Connection failed: {e.message}'
+            '</div>',
+            status_code=400,
+        )
+
+
+@router.post("/erpnext/import")
+def erpnext_run_import(
+    request: Request,
+    connector_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Run one-time ERPNext import.
+
+    Returns JSON with import statistics.
+    Use connector_id="env" to use environment variables.
+    """
+    from app.services.erpnext import ERPNextImporter
+    from app.services.erpnext.client import ERPNextError
+
+    # Get credentials from environment or connector
+    if connector_id == "env":
+        env_config = _get_erpnext_env_config()
+        base_url = env_config["url"]
+        api_key = env_config["api_key"]
+        api_secret = env_config["api_secret"]
+        config_id = None  # No connector config when using env vars
+    else:
+        try:
+            connector = connector_service.connector_configs.get(db, connector_id)
+        except HTTPException:
+            raise HTTPException(status_code=404, detail="Connector not found")
+
+        base_url = connector.base_url
+        auth_config = connector.auth_config or {}
+        api_key = auth_config.get("api_key")
+        api_secret = auth_config.get("api_secret")
+        config_id = connector.id
+
+    if not base_url:
+        raise HTTPException(status_code=400, detail="Missing base_url configuration")
+
+    if not api_key or not api_secret:
+        raise HTTPException(status_code=400, detail="Missing api_key or api_secret configuration")
+
+    try:
+        importer = ERPNextImporter(
+            base_url=base_url,
+            api_key=api_key,
+            api_secret=api_secret,
+            connector_config_id=config_id,
+        )
+        result = importer.import_all(db)
+        return result.to_dict()
+    except ERPNextError as e:
+        raise HTTPException(status_code=502, detail=f"ERPNext API error: {e.message}")
+
+
+@router.post("/erpnext/import/htmx", response_class=HTMLResponse)
+def erpnext_run_import_htmx(
+    request: Request,
+    connector_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Run one-time ERPNext import (HTMX response).
+
+    Use connector_id="env" to use environment variables.
+    """
+    from app.services.erpnext import ERPNextImporter
+    from app.services.erpnext.client import ERPNextError
+
+    # Get credentials from environment or connector
+    if connector_id == "env":
+        env_config = _get_erpnext_env_config()
+        base_url = env_config["url"]
+        api_key = env_config["api_key"]
+        api_secret = env_config["api_secret"]
+        config_id = None
+    else:
+        try:
+            connector = connector_service.connector_configs.get(db, connector_id)
+        except HTTPException:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+                'Connector not found.'
+                '</div>',
+                status_code=404,
+            )
+
+        base_url = connector.base_url
+        auth_config = connector.auth_config or {}
+        api_key = auth_config.get("api_key")
+        api_secret = auth_config.get("api_secret")
+        config_id = connector.id
+
+    if not base_url:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            'Missing base_url configuration.'
+            '</div>',
+            status_code=400,
+        )
+
+    if not api_key or not api_secret:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            'Missing api_key or api_secret configuration.'
+            '</div>',
+            status_code=400,
+        )
+
+    try:
+        importer = ERPNextImporter(
+            base_url=base_url,
+            api_key=api_key,
+            api_secret=api_secret,
+            connector_config_id=config_id,
+        )
+        result = importer.import_all(db)
+
+        # Build summary HTML
+        stats = result.to_dict()
+        total_created = sum(s["created"] for s in [stats["contacts"], stats["customers"], stats["tickets"], stats["projects"], stats["tasks"], stats["leads"], stats["quotes"]])
+        total_updated = sum(s["updated"] for s in [stats["contacts"], stats["customers"], stats["tickets"], stats["projects"], stats["tasks"], stats["leads"], stats["quotes"]])
+        total_errors = sum(s["errors"] for s in [stats["contacts"], stats["customers"], stats["tickets"], stats["projects"], stats["tasks"], stats["leads"], stats["quotes"]])
+
+        status_class = "green" if stats["success"] else "red"
+
+        html = f'''
+<div class="rounded-lg border border-{status_class}-200 bg-{status_class}-50 p-4 dark:border-{status_class}-800 dark:bg-{status_class}-900/30">
+    <h3 class="text-lg font-medium text-{status_class}-800 dark:text-{status_class}-200 mb-3">
+        Import {"Completed" if stats["success"] else "Failed"}
+    </h3>
+    <div class="grid grid-cols-3 gap-4 text-sm">
+        <div class="text-center">
+            <div class="text-2xl font-bold text-green-600 dark:text-green-400">{total_created}</div>
+            <div class="text-gray-600 dark:text-gray-400">Created</div>
+        </div>
+        <div class="text-center">
+            <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">{total_updated}</div>
+            <div class="text-gray-600 dark:text-gray-400">Updated</div>
+        </div>
+        <div class="text-center">
+            <div class="text-2xl font-bold text-red-600 dark:text-red-400">{total_errors}</div>
+            <div class="text-gray-600 dark:text-gray-400">Errors</div>
+        </div>
+    </div>
+    <div class="mt-4 text-xs text-gray-600 dark:text-gray-400">
+        <table class="w-full">
+            <thead>
+                <tr class="border-b border-gray-200 dark:border-gray-700">
+                    <th class="py-1 text-left">Entity</th>
+                    <th class="py-1 text-right">Created</th>
+                    <th class="py-1 text-right">Updated</th>
+                    <th class="py-1 text-right">Skipped</th>
+                    <th class="py-1 text-right">Errors</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Contacts</td><td class="text-right">{stats["contacts"]["created"]}</td><td class="text-right">{stats["contacts"]["updated"]}</td><td class="text-right">{stats["contacts"]["skipped"]}</td><td class="text-right">{stats["contacts"]["errors"]}</td></tr>
+                <tr><td>Customers</td><td class="text-right">{stats["customers"]["created"]}</td><td class="text-right">{stats["customers"]["updated"]}</td><td class="text-right">{stats["customers"]["skipped"]}</td><td class="text-right">{stats["customers"]["errors"]}</td></tr>
+                <tr><td>Projects</td><td class="text-right">{stats["projects"]["created"]}</td><td class="text-right">{stats["projects"]["updated"]}</td><td class="text-right">{stats["projects"]["skipped"]}</td><td class="text-right">{stats["projects"]["errors"]}</td></tr>
+                <tr><td>Tasks</td><td class="text-right">{stats["tasks"]["created"]}</td><td class="text-right">{stats["tasks"]["updated"]}</td><td class="text-right">{stats["tasks"]["skipped"]}</td><td class="text-right">{stats["tasks"]["errors"]}</td></tr>
+                <tr><td>Tickets</td><td class="text-right">{stats["tickets"]["created"]}</td><td class="text-right">{stats["tickets"]["updated"]}</td><td class="text-right">{stats["tickets"]["skipped"]}</td><td class="text-right">{stats["tickets"]["errors"]}</td></tr>
+                <tr><td>Leads</td><td class="text-right">{stats["leads"]["created"]}</td><td class="text-right">{stats["leads"]["updated"]}</td><td class="text-right">{stats["leads"]["skipped"]}</td><td class="text-right">{stats["leads"]["errors"]}</td></tr>
+                <tr><td>Quotes</td><td class="text-right">{stats["quotes"]["created"]}</td><td class="text-right">{stats["quotes"]["updated"]}</td><td class="text-right">{stats["quotes"]["skipped"]}</td><td class="text-right">{stats["quotes"]["errors"]}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+'''
+        return HTMLResponse(html, status_code=200)
+
+    except ERPNextError as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f'ERPNext API error: {e.message}'
+            '</div>',
+            status_code=502,
+        )
