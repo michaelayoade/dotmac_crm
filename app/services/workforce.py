@@ -12,6 +12,11 @@ from app.models.workforce import (
     WorkOrderStatus,
     WorkOrderType,
 )
+from app.queries.workforce import (
+    WorkOrderQuery,
+    WorkOrderAssignmentQuery,
+    WorkOrderNoteQuery,
+)
 from app.services.common import (
     apply_ordering,
     apply_pagination,
@@ -86,44 +91,29 @@ class WorkOrders(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(WorkOrder)
-        if subscriber_id:
-            query = query.filter(WorkOrder.subscriber_id == coerce_uuid(subscriber_id))
-        if ticket_id:
-            query = query.filter(WorkOrder.ticket_id == ticket_id)
-        if project_id:
-            query = query.filter(WorkOrder.project_id == project_id)
-        if assigned_to_person_id:
-            query = query.filter(WorkOrder.assigned_to_person_id == assigned_to_person_id)
-        if status:
-            query = query.filter(
-                WorkOrder.status == validate_enum(status, WorkOrderStatus, "status")
-            )
-        if priority:
-            query = query.filter(
-                WorkOrder.priority
-                == validate_enum(priority, WorkOrderPriority, "priority")
-            )
-        if work_type:
-            query = query.filter(
-                WorkOrder.work_type
-                == validate_enum(work_type, WorkOrderType, "work_type")
-            )
-        if is_active is None:
-            query = query.filter(WorkOrder.is_active.is_(True))
-        else:
-            query = query.filter(WorkOrder.is_active == is_active)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {
-                "created_at": WorkOrder.created_at,
-                "status": WorkOrder.status,
-                "scheduled_start": WorkOrder.scheduled_start,
-            },
+        query = (
+            WorkOrderQuery(db)
+            .by_subscriber(subscriber_id)
+            .by_ticket(ticket_id)
+            .by_project(project_id)
+            .by_assigned_to(assigned_to_person_id)
+            .by_status(status)
+            .by_priority(priority)
+            .by_work_type(work_type)
         )
-        return apply_pagination(query, limit, offset).all()
+        if is_active is None:
+            query = query.active_only()
+        elif is_active:
+            query = query.active_only(True)
+        else:
+            query = query.active_only(False)
+
+        return (
+            query
+            .order_by(order_by, order_dir)
+            .paginate(limit, offset)
+            .all()
+        )
 
     @staticmethod
     def update(db: Session, work_order_id: str, payload: WorkOrderUpdate):
@@ -187,18 +177,14 @@ class WorkOrderAssignments(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(WorkOrderAssignment)
-        if work_order_id:
-            query = query.filter(WorkOrderAssignment.work_order_id == work_order_id)
-        if person_id:
-            query = query.filter(WorkOrderAssignment.person_id == person_id)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {"assigned_at": WorkOrderAssignment.assigned_at},
+        return (
+            WorkOrderAssignmentQuery(db)
+            .by_work_order(work_order_id)
+            .by_person(person_id)
+            .order_by(order_by, order_dir)
+            .paginate(limit, offset)
+            .all()
         )
-        return apply_pagination(query, limit, offset).all()
 
     @staticmethod
     def update(db: Session, assignment_id: str, payload: WorkOrderAssignmentUpdate):
@@ -258,18 +244,14 @@ class WorkOrderNotes(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(WorkOrderNote)
-        if work_order_id:
-            query = query.filter(WorkOrderNote.work_order_id == work_order_id)
-        if is_internal is not None:
-            query = query.filter(WorkOrderNote.is_internal == is_internal)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {"created_at": WorkOrderNote.created_at},
+        return (
+            WorkOrderNoteQuery(db)
+            .by_work_order(work_order_id)
+            .is_internal(is_internal)
+            .order_by(order_by, order_dir)
+            .paginate(limit, offset)
+            .all()
         )
-        return apply_pagination(query, limit, offset).all()
 
     @staticmethod
     def update(db: Session, note_id: str, payload: WorkOrderNoteUpdate):
