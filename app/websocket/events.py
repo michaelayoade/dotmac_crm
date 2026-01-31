@@ -13,6 +13,7 @@ class EventType(str, Enum):
     MESSAGE_NEW = "message_new"
     MESSAGE_STATUS_CHANGED = "message_status_changed"
     CONVERSATION_UPDATED = "conversation_updated"
+    CONVERSATION_CREATED = "conversation_created"
     CONVERSATION_SUMMARY = "conversation_summary"
     USER_TYPING = "user_typing"
     CONNECTION_ACK = "connection_ack"

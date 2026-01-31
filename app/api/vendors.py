@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.vendor import (
     AsBuiltCompareResponse,
@@ -19,14 +19,6 @@ from app.schemas.vendor import (
 from app.services import vendor as vendor_service
 
 router = APIRouter(prefix="/vendors", tags=["vendors-admin"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("", response_model=VendorRead, status_code=status.HTTP_201_CREATED)

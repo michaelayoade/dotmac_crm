@@ -22,9 +22,10 @@ from app.models.auth import (
     SessionStatus,
     UserCredential,
 )
+from app.services.auth_cache import invalidate_session
 from app.services.common import coerce_uuid
 from app.services.response import ListResponseMixin
-from app.models.rbac import Permission, PersonRole, Role, RolePermission
+from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.person import Person
 from app.services.secrets import resolve_secret
@@ -213,10 +214,6 @@ def _issue_access_token(
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=_access_ttl_minutes(db))).timestamp()),
     }
-    if roles:
-        payload["roles"] = roles
-    if permissions:
-        payload["scopes"] = permissions
     return jwt.encode(payload, _jwt_secret(db), algorithm=_jwt_algorithm(db))
 
 
@@ -292,7 +289,7 @@ def _load_rbac_claims(db: Session, person_id: str):
         .filter(Role.is_active.is_(True))
         .all()
     )
-    permissions = (
+    role_permissions = (
         db.query(Permission)
         .join(RolePermission, RolePermission.permission_id == Permission.id)
         .join(Role, RolePermission.role_id == Role.id)
@@ -302,8 +299,15 @@ def _load_rbac_claims(db: Session, person_id: str):
         .filter(Permission.is_active.is_(True))
         .all()
     )
+    direct_permissions = (
+        db.query(Permission)
+        .join(PersonPermission, PersonPermission.permission_id == Permission.id)
+        .filter(PersonPermission.person_id == person_uuid)
+        .filter(Permission.is_active.is_(True))
+        .all()
+    )
     role_names = [role.name for role in roles]
-    permission_keys = list({perm.key for perm in permissions})
+    permission_keys = list({perm.key for perm in (role_permissions + direct_permissions)})
     return role_names, permission_keys
 
 
@@ -628,6 +632,8 @@ class AuthFlow(ListResponseMixin):
         session.status = SessionStatus.revoked
         session.revoked_at = _now()
         db.commit()
+        # Invalidate session cache
+        invalidate_session(str(session.id))
         return {"revoked_at": session.revoked_at}
 
     @staticmethod

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.vendor import (
     AsBuiltRouteCreate,
@@ -21,14 +21,6 @@ from app.services import vendor_portal
 from app.services.response import list_response
 
 router = APIRouter(prefix="/vendor", tags=["vendor-portal"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def require_vendor_context(request: Request, db: Session):

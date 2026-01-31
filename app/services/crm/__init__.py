@@ -11,6 +11,14 @@ from app.services.crm.conversation import (
 from app.services.crm.team import Teams, Agents, AgentTeams, TeamChannels, RoutingRules, get_agent_labels, get_agent_team_options
 from app.services.crm.sales import Pipelines, PipelineStages, Leads, Quotes, CrmQuoteLineItems
 from app.services.crm import inbox
+from app.services.crm.chat_widget import (
+    ChatWidgetConfigManager,
+    WidgetVisitorManager,
+    widget_configs,
+    widget_visitors,
+    receive_widget_message,
+    send_widget_message,
+)
 
 contacts = Contacts()
 contact_channels = ContactChannels()
@@ -52,4 +60,8 @@ __all__ = [
     "resolve_conversation_contact",
     "resolve_open_conversation",
     "inbox",
+    "widget_configs",
+    "widget_visitors",
+    "receive_widget_message",
+    "send_widget_message",
 ]

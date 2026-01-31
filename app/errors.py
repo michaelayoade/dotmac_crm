@@ -3,7 +3,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.datastructures import UploadFile
 
+from app.logging import get_logger
 from app.web.auth.dependencies import AuthenticationRequired
+
+logger = get_logger(__name__)
 
 
 def _error_payload(code: str, message: str, details):
@@ -65,6 +68,13 @@ def register_error_handlers(app) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
+        logger.error(
+            "unhandled_exception path=%s method=%s error=%s",
+            request.url.path,
+            request.method,
+            exc,
+            exc_info=True,
+        )
         return JSONResponse(
             status_code=500,
             content=_error_payload(

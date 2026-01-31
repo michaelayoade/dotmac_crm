@@ -14,8 +14,26 @@ def _get_initials(name: str) -> str:
 
 def get_current_user(request) -> dict:
     """Get current user context from the request state."""
+    auth = getattr(request.state, "auth", None) or {}
+    roles = auth.get("roles", []) if isinstance(auth, dict) else []
+    permissions = auth.get("scopes", []) if isinstance(auth, dict) else []
+
     if hasattr(request.state, "user") and request.state.user:
         user = request.state.user
+        if not roles and not permissions:
+            # Fallback: load roles/permissions from DB when auth scopes are missing.
+            from app.db import SessionLocal
+            from app.services.auth_flow import _load_rbac_claims
+
+            db = SessionLocal()
+            try:
+                person_id = getattr(user, "person_id", None) or getattr(user, "id", None)
+                if person_id:
+                    roles, permissions = _load_rbac_claims(db, str(person_id))
+            except Exception:
+                pass
+            finally:
+                db.close()
         name = f"{user.first_name} {user.last_name}".strip() if hasattr(user, "first_name") else "User"
         person_id = getattr(user, "person_id", None)
         return {
@@ -24,6 +42,8 @@ def get_current_user(request) -> dict:
             "initials": _get_initials(name),
             "name": name,
             "email": getattr(user, "email", ""),
+            "roles": roles,
+            "permissions": permissions,
         }
 
     return {
@@ -32,6 +52,8 @@ def get_current_user(request) -> dict:
         "initials": "??",
         "name": "Unknown User",
         "email": "",
+        "roles": roles,
+        "permissions": permissions,
     }
 
 
@@ -74,8 +96,10 @@ def get_sidebar_stats(db: Session) -> dict:
 
 def build_admin_context(request, db: Session) -> dict:
     """Build common context for admin templates."""
+    current_user = get_current_user(request)
     return {
         "request": request,
-        "user": get_current_user(request),
+        "user": current_user,
+        "current_user": current_user,
         "sidebar_stats": get_sidebar_stats(db),
     }

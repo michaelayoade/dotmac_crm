@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.models.auth import Session as AuthSession, SessionStatus
 from app.models.person import Person
-from app.services.auth_flow import decode_access_token
+from app.services.auth_flow import _load_rbac_claims, decode_access_token
 
 
 class AuthenticationRequired(Exception):
@@ -86,8 +86,7 @@ def validate_session_token(
     if not person:
         return None
 
-    roles = payload.get("roles", [])
-    scopes = payload.get("scopes", [])
+    roles, scopes = _load_rbac_claims(db, str(person_id))
 
     return {
         "person_id": str(person_id),

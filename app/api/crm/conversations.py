@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.crm.conversation import (
     ConversationAssignmentCreate,
@@ -15,14 +15,6 @@ from app.schemas.crm.conversation import (
 from app.services import crm as crm_service
 
 router = APIRouter(prefix="/crm/conversations", tags=["crm-conversations"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("", response_model=ConversationRead, status_code=status.HTTP_201_CREATED)

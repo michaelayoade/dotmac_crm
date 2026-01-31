@@ -288,8 +288,9 @@ class Contacts(ListResponseMixin):
             query = query.filter(Person.organization_id == coerce_uuid(organization_id))
         if search:
             like = f"%{search.strip()}%"
-            query = (
-                query.outerjoin(PersonChannel)
+            matching_ids = (
+                db.query(Person.id)
+                .outerjoin(PersonChannel)
                 .filter(
                     or_(
                         Person.display_name.ilike(like),
@@ -302,6 +303,7 @@ class Contacts(ListResponseMixin):
                 )
                 .distinct()
             )
+            query = query.filter(Person.id.in_(matching_ids))
         if is_active is None:
             query = query.filter(Person.is_active.is_(True))
         else:

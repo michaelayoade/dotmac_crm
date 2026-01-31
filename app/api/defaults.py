@@ -7,20 +7,12 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.services.smart_defaults import SmartDefaultsService
 from app.services.auth_dependencies import require_user_auth
 
 
 router = APIRouter(prefix="/defaults", tags=["defaults"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class InvoiceDefaultsResponse(BaseModel):

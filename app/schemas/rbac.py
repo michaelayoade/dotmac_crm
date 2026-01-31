@@ -8,8 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 # Permission key format: domain:action or domain:entity:action
-# Each part: starts with lowercase letter, contains only lowercase letters, numbers, underscores
-PERMISSION_KEY_PATTERN = re.compile(r'^[a-z][a-z0-9_]*(?:[:.][a-z][a-z0-9_]*){1,2}$')
+# Each part: starts with lowercase letter, contains only lowercase letters, numbers, underscores, hyphens
+PERMISSION_KEY_PATTERN = re.compile(r'^[a-z][a-z0-9_-]*(?:[:.][a-z][a-z0-9_-]*){1,2}$')
 
 
 class RoleBase(BaseModel):
@@ -48,7 +48,7 @@ class PermissionBase(BaseModel):
             raise ValueError(
                 'Permission key must be in format domain:action or domain:entity:action '
                 '(e.g., billing:read, customer:invoice:create). '
-                'Each part must start with a lowercase letter and contain only lowercase letters, numbers, and underscores.'
+                'Each part must start with a lowercase letter and contain only lowercase letters, numbers, underscores, and hyphens.'
             )
         return v
 
@@ -76,7 +76,7 @@ class PermissionUpdate(BaseModel):
             raise ValueError(
                 'Permission key must be in format domain:action or domain:entity:action '
                 '(e.g., billing:read, customer:invoice:create). '
-                'Each part must start with a lowercase letter and contain only lowercase letters, numbers, and underscores.'
+                'Each part must start with a lowercase letter and contain only lowercase letters, numbers, underscores, and hyphens.'
             )
         return v
 

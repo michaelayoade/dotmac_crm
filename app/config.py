@@ -56,6 +56,16 @@ class Settings:
         "image/jpeg,image/png,image/gif,image/webp,application/pdf",
     )
 
+    # Branding assets (logo & favicon)
+    branding_upload_dir: str = os.getenv("BRANDING_UPLOAD_DIR", "static/uploads/branding")
+    branding_url_prefix: str = os.getenv("BRANDING_URL_PREFIX", "/static/uploads/branding")
+    branding_logo_max_size_bytes: int = int(
+        os.getenv("BRANDING_LOGO_MAX_SIZE_BYTES", str(2 * 1024 * 1024))
+    )
+    branding_favicon_max_size_bytes: int = int(
+        os.getenv("BRANDING_FAVICON_MAX_SIZE_BYTES", str(512 * 1024))
+    )
+
     # Meta Graph API settings
     meta_graph_api_version: str = os.getenv("META_GRAPH_API_VERSION", "v21.0")
     meta_graph_base_url: str = os.getenv(

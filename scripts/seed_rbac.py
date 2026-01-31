@@ -99,6 +99,9 @@ DEFAULT_PERMISSIONS = [
     ("operations:service_order:create", "Create service orders"),
     ("operations:service_order:update", "Update service orders"),
 
+    # Operations - Sales Orders
+    ("operations:sales_order:delete", "Delete sales orders"),
+
     # Operations - Technicians
     ("operations:technician:read", "View technicians"),
     ("operations:technician:write", "Manage technicians"),

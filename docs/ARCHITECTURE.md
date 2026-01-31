@@ -784,7 +784,8 @@ Person → PersonRole → Role
 
 # Permission key format
 "domain:action" or "domain:entity:action"
-Examples: "tickets:read", "projects:task:create"
+Each part starts with a lowercase letter and may include lowercase letters, numbers, underscores, and hyphens.
+Examples: "tickets:read", "projects:task:create", "sales-orders:read"
 ```
 
 ### CSRF Protection

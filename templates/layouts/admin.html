@@ -1,6 +1,40 @@
 {% extends "base.html" %}
 
 {% block body %}
+{% set user_permissions = current_user.permissions if current_user is defined and current_user else [] %}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set is_admin = 'admin' in user_roles_lower %}
+{% set can_global_search = is_admin
+    or 'crm:conversation:read' in user_permissions
+    or 'crm:conversation:write' in user_permissions
+    or 'crm:contact:read' in user_permissions
+    or 'crm:contact:write' in user_permissions
+    or 'crm:lead:read' in user_permissions
+    or 'crm:lead:write' in user_permissions
+    or 'customer:read' in user_permissions
+    or 'customer:create' in user_permissions
+    or 'customer:update' in user_permissions
+    or 'subscriber:read' in user_permissions
+    or 'subscriber:write' in user_permissions
+    or 'support:ticket:read' in user_permissions
+    or 'support:ticket:write' in user_permissions
+    or 'support:ticket:create' in user_permissions
+    or 'support:ticket:update' in user_permissions
+    or 'operations:work_order:read' in user_permissions
+    or 'operations:work_order:create' in user_permissions
+    or 'operations:work_order:update' in user_permissions
+    or 'project:read' in user_permissions
+    or 'project:create' in user_permissions
+    or 'project:task:read' in user_permissions
+    or 'project:task:write' in user_permissions
+    or 'crm' in user_permissions
+    or 'customer' in user_permissions
+    or 'subscriber' in user_permissions
+    or 'support' in user_permissions
+    or 'operations' in user_permissions
+    or 'project' in user_permissions
+%}
 <div x-data="{ sidebarOpen: window.innerWidth >= 1024, sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true', isDesktop: window.innerWidth >= 1024 }"
      x-init="
         $watch('sidebarCollapsed', val => localStorage.setItem('sidebarCollapsed', val));
@@ -23,12 +57,18 @@
         <!-- Logo -->
         <div class="flex h-16 items-center justify-between px-4 border-b border-slate-200 dark:border-slate-800">
             <a href="/admin/dashboard" class="flex items-center gap-3">
-                <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600">
-                    <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                    </svg>
-                </div>
-                <span x-show="!sidebarCollapsed" class="text-lg font-semibold text-slate-900 dark:text-white">Dotmac</span>
+                {% if request.state.branding is defined and request.state.branding.logo_url %}
+                    <img src="{{ request.state.branding.logo_url }}" alt="Logo" class="h-9 w-9 rounded-lg border border-slate-200 object-contain dark:border-slate-700">
+                {% else %}
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600">
+                        <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                    </div>
+                {% endif %}
+                <span x-show="!sidebarCollapsed" class="text-lg font-semibold text-slate-900 dark:text-white">
+                    {{ request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" }}
+                </span>
             </a>
             <button x-on:click="sidebarCollapsed = !sidebarCollapsed"
                     aria-label="Toggle sidebar collapse"
@@ -98,6 +138,7 @@
             <!-- Right side actions -->
             <div class="flex items-center gap-2 pointer-events-auto">
                 <!-- Global Search with Suggestions -->
+                {% if can_global_search %}
                 <div class="hidden sm:block"
                      x-data="globalSearch()"
                      x-on:click.away="close()"
@@ -217,6 +258,7 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
                 <!-- Dark mode toggle -->
                 <button x-on:click="$store.darkMode.toggle()"

@@ -19,7 +19,14 @@
                 <div class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full channel-indicator channel-{{ conversation.channel }}"></div>
             </div>
             <div>
-                <h2 class="text-sm font-semibold text-primary-700 dark:text-primary-300">{{ conversation.contact.name }}</h2>
+                <div class="flex flex-wrap items-center gap-2">
+                    <h2 class="text-sm font-semibold text-primary-700 dark:text-primary-300">{{ conversation.contact.name }}</h2>
+                    {% if conversation.inbox and conversation.inbox.label %}
+                    <span class="inline-flex items-center rounded-full border border-slate-200/70 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+                        {{ conversation.inbox.label }}
+                    </span>
+                    {% endif %}
+                </div>
                 <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-500">{{ conversation.contact.email }}</p>
             </div>
         </div>

@@ -2,6 +2,22 @@
 {% block title %}Admin{% endblock %}
 
 {% block content %}
+{% set user_permissions = current_user.permissions if current_user is defined and current_user else [] %}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set is_admin = 'admin' in user_roles_lower %}
+{% set can_users = is_admin or 'rbac:roles:read' in user_permissions or 'rbac:assign' in user_permissions or 'rbac' in user_permissions %}
+{% set can_roles_permissions = is_admin or 'rbac:roles:read' in user_permissions or 'rbac:permissions:read' in user_permissions or 'rbac' in user_permissions %}
+{% set can_api_keys = is_admin or 'auth:manage' in user_permissions or 'system:settings:write' in user_permissions or 'system:write' in user_permissions %}
+{% set access_control_visible = can_users or can_roles_permissions or can_api_keys %}
+
+{% set can_audit = is_admin or 'audit:read' in user_permissions %}
+{% set can_scheduler = is_admin or 'system:settings:read' in user_permissions or 'system:settings:write' in user_permissions or 'system:read' in user_permissions or 'system:write' in user_permissions %}
+{% set can_notifications = is_admin or 'system:read' in user_permissions or 'system:write' in user_permissions or 'system:settings:read' in user_permissions %}
+{% set can_integrations = is_admin or 'system:settings:read' in user_permissions or 'system:settings:write' in user_permissions or 'system:read' in user_permissions or 'system:write' in user_permissions %}
+{% set can_workflow = can_scheduler %}
+{% set monitoring_visible = can_audit or can_scheduler or can_notifications or can_integrations or can_workflow %}
+
 <div class="space-y-8">
     <!-- Page Header -->
     <div class="flex items-center justify-between">
@@ -12,10 +28,12 @@
     </div>
 
     <!-- Access Control Section -->
+    {% if access_control_visible %}
     <div>
         <h2 class="text-lg font-medium text-slate-900 dark:text-white mb-4">Access Control</h2>
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <!-- Users -->
+            {% if can_users %}
             <a href="/admin/system/users" class="group block rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-primary-500 hover:shadow-md transition-all dark:border-slate-700 dark:bg-slate-800">
                 <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
@@ -29,8 +47,10 @@
                     </div>
                 </div>
             </a>
+            {% endif %}
 
             <!-- Roles & Permissions -->
+            {% if can_roles_permissions %}
             <a href="/admin/system/roles" class="group block rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-primary-500 hover:shadow-md transition-all dark:border-slate-700 dark:bg-slate-800">
                 <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
@@ -44,8 +64,10 @@
                     </div>
                 </div>
             </a>
+            {% endif %}
 
             <!-- API Keys -->
+            {% if can_api_keys %}
             <a href="/admin/system/api-keys" class="group block rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-primary-500 hover:shadow-md transition-all dark:border-slate-700 dark:bg-slate-800">
                 <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
@@ -59,14 +81,18 @@
                     </div>
                 </div>
             </a>
+            {% endif %}
         </div>
     </div>
+    {% endif %}
 
     <!-- Monitoring Section -->
+    {% if monitoring_visible %}
     <div>
         <h2 class="text-lg font-medium text-slate-900 dark:text-white mb-4">Monitoring</h2>
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <!-- Audit Log -->
+            {% if can_audit %}
             <a href="/admin/system/audit" class="group block rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-primary-500 hover:shadow-md transition-all dark:border-slate-700 dark:bg-slate-800">
                 <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400">
@@ -80,8 +106,10 @@
                     </div>
                 </div>
             </a>
+            {% endif %}
 
             <!-- Tasks & Scheduler -->
+            {% if can_scheduler %}
             <a href="/admin/system/scheduler" class="group block rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-primary-500 hover:shadow-md transition-all dark:border-slate-700 dark:bg-slate-800">
                 <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400">
@@ -95,8 +123,10 @@
                     </div>
                 </div>
             </a>
+            {% endif %}
 
             <!-- Notification Queue -->
+            {% if can_notifications %}
             <a href="/admin/notifications/queue" class="group block rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-primary-500 hover:shadow-md transition-all dark:border-slate-700 dark:bg-slate-800">
                 <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
@@ -110,8 +140,10 @@
                     </div>
                 </div>
             </a>
+            {% endif %}
 
             <!-- Integration Jobs -->
+            {% if can_integrations %}
             <a href="/admin/integrations/jobs" class="group block rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-primary-500 hover:shadow-md transition-all dark:border-slate-700 dark:bg-slate-800">
                 <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-50 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400">
@@ -125,8 +157,10 @@
                     </div>
                 </div>
             </a>
+            {% endif %}
 
             <!-- Workflow -->
+            {% if can_workflow %}
             <a href="/admin/system/workflow" class="group block rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-primary-500 hover:shadow-md transition-all dark:border-slate-700 dark:bg-slate-800">
                 <div class="flex items-center gap-3">
                     <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400">
@@ -140,7 +174,9 @@
                     </div>
                 </div>
             </a>
+            {% endif %}
         </div>
     </div>
+    {% endif %}
 </div>
 {% endblock %}

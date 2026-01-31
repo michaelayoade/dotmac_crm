@@ -1,20 +1,12 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.crm.conversation import MessageCreate, MessageRead, MessageUpdate
 from app.services import crm as crm_service
 
 router = APIRouter(prefix="/crm/messages", tags=["crm-messages"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("", response_model=MessageRead, status_code=status.HTTP_201_CREATED)

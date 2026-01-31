@@ -10,6 +10,9 @@ from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.models.domain_settings import SettingDomain
 from app.models.person import PartyStatus, Person
+from app.models.projects import Project, ProjectTemplate, ProjectType
+from app.schemas.projects import ProjectCreate
+from app.services import projects as projects_service
 from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
@@ -59,6 +62,68 @@ def _recalculate_quote_totals(db: Session, quote: Quote) -> None:
     quote.subtotal = subtotal
     quote.total = subtotal + Decimal(quote.tax_total or 0)
     db.commit()
+
+
+def _resolve_project_type(value: str | None) -> ProjectType | None:
+    if not value:
+        return None
+    try:
+        return ProjectType(value)
+    except ValueError:
+        return None
+
+
+def _find_existing_project_for_quote(db: Session, quote_id) -> Project | None:
+    return (
+        db.query(Project)
+        .filter(Project.is_active.is_(True))
+        .filter(Project.metadata_["quote_id"].astext == str(quote_id))
+        .first()
+    )
+
+
+def _find_template_for_project_type(db: Session, project_type: ProjectType) -> ProjectTemplate | None:
+    return (
+        db.query(ProjectTemplate)
+        .filter(ProjectTemplate.is_active.is_(True))
+        .filter(ProjectTemplate.project_type == project_type)
+        .order_by(ProjectTemplate.created_at.desc())
+        .first()
+    )
+
+
+def _ensure_project_from_quote(db: Session, quote: Quote, sales_order_id: str | None) -> Project | None:
+    existing = _find_existing_project_for_quote(db, quote.id)
+    if existing:
+        return existing
+
+    metadata = quote.metadata_ if isinstance(quote.metadata_, dict) else {}
+    project_type_value = metadata.get("project_type") if isinstance(metadata, dict) else None
+    project_type = _resolve_project_type(project_type_value if isinstance(project_type_value, str) else None)
+    template = _find_template_for_project_type(db, project_type) if project_type else None
+
+    person = db.get(Person, quote.person_id)
+    owner_label = None
+    if person:
+        owner_label = person.display_name or person.email
+    base_name = (
+        project_type.value.replace("_", " ").title() if project_type else "Project"
+    )
+    project_name = f"{base_name} - {owner_label}" if owner_label else f"{base_name} - Quote {str(quote.id)[:8].upper()}"
+
+    project_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    project_metadata["quote_id"] = str(quote.id)
+    if sales_order_id:
+        project_metadata["sales_order_id"] = sales_order_id
+
+    payload = ProjectCreate(
+        name=project_name,
+        project_type=project_type,
+        project_template_id=template.id if template else None,
+        owner_person_id=quote.person_id,
+        metadata_=project_metadata or None,
+    )
+    return projects_service.projects.create(db, payload)
 
 
 class Pipelines(ListResponseMixin):
@@ -523,7 +588,8 @@ class Quotes(ListResponseMixin):
         if data.get("status") == QuoteStatus.accepted:
             from app.services import sales_orders as sales_order_service
 
-            sales_order_service.sales_orders.create_from_quote(db, str(quote.id))
+            sales_order = sales_order_service.sales_orders.create_from_quote(db, str(quote.id))
+            _ensure_project_from_quote(db, quote, str(sales_order.id) if sales_order else None)
         return quote
 
     @staticmethod

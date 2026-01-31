@@ -1521,6 +1521,30 @@ SETTINGS_SPECS: list[SettingSpec] = [
         label="Meta Access Token (Override)",
         is_secret=True,
     ),
+    SettingSpec(
+        domain=SettingDomain.comms,
+        key="company_name",
+        env_var="COMPANY_NAME",
+        value_type=SettingValueType.string,
+        default="Dotmac",
+        label="Company Name",
+    ),
+    SettingSpec(
+        domain=SettingDomain.comms,
+        key="brand_logo_url",
+        env_var=None,
+        value_type=SettingValueType.string,
+        default=None,
+        label="Brand Logo URL",
+    ),
+    SettingSpec(
+        domain=SettingDomain.comms,
+        key="brand_favicon_url",
+        env_var=None,
+        value_type=SettingValueType.string,
+        default=None,
+        label="Brand Favicon URL",
+    ),
     # ============== Auth Domain: Customer/Reseller/Vendor Portal Auth ==============
     SettingSpec(
         domain=SettingDomain.auth,

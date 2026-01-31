@@ -70,6 +70,8 @@ def _format_ticket_activity(event) -> str:
         return "Created ticket"
     if action == "comment":
         return "Added a comment"
+    if action == "comment_edit":
+        return "Edited a comment"
     if action == "status_change":
         from_status = metadata.get("from")
         to_status = metadata.get("to")
@@ -901,6 +903,41 @@ def ticket_detail(
     )
 
 
+@router.post("/tickets/{ticket_id}/delete", response_class=HTMLResponse)
+def ticket_delete(
+    request: Request,
+    ticket_id: str,
+    db: Session = Depends(get_db),
+):
+    """Soft-delete a ticket (is_active = False)."""
+    from app.web.admin import get_current_user
+
+    try:
+        ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
+    except Exception:
+        return templates.TemplateResponse(
+            "admin/errors/404.html",
+            {"request": request, "message": "Ticket not found"},
+            status_code=404,
+        )
+
+    tickets_service.tickets.delete(db=db, ticket_id=ticket_id)
+    current_user = get_current_user(request)
+    _log_activity(
+        db=db,
+        request=request,
+        action="delete",
+        entity_type="ticket",
+        entity_id=str(ticket_id),
+        actor_id=str(current_user.get("person_id")) if current_user else None,
+        metadata={"title": ticket.title},
+    )
+
+    if request.headers.get("HX-Request"):
+        return HTMLResponse(content="", headers={"HX-Redirect": "/admin/support/tickets"})
+    return RedirectResponse(url="/admin/support/tickets", status_code=303)
+
+
 @router.post("/tickets/{ticket_id}/status", response_class=HTMLResponse)
 def update_ticket_status(
     request: Request,
@@ -1050,6 +1087,56 @@ def add_ticket_comment(
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
         from app.web.admin import get_sidebar_stats, get_current_user
+        sidebar_stats = get_sidebar_stats(db)
+        current_user = get_current_user(request)
+        return templates.TemplateResponse(
+            "admin/errors/500.html",
+            {"request": request, "error": str(e), "current_user": current_user, "sidebar_stats": sidebar_stats},
+            status_code=500,
+        )
+
+
+@router.post("/tickets/{ticket_id}/comments/{comment_id}/edit", response_class=HTMLResponse)
+def edit_ticket_comment(
+    request: Request,
+    ticket_id: str,
+    comment_id: str,
+    body: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Edit a ticket comment body."""
+    from app.schemas.tickets import TicketCommentUpdate
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    body_clean = (body or "").strip()
+    if not body_clean:
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
+
+    try:
+        comment = tickets_service.ticket_comments.get(db=db, comment_id=comment_id)
+        if str(comment.ticket_id) != str(ticket_id):
+            return templates.TemplateResponse(
+                "admin/errors/404.html",
+                {"request": request, "message": "Comment not found"},
+                status_code=404,
+            )
+
+        payload = TicketCommentUpdate(body=body_clean)
+        tickets_service.ticket_comments.update(db=db, comment_id=comment_id, payload=payload)
+        current_user = get_current_user(request)
+        _log_activity(
+            db=db,
+            request=request,
+            action="comment_edit",
+            entity_type="ticket",
+            entity_id=str(ticket_id),
+            actor_id=str(current_user.get("person_id")) if current_user else None,
+        )
+
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(content="", headers={"HX-Redirect": f"/admin/support/tickets/{ticket_id}"})
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
+    except Exception as e:
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)
         return templates.TemplateResponse(

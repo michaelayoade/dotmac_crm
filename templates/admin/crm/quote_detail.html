@@ -20,6 +20,13 @@
             <a href="/admin/crm/quotes/{{ quote.id }}/edit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 Edit
             </a>
+            <form method="post" action="/admin/crm/quotes/{{ quote.id }}/delete"
+                  onsubmit="return confirm('Delete this quote? This will deactivate it.');">
+                <button type="submit"
+                        class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20">
+                    Delete
+                </button>
+            </form>
             <a href="/admin/crm/quotes" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
                 Back to Quotes
             </a>

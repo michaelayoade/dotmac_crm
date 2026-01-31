@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.wireless_survey import (
     ElevationProfileRequest,
@@ -18,14 +18,6 @@ from app.schemas.wireless_survey import (
 from app.services import wireless_survey as ws_service
 
 router = APIRouter(prefix="/wireless-survey")
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 # Survey endpoints

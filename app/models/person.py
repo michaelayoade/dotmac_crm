@@ -48,6 +48,7 @@ class ChannelType(enum.Enum):
     whatsapp = "whatsapp"
     facebook_messenger = "facebook_messenger"
     instagram_dm = "instagram_dm"
+    chat_widget = "chat_widget"
 
 
 class Person(Base):

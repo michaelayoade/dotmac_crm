@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.services import auth_flow as auth_flow_service
 from app.services.auth_flow import AuthFlow
+from app.services.email import send_password_reset_email
 
 templates = Jinja2Templates(directory="templates")
 
@@ -162,7 +163,14 @@ def forgot_password_page(request: Request, success: bool = False):
 
 def forgot_password_submit(request: Request, db: Session, email: str):
     try:
-        auth_flow_service.request_password_reset(db=db, email=email)
+        reset_payload = auth_flow_service.request_password_reset(db=db, email=email)
+        if reset_payload and reset_payload.get("token"):
+            send_password_reset_email(
+                db=db,
+                to_email=reset_payload.get("email", email),
+                reset_token=reset_payload["token"],
+                person_name=reset_payload.get("person_name"),
+            )
     except Exception:
         pass
     return templates.TemplateResponse(

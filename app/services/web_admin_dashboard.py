@@ -71,6 +71,7 @@ def _build_dashboard_context(db: Session) -> dict:
             settings_spec.resolve_value(db, SettingDomain.network, "server_health_load_crit")
         ),
     }
+    server_health_status = system_health_service.evaluate_health(server_health, thresholds)
 
     # Get counts
     customers_count = db.query(func.count(Person.id)).scalar() or 0
@@ -151,6 +152,7 @@ def _build_dashboard_context(db: Session) -> dict:
         "active_olts": active_olts,
         "recent_activity": activity_items,
         "server_health": server_health,
+        "server_health_status": server_health_status,
         "thresholds": thresholds,
         "now": datetime.now(),
         "alarms": [],

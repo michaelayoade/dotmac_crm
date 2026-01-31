@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.crm.inbox import (
     EmailConnectorCreate,
     EmailPollingJobRequest,
@@ -15,14 +15,6 @@ from app.schemas.integration import IntegrationJobRead
 from app.services import crm as crm_service
 
 router = APIRouter(prefix="/crm/inbox", tags=["crm-inbox"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/send", response_model=InboxSendResponse, status_code=status.HTTP_201_CREATED)

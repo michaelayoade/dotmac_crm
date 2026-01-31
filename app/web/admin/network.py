@@ -9,8 +9,8 @@ from typing import cast
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, text
+from sqlalchemy.orm import Session, load_only
 
 from app.db import SessionLocal
 from app.models.gis import GeoLocation, GeoLocationType
@@ -84,6 +84,15 @@ def _coerce_float(value: object, default: float) -> float:
     return default
 
 
+def _postgis_available(db: Session) -> bool:
+    if db.bind is None or db.bind.dialect.name != "postgresql":
+        return False
+    try:
+        return db.execute(text("SELECT 1 FROM pg_extension WHERE extname = 'postgis'")).scalar() == 1
+    except Exception:
+        return False
+
+
 @router.get("/map", response_class=HTMLResponse)
 def network_map(request: Request, db: Session = Depends(get_db)):
     from app.web.admin import get_sidebar_stats, get_current_user
@@ -91,11 +100,25 @@ def network_map(request: Request, db: Session = Depends(get_db)):
     features: list[dict] = []
 
     # FDH Cabinets
-    fdh_cabinets = db.query(FdhCabinet).filter(
-        FdhCabinet.is_active.is_(True),
-        FdhCabinet.latitude.isnot(None),
-        FdhCabinet.longitude.isnot(None),
-    ).all()
+    fdh_cabinets = (
+        db.query(FdhCabinet)
+        .options(
+            load_only(
+                FdhCabinet.id,
+                FdhCabinet.name,
+                FdhCabinet.code,
+                FdhCabinet.latitude,
+                FdhCabinet.longitude,
+                FdhCabinet.is_active,
+            )
+        )
+        .filter(
+            FdhCabinet.is_active.is_(True),
+            FdhCabinet.latitude.isnot(None),
+            FdhCabinet.longitude.isnot(None),
+        )
+        .all()
+    )
     splitter_counts: dict = {}
     if fdh_cabinets:
         fdh_ids = [fdh.id for fdh in fdh_cabinets]
@@ -125,11 +148,24 @@ def network_map(request: Request, db: Session = Depends(get_db)):
         )
 
     # Splice Closures
-    closures = db.query(FiberSpliceClosure).filter(
-        FiberSpliceClosure.is_active.is_(True),
-        FiberSpliceClosure.latitude.isnot(None),
-        FiberSpliceClosure.longitude.isnot(None),
-    ).all()
+    closures = (
+        db.query(FiberSpliceClosure)
+        .options(
+            load_only(
+                FiberSpliceClosure.id,
+                FiberSpliceClosure.name,
+                FiberSpliceClosure.latitude,
+                FiberSpliceClosure.longitude,
+                FiberSpliceClosure.is_active,
+            )
+        )
+        .filter(
+            FiberSpliceClosure.is_active.is_(True),
+            FiberSpliceClosure.latitude.isnot(None),
+            FiberSpliceClosure.longitude.isnot(None),
+        )
+        .all()
+    )
     splice_counts: dict = {}
     tray_counts: dict = {}
     if closures:
@@ -170,11 +206,27 @@ def network_map(request: Request, db: Session = Depends(get_db)):
         )
 
     # Access Points
-    access_points = db.query(FiberAccessPoint).filter(
-        FiberAccessPoint.is_active.is_(True),
-        FiberAccessPoint.latitude.isnot(None),
-        FiberAccessPoint.longitude.isnot(None),
-    ).all()
+    access_points = (
+        db.query(FiberAccessPoint)
+        .options(
+            load_only(
+                FiberAccessPoint.id,
+                FiberAccessPoint.name,
+                FiberAccessPoint.code,
+                FiberAccessPoint.access_point_type,
+                FiberAccessPoint.placement,
+                FiberAccessPoint.latitude,
+                FiberAccessPoint.longitude,
+                FiberAccessPoint.is_active,
+            )
+        )
+        .filter(
+            FiberAccessPoint.is_active.is_(True),
+            FiberAccessPoint.latitude.isnot(None),
+            FiberAccessPoint.longitude.isnot(None),
+        )
+        .all()
+    )
     for ap in access_points:
         features.append(
             {
@@ -192,13 +244,22 @@ def network_map(request: Request, db: Session = Depends(get_db)):
         )
 
     # Fiber Segments
-    segments = db.query(FiberSegment).filter(FiberSegment.is_active.is_(True)).all()
-    segment_geoms = db.query(
-        FiberSegment, func.ST_AsGeoJSON(FiberSegment.route_geom)
-    ).filter(
-        FiberSegment.is_active.is_(True),
-        FiberSegment.route_geom.isnot(None),
-    ).all()
+    segments_count = (
+        db.query(func.count(FiberSegment.id))
+        .filter(FiberSegment.is_active.is_(True))
+        .scalar()
+        or 0
+    )
+    segment_geoms = []
+    if _postgis_available(db):
+        segment_geoms = (
+            db.query(FiberSegment, func.ST_AsGeoJSON(FiberSegment.route_geom))
+            .filter(
+                FiberSegment.is_active.is_(True),
+                FiberSegment.route_geom.isnot(None),
+            )
+            .all()
+        )
     for segment, geojson_str in segment_geoms:
         if not geojson_str:
             continue
@@ -228,7 +289,7 @@ def network_map(request: Request, db: Session = Depends(get_db)):
         "closures_with_location": len(closures),
         "splitters": db.query(func.count(Splitter.id)).filter(Splitter.is_active.is_(True)).scalar(),
         "total_splices": db.query(func.count(FiberSplice.id)).scalar(),
-        "segments": len(segments),
+        "segments": segments_count,
         "access_points": db.query(func.count(FiberAccessPoint.id)).filter(FiberAccessPoint.is_active.is_(True)).scalar(),
         "access_points_with_location": len(access_points),
     }

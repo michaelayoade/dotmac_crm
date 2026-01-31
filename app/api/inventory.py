@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_db
 from app.services.response import list_response
-from app.db import SessionLocal
 from app.schemas.common import ListResponse
 from app.schemas.inventory import (
     InventoryItemCreate,
@@ -24,14 +24,6 @@ from app.schemas.inventory import (
 from app.services import inventory as inventory_service
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/items", response_model=InventoryItemRead, status_code=status.HTTP_201_CREATED)

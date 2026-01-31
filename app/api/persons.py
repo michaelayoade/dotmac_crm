@@ -2,19 +2,11 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.schemas.common import ListResponse
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.person import PersonCreate, PersonRead, PersonUpdate
 from app.services import person as person_service
 
 router = APIRouter(prefix="/people", tags=["people"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("", response_model=PersonRead, status_code=status.HTTP_201_CREATED)

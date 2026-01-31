@@ -118,47 +118,9 @@
             <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">Projects Kanban</summary>
             <div class="mt-4">
                 <p class="text-xs text-slate-500 dark:text-slate-400">Drag to update status. Fields are configurable per board.</p>
-                <details class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/30">
-                    <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Kanban Settings</summary>
-                    <div class="mt-3">
-                        <form id="project-kanban-config" class="space-y-3">
-                            <div class="grid gap-3 sm:grid-cols-2">
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Endpoint</label>
-                                    <input name="endpoint" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Update Endpoint</label>
-                                    <input name="updateEndpoint" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Column Field</label>
-                                    <input name="columnField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">ID Field</label>
-                                    <input name="idField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Title Field</label>
-                                    <input name="titleField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Subtitle Field</label>
-                                    <input name="subtitleField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-medium text-slate-500">Meta Fields (comma separated)</label>
-                                <input name="metaFields" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <button type="submit" class="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700">Apply Kanban</button>
-                                <button type="button" data-reset="kanban" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Reset</button>
-                            </div>
-                        </form>
-                    </div>
-                </details>
+                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+                    Manage Kanban settings in System Settings → Projects.
+                </div>
                 <div
                     class="mt-4"
                     id="projects-kanban"
@@ -174,43 +136,9 @@
             <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">Projects Gantt</summary>
             <div class="mt-4">
                 <p class="text-xs text-slate-500 dark:text-slate-400">Drag the bar handle to update the due date.</p>
-                <details class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/30">
-                    <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Gantt Settings</summary>
-                    <div class="mt-3">
-                        <form id="project-gantt-config" class="space-y-3">
-                            <div class="grid gap-3 sm:grid-cols-2">
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Endpoint</label>
-                                    <input name="endpoint" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Update Endpoint</label>
-                                    <input name="updateEndpoint" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">ID Field</label>
-                                    <input name="idField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Title Field</label>
-                                    <input name="titleField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Start Date Field</label>
-                                    <input name="startField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium text-slate-500">Drag Update Field</label>
-                                    <input name="dragField" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <button type="submit" class="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-700">Apply Gantt</button>
-                                <button type="button" data-reset="gantt" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Reset</button>
-                            </div>
-                        </form>
-                    </div>
-                </details>
+                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+                    Manage Gantt settings in System Settings → Projects.
+                </div>
                 <div
                     class="mt-4"
                     id="projects-gantt"
@@ -319,16 +247,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const ganttKey = "gantt_config";
     const kanbanEl = document.getElementById("projects-kanban");
     const ganttEl = document.getElementById("projects-gantt");
-    const kanbanForm = document.getElementById("project-kanban-config");
-    const ganttForm = document.getElementById("project-gantt-config");
-
-    function safeParseJson(value) {
-        try {
-            return JSON.parse(value);
-        } catch {
-            return null;
-        }
-    }
 
     async function fetchSetting(key) {
         const response = await fetch(`/api/v1/settings/projects/${key}`, {
@@ -340,26 +258,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return payload.value_json || null;
     }
 
-    async function saveSetting(key, value) {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
-        const response = await fetch(`/api/v1/settings/projects/${key}`, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": csrfToken,
-            },
-            credentials: "same-origin",
-            body: JSON.stringify({
-                value_type: "json",
-                value_json: value,
-                is_active: true,
-            }),
-        });
-        if (!response.ok) {
-            throw new Error(`Settings save failed: ${response.status}`);
-        }
-        return response.json();
-    }
 
     function applyKanbanConfig(config) {
         kanbanEl.dataset.kanbanEndpoint = config.endpoint;
@@ -386,24 +284,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (window.DotmacGantt) window.DotmacGantt.initAll();
     }
 
-    function fillKanbanForm(config) {
-        kanbanForm.endpoint.value = config.endpoint;
-        kanbanForm.updateEndpoint.value = config.updateEndpoint;
-        kanbanForm.columnField.value = config.columnField;
-        kanbanForm.idField.value = config.idField;
-        kanbanForm.titleField.value = config.titleField;
-        kanbanForm.subtitleField.value = config.subtitleField;
-        kanbanForm.metaFields.value = config.metaFields.join(", ");
-    }
-
-    function fillGanttForm(config) {
-        ganttForm.endpoint.value = config.endpoint;
-        ganttForm.updateEndpoint.value = config.updateEndpoint;
-        ganttForm.idField.value = config.idField;
-        ganttForm.titleField.value = config.titleField;
-        ganttForm.startField.value = config.startField;
-        ganttForm.dragField.value = config.dragField;
-    }
 
     const defaultKanbanConfig = {
         endpoint: kanbanEl.dataset.kanbanEndpoint || "",
@@ -468,77 +348,9 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
             console.warn(error);
         }
-        fillKanbanForm(kanbanConfig);
         applyKanbanConfig(kanbanConfig);
-        fillGanttForm(ganttConfig);
         applyGanttConfig(ganttConfig);
     })();
-
-    kanbanForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const metaFields = kanbanForm.metaFields.value
-            .split(",")
-            .map((field) => field.trim())
-            .filter(Boolean);
-        const config = {
-            endpoint: kanbanForm.endpoint.value.trim(),
-            updateEndpoint: kanbanForm.updateEndpoint.value.trim(),
-            columnField: kanbanForm.columnField.value.trim(),
-            idField: kanbanForm.idField.value.trim(),
-            titleField: kanbanForm.titleField.value.trim(),
-            subtitleField: kanbanForm.subtitleField.value.trim(),
-            metaFields,
-        };
-        try {
-            await saveSetting(kanbanKey, config);
-            applyKanbanConfig(config);
-        } catch (error) {
-            alert("Unable to save kanban config.");
-            console.error(error);
-        }
-    });
-
-    ganttForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const config = {
-            endpoint: ganttForm.endpoint.value.trim(),
-            updateEndpoint: ganttForm.updateEndpoint.value.trim(),
-            idField: ganttForm.idField.value.trim(),
-            titleField: ganttForm.titleField.value.trim(),
-            startField: ganttForm.startField.value.trim(),
-            dragField: ganttForm.dragField.value.trim(),
-        };
-        try {
-            await saveSetting(ganttKey, config);
-            applyGanttConfig(config);
-        } catch (error) {
-            alert("Unable to save gantt config.");
-            console.error(error);
-        }
-    });
-
-    document.querySelectorAll("[data-reset]").forEach((button) => {
-        button.addEventListener("click", async () => {
-            if (button.dataset.reset === "kanban") {
-                fillKanbanForm(defaultKanbanConfig);
-                try {
-                    await saveSetting(kanbanKey, defaultKanbanConfig);
-                    applyKanbanConfig(defaultKanbanConfig);
-                } catch (error) {
-                    console.error(error);
-                }
-            }
-            if (button.dataset.reset === "gantt") {
-                fillGanttForm(defaultGanttConfig);
-                try {
-                    await saveSetting(ganttKey, defaultGanttConfig);
-                    applyGanttConfig(defaultGanttConfig);
-                } catch (error) {
-                    console.error(error);
-                }
-            }
-        });
-    });
 });
 </script>
 {% endblock %}
