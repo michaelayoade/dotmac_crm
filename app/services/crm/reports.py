@@ -212,27 +212,67 @@ def inbox_kpis(
 
     response_times = []
     resolution_times = []
-    for convo in conversations:
-        inbound = (
-            db.query(Message)
-            .filter(Message.conversation_id == convo.id)
+
+    if conversations:
+        convo_ids = [c.id for c in conversations]
+
+        # Batch query: first inbound message per conversation using window function
+        from sqlalchemy import over
+        from sqlalchemy.sql import literal_column
+
+        inbound_subq = (
+            db.query(
+                Message.conversation_id,
+                func.coalesce(Message.received_at, Message.created_at).label("msg_time"),
+                func.row_number()
+                .over(
+                    partition_by=Message.conversation_id,
+                    order_by=func.coalesce(Message.received_at, Message.created_at).asc(),
+                )
+                .label("rn"),
+            )
+            .filter(Message.conversation_id.in_(convo_ids))
             .filter(Message.direction == MessageDirection.inbound)
-            .order_by(func.coalesce(Message.received_at, Message.created_at).asc())
-            .first()
+            .subquery()
         )
-        outbound = (
-            db.query(Message)
-            .filter(Message.conversation_id == convo.id)
+        first_inbound = (
+            db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time)
+            .filter(inbound_subq.c.rn == 1)
+            .all()
+        )
+        inbound_map = {row[0]: row[1] for row in first_inbound}
+
+        # Batch query: first outbound message per conversation
+        outbound_subq = (
+            db.query(
+                Message.conversation_id,
+                func.coalesce(Message.sent_at, Message.created_at).label("msg_time"),
+                func.row_number()
+                .over(
+                    partition_by=Message.conversation_id,
+                    order_by=func.coalesce(Message.sent_at, Message.created_at).asc(),
+                )
+                .label("rn"),
+            )
+            .filter(Message.conversation_id.in_(convo_ids))
             .filter(Message.direction == MessageDirection.outbound)
-            .order_by(func.coalesce(Message.sent_at, Message.created_at).asc())
-            .first()
+            .subquery()
         )
-        inbound_time = inbound.received_at or inbound.created_at if inbound else None
-        outbound_time = outbound.sent_at or outbound.created_at if outbound else None
-        if inbound_time and outbound_time:
-            response_times.append((outbound_time - inbound_time).total_seconds() / 60)
-        if convo.status == ConversationStatus.resolved and inbound_time and convo.updated_at:
-            resolution_times.append((convo.updated_at - inbound_time).total_seconds() / 60)
+        first_outbound = (
+            db.query(outbound_subq.c.conversation_id, outbound_subq.c.msg_time)
+            .filter(outbound_subq.c.rn == 1)
+            .all()
+        )
+        outbound_map = {row[0]: row[1] for row in first_outbound}
+
+        # Calculate response and resolution times from batch results
+        for convo in conversations:
+            inbound_time = inbound_map.get(convo.id)
+            outbound_time = outbound_map.get(convo.id)
+            if inbound_time and outbound_time:
+                response_times.append((outbound_time - inbound_time).total_seconds() / 60)
+            if convo.status == ConversationStatus.resolved and inbound_time and convo.updated_at:
+                resolution_times.append((convo.updated_at - inbound_time).total_seconds() / 60)
 
     avg_response_minutes = (
         sum(response_times) / len(response_times) if response_times else None
