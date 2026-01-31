@@ -8,6 +8,133 @@
 {% endblock %}
 
 {% block content %}
+{% set user_permissions = current_user.permissions if current_user is defined and current_user else [] %}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set is_admin = 'admin' in user_roles_lower %}
+
+{% set can_inbox = is_admin or 'crm:conversation:read' in user_permissions or 'crm:conversation:write' in user_permissions or 'crm:conversation' in user_permissions or 'crm' in user_permissions %}
+{% set can_contacts = is_admin or 'crm:contact:read' in user_permissions or 'crm:contact:write' in user_permissions or 'crm:contact' in user_permissions or 'crm' in user_permissions %}
+{% set can_quotes = is_admin or 'crm:lead:read' in user_permissions or 'crm:lead:write' in user_permissions or 'crm:lead' in user_permissions or 'crm' in user_permissions %}
+{% set can_subscribers = is_admin
+    or 'customer:read' in user_permissions
+    or 'customer:create' in user_permissions
+    or 'customer:update' in user_permissions
+    or 'customer:delete' in user_permissions
+    or 'subscriber:read' in user_permissions
+    or 'subscriber:write' in user_permissions
+    or 'customer' in user_permissions
+    or 'subscriber' in user_permissions
+%}
+{% set can_work_orders = is_admin
+    or 'operations:work_order:read' in user_permissions
+    or 'operations:work_order:create' in user_permissions
+    or 'operations:work_order:update' in user_permissions
+    or 'operations:work_order:delete' in user_permissions
+    or 'operations:work_order:dispatch' in user_permissions
+    or 'operations:work_order' in user_permissions
+    or 'operations' in user_permissions
+%}
+{% set can_dispatch = can_work_orders %}
+{% set can_tickets = is_admin
+    or 'support:ticket:read' in user_permissions
+    or 'support:ticket:create' in user_permissions
+    or 'support:ticket:update' in user_permissions
+    or 'support:ticket:delete' in user_permissions
+    or 'support:ticket:assign' in user_permissions
+    or 'support:ticket' in user_permissions
+    or 'support' in user_permissions
+%}
+{% set can_projects = is_admin
+    or 'project:read' in user_permissions
+    or 'project:create' in user_permissions
+    or 'project:update' in user_permissions
+    or 'project:delete' in user_permissions
+    or 'project:task:read' in user_permissions
+    or 'project:task:write' in user_permissions
+    or 'project:task' in user_permissions
+    or 'project' in user_permissions
+%}
+{% set can_network_map = is_admin
+    or 'gis:map:view' in user_permissions
+    or 'gis:map:edit' in user_permissions
+    or 'gis:fiber:view' in user_permissions
+    or 'gis:fiber:edit' in user_permissions
+    or 'network:fiber:read' in user_permissions
+    or 'network:fiber:write' in user_permissions
+    or 'network:device:read' in user_permissions
+    or 'network:device:write' in user_permissions
+    or 'network:read' in user_permissions
+    or 'network:write' in user_permissions
+    or 'gis:map' in user_permissions
+    or 'gis' in user_permissions
+    or 'network' in user_permissions
+%}
+{% set can_network_devices = is_admin
+    or 'network:device:read' in user_permissions
+    or 'network:device:write' in user_permissions
+    or 'network:read' in user_permissions
+    or 'network:write' in user_permissions
+    or 'network:device' in user_permissions
+    or 'network' in user_permissions
+%}
+{% set can_fiber_plant = is_admin
+    or 'network:fiber:read' in user_permissions
+    or 'network:fiber:write' in user_permissions
+    or 'gis:fiber:view' in user_permissions
+    or 'gis:fiber:edit' in user_permissions
+    or 'network:fiber' in user_permissions
+    or 'network:read' in user_permissions
+    or 'network:write' in user_permissions
+    or 'network' in user_permissions
+%}
+{% set can_fiber_map = is_admin
+    or 'gis:fiber:view' in user_permissions
+    or 'gis:fiber:edit' in user_permissions
+    or 'gis:map:view' in user_permissions
+    or 'gis:map:edit' in user_permissions
+    or 'network:fiber:read' in user_permissions
+    or 'network:fiber:write' in user_permissions
+    or 'network:read' in user_permissions
+    or 'network:write' in user_permissions
+    or 'network' in user_permissions
+%}
+{% set network_section_visible = can_network_map or can_network_devices or can_fiber_plant or can_fiber_map %}
+{% set can_system_configuration = is_admin
+    or 'system:settings:read' in user_permissions
+    or 'system:settings:write' in user_permissions
+    or 'system:read' in user_permissions
+    or 'system:write' in user_permissions
+    or 'auth:manage' in user_permissions
+    or 'system:settings' in user_permissions
+    or 'system' in user_permissions
+%}
+{% set can_reports_technician = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
+{% set can_audit = is_admin or 'audit:read' in user_permissions %}
+
+{% set can_create_work_order = is_admin
+    or 'operations:work_order:create' in user_permissions
+    or 'operations:work_order' in user_permissions
+    or 'operations' in user_permissions
+%}
+{% set can_create_ticket = is_admin
+    or 'support:ticket:create' in user_permissions
+    or 'support:ticket' in user_permissions
+    or 'support' in user_permissions
+%}
+{% set show_quick_actions = can_create_work_order or can_create_ticket or can_fiber_map or can_network_map %}
+{% set has_any_dashboard = network_section_visible
+    or can_system_configuration
+    or can_work_orders
+    or can_inbox
+    or can_projects
+    or can_tickets
+    or can_reports_technician
+    or can_dispatch
+    or can_audit
+    or can_subscribers
+%}
+
 <div class="space-y-6" x-data="dashboard()">
     <!-- Ambient Background -->
     <div class="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
@@ -39,7 +166,17 @@
         </div>
     </header>
 
+    {% if not has_any_dashboard %}
+    <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">No access assigned</h2>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            Your account doesn’t have dashboard permissions yet. Ask an admin to grant the appropriate roles or permissions.
+        </p>
+    </div>
+    {% endif %}
+
     <!-- Network Health & Alarms Row -->
+    {% if network_section_visible %}
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-4">
         <!-- Network Health Summary -->
         <div class="lg:col-span-1 animate-fade-in-up" style="animation-delay: 0.1s">
@@ -170,8 +307,10 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- Server Health -->
+    {% if can_system_configuration %}
     <div hx-get="/admin/dashboard/server-health"
          hx-trigger="load"
          hx-swap="innerHTML">
@@ -187,10 +326,13 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- Key Metrics Row -->
+    {% if can_work_orders or can_inbox or can_projects or can_tickets %}
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 animate-fade-in-up" style="animation-delay: 0.2s">
         <!-- Open Work Orders Card -->
+        {% if can_work_orders %}
         <div class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md hover:border-emerald-200 dark:border-slate-700/60 dark:bg-slate-800 dark:hover:border-emerald-800">
             <div class="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 transition-transform duration-500 group-hover:scale-150"></div>
             <div class="relative">
@@ -209,8 +351,10 @@
                 </p>
             </div>
         </div>
+        {% endif %}
 
         <!-- Unread Messages Card -->
+        {% if can_inbox %}
         <div class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md hover:border-blue-200 dark:border-slate-700/60 dark:bg-slate-800 dark:hover:border-blue-800">
             <div class="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br from-blue-500/10 to-blue-600/5 transition-transform duration-500 group-hover:scale-150"></div>
             <div class="relative">
@@ -228,8 +372,10 @@
                 <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">Unread in inbox</p>
             </div>
         </div>
+        {% endif %}
 
         <!-- Active Projects Card -->
+        {% if can_projects %}
         <div class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md hover:border-amber-200 dark:border-slate-700/60 dark:bg-slate-800 dark:hover:border-amber-800">
             <div class="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br from-amber-500/10 to-amber-600/5 transition-transform duration-500 group-hover:scale-150"></div>
             <div class="relative">
@@ -243,8 +389,10 @@
                 <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">Active projects</p>
             </div>
         </div>
+        {% endif %}
 
         <!-- Open Tickets Card -->
+        {% if can_tickets %}
         <div class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:shadow-md hover:border-rose-200 dark:border-slate-700/60 dark:bg-slate-800 dark:hover:border-rose-800">
             <div class="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br from-rose-500/10 to-rose-600/5 transition-transform duration-500 group-hover:scale-150"></div>
             <div class="relative">
@@ -267,9 +415,12 @@
                 </p>
             </div>
         </div>
+        {% endif %}
     </div>
+    {% endif %}
 
     <!-- Operations & Pipeline Row -->
+    {% if can_work_orders or can_reports_technician %}
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <!-- Work Order Completion Trend Chart -->
         <div class="lg:col-span-2 animate-fade-in-up" style="animation-delay: 0.25s">
@@ -299,10 +450,13 @@
         </div>
 
     </div>
+    {% endif %}
 
     <!-- Operations & Activity Row -->
+    {% if can_tickets or can_dispatch %}
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <!-- Ticket Resolution Metrics -->
+        {% if can_tickets %}
         <div class="lg:col-span-2 animate-fade-in-up" style="animation-delay: 0.35s">
             <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
                 <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
@@ -365,8 +519,10 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
         <!-- Today's Dispatch -->
+        {% if can_dispatch %}
         <div class="lg:col-span-1 animate-fade-in-up" style="animation-delay: 0.4s">
             <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800 h-full">
                 <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
@@ -424,11 +580,15 @@
                 {% endif %}
             </div>
         </div>
+        {% endif %}
     </div>
+    {% endif %}
 
     <!-- Recent Activity & Subscribers Row -->
+    {% if can_audit or can_subscribers %}
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <!-- Recent Activity -->
+        {% if can_audit %}
         <div class="animate-fade-in-up" style="animation-delay: 0.45s">
             <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
                 <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
@@ -481,8 +641,10 @@
                 {% endif %}
             </div>
         </div>
+        {% endif %}
 
         <!-- Recent Subscribers -->
+        {% if can_subscribers %}
         <div class="animate-fade-in-up" style="animation-delay: 0.5s">
             <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
                 <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
@@ -532,26 +694,38 @@
                 {% endif %}
             </div>
         </div>
+        {% endif %}
     </div>
+    {% endif %}
 </div>
 
 <!-- Quick Actions Bar -->
+{% if show_quick_actions %}
 <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 hidden lg:block animate-fade-in-up" style="animation-delay: 0.6s">
     <div class="flex items-center gap-1 rounded-2xl bg-slate-900/95 backdrop-blur-sm px-2 py-2 shadow-2xl shadow-slate-900/50 ring-1 ring-white/10">
+        {% if can_create_work_order %}
         <a href="/admin/operations/work-orders/new" class="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 hover:from-amber-600 hover:to-amber-700 transition">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
             New Work Order
         </a>
+        {% endif %}
+        {% if can_create_ticket %}
         <a href="/admin/tickets/new" class="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white transition">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"/></svg>
             Ticket
         </a>
+        {% endif %}
+        {% if (can_create_work_order or can_create_ticket) and (can_fiber_map or can_network_map) %}
         <div class="h-6 w-px bg-slate-700 mx-1"></div>
+        {% endif %}
+        {% if can_fiber_map or can_network_map %}
         <a href="/admin/network/fiber-map" class="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-400 hover:bg-white/10 hover:text-white transition">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
         </a>
+        {% endif %}
     </div>
 </div>
+{% endif %}
 
 <style>
 @keyframes fadeInUp {

@@ -13,13 +13,27 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _handle_task_exception(task: asyncio.Task):
+    """Callback to log exceptions from background tasks."""
+    try:
+        exc = task.exception()
+        if exc:
+            logger.error("websocket_task_error error=%s", exc, exc_info=exc)
+    except asyncio.CancelledError:
+        pass
+
+
 def _run_async(coro):
-    """Run an async coroutine from sync code."""
+    """Run an async coroutine from sync code with error handling."""
     try:
         loop = asyncio.get_running_loop()
-        asyncio.create_task(coro)
+        task = asyncio.create_task(coro)
+        task.add_done_callback(_handle_task_exception)
     except RuntimeError:
-        asyncio.run(coro)
+        try:
+            asyncio.run(coro)
+        except Exception as exc:
+            logger.error("async_run_error error=%s", exc)
 
 
 def broadcast_new_message(message: "Message", conversation: "Conversation"):
@@ -120,3 +134,63 @@ def broadcast_conversation_summary(conversation_id: str, summary: dict):
         _run_async(manager.broadcast_to_conversation(str(conversation_id), event))
     except Exception as exc:
         logger.warning("broadcast_conversation_summary_error error=%s", exc)
+
+
+def broadcast_to_widget_visitor(session_id: str, message: "Message"):
+    """
+    Broadcast a message to a specific widget visitor's connections.
+
+    Used when an agent sends a message to a widget conversation.
+    """
+    try:
+        event = WebSocketEvent(
+            event=EventType.MESSAGE_NEW,
+            data={
+                "message_id": str(message.id),
+                "conversation_id": str(message.conversation_id),
+                "channel_type": message.channel_type.value if message.channel_type else None,
+                "direction": message.direction.value if message.direction else None,
+                "status": message.status.value if message.status else None,
+                "body": message.body,
+                "author_name": (
+                    message.author.display_name
+                    or f"{message.author.first_name} {message.author.last_name}"
+                    if message.author
+                    else None
+                ),
+                "created_at": message.created_at.isoformat() if message.created_at else None,
+            },
+        )
+        manager = get_connection_manager()
+        # Widget connections are registered with "widget:{session_id}" prefix
+        _run_async(manager.broadcast_to_user(f"widget:{session_id}", event))
+        logger.debug(
+            "broadcast_to_widget_visitor session_id=%s message_id=%s",
+            session_id,
+            message.id,
+        )
+    except Exception as exc:
+        logger.warning("broadcast_to_widget_visitor_error error=%s", exc)
+
+
+def subscribe_widget_to_conversation(session_id: str, conversation_id: str):
+    """
+    Subscribe widget visitor to their conversation and notify them.
+
+    Called when a conversation is created for a widget session.
+    """
+    try:
+        manager = get_connection_manager()
+        _run_async(manager.subscribe_conversation(f"widget:{session_id}", conversation_id))
+        event = WebSocketEvent(
+            event=EventType.CONVERSATION_CREATED,
+            data={"conversation_id": conversation_id},
+        )
+        _run_async(manager.broadcast_to_user(f"widget:{session_id}", event))
+        logger.debug(
+            "widget_auto_subscribed session_id=%s conversation_id=%s",
+            session_id,
+            conversation_id,
+        )
+    except Exception as exc:
+        logger.warning("widget_auto_subscribe_error error=%s", exc)

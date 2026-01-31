@@ -78,6 +78,7 @@ def _payload_to_bytes(value: object | None) -> bytes:
     return str(value).encode("utf-8", errors="replace")
 
 
+
 def _extract_body(msg: email.message.Message) -> str:
     if msg.is_multipart():
         for part in msg.walk():
@@ -166,27 +167,69 @@ def _imap_poll(
         or not isinstance(password, str)
         or not username
         or not password
-    ):
+):
         raise HTTPException(status_code=400, detail="IMAP config incomplete")
 
-    last_uid = None
     metadata = dict(config.metadata_ or {})
-    if isinstance(metadata.get("imap_last_uid"), int):
-        last_uid = metadata.get("imap_last_uid")
+    last_uid = metadata.get("imap_last_uid") if isinstance(metadata.get("imap_last_uid"), int) else None
 
     client = imaplib.IMAP4_SSL(host, port) if use_ssl else imaplib.IMAP4(host, port)
     client.login(username, password)
     mailbox = imap_config.get("mailbox", "INBOX")
-    client.select(mailbox if isinstance(mailbox, str) else "INBOX")
+    mailbox_value = mailbox.strip() if isinstance(mailbox, str) and mailbox.strip() else "INBOX"
 
-    if last_uid:
-        criteria = f"(UID {last_uid + 1}:*)"
-        _, data = client.uid("search", "UTF-8", criteria)
-    else:
-        _, data = client.uid("search", "UTF-8", "UNSEEN")
-    uids = data[0].split() if data and data[0] else []
+    def _uid_search(search_criteria: str) -> list[bytes]:
+        # Some IMAP servers reject UTF-8 unless explicitly enabled; fall back to US-ASCII.
+        for charset in ("UTF-8", "US-ASCII", None):
+            try:
+                status, data = client.uid("search", charset, search_criteria)
+            except imaplib.IMAP4.error:
+                continue
+            logger.info(
+                "EMAIL_IMAP_SEARCH mailbox=%s charset=%s status=%s",
+                mailbox_value,
+                charset,
+                status,
+            )
+            if status == "OK" and data:
+                return data
+        return []
+
+    status, selected = client.select(mailbox_value)
+    logger.info(
+        "EMAIL_IMAP_SELECT mailbox=%s status=%s messages=%s",
+        mailbox_value,
+        status,
+        selected,
+    )
 
     processed = 0
+    search_all = bool(imap_config.get("search_all"))
+    if last_uid:
+        criteria = f"(UID {last_uid + 1}:*)"
+        data = _uid_search(criteria)
+    else:
+        data = _uid_search("ALL" if search_all else "UNSEEN")
+    uids = data[0].split() if data and data[0] else []
+    logger.info(
+        "EMAIL_IMAP_UIDS mailbox=%s criteria=%s count=%s",
+        mailbox_value,
+        criteria if last_uid else ("ALL" if search_all else "UNSEEN"),
+        len(uids),
+    )
+    if uids:
+        try:
+            first_uid = uids[0].decode() if isinstance(uids[0], bytes) else str(uids[0])
+            last_uid_val = uids[-1].decode() if isinstance(uids[-1], bytes) else str(uids[-1])
+            logger.info(
+                "EMAIL_IMAP_UID_RANGE mailbox=%s first=%s last=%s",
+                mailbox_value,
+                first_uid,
+                last_uid_val,
+            )
+        except Exception:
+            pass
+
     for uid in uids:
         _, msg_data = client.uid("fetch", uid, "(RFC822)")
         if not msg_data or not msg_data[0]:
@@ -236,6 +279,7 @@ def _imap_poll(
             received_at=received_at,
             metadata={
                 "source": "imap",
+                "mailbox": mailbox_value,
                 "uid": uid_str,
                 "reply_to": reply_to,
                 "to": to_addrs,

@@ -19,6 +19,151 @@
 {% set initial_menu = 'field-service' %}
 {% endif %}
 
+{% set user_permissions = current_user.permissions if current_user is defined and current_user else [] %}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set is_admin = 'admin' in user_roles_lower %}
+
+{% set can_inbox = is_admin or 'crm:conversation:read' in user_permissions or 'crm:conversation:write' in user_permissions or 'crm:conversation' in user_permissions or 'crm' in user_permissions %}
+{% set can_contacts = is_admin or 'crm:contact:read' in user_permissions or 'crm:contact:write' in user_permissions or 'crm:contact' in user_permissions or 'crm' in user_permissions %}
+{% set can_quotes = is_admin or 'crm:lead:read' in user_permissions or 'crm:lead:write' in user_permissions or 'crm:lead' in user_permissions or 'crm' in user_permissions %}
+{% set can_sales = can_quotes %}
+{% set can_subscribers = is_admin
+    or 'customer:read' in user_permissions
+    or 'customer:create' in user_permissions
+    or 'customer:update' in user_permissions
+    or 'customer:delete' in user_permissions
+    or 'subscriber:read' in user_permissions
+    or 'subscriber:write' in user_permissions
+    or 'customer' in user_permissions
+    or 'subscriber' in user_permissions
+%}
+{% set customers_section_visible = can_inbox or can_contacts or can_quotes or can_sales or can_subscribers %}
+
+{% set can_network_map = is_admin
+    or 'gis:map:view' in user_permissions
+    or 'gis:map:edit' in user_permissions
+    or 'gis:fiber:view' in user_permissions
+    or 'gis:fiber:edit' in user_permissions
+    or 'network:fiber:read' in user_permissions
+    or 'network:fiber:write' in user_permissions
+    or 'network:device:read' in user_permissions
+    or 'network:device:write' in user_permissions
+    or 'network:read' in user_permissions
+    or 'network:write' in user_permissions
+    or 'gis:map' in user_permissions
+    or 'gis' in user_permissions
+    or 'network' in user_permissions
+%}
+{% set can_network_devices = is_admin
+    or 'network:device:read' in user_permissions
+    or 'network:device:write' in user_permissions
+    or 'network:read' in user_permissions
+    or 'network:write' in user_permissions
+    or 'network:device' in user_permissions
+    or 'network' in user_permissions
+%}
+{% set can_fiber_plant = is_admin
+    or 'network:fiber:read' in user_permissions
+    or 'network:fiber:write' in user_permissions
+    or 'gis:fiber:view' in user_permissions
+    or 'gis:fiber:edit' in user_permissions
+    or 'network:fiber' in user_permissions
+    or 'network:read' in user_permissions
+    or 'network:write' in user_permissions
+    or 'network' in user_permissions
+%}
+{% set can_fiber_map = is_admin
+    or 'gis:fiber:view' in user_permissions
+    or 'gis:fiber:edit' in user_permissions
+    or 'gis:map:view' in user_permissions
+    or 'gis:map:edit' in user_permissions
+    or 'network:fiber:read' in user_permissions
+    or 'network:fiber:write' in user_permissions
+    or 'network:read' in user_permissions
+    or 'network:write' in user_permissions
+    or 'network' in user_permissions
+%}
+{% set network_section_visible = can_network_map or can_network_devices or can_fiber_plant or can_fiber_map %}
+
+{% set can_sales_orders = is_admin
+    or 'operations:service_order:read' in user_permissions
+    or 'operations:service_order:create' in user_permissions
+    or 'operations:service_order:update' in user_permissions
+    or 'operations:sales_order:delete' in user_permissions
+    or 'operations:service_order' in user_permissions
+    or 'operations' in user_permissions
+%}
+{% set can_work_orders = is_admin
+    or 'operations:work_order:read' in user_permissions
+    or 'operations:work_order:create' in user_permissions
+    or 'operations:work_order:update' in user_permissions
+    or 'operations:work_order:delete' in user_permissions
+    or 'operations:work_order:dispatch' in user_permissions
+    or 'operations:work_order' in user_permissions
+    or 'operations' in user_permissions
+%}
+{% set can_installations = can_work_orders %}
+{% set can_dispatch = can_work_orders %}
+{% set can_technicians = is_admin
+    or 'operations:technician:read' in user_permissions
+    or 'operations:technician:write' in user_permissions
+    or 'operations:technician' in user_permissions
+    or 'operations' in user_permissions
+%}
+{% set can_tickets = is_admin
+    or 'support:ticket:read' in user_permissions
+    or 'support:ticket:create' in user_permissions
+    or 'support:ticket:update' in user_permissions
+    or 'support:ticket:delete' in user_permissions
+    or 'support:ticket:assign' in user_permissions
+    or 'support:ticket' in user_permissions
+    or 'support' in user_permissions
+%}
+{% set can_projects = is_admin
+    or 'project:read' in user_permissions
+    or 'project:create' in user_permissions
+    or 'project:update' in user_permissions
+    or 'project:delete' in user_permissions
+    or 'project:task:read' in user_permissions
+    or 'project:task:write' in user_permissions
+    or 'project:task' in user_permissions
+    or 'project' in user_permissions
+%}
+{% set can_inventory = is_admin
+    or 'inventory:read' in user_permissions
+    or 'inventory:write' in user_permissions
+    or 'inventory' in user_permissions
+%}
+{% set operations_section_visible = can_sales_orders or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory %}
+
+{% set can_reports_subscribers = is_admin or 'reports:subscribers' in user_permissions or 'reports' in user_permissions %}
+{% set can_reports_churn = is_admin or 'reports:billing' in user_permissions or 'reports' in user_permissions %}
+{% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
+{% set can_reports_technician = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
+{% set reports_section_visible = can_reports_subscribers or can_reports_churn or can_reports_network or can_reports_technician %}
+
+{% set can_admin_hub = is_admin
+    or 'rbac:roles:read' in user_permissions
+    or 'rbac:assign' in user_permissions
+    or 'rbac:permissions:read' in user_permissions
+    or 'rbac' in user_permissions
+%}
+{% set can_system_configuration = is_admin
+    or 'system:settings:read' in user_permissions
+    or 'system:settings:write' in user_permissions
+    or 'system:read' in user_permissions
+    or 'system:write' in user_permissions
+    or 'auth:manage' in user_permissions
+    or 'system:settings' in user_permissions
+    or 'system' in user_permissions
+%}
+{% set can_system_settings = can_system_configuration %}
+{% set can_system_health = can_system_configuration %}
+{% set can_system_legal = can_system_configuration %}
+{% set system_section_visible = can_admin_hub or can_system_configuration or can_system_settings or can_system_health or can_system_legal %}
+{% set has_any_nav = customers_section_visible or network_section_visible or operations_section_visible or reports_section_visible or system_section_visible %}
+
 <div class="space-y-1" x-data="{ openMenu: '{{ initial_menu }}', openSection: '{{ initial_section }}' }">
 
     <!-- 1. DASHBOARD -->
@@ -32,6 +177,7 @@
     </a>
 
     <!-- 2. CUSTOMERS (Collapsible Section) -->
+    {% if customers_section_visible %}
     <button x-on:click="openSection = openSection === 'customers' ? '' : 'customers'" x-show="!sidebarCollapsed"
             class="flex w-full items-center justify-between px-3 pt-4 pb-2 group cursor-pointer">
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-400">Customers</p>
@@ -42,6 +188,7 @@
 
     <div x-show="openSection === 'customers' && !sidebarCollapsed" x-collapse x-cloak class="space-y-1">
         <!-- Inbox (Conversations) -->
+        {% if can_inbox %}
         <a href="/admin/crm/inbox"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'inbox' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -53,8 +200,10 @@
             <span class="ml-auto rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-500/20 dark:text-primary-400">{{ sidebar_stats.unread_conversations }}</span>
             {% endif %}
         </a>
+        {% endif %}
 
         <!-- Contacts (People & Organizations - unified view) -->
+        {% if can_contacts %}
         <a href="/admin/crm/contacts"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'contacts' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -63,8 +212,10 @@
             </svg>
             <span>Contacts</span>
         </a>
+        {% endif %}
 
         <!-- Quotes -->
+        {% if can_quotes %}
         <a href="/admin/crm/quotes"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'quotes' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -73,8 +224,10 @@
             </svg>
             <span>Quotes</span>
         </a>
+        {% endif %}
 
         <!-- Sales Pipeline -->
+        {% if can_sales %}
         <a href="/admin/crm/sales"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'sales' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -83,8 +236,10 @@
             </svg>
             <span>Sales</span>
         </a>
+        {% endif %}
 
         <!-- Subscribers -->
+        {% if can_subscribers %}
         <a href="/admin/subscribers"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'subscribers' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -93,9 +248,19 @@
             </svg>
             <span>Subscribers</span>
         </a>
+        {% endif %}
     </div>
+    {% endif %}
+
+    {% if not has_any_nav and not is_admin %}
+    <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+        <p class="font-semibold text-slate-600 dark:text-slate-300">No access assigned</p>
+        <p class="mt-1">Ask an admin to grant roles or permissions.</p>
+    </div>
+    {% endif %}
 
     <!-- 3. NETWORK (Collapsible Section) -->
+    {% if network_section_visible %}
     <button x-on:click="openSection = openSection === 'network' ? '' : 'network'" x-show="!sidebarCollapsed"
             class="flex w-full items-center justify-between px-3 pt-4 pb-2 group cursor-pointer">
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-400">Network</p>
@@ -106,6 +271,7 @@
 
     <div x-show="openSection === 'network' && !sidebarCollapsed" x-collapse x-cloak class="space-y-1">
         <!-- Network Map (Comprehensive) -->
+        {% if can_network_map %}
         <a href="/admin/network/map"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'network-map' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -114,8 +280,10 @@
             </svg>
             <span>Network Map</span>
         </a>
+        {% endif %}
 
         <!-- Network Devices (Core + GPON consolidated) -->
+        {% if can_network_devices %}
         <a href="/admin/network/network-devices"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page in ['network-devices', 'core-devices', 'olts', 'onts', 'devices'] else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -124,8 +292,10 @@
             </svg>
             <span>Devices</span>
         </a>
+        {% endif %}
 
         <!-- Fiber Plant (consolidated) -->
+        {% if can_fiber_plant %}
         <a href="/admin/network/fiber-plant"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page in ['fiber-plant', 'fdh-cabinets', 'splitters', 'fiber-strands', 'splice-closures', 'fiber-change-requests'] else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -134,8 +304,10 @@
             </svg>
             <span>Fiber Plant</span>
         </a>
+        {% endif %}
 
         <!-- Fiber Map (standalone) -->
+        {% if can_fiber_map %}
         <a href="/admin/network/fiber-map"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'fiber-map' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -144,9 +316,12 @@
             </svg>
             <span>Fiber Map</span>
         </a>
+        {% endif %}
     </div>
+    {% endif %}
 
     <!-- 6. OPERATIONS (Collapsible Section) -->
+    {% if operations_section_visible %}
     <button x-on:click="openSection = openSection === 'operations' ? '' : 'operations'" x-show="!sidebarCollapsed"
             class="flex w-full items-center justify-between px-3 pt-4 pb-2 group cursor-pointer">
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-400">Operations</p>
@@ -157,6 +332,7 @@
 
     <div x-show="openSection === 'operations' && !sidebarCollapsed" x-collapse x-cloak class="space-y-1">
         <!-- Sales Orders -->
+        {% if can_sales_orders %}
         <a href="/admin/operations/sales-orders"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'sales-orders' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -165,8 +341,10 @@
             </svg>
             <span>Sales Orders</span>
         </a>
+        {% endif %}
 
         <!-- Field Service (Group) -->
+        {% if can_work_orders or can_technicians %}
         <button x-on:click="openMenu = openMenu === 'field-service' ? '' : 'field-service'" x-show="!sidebarCollapsed"
                 class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                        {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page in field_service_pages else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -181,18 +359,28 @@
             </svg>
         </button>
         <div x-show="openMenu === 'field-service' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
+            {% if can_installations %}
             <a href="/admin/operations/installations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'installations' else '' }}">Installations</a>
+            {% endif %}
+            {% if can_technicians %}
             <a href="/admin/operations/technicians" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'technicians' else '' }}">Technicians</a>
+            {% endif %}
+            {% if can_dispatch %}
             <a href="/admin/operations/dispatch" class="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'dispatch' else '' }}">
                 <span>Dispatch</span>
                 {% if sidebar_stats is defined and sidebar_stats.dispatch_jobs is defined and sidebar_stats.dispatch_jobs > 0 %}
                 <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-500/20 dark:text-green-400">{{ sidebar_stats.dispatch_jobs }}</span>
                 {% endif %}
             </a>
+            {% endif %}
+            {% if can_work_orders %}
             <a href="/admin/operations/work-orders" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'work-orders' else '' }}">Work Orders</a>
+            {% endif %}
         </div>
+        {% endif %}
 
         <!-- Trouble Tickets -->
+        {% if can_tickets %}
         <a href="/admin/support/tickets"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'tickets' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -204,8 +392,10 @@
             <span class="ml-auto rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-500/20 dark:text-red-400">{{ sidebar_stats.open_tickets }}</span>
             {% endif %}
         </a>
+        {% endif %}
 
         <!-- Projects -->
+        {% if can_projects %}
         <a href="/admin/projects"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'projects' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -214,8 +404,10 @@
             </svg>
             <span>Projects</span>
         </a>
+        {% endif %}
 
         <!-- Inventory -->
+        {% if can_inventory %}
         <a href="/admin/inventory"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                   {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'inventory' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
@@ -224,12 +416,15 @@
             </svg>
             <span>Inventory</span>
         </a>
+        {% endif %}
     </div>
+    {% endif %}
 
     <!-- Divider -->
     <div class="my-4 border-t border-slate-200 dark:border-slate-700/50"></div>
 
     <!-- 7. REPORTS -->
+    {% if reports_section_visible %}
     <div>
         <button x-on:click="openMenu = openMenu === 'reports' ? '' : 'reports'"
                 class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors
@@ -246,14 +441,24 @@
             </svg>
         </button>
         <div x-show="openMenu === 'reports' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
+            {% if can_reports_subscribers %}
             <a href="/admin/reports/subscribers" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">Subscriber Growth</a>
+            {% endif %}
+            {% if can_reports_churn %}
             <a href="/admin/reports/churn" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">Churn Analysis</a>
+            {% endif %}
+            {% if can_reports_network %}
             <a href="/admin/reports/network" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">Network Usage</a>
+            {% endif %}
+            {% if can_reports_technician %}
             <a href="/admin/reports/technician" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">Technician Performance</a>
+            {% endif %}
         </div>
     </div>
+    {% endif %}
 
     <!-- 8. SYSTEM -->
+    {% if system_section_visible %}
     <div>
         <button x-on:click="openMenu = openMenu === 'system' ? '' : 'system'"
                 class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors
@@ -271,12 +476,23 @@
             </svg>
         </button>
         <div x-show="openMenu === 'system' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
+            {% if can_admin_hub %}
             <a href="/admin/system/admin-hub" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'admin-hub' else '' }}">Admin</a>
+            {% endif %}
+            {% if can_system_configuration %}
             <a href="/admin/system/configuration" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'configuration' else '' }}">Configuration</a>
+            {% endif %}
+            {% if can_system_settings %}
             <a href="/admin/system/settings" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'settings' else '' }}">Settings</a>
+            {% endif %}
+            {% if can_system_health %}
             <a href="/admin/system/health" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'system-health' else '' }}">Server Health</a>
+            {% endif %}
+            {% if can_system_legal %}
             <a href="/admin/system/legal" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'legal' else '' }}">Legal Documents</a>
+            {% endif %}
         </div>
     </div>
+    {% endif %}
 
 </div>

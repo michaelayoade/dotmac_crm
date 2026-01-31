@@ -120,219 +120,511 @@
 
     <div class="grid gap-6 lg:grid-cols-2">
         <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <div class="flex items-start justify-between gap-4">
+            <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Email connector</h2>
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Use SMTP for outbound and IMAP/POP3 for inbound messages.</p>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Email inboxes</h2>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Manage multiple SMTP/IMAP/POP3 inboxes. Each inbox creates its own connector and target. Routing is configured in
+                        <a href="/admin/integrations/channels" class="text-primary-600 hover:underline">Channels</a>.
+                        If no routing is set, the newest inbox is used by default.
+                    </p>
                 </div>
+                <a href="#add-email-inbox" class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                    Add email inbox
+                </a>
             </div>
 
-            <form method="POST" action="/admin/crm/inbox/email-connector?next=/admin/crm/inbox/settings" class="mt-5 space-y-4">
-                <div class="grid gap-4 sm:grid-cols-2">
+            <div class="mt-5 space-y-4">
+                {% if email_inboxes and email_inboxes|length > 0 %}
+                    {% for inbox in email_inboxes %}
+                    <details class="group rounded-xl border border-slate-200 bg-slate-50/60 p-4 open:bg-white dark:border-slate-700 dark:bg-slate-800/60 dark:open:bg-slate-900">
+                        <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
+                            <div>
+                                <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ inbox.name or 'Email inbox' }}</div>
+                                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    Target {{ inbox.target_id }} · Connector {{ inbox.connector_id }}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                {% if inbox.polling_active %}
+                                <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">Polling on</span>
+                                {% else %}
+                                <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">Polling off</span>
+                                {% endif %}
+                                {% if inbox.smtp %}
+                                <span class="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-200">SMTP</span>
+                                {% endif %}
+                                <span class="text-xs text-slate-400 group-open:rotate-180 transition">▾</span>
+                            </div>
+                        </summary>
+
+                        <div class="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+                            <form method="POST" action="/admin/crm/inbox/email-connector?next=/admin/crm/inbox/settings" class="space-y-4">
+                                <input type="hidden" name="target_id" value="{{ inbox.target_id }}">
+                                <input type="hidden" name="connector_id" value="{{ inbox.connector_id }}">
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Name</label>
+                                        <input name="name"
+                                               value="{{ inbox.name or 'CRM Email' }}"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Polling interval (seconds)</label>
+                                        <input name="poll_interval_seconds"
+                                               type="number"
+                                               min="1"
+                                               value="{{ inbox.poll_interval_seconds if inbox.poll_interval_seconds is not none else '' }}"
+                                               placeholder="300"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                        <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                            <input type="hidden" name="polling_enabled" value="0">
+                                            <input type="checkbox" name="polling_enabled" value="1" {% if inbox.polling_active %}checked{% endif %}>
+                                            Enable polling
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">SMTP host</label>
+                                        <input name="smtp_host"
+                                               value="{{ inbox.smtp.host if inbox.smtp }}"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                        <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                            <input type="checkbox" name="smtp_enabled" {% if inbox.smtp %}checked{% endif %}>
+                                            Enable SMTP
+                                        </label>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">SMTP port</label>
+                                            <input name="smtp_port"
+                                                   value="{{ inbox.smtp.port if inbox.smtp }}"
+                                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                        </div>
+                                        <div class="flex flex-col justify-end gap-2">
+                                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                                <input type="checkbox" name="smtp_use_tls" {% if inbox.smtp and inbox.smtp.use_tls %}checked{% endif %}>
+                                                TLS
+                                            </label>
+                                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                                <input type="checkbox" name="smtp_use_ssl" {% if inbox.smtp and inbox.smtp.use_ssl %}checked{% endif %}>
+                                                SSL
+                                            </label>
+                                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                                <input type="checkbox" name="skip_smtp_test">
+                                                Skip SMTP test
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">IMAP host</label>
+                                        <input name="imap_host"
+                                               value="{{ inbox.imap.host if inbox.imap }}"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">IMAP port</label>
+                                            <input name="imap_port"
+                                                   value="{{ inbox.imap.port if inbox.imap }}"
+                                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                        </div>
+                                        <div class="flex flex-col justify-end gap-2">
+                                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                                <input type="checkbox" name="imap_use_ssl" {% if inbox.imap and inbox.imap.use_ssl %}checked{% endif %}>
+                                                SSL
+                                            </label>
+                                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                                <input type="checkbox" name="imap_search_all" {% if inbox.imap and inbox.imap.search_all %}checked{% endif %}>
+                                                Fetch all (ignore unread)
+                                            </label>
+                                            <input name="imap_mailbox"
+                                                   placeholder="Mailbox"
+                                                   value="{{ inbox.imap.mailbox if inbox.imap }}"
+                                                   class="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">POP3 host (optional)</label>
+                                        <input name="pop3_host"
+                                               value="{{ inbox.pop3.host if inbox.pop3 }}"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">POP3 port</label>
+                                            <input name="pop3_port"
+                                                   value="{{ inbox.pop3.port if inbox.pop3 }}"
+                                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                        </div>
+                                        <div class="flex items-end">
+                                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                                <input type="checkbox" name="pop3_use_ssl" {% if inbox.pop3 and inbox.pop3.use_ssl %}checked{% endif %}>
+                                                SSL
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Username</label>
+                                        <input name="username"
+                                               value="{{ inbox.auth_config.username if inbox.auth_config }}"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Password</label>
+                                        <input name="password"
+                                               type="password"
+                                               autocomplete="new-password"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    </div>
+                                </div>
+
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">From email</label>
+                                        <input name="from_email"
+                                               value="{{ inbox.auth_config.from_email if inbox.auth_config }}"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">From name</label>
+                                        <input name="from_name"
+                                               value="{{ inbox.auth_config.from_name if inbox.auth_config }}"
+                                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <button type="submit"
+                                            class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                                        Save inbox
+                                    </button>
+                                </div>
+                            </form>
+                            <form method="POST" action="/admin/crm/inbox/email-polling/reset?next=/admin/crm/inbox/settings" class="mt-2">
+                                {% include "components/forms/csrf_input.html" %}
+                                <input type="hidden" name="target_id" value="{{ inbox.target_id }}">
+                                <button type="submit"
+                                        class="text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                                    Reset stuck polling run
+                                </button>
+                            </form>
+                            <form method="POST"
+                                  action="/admin/crm/inbox/email-check"
+                                  hx-post="/admin/crm/inbox/email-check"
+                                  hx-target="#email-check-{{ inbox.target_id }}"
+                                  hx-swap="innerHTML"
+                                  class="mt-2 flex flex-wrap items-center gap-2">
+                                {% include "components/forms/csrf_input.html" %}
+                                <input type="hidden" name="target_id" value="{{ inbox.target_id }}">
+                                <button type="submit"
+                                        class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                    Check inbox now
+                                </button>
+                                <button type="button"
+                                        hx-post="/admin/crm/inbox/email-reset-cursor"
+                                        hx-target="#email-check-{{ inbox.target_id }}"
+                                        hx-swap="innerHTML"
+                                        class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                    Reset IMAP cursor
+                                </button>
+                                <span id="email-check-{{ inbox.target_id }}" class="text-xs text-slate-500"></span>
+                            </form>
+                            <form method="POST" action="/admin/crm/inbox/email-delete?next=/admin/crm/inbox/settings" class="mt-2">
+                                {% include "components/forms/csrf_input.html" %}
+                                <input type="hidden" name="target_id" value="{{ inbox.target_id }}">
+                                <input type="hidden" name="connector_id" value="{{ inbox.connector_id }}">
+                                <button type="submit"
+                                        class="text-xs font-semibold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
+                                    Delete inbox
+                                </button>
+                            </form>
+                        </div>
+                    </details>
+                    {% endfor %}
+                {% else %}
+                    <div class="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        No email inboxes configured yet.
+                    </div>
+                {% endif %}
+            </div>
+
+            <details id="add-email-inbox" class="mt-6 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                <summary class="cursor-pointer text-sm font-semibold text-slate-900 dark:text-white">Add new email inbox</summary>
+                <form method="POST" action="/admin/crm/inbox/email-connector?next=/admin/crm/inbox/settings" class="mt-4 space-y-4">
+                    <input type="hidden" name="create_new" value="1">
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Name</label>
+                            <input name="name"
+                                   value="CRM Email"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Polling interval (seconds)</label>
+                            <input name="poll_interval_seconds"
+                                   type="number"
+                                   min="1"
+                                   placeholder="300"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                <input type="hidden" name="polling_enabled" value="0">
+                                <input type="checkbox" name="polling_enabled" value="1">
+                                Enable polling
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">SMTP host</label>
+                            <input name="smtp_host"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" name="smtp_enabled">
+                                Enable SMTP
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-xs font-medium text-slate-600 dark:text-slate-300">SMTP port</label>
+                                <input name="smtp_port"
+                                       class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            </div>
+                            <div class="flex flex-col justify-end gap-2">
+                                <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" name="smtp_use_tls">
+                                    TLS
+                                </label>
+                                <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" name="smtp_use_ssl">
+                                    SSL
+                                </label>
+                                <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" name="skip_smtp_test">
+                                    Skip SMTP test
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">IMAP host</label>
+                            <input name="imap_host"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-xs font-medium text-slate-600 dark:text-slate-300">IMAP port</label>
+                                <input name="imap_port"
+                                       class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            </div>
+                            <div class="flex flex-col justify-end gap-2">
+                                <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" name="imap_use_ssl">
+                                    SSL
+                                </label>
+                                <input name="imap_mailbox"
+                                       placeholder="Mailbox"
+                                       class="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">POP3 host (optional)</label>
+                            <input name="pop3_host"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-xs font-medium text-slate-600 dark:text-slate-300">POP3 port</label>
+                                <input name="pop3_port"
+                                       class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            </div>
+                            <div class="flex items-end">
+                                <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" name="pop3_use_ssl">
+                                    SSL
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Username</label>
+                            <input name="username"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Password</label>
+                            <input name="password"
+                                   type="password"
+                                   autocomplete="new-password"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">From email</label>
+                            <input name="from_email"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">From name</label>
+                            <input name="from_name"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-2 pt-2">
+                        <button type="submit"
+                                class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                            Create inbox
+                        </button>
+                    </div>
+                </form>
+            </details>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">WhatsApp inboxes</h2>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Manage multiple WhatsApp phone numbers and tokens. Routing is configured in
+                        <a href="/admin/integrations/channels" class="text-primary-600 hover:underline">Channels</a>.
+                        If no routing is set, the newest inbox is used by default.
+                    </p>
+                </div>
+                <a href="#add-whatsapp-inbox" class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                    Add WhatsApp inbox
+                </a>
+            </div>
+
+            <div class="mt-5 space-y-4">
+                {% if whatsapp_inboxes and whatsapp_inboxes|length > 0 %}
+                    {% for inbox in whatsapp_inboxes %}
+                    <details class="group rounded-xl border border-slate-200 bg-slate-50/60 p-4 open:bg-white dark:border-slate-700 dark:bg-slate-800/60 dark:open:bg-slate-900">
+                        <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
+                            <div>
+                                <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ inbox.name or 'WhatsApp inbox' }}</div>
+                                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    Target {{ inbox.target_id }} · Connector {{ inbox.connector_id }}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">Active</span>
+                                <span class="text-xs text-slate-400 group-open:rotate-180 transition">▾</span>
+                            </div>
+                        </summary>
+                        <div class="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+                            <form method="POST" action="/admin/crm/inbox/whatsapp-connector?next=/admin/crm/inbox/settings" class="space-y-4">
+                                <input type="hidden" name="target_id" value="{{ inbox.target_id }}">
+                                <input type="hidden" name="connector_id" value="{{ inbox.connector_id }}">
+                                <div>
+                                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Name</label>
+                                    <input name="name"
+                                           value="{{ inbox.name or 'CRM WhatsApp' }}"
+                                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                </div>
+
+                                <div>
+                                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Phone number ID</label>
+                                    <input name="phone_number_id"
+                                           value="{{ inbox.phone_number_id if inbox.phone_number_id }}"
+                                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                </div>
+
+                                <div>
+                                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Access token</label>
+                                    <input name="access_token"
+                                           type="password"
+                                           autocomplete="new-password"
+                                           placeholder="Enter a new token to update"
+                                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                </div>
+
+                                <div>
+                                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Base URL (optional)</label>
+                                    <input name="base_url"
+                                           value="{{ inbox.base_url if inbox.base_url }}"
+                                           placeholder="https://graph.facebook.com/v19.0"
+                                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                </div>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <button type="submit"
+                                            class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                                        Save inbox
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </details>
+                    {% endfor %}
+                {% else %}
+                    <div class="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        No WhatsApp inboxes configured yet.
+                    </div>
+                {% endif %}
+            </div>
+
+            <details id="add-whatsapp-inbox" class="mt-6 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                <summary class="cursor-pointer text-sm font-semibold text-slate-900 dark:text-white">Add new WhatsApp inbox</summary>
+                <form method="POST" action="/admin/crm/inbox/whatsapp-connector?next=/admin/crm/inbox/settings" class="mt-4 space-y-4">
+                    <input type="hidden" name="create_new" value="1">
                     <div>
                         <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Name</label>
                         <input name="name"
-                               value="{{ email_channel.name if email_channel else 'CRM Email' }}"
+                               value="CRM WhatsApp"
                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                     </div>
-                    <div>
-                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Polling interval (seconds)</label>
-                        <input name="poll_interval_seconds"
-                               type="number"
-                               min="1"
-                               value="{{ email_channel.poll_interval_seconds if email_channel and email_channel.poll_interval_seconds is not none else '' }}"
-                               placeholder="300"
-                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                        <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                            <input type="hidden" name="polling_enabled" value="0">
-                            <input type="checkbox" name="polling_enabled" value="1" {% if email_channel and email_channel.polling_active %}checked{% endif %}>
-                            Enable polling
-                        </label>
-                        <button type="submit"
-                                form="email-polling-reset-form"
-                                class="mt-2 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
-                            Reset stuck polling run
-                        </button>
-                    </div>
-                </div>
 
-                <div class="grid gap-4 sm:grid-cols-2">
                     <div>
-                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">SMTP host</label>
-                        <input name="smtp_host"
-                               value="{{ email_channel.smtp.host if email_channel and email_channel.smtp }}"
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Phone number ID</label>
+                        <input name="phone_number_id"
                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                        <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                            <input type="checkbox" name="smtp_enabled" {% if email_channel and email_channel.smtp %}checked{% endif %}>
-                            Enable SMTP
-                        </label>
                     </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">SMTP port</label>
-                            <input name="smtp_port"
-                                   value="{{ email_channel.smtp.port if email_channel and email_channel.smtp }}"
-                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                        </div>
-                        <div class="flex flex-col justify-end gap-2">
-                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                                <input type="checkbox" name="smtp_use_tls" {% if email_channel and email_channel.smtp and email_channel.smtp.use_tls %}checked{% endif %}>
-                                TLS
-                            </label>
-                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                                <input type="checkbox" name="smtp_use_ssl" {% if email_channel and email_channel.smtp and email_channel.smtp.use_ssl %}checked{% endif %}>
-                                SSL
-                            </label>
-                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                                <input type="checkbox" name="skip_smtp_test">
-                                Skip SMTP test
-                            </label>
-                        </div>
-                    </div>
-                </div>
 
-                <div class="grid gap-4 sm:grid-cols-2">
                     <div>
-                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">IMAP host</label>
-                        <input name="imap_host"
-                               value="{{ email_channel.imap.host if email_channel and email_channel.imap }}"
-                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">IMAP port</label>
-                            <input name="imap_port"
-                                   value="{{ email_channel.imap.port if email_channel and email_channel.imap }}"
-                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                        </div>
-                        <div class="flex flex-col justify-end gap-2">
-                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                                <input type="checkbox" name="imap_use_ssl" {% if email_channel and email_channel.imap and email_channel.imap.use_ssl %}checked{% endif %}>
-                                SSL
-                            </label>
-                            <input name="imap_mailbox"
-                                   placeholder="Mailbox"
-                                   value="{{ email_channel.imap.mailbox if email_channel and email_channel.imap }}"
-                                   class="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div>
-                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">POP3 host (optional)</label>
-                        <input name="pop3_host"
-                               value="{{ email_channel.pop3.host if email_channel and email_channel.pop3 }}"
-                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">POP3 port</label>
-                            <input name="pop3_port"
-                                   value="{{ email_channel.pop3.port if email_channel and email_channel.pop3 }}"
-                                   class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                        </div>
-                        <div class="flex items-end">
-                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                                <input type="checkbox" name="pop3_use_ssl" {% if email_channel and email_channel.pop3 and email_channel.pop3.use_ssl %}checked{% endif %}>
-                                SSL
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div>
-                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Username</label>
-                        <input name="username"
-                               value="{{ email_channel.auth_config.username if email_channel and email_channel.auth_config }}"
-                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    </div>
-                    <div>
-                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Password</label>
-                        <input name="password"
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Access token</label>
+                        <input name="access_token"
                                type="password"
                                autocomplete="new-password"
                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                     </div>
-                </div>
 
-                <div class="grid gap-4 sm:grid-cols-2">
                     <div>
-                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">From email</label>
-                        <input name="from_email"
-                               value="{{ email_channel.auth_config.from_email if email_channel and email_channel.auth_config }}"
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Base URL (optional)</label>
+                        <input name="base_url"
+                               placeholder="https://graph.facebook.com/v19.0"
                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                     </div>
-                    <div>
-                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">From name</label>
-                        <input name="from_name"
-                               value="{{ email_channel.auth_config.from_name if email_channel and email_channel.auth_config }}"
-                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+
+                    <div class="flex items-center justify-end gap-2 pt-2">
+                        <button type="submit"
+                                class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                            Create inbox
+                        </button>
                     </div>
-                </div>
-
-                <div class="flex items-center justify-end gap-2 pt-2">
-                    <button type="submit"
-                            class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                        Save email settings
-                    </button>
-                </div>
-            </form>
-            <form id="email-polling-reset-form"
-                  method="POST"
-                  action="/admin/crm/inbox/email-polling/reset?next=/admin/crm/inbox/settings">
-                {% include "components/forms/csrf_input.html" %}
-            </form>
-        </section>
-
-        <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <div class="flex items-start justify-between gap-4">
-                <div>
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">WhatsApp connector</h2>
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Configure access token and phone number ID for outbound WhatsApp messages.</p>
-                </div>
-            </div>
-
-            <form method="POST" action="/admin/crm/inbox/whatsapp-connector?next=/admin/crm/inbox/settings" class="mt-5 space-y-4">
-                <div>
-                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Name</label>
-                    <input name="name"
-                           value="{{ whatsapp_channel.name if whatsapp_channel else 'CRM WhatsApp' }}"
-                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                </div>
-
-                <div>
-                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Phone number ID</label>
-                    <input name="phone_number_id"
-                           value="{{ whatsapp_channel.phone_number_id if whatsapp_channel }}"
-                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                </div>
-
-                <div>
-                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Access token</label>
-                    <input name="access_token"
-                           type="password"
-                           autocomplete="new-password"
-                           placeholder="Enter a new token to update"
-                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                </div>
-
-                <div>
-                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Base URL (optional)</label>
-                    <input name="base_url"
-                           value="{{ whatsapp_channel.base_url if whatsapp_channel and whatsapp_channel.base_url }}"
-                           placeholder="https://graph.facebook.com/v19.0"
-                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                </div>
-
-                <div class="flex items-center justify-end gap-2 pt-2">
-                    <button type="submit"
-                            class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                        Save WhatsApp settings
-                    </button>
-                </div>
-            </form>
+                </form>
+            </details>
         </section>
     </div>
 
@@ -505,6 +797,134 @@
         {% endif %}
     </section>
 
+    <div class="mt-10 space-y-6" id="chat-widgets">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+                <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Chat widgets</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage website chat widgets, embed codes, and allowed domains.</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="/admin/crm/widget"
+                   class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                    View all
+                </a>
+                <a href="/admin/crm/widget/new"
+                   class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                    New widget
+                </a>
+            </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            {% if widgets %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead class="bg-slate-50 dark:bg-slate-800/50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                Name
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                Domains
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                Status
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                Embed
+                            </th>
+                            <th scope="col" class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                Actions
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% for widget in widgets %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                            <td class="whitespace-nowrap px-6 py-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="h-8 w-8 rounded-lg" style="background-color: {{ widget.primary_color }}"></div>
+                                    <div>
+                                        <a href="/admin/crm/widget/{{ widget.id }}" class="font-medium text-slate-900 hover:text-blue-600 dark:text-white dark:hover:text-blue-400">
+                                            {{ widget.name }}
+                                        </a>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
+                                {% if widget.allowed_domains %}
+                                    {{ widget.allowed_domains | join(', ') | truncate(40) }}
+                                {% else %}
+                                    <span class="text-slate-400 italic">All domains</span>
+                                {% endif %}
+                            </td>
+                            <td class="whitespace-nowrap px-6 py-4">
+                                {% if widget.is_active %}
+                                <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
+                                    Active
+                                </span>
+                                {% else %}
+                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-500/20 dark:text-slate-400">
+                                    Inactive
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td class="whitespace-nowrap px-6 py-4 text-sm">
+                                <button type="button"
+                                        data-embed-code="{{ widget.embed_code | e }}"
+                                        onclick="copyWidgetEmbed(this)"
+                                        class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                    Copy
+                                </button>
+                            </td>
+                            <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
+                                <div class="flex items-center justify-end gap-2">
+                                    <a href="/admin/crm/widget/{{ widget.id }}"
+                                       class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                                       title="View & Edit">
+                                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                        </svg>
+                                    </a>
+                                    <form action="/admin/crm/widget/{{ widget.id }}/delete" method="post" class="inline"
+                                          onsubmit="return confirm('Are you sure you want to delete this widget?')">
+                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                        <button type="submit"
+                                                class="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                                                title="Delete">
+                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                            </svg>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-10 text-center">
+                <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                </svg>
+                <h3 class="mt-4 text-sm font-medium text-slate-900 dark:text-white">No chat widgets</h3>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create a widget to embed on your website.</p>
+                <div class="mt-6">
+                    <a href="/admin/crm/widget/new"
+                       class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Create widget
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
     <div class="mt-10 space-y-6" id="crm-agents">
         <div>
             <h2 class="text-xl font-semibold text-slate-900 dark:text-white">Teams and agents</h2>
@@ -539,14 +959,13 @@
                 <form method="POST" action="/admin/crm/inbox/agents" class="mt-5 space-y-4">
                     <div>
                         <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Person</label>
-                        <select name="person_id" required
-                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                            <option value="">Select a person...</option>
-                            {% for person in people %}
-                                {% set label = person.first_name ~ ' ' ~ person.last_name ~ ((' (' ~ person.email ~ ')') if person.email else '') %}
-                                <option value="{{ person.id }}">{{ label }}</option>
-                            {% endfor %}
-                        </select>
+                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/people" data-typeahead-min="2" data-typeahead-limit="8">
+                            <input type="text" name="person_search" data-typeahead-input
+                                   placeholder="Search people..."
+                                   class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <input type="hidden" name="person_id" data-typeahead-hidden required>
+                            <div data-typeahead-results></div>
+                        </div>
                     </div>
                     <div>
                         <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Title (optional)</label>
@@ -706,4 +1125,17 @@
         </div>
     </div>
 </div>
+<script>
+function copyWidgetEmbed(button) {
+    const code = button.getAttribute('data-embed-code');
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => {
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        setTimeout(() => {
+            button.textContent = original;
+        }, 1500);
+    });
+}
+</script>
 {% endblock %}

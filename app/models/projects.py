@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -46,6 +46,13 @@ class TaskPriority(enum.Enum):
     normal = "normal"
     high = "high"
     urgent = "urgent"
+
+
+class TaskDependencyType(enum.Enum):
+    finish_to_start = "finish_to_start"
+    start_to_start = "start_to_start"
+    finish_to_finish = "finish_to_finish"
+    start_to_finish = "start_to_finish"
 
 
 class ProjectTemplate(Base):
@@ -210,6 +217,78 @@ class ProjectTemplateTask(Base):
     )
 
     template = relationship("ProjectTemplate", back_populates="tasks")
+
+
+class ProjectTemplateTaskDependency(Base):
+    __tablename__ = "project_template_task_dependency"
+    __table_args__ = (
+        UniqueConstraint(
+            "template_task_id",
+            "depends_on_template_task_id",
+            name="uq_project_template_task_dependency",
+        ),
+        CheckConstraint(
+            "template_task_id <> depends_on_template_task_id",
+            name="ck_project_template_task_dependency_no_self",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    template_task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_template_tasks.id"), nullable=False
+    )
+    depends_on_template_task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_template_tasks.id"), nullable=False
+    )
+    dependency_type: Mapped[TaskDependencyType] = mapped_column(
+        Enum(TaskDependencyType, name="taskdependencytype"),
+        default=TaskDependencyType.finish_to_start,
+    )
+    lag_days: Mapped[int] = mapped_column(Integer, default=0)
+
+    template_task = relationship(
+        "ProjectTemplateTask",
+        foreign_keys=[template_task_id],
+    )
+    depends_on_template_task = relationship(
+        "ProjectTemplateTask",
+        foreign_keys=[depends_on_template_task_id],
+    )
+
+
+class ProjectTaskDependency(Base):
+    __tablename__ = "project_task_dependencies"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id",
+            "depends_on_task_id",
+            name="uq_project_task_dependencies",
+        ),
+        CheckConstraint(
+            "task_id <> depends_on_task_id",
+            name="ck_project_task_dependencies_no_self",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_tasks.id"), nullable=False
+    )
+    depends_on_task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_tasks.id"), nullable=False
+    )
+    dependency_type: Mapped[TaskDependencyType] = mapped_column(
+        Enum(TaskDependencyType, name="taskdependencytype"),
+        default=TaskDependencyType.finish_to_start,
+    )
+    lag_days: Mapped[int] = mapped_column(Integer, default=0)
+
+    task = relationship("ProjectTask", foreign_keys=[task_id])
+    depends_on_task = relationship("ProjectTask", foreign_keys=[depends_on_task_id])
 
 
 class ProjectTaskComment(Base):

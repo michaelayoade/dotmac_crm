@@ -7,6 +7,7 @@ class ChannelType(enum.Enum):
     facebook_messenger = "facebook_messenger"
     instagram_dm = "instagram_dm"
     note = "note"
+    chat_widget = "chat_widget"
 
 
 class ConversationStatus(enum.Enum):

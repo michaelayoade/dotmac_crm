@@ -44,6 +44,17 @@
                     <option value="urgent" {% if priority == 'urgent' %}selected{% endif %}>Urgent</option>
                 </select>
             </div>
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Project</label>
+                <select name="project_id" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Projects</option>
+                    {% for project in projects %}
+                    <option value="{{ project.id }}" {% if project_id == project.id|string %}selected{% endif %}>
+                        {{ project.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
             <div>
                 <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     Apply Filters
@@ -58,6 +69,7 @@
                 <thead class="bg-slate-50 dark:bg-slate-800/50">
                     <tr>
                         <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Task</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
@@ -72,6 +84,14 @@
                         <td class="px-6 py-4">
                             <p class="text-sm font-medium text-slate-900 dark:text-white">{{ task.title | default('Task') }}</p>
                             <p class="text-xs text-slate-500 dark:text-slate-400">{{ task.id|string|truncate(8, True, '') }}</p>
+                        </td>
+                        {% set project = project_map.get(task.project_id|string) %}
+                        <td class="px-6 py-4">
+                            {% if project %}
+                            <a href="/admin/projects/{{ project.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ project.name }}</a>
+                            {% else %}
+                            <span class="text-sm text-slate-500 dark:text-slate-400">Unknown</span>
+                            {% endif %}
                         </td>
                         <td class="px-6 py-4">
                             <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ status_val | replace('_', ' ') | title }}</span>
@@ -93,7 +113,7 @@
                     {% endfor %}
                     {% else %}
                     <tr>
-                        <td colspan="5" class="px-6 py-12">
+                        <td colspan="6" class="px-6 py-12">
                             {% set title = "No tasks" %}
                             {% set message = "Project tasks will appear here once created." %}
                             {% include "components/data/empty_state.html" %}
@@ -104,16 +124,17 @@
             </table>
         </div>
         {% if total_pages and total_pages > 1 %}
+        {% set project_param = '&project_id=' ~ project_id if project_id else '' %}
         {% set status_param = '&status=' ~ status if status else '' %}
         {% set priority_param = '&priority=' ~ priority if priority else '' %}
         <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row">
             <p class="text-sm text-slate-500 dark:text-slate-400">Page {{ page }} of {{ total_pages }}</p>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
-                <a href="/admin/projects/tasks?page={{ page - 1 }}&per_page={{ per_page }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                <a href="/admin/projects/tasks?page={{ page - 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
                 {% endif %}
                 {% if page < total_pages %}
-                <a href="/admin/projects/tasks?page={{ page + 1 }}&per_page={{ per_page }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                <a href="/admin/projects/tasks?page={{ page + 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
                 {% endif %}
             </div>
         </div>

@@ -4,7 +4,7 @@ import json
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException
+from fastapi import APIRouter, Depends, File, Form, Query, Request, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import Optional, cast
 from uuid import UUID
+from pydantic import ValidationError
 
 from app.db import SessionLocal
 from app.models.auth import ApiKey, MFAMethod, UserCredential, Session as AuthSession
@@ -59,6 +60,7 @@ from app.services import (
     workflow as workflow_service,
 )
 from app.services import settings_spec
+from app.services import branding_assets
 from app.services.auth_flow import hash_password
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
@@ -393,11 +395,20 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
                 value, error = settings_spec.coerce_value(spec, raw)
                 if error:
                     value = spec.default
+                display_value = value
+                if spec.value_type == settings_spec.SettingValueType.json:
+                    if value is None:
+                        display_value = ""
+                    elif isinstance(value, str):
+                        display_value = value
+                    else:
+                        display_value = json.dumps(value, indent=2, sort_keys=True)
                 section_settings.append(
                     {
                         "key": spec.key,
                         "label": spec.label or spec.key.replace("_", " ").title(),
                         "value": value if value is not None else "",
+                        "display_value": display_value if display_value is not None else "",
                         "value_type": spec.value_type.value,
                         "allowed": sorted(spec.allowed) if spec.allowed else None,
                         "min_value": spec.min_value,
@@ -412,6 +423,7 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
             "domains": _settings_domains(),
             "grouped_domains": _grouped_settings_domains(),
             "settings": [],
+            "settings_by_key": {},
             "sections": sections,
         }
 
@@ -431,11 +443,20 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
         value, error = settings_spec.coerce_value(spec, raw)
         if error:
             value = spec.default
+        display_value = value
+        if spec.value_type == settings_spec.SettingValueType.json:
+            if value is None:
+                display_value = ""
+            elif isinstance(value, str):
+                display_value = value
+            else:
+                display_value = json.dumps(value, indent=2, sort_keys=True)
         settings.append(
             {
                 "key": spec.key,
                 "label": spec.label or spec.key.replace("_", " ").title(),
                 "value": value if value is not None else "",
+                "display_value": display_value if display_value is not None else "",
                 "value_type": spec.value_type.value,
                 "allowed": sorted(spec.allowed) if spec.allowed else None,
                 "min_value": spec.min_value,
@@ -444,17 +465,25 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
                 "required": spec.required,
             }
         )
+    settings_by_key = {item["key"]: item for item in settings}
     return {
         "domain": selected_domain.value,
         "domains": _settings_domains(),
         "grouped_domains": _grouped_settings_domains(),
         "settings": settings,
+        "settings_by_key": settings_by_key,
     }
 
 
 def _user_stats(db: Session) -> dict:
-    total = db.query(Person).count()
-    active = db.query(Person).filter(Person.is_active.is_(True)).count()
+    credential_exists = (
+        db.query(UserCredential.id)
+        .filter(UserCredential.person_id == Person.id)
+        .exists()
+    )
+
+    total = db.query(Person).filter(credential_exists).count()
+    active = db.query(Person).filter(credential_exists).filter(Person.is_active.is_(True)).count()
 
     admin_role = (
         db.query(Role)
@@ -465,6 +494,8 @@ def _user_stats(db: Session) -> dict:
     if admin_role:
         admins = (
             db.query(PersonRole.person_id)
+            .join(Person, Person.id == PersonRole.person_id)
+            .filter(credential_exists)
             .filter(PersonRole.role_id == admin_role.id)
             .distinct()
             .count()
@@ -485,7 +516,12 @@ def _user_stats(db: Session) -> dict:
         .filter(UserCredential.must_change_password.is_(True))
         .exists()
     )
-    pending = db.query(Person).filter(or_(~active_credential, pending_credential)).count()
+    pending = (
+        db.query(Person)
+        .filter(credential_exists)
+        .filter(or_(~active_credential, pending_credential))
+        .count()
+    )
 
     return {"total": total, "active": active, "admins": admins, "pending": pending}
 
@@ -499,6 +535,13 @@ def _build_users(
     limit: int,
 ):
     query = db.query(Person)
+    credential_exists = (
+        db.query(UserCredential.id)
+        .filter(UserCredential.person_id == Person.id)
+        .exists()
+    )
+    query = query.filter(credential_exists)
+    needs_distinct = False
 
     if search:
         search_value = f"%{search.strip()}%"
@@ -512,7 +555,8 @@ def _build_users(
         )
 
     if role_id:
-        query = query.join(PersonRole).filter(PersonRole.role_id == coerce_uuid(role_id)).distinct()
+        query = query.join(PersonRole).filter(PersonRole.role_id == coerce_uuid(role_id))
+        needs_distinct = True
 
     if status:
         if status == "active":
@@ -535,13 +579,16 @@ def _build_users(
             )
             query = query.filter(or_(~active_credential, pending_credential))
 
-    total = query.count()
-    people = (
-        query.order_by(Person.last_name.asc(), Person.first_name.asc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    if needs_distinct:
+        total = query.with_entities(Person.id).distinct().count()
+        query = query.distinct(Person.id)
+    else:
+        total = query.count()
+    if needs_distinct:
+        order_by = (Person.id.asc(), Person.last_name.asc(), Person.first_name.asc())
+    else:
+        order_by = (Person.last_name.asc(), Person.first_name.asc())
+    people = query.order_by(*order_by).offset(offset).limit(limit).all()
 
     person_ids = [person.id for person in people]
     if not person_ids:
@@ -1280,6 +1327,44 @@ def user_create(
     db: Session = Depends(get_db),
 ):
     role = rbac_service.roles.get(db, role_id)
+    temp_password = secrets.token_urlsafe(16)
+
+    def _promote_existing_person(existing_person: Person) -> HTMLResponse | None:
+        existing_credential = (
+            db.query(UserCredential)
+            .filter(UserCredential.person_id == existing_person.id)
+            .filter(UserCredential.is_active.is_(True))
+            .first()
+        )
+        if existing_credential:
+            return _error_banner("User already exists for this email.")
+
+        existing_role = (
+            db.query(PersonRole)
+            .filter(PersonRole.person_id == existing_person.id)
+            .filter(PersonRole.role_id == role.id)
+            .first()
+        )
+        if not existing_role:
+            rbac_service.person_roles.create(
+                db,
+                PersonRoleCreate(person_id=existing_person.id, role_id=role.id),
+            )
+
+        try:
+            auth_service.user_credentials.create(
+                db,
+                UserCredentialCreate(
+                    person_id=existing_person.id,
+                    username=email,
+                    password_hash=hash_password(temp_password),
+                    must_change_password=True,
+                ),
+            )
+        except IntegrityError:
+            db.rollback()
+            return _error_banner("Username already in use.")
+        return None
 
     try:
         person = person_service.people.create(
@@ -1297,7 +1382,6 @@ def user_create(
             PersonRoleCreate(person_id=person.id, role_id=role.id),
         )
 
-        temp_password = secrets.token_urlsafe(16)
         auth_service.user_credentials.create(
             db,
             UserCredentialCreate(
@@ -1307,9 +1391,32 @@ def user_create(
                 must_change_password=True,
             ),
         )
+    except HTTPException as exc:
+        db.rollback()
+        if exc.status_code != 409:
+            return _error_banner(str(exc.detail))
+        person = (
+            db.query(Person)
+            .filter(Person.email.ilike(email))
+            .first()
+        )
+        if not person:
+            return _error_banner(str(exc.detail))
+        error_response = _promote_existing_person(person)
+        if error_response is not None:
+            return error_response
     except IntegrityError as exc:
         db.rollback()
-        return _error_banner(_humanize_integrity_error(exc))
+        person = (
+            db.query(Person)
+            .filter(Person.email.ilike(email))
+            .first()
+        )
+        if not person:
+            return _error_banner(_humanize_integrity_error(exc))
+        error_response = _promote_existing_person(person)
+        if error_response is not None:
+            return error_response
 
     note = "User created. Ask the user to reset their password."
     if send_invite:
@@ -1327,6 +1434,22 @@ def user_create(
                 note = "User created, but the reset email could not be sent."
         else:
             note = "User created, but no reset token was generated."
+    if request.headers.get("HX-Request"):
+        trigger = {
+            "showToast": {
+                "type": "success",
+                "title": "User created",
+                "message": note,
+                "duration": 8000,
+            }
+        }
+        return Response(
+            status_code=200,
+            headers={
+                "HX-Redirect": "/admin/system/users",
+                "HX-Trigger": json.dumps(trigger),
+            },
+        )
     return HTMLResponse(
         '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">'
         f"{note}"
@@ -1635,7 +1758,7 @@ def role_delete(request: Request, role_id: str, db: Session = Depends(get_db)):
 def permissions_list(
     request: Request,
     page: int = Query(1, ge=1),
-    per_page: int = Query(25, ge=10, le=100),
+    per_page: int = Query(10000, ge=10, le=10000),
     db: Session = Depends(get_db),
 ):
     offset = (page - 1) * per_page
@@ -1706,20 +1829,46 @@ def permission_create(
     db: Session = Depends(get_db),
 ):
     description_value = description.strip() if description else None
-    payload = PermissionCreate(
-        key=key.strip(),
-        description=description_value or None,
-        is_active=_form_bool(is_active),
-    )
     try:
+        payload = PermissionCreate(
+            key=key.strip(),
+            description=description_value or None,
+            is_active=_form_bool(is_active),
+        )
         rbac_service.permissions.create(db, payload)
+    except ValidationError as exc:
+        from app.web.admin import get_sidebar_stats, get_current_user
+        return templates.TemplateResponse(
+            "admin/system/permissions_form.html",
+            {
+                "request": request,
+                "permission": {
+                    "key": key.strip(),
+                    "description": description_value or None,
+                    "is_active": _form_bool(is_active),
+                },
+                "action_url": "/admin/system/permissions",
+                "form_title": "New Permission",
+                "submit_label": "Create Permission",
+                "error": str(exc),
+                "active_page": "roles",
+                "active_menu": "system",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+            },
+            status_code=400,
+        )
     except Exception as exc:
         from app.web.admin import get_sidebar_stats, get_current_user
         return templates.TemplateResponse(
             "admin/system/permissions_form.html",
             {
                 "request": request,
-                "permission": payload.model_dump(),
+                "permission": {
+                    "key": key.strip(),
+                    "description": description_value or None,
+                    "is_active": _form_bool(is_active),
+                },
                 "action_url": "/admin/system/permissions",
                 "form_title": "New Permission",
                 "submit_label": "Create Permission",
@@ -1771,20 +1920,48 @@ def permission_update(
     db: Session = Depends(get_db),
 ):
     description_value = description.strip() if description else None
-    payload = PermissionUpdate(
-        key=key.strip(),
-        description=description_value or None,
-        is_active=_form_bool(is_active),
-    )
     try:
+        payload = PermissionUpdate(
+            key=key.strip(),
+            description=description_value or None,
+            is_active=_form_bool(is_active),
+        )
         rbac_service.permissions.update(db, permission_id, payload)
+    except ValidationError as exc:
+        from app.web.admin import get_sidebar_stats, get_current_user
+        return templates.TemplateResponse(
+            "admin/system/permissions_form.html",
+            {
+                "request": request,
+                "permission": {
+                    "id": permission_id,
+                    "key": key.strip(),
+                    "description": description_value or None,
+                    "is_active": _form_bool(is_active),
+                },
+                "action_url": f"/admin/system/permissions/{permission_id}",
+                "form_title": "Edit Permission",
+                "submit_label": "Save Changes",
+                "error": str(exc),
+                "active_page": "roles",
+                "active_menu": "system",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+            },
+            status_code=400,
+        )
     except Exception as exc:
         from app.web.admin import get_sidebar_stats, get_current_user
         return templates.TemplateResponse(
             "admin/system/permissions_form.html",
             {
                 "request": request,
-                "permission": {"id": permission_id, **payload.model_dump()},
+                "permission": {
+                    "id": permission_id,
+                    "key": key.strip(),
+                    "description": description_value or None,
+                    "is_active": _form_bool(is_active),
+                },
                 "action_url": f"/admin/system/permissions/{permission_id}",
                 "form_title": "Edit Permission",
                 "submit_label": "Save Changes",
@@ -2529,7 +2706,14 @@ async def settings_update(
                     else:
                         value = cast(SettingValue, spec.default)
                 else:
-                    value = raw_value
+                    if spec.value_type == settings_spec.SettingValueType.json:
+                        try:
+                            value = json.loads(raw_value)
+                        except json.JSONDecodeError:
+                            errors.append(f"{spec.key}: Value must be valid JSON.")
+                            continue
+                    else:
+                        value = raw_value
             if spec.allowed and value is not None and value not in spec.allowed:
                 errors.append(f"{spec.key}: Value must be one of {', '.join(sorted(spec.allowed))}.")
                 continue
@@ -2591,7 +2775,14 @@ async def settings_update(
                         else:
                             value_setting = cast(SettingValue, spec.default)
                     else:
-                        value_setting = raw_value
+                        if spec.value_type == settings_spec.SettingValueType.json:
+                            try:
+                                value_setting = json.loads(raw_value)
+                            except json.JSONDecodeError:
+                                errors.append(f"{spec.key}: Value must be valid JSON.")
+                                continue
+                        else:
+                            value_setting = raw_value
                 if spec.allowed and value_setting is not None and value_setting not in spec.allowed:
                     errors.append(f"{spec.key}: Value must be one of {', '.join(sorted(spec.allowed))}.")
                     continue
@@ -2619,6 +2810,75 @@ async def settings_update(
                 service.upsert_by_key(db, spec.key, payload)
 
         settings_context = _build_settings_context(db, selected_domain.value)
+    base_url = str(request.base_url).rstrip("/")
+    crm_meta_callback_url = base_url + "/webhooks/crm/meta"
+    crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
+    from app.web.admin import get_sidebar_stats, get_current_user
+    return templates.TemplateResponse(
+        "admin/system/settings.html",
+        {
+            "request": request,
+            **settings_context,
+            "crm_meta_callback_url": crm_meta_callback_url,
+            "crm_meta_oauth_redirect_url": crm_meta_oauth_redirect_url,
+            "active_page": "settings",
+            "active_menu": "system",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "errors": errors,
+            "saved": not errors,
+        },
+    )
+
+
+@router.post("/settings/branding", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:write"))])
+async def settings_branding_update(
+    request: Request,
+    logo: UploadFile | None = File(None),
+    favicon: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+):
+    """Upload branding assets (logo/favicon) and store their URLs in settings."""
+    errors: list[str] = []
+    if logo and not logo.filename:
+        logo = None
+    if favicon and not favicon.filename:
+        favicon = None
+    service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(SettingDomain.comms)
+    if not service:
+        errors.append("Settings service not configured for branding.")
+    if not logo and not favicon:
+        errors.append("Please upload a logo and/or favicon.")
+
+    try:
+        if service and logo:
+            previous_logo = settings_spec.resolve_value(db, SettingDomain.comms, "brand_logo_url")
+            logo_url = await branding_assets.save_branding_asset(logo, "logo", previous_url=cast(str | None, previous_logo))
+            payload = DomainSettingUpdate(
+                value_type=settings_spec.SettingValueType.string,
+                value_text=logo_url,
+                value_json=None,
+                is_secret=False,
+                is_active=True,
+            )
+            service.upsert_by_key(db, "brand_logo_url", payload)
+        if service and favicon:
+            previous_favicon = settings_spec.resolve_value(db, SettingDomain.comms, "brand_favicon_url")
+            favicon_url = await branding_assets.save_branding_asset(favicon, "favicon", previous_url=cast(str | None, previous_favicon))
+            payload = DomainSettingUpdate(
+                value_type=settings_spec.SettingValueType.string,
+                value_text=favicon_url,
+                value_json=None,
+                is_secret=False,
+                is_active=True,
+            )
+            service.upsert_by_key(db, "brand_favicon_url", payload)
+    except HTTPException as exc:
+        errors.append(str(exc.detail))
+    except Exception as exc:
+        errors.append(str(exc) or "Failed to upload branding assets.")
+
+    settings_context = _build_settings_context(db, SettingDomain.comms.value)
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
     crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"

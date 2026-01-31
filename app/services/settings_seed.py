@@ -667,6 +667,12 @@ def seed_comms_settings(db: Session) -> None:
         value_text=os.getenv("META_ACCESS_TOKEN_OVERRIDE", ""),
         is_secret=True,
     )
+    comms_settings.ensure_by_key(
+        db,
+        key="company_name",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("COMPANY_NAME", "Dotmac"),
+    )
 
 
 def seed_wireguard_settings(db: Session) -> None:

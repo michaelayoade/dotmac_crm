@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.services.response import list_response
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.tickets import TicketRead
 from app.schemas.workforce import WorkOrderRead
@@ -34,14 +34,6 @@ from app.schemas.workflow import (
 from app.services import workflow as workflow_service
 
 router = APIRouter()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post(

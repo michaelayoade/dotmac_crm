@@ -8,21 +8,13 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.models.person import Person
 from app.models.subscriber import Organization
 from app.services.auth_dependencies import require_user_auth
 
 
 router = APIRouter(prefix="/validation", tags=["validation"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class FieldValidationRequest(BaseModel):

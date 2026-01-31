@@ -1,0 +1,429 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import status_badge %}
+
+{% block title %}{{ widget.name if widget else 'New Widget' }} - Chat Widgets - Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/crm/inbox" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Inbox</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/crm/widget" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Widgets</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200">{{ widget.name if widget else 'New' }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-6">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-semibold text-slate-900 dark:text-white">
+                {{ widget.name if widget else 'Create Chat Widget' }}
+            </h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                {{ 'Configure your chat widget settings.' if widget else 'Set up a new chat widget for your website.' }}
+            </p>
+        </div>
+        <a href="/admin/crm/widget"
+           class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+            Back to widgets
+        </a>
+    </div>
+
+    {% if success_message %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        {{ success_message }}
+    </div>
+    {% endif %}
+
+    {% if error_message %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        {{ error_message }}
+    </div>
+    {% endif %}
+
+    <div class="grid gap-6 lg:grid-cols-2">
+        <!-- Widget Settings Form -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <h2 class="text-lg font-medium text-slate-900 dark:text-white">Widget Settings</h2>
+            </div>
+            <form action="{{ '/admin/crm/widget/' + widget.id|string if widget else '/admin/crm/widget' }}" method="post" class="p-6">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+                <div class="flex flex-col gap-5">
+                    <!-- Name -->
+                    <div>
+                        <label for="name" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                            Widget Name <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text" id="name" name="name" required
+                               value="{{ widget.name if widget else '' }}"
+                               placeholder="e.g., Main Website Chat"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500">
+                    </div>
+
+                    <!-- Allowed Domains -->
+                    <div>
+                        <label for="allowed_domains" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                            Allowed Domains
+                        </label>
+                        <input type="text" id="allowed_domains" name="allowed_domains"
+                               value="{{ widget.allowed_domains | join(', ') if widget and widget.allowed_domains else '' }}"
+                               placeholder="example.com, *.example.com"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500">
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            Comma-separated list. Use * for wildcard subdomains. Leave empty to allow all domains.
+                        </p>
+                    </div>
+
+                    <!-- Primary Color -->
+                    <div>
+                        <label for="primary_color" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                            Primary Color
+                        </label>
+                        <div class="flex items-center gap-3">
+                            <input type="color" id="primary_color" name="primary_color"
+                                   value="{{ widget.primary_color if widget else '#3B82F6' }}"
+                                   class="h-10 w-16 cursor-pointer rounded-lg border border-slate-300 dark:border-slate-600">
+                            <input type="text" id="primary_color_text"
+                                   value="{{ widget.primary_color if widget else '#3B82F6' }}"
+                                   class="block w-32 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                                   pattern="^#[0-9A-Fa-f]{6}$">
+                        </div>
+                    </div>
+
+                    <!-- Bubble Position -->
+                    <div>
+                        <label for="bubble_position" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                            Bubble Position
+                        </label>
+                        <select id="bubble_position" name="bubble_position"
+                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                            <option value="bottom-right" {{ 'selected' if not widget or widget.bubble_position == 'bottom-right' }}>Bottom Right</option>
+                            <option value="bottom-left" {{ 'selected' if widget and widget.bubble_position == 'bottom-left' }}>Bottom Left</option>
+                        </select>
+                    </div>
+
+                    <!-- Widget Title -->
+                    <div>
+                        <label for="widget_title" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                            Widget Title
+                        </label>
+                        <input type="text" id="widget_title" name="widget_title"
+                               value="{{ widget.widget_title if widget else 'Chat with us' }}"
+                               placeholder="Chat with us"
+                               maxlength="80"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500">
+                    </div>
+
+                    <!-- Welcome Message -->
+                    <div>
+                        <label for="welcome_message" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                            Welcome Message
+                        </label>
+                        <textarea id="welcome_message" name="welcome_message" rows="3"
+                                  placeholder="Hi! How can we help you today?"
+                                  maxlength="500"
+                                  class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500">{{ widget.welcome_message if widget else '' }}</textarea>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            Shown when the chat opens for the first time.
+                        </p>
+                    </div>
+
+                    <!-- Placeholder Text -->
+                    <div>
+                        <label for="placeholder_text" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                            Input Placeholder
+                        </label>
+                        <input type="text" id="placeholder_text" name="placeholder_text"
+                               value="{{ widget.placeholder_text if widget else 'Type a message...' }}"
+                               placeholder="Type a message..."
+                               maxlength="120"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder-slate-500">
+                    </div>
+
+                    <!-- Pre-chat Form -->
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                        <div class="flex items-center gap-3">
+                            <input type="checkbox" id="prechat_form_enabled" name="prechat_form_enabled" value="1"
+                                   {{ 'checked' if widget and widget.prechat_form_enabled }}
+                                   class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800">
+                            <label for="prechat_form_enabled" class="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                Enable pre-chat form
+                            </label>
+                        </div>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            Collect visitor details before chat starts. Must include an email field.
+                        </p>
+                        <input type="hidden" id="prechat_fields_json" name="prechat_fields_json" value="">
+
+                        <div class="mt-4 space-y-3" id="prechat-fields">
+                            {% set prechat_fields = widget.prechat_fields if widget and widget.prechat_fields else [] %}
+                            {% for field in prechat_fields %}
+                            <div class="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs dark:border-slate-700 dark:bg-slate-900 sm:grid-cols-6 prechat-row">
+                                <input type="text" class="prechat-name rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
+                                       placeholder="name" value="{{ field.name }}">
+                                <input type="text" class="prechat-label rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
+                                       placeholder="Label" value="{{ field.label }}">
+                                <select class="prechat-type rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
+                                    {% for opt in ["text", "email", "phone", "textarea", "select"] %}
+                                    <option value="{{ opt }}" {{ 'selected' if field.field_type == opt }}>{{ opt }}</option>
+                                    {% endfor %}
+                                </select>
+                                <input type="text" class="prechat-placeholder rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
+                                       placeholder="Placeholder" value="{{ field.placeholder or '' }}">
+                                <input type="text" class="prechat-options rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
+                                       placeholder="Options (comma)" value="{{ field.options | join(', ') if field.options else '' }}">
+                                <div class="flex items-center justify-between gap-2">
+                                    <label class="flex items-center gap-1">
+                                        <input type="checkbox" class="prechat-required" {{ 'checked' if field.required }}>
+                                        Required
+                                    </label>
+                                    <button type="button" class="prechat-remove text-red-600 hover:underline">Remove</button>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <button type="button" id="prechat-add"
+                                class="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                            Add field
+                        </button>
+                    </div>
+
+                    <!-- Rate Limits -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="rate_limit_messages" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                                Messages/Minute
+                            </label>
+                            <input type="number" id="rate_limit_messages" name="rate_limit_messages_per_minute"
+                                   value="{{ widget.rate_limit_messages_per_minute if widget else 10 }}"
+                                   min="1" max="60"
+                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                        </div>
+                        <div>
+                            <label for="rate_limit_sessions" class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                                Sessions/IP
+                            </label>
+                            <input type="number" id="rate_limit_sessions" name="rate_limit_sessions_per_ip"
+                                   value="{{ widget.rate_limit_sessions_per_ip if widget else 5 }}"
+                                   min="1" max="20"
+                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                        </div>
+                    </div>
+
+                    <!-- Status -->
+                    {% if widget %}
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" id="is_active" name="is_active" value="1"
+                               {{ 'checked' if widget.is_active }}
+                               class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800">
+                        <label for="is_active" class="text-sm font-medium text-slate-700 dark:text-slate-200">
+                            Widget is active
+                        </label>
+                    </div>
+                    {% endif %}
+
+                    <!-- Submit -->
+                    <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                        <a href="/admin/crm/widget"
+                           class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+                            Cancel
+                        </a>
+                        <button type="submit"
+                                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                            {{ 'Save Changes' if widget else 'Create Widget' }}
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        {% if widget %}
+        <!-- Embed Code & Preview -->
+        <div class="flex flex-col gap-6">
+            <!-- Embed Code -->
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="text-lg font-medium text-slate-900 dark:text-white">Embed Code</h2>
+                </div>
+                <div class="p-6">
+                    <p class="mb-4 text-sm text-slate-600 dark:text-slate-400">
+                        Add this code to your website, just before the closing <code class="rounded bg-slate-100 px-1 dark:bg-slate-800">&lt;/body&gt;</code> tag.
+                    </p>
+                    <div class="relative">
+                        <pre class="overflow-x-auto rounded-lg bg-slate-900 p-4 text-sm text-slate-100"><code id="embed-code">{{ embed_code }}</code></pre>
+                        <button type="button" onclick="copyEmbedCode()"
+                                class="absolute right-2 top-2 rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-600">
+                            Copy
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Widget Preview -->
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="text-lg font-medium text-slate-900 dark:text-white">Preview</h2>
+                </div>
+                <div class="relative p-6">
+                    <div class="flex h-[400px] items-end justify-end rounded-lg bg-slate-100 p-4 dark:bg-slate-800">
+                        <!-- Preview bubble -->
+                        <div class="flex h-14 w-14 items-center justify-center rounded-full shadow-lg"
+                             style="background-color: {{ widget.primary_color }}">
+                            <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats -->
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="text-lg font-medium text-slate-900 dark:text-white">Statistics</h2>
+                </div>
+                <div class="grid grid-cols-2 gap-4 p-6">
+                    <div class="rounded-lg bg-slate-50 p-4 dark:bg-slate-800">
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ session_count }}</div>
+                        <div class="text-sm text-slate-500 dark:text-slate-400">Total Sessions</div>
+                    </div>
+                    <div class="rounded-lg bg-slate-50 p-4 dark:bg-slate-800">
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ conversation_count }}</div>
+                        <div class="text-sm text-slate-500 dark:text-slate-400">Conversations</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <!-- Preview for new widget -->
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <h2 class="text-lg font-medium text-slate-900 dark:text-white">Preview</h2>
+            </div>
+            <div class="relative p-6">
+                <div class="flex h-[400px] items-end justify-end rounded-lg bg-slate-100 p-4 dark:bg-slate-800" id="preview-container">
+                    <div class="flex h-14 w-14 items-center justify-center rounded-full shadow-lg" id="preview-bubble"
+                         style="background-color: #3B82F6">
+                        <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function copyEmbedCode() {
+    const code = document.getElementById('embed-code').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        alert('Embed code copied to clipboard!');
+    });
+}
+
+// Sync color picker with text input
+document.getElementById('primary_color').addEventListener('input', function(e) {
+    document.getElementById('primary_color_text').value = e.target.value;
+    updatePreview();
+});
+
+document.getElementById('primary_color_text').addEventListener('input', function(e) {
+    if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+        document.getElementById('primary_color').value = e.target.value;
+        updatePreview();
+    }
+});
+
+function updatePreview() {
+    const color = document.getElementById('primary_color').value;
+    const bubble = document.getElementById('preview-bubble');
+    if (bubble) {
+        bubble.style.backgroundColor = color;
+    }
+}
+
+// Update position preview
+document.getElementById('bubble_position').addEventListener('change', function(e) {
+    const container = document.getElementById('preview-container');
+    if (container) {
+        container.style.justifyContent = e.target.value === 'bottom-left' ? 'flex-start' : 'flex-end';
+    }
+});
+
+function buildPrechatRow() {
+    const row = document.createElement('div');
+    row.className = 'grid gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs dark:border-slate-700 dark:bg-slate-900 sm:grid-cols-6 prechat-row';
+    row.innerHTML = `
+        <input type="text" class="prechat-name rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900" placeholder="name">
+        <input type="text" class="prechat-label rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900" placeholder="Label">
+        <select class="prechat-type rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
+            <option value="text">text</option>
+            <option value="email">email</option>
+            <option value="phone">phone</option>
+            <option value="textarea">textarea</option>
+            <option value="select">select</option>
+        </select>
+        <input type="text" class="prechat-placeholder rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900" placeholder="Placeholder">
+        <input type="text" class="prechat-options rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900" placeholder="Options (comma)">
+        <div class="flex items-center justify-between gap-2">
+            <label class="flex items-center gap-1">
+                <input type="checkbox" class="prechat-required">
+                Required
+            </label>
+            <button type="button" class="prechat-remove text-red-600 hover:underline">Remove</button>
+        </div>
+    `;
+    return row;
+}
+
+const prechatContainer = document.getElementById('prechat-fields');
+const prechatAdd = document.getElementById('prechat-add');
+if (prechatAdd && prechatContainer) {
+    prechatAdd.addEventListener('click', () => {
+        prechatContainer.appendChild(buildPrechatRow());
+    });
+    prechatContainer.addEventListener('click', (e) => {
+        if (e.target.classList.contains('prechat-remove')) {
+            e.target.closest('.prechat-row')?.remove();
+        }
+    });
+}
+
+const widgetForm = document.querySelector('form[action^="/admin/crm/widget"]');
+if (widgetForm) {
+    widgetForm.addEventListener('submit', () => {
+        const rows = Array.from(document.querySelectorAll('.prechat-row'));
+        const fields = rows.map((row) => {
+            const name = row.querySelector('.prechat-name')?.value.trim();
+            const label = row.querySelector('.prechat-label')?.value.trim();
+            const fieldType = row.querySelector('.prechat-type')?.value;
+            const placeholder = row.querySelector('.prechat-placeholder')?.value.trim();
+            const optionsRaw = row.querySelector('.prechat-options')?.value.trim();
+            const required = row.querySelector('.prechat-required')?.checked;
+            const options = optionsRaw ? optionsRaw.split(',').map(v => v.trim()).filter(Boolean) : null;
+            if (!name || !label) return null;
+            return {
+                name,
+                label,
+                field_type: fieldType,
+                required: Boolean(required),
+                placeholder: placeholder || null,
+                options: options && options.length ? options : null
+            };
+        }).filter(Boolean);
+        const hidden = document.getElementById('prechat_fields_json');
+        if (hidden) {
+            hidden.value = JSON.stringify(fields);
+        }
+    });
+}
+</script>
+{% endblock %}

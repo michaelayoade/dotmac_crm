@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.wireless_mast import (
     WirelessMastCreate,
@@ -11,14 +11,6 @@ from app.schemas.wireless_mast import (
 from app.services import wireless_mast as wireless_mast_service
 
 router = APIRouter(prefix="/wireless-masts")
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post(

@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.crm.reports import (
     InboxKpisResponse,
     PipelineStageMetricsResponse,
@@ -14,14 +14,6 @@ from app.schemas.crm.reports import (
 from app.services.crm import reports as crm_reports
 
 router = APIRouter(prefix="/crm/reports", tags=["crm-reports"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/support", response_model=SupportMetricsResponse)

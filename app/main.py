@@ -59,6 +59,7 @@ from app.web_home import router as web_home_router
 from app.web import router as web_router
 from app.db import SessionLocal
 from app.services import audit as audit_service
+from app.services import settings_spec
 from app.services.crm import smtp_inbound as smtp_inbound_service
 from app.api.deps import require_permission, require_role, require_user_auth
 from app.models.domain_settings import DomainSetting, SettingDomain
@@ -134,6 +135,28 @@ async def audit_middleware(request: Request, call_next):
         finally:
             db.close()
     return response
+
+
+@app.middleware("http")
+async def branding_middleware(request: Request, call_next):
+    """Attach branding settings to request state for templates."""
+    db = SessionLocal()
+    try:
+        company_name = settings_spec.resolve_value(db, SettingDomain.comms, "company_name")
+        logo_url = settings_spec.resolve_value(db, SettingDomain.comms, "brand_logo_url")
+        favicon_url = settings_spec.resolve_value(db, SettingDomain.comms, "brand_favicon_url")
+    except Exception:
+        company_name = "Dotmac"
+        logo_url = None
+        favicon_url = None
+    finally:
+        db.close()
+    request.state.branding = {
+        "company_name": company_name or "Dotmac",
+        "logo_url": logo_url,
+        "favicon_url": favicon_url,
+    }
+    return await call_next(request)
 
 
 # CSRF Protection paths - only protect web admin forms
@@ -353,6 +376,9 @@ _include_api_router(defaults_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)])
 # WireGuard provisioning public endpoints - no auth required (token-based)
 _include_api_router(wireguard_public_router)
+# Chat widget public endpoints - no auth required (visitor token-based)
+from app.api.crm.widget_public import router as widget_public_router
+_include_api_router(widget_public_router)
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api/v1", dependencies=[Depends(require_user_auth)])
 app.include_router(vendor_portal_router, prefix="/api")
@@ -361,7 +387,9 @@ app.include_router(web_home_router)
 app.include_router(web_router)
 
 from app.websocket.router import router as ws_router
+from app.websocket.widget_router import router as ws_widget_router
 app.include_router(ws_router)
+app.include_router(ws_widget_router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

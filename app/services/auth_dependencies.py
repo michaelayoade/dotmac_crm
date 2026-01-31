@@ -7,7 +7,8 @@ from app.db import get_db as _get_db
 from app.models.auth import ApiKey, Session as AuthSession, SessionStatus
 from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
 from app.services.auth import hash_api_key
-from app.services.auth_flow import decode_access_token, hash_session_token
+from app.services.auth_cache import get_cached_session, set_cached_session
+from app.services.auth_flow import _load_rbac_claims, decode_access_token, hash_session_token
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
@@ -55,10 +56,10 @@ def _has_audit_scope(payload: dict) -> bool:
 
 
 def require_audit_auth(
+    request: Request,
     authorization: str | None = Header(default=None),
     x_session_token: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
-    request: Request | None = None,
     db: Session = Depends(_get_db),
 ):
     token = _extract_bearer_token(authorization) or x_session_token
@@ -114,8 +115,8 @@ def require_audit_auth(
 
 
 def require_user_auth(
+    request: Request,
     authorization: str | None = Header(default=None),
-    request: Request | None = None,
     db: Session = Depends(_get_db),
 ):
     token = _extract_bearer_token(authorization)
@@ -130,6 +131,39 @@ def require_user_auth(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     now = datetime.now(timezone.utc)
+
+    # Check cache first
+    cached = get_cached_session(str(session_id))
+    if cached:
+        cached_person_id = cached.get("person_id")
+        cached_expires_at = cached.get("expires_at")
+        if cached_person_id == str(person_id):
+            if cached_expires_at:
+                expires_dt = datetime.fromisoformat(cached_expires_at)
+                if expires_dt <= now:
+                    raise HTTPException(status_code=401, detail="Unauthorized")
+            roles = cached.get("roles", [])
+            scopes = cached.get("scopes", [])
+            if not roles or not scopes:
+                roles, scopes = _load_rbac_claims(db, str(person_id))
+                set_cached_session(str(session_id), {
+                    "person_id": str(person_id),
+                    "roles": roles,
+                    "scopes": scopes,
+                    "expires_at": cached_expires_at,
+                })
+            actor_id = str(person_id)
+            if request is not None:
+                request.state.actor_id = actor_id
+                request.state.actor_type = "user"
+            return {
+                "person_id": str(person_id),
+                "session_id": str(session_id),
+                "roles": roles,
+                "scopes": scopes,
+            }
+
+    # Cache miss - query database
     session = (
         db.query(AuthSession)
         .filter(AuthSession.id == session_id)
@@ -141,10 +175,16 @@ def require_user_auth(
     )
     if not session:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    roles_value = payload.get("roles")
-    scopes_value = payload.get("scopes")
-    roles = [str(role) for role in roles_value] if isinstance(roles_value, list) else []
-    scopes = [str(scope) for scope in scopes_value] if isinstance(scopes_value, list) else []
+    roles, scopes = _load_rbac_claims(db, str(person_id))
+
+    # Cache the session for future requests
+    set_cached_session(str(session_id), {
+        "person_id": str(person_id),
+        "roles": roles,
+        "scopes": scopes,
+        "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+    })
+
     actor_id = str(person_id)
     if request is not None:
         request.state.actor_id = actor_id

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.services.response import list_response
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.timecost import (
     BillingRateCreate,
@@ -22,14 +22,6 @@ from app.schemas.timecost import (
 from app.services import timecost as timecost_service
 
 router = APIRouter(prefix="/timecost", tags=["timecost"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/work-logs", response_model=WorkLogRead, status_code=status.HTTP_201_CREATED)

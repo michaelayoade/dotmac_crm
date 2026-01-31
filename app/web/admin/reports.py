@@ -146,6 +146,8 @@ def subscribers_report(
         {
             "request": request,
             "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
             "total_subscribers": total_subscribers,
             "new_this_month": new_this_month,
             "active_subscribers": active_subscribers,
@@ -218,6 +220,8 @@ def churn_report(
         {
             "request": request,
             "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
             "terminated_count": terminated_count,
             "total_at_start": total_at_start,
             "churn_rate": churn_rate,
@@ -264,6 +268,8 @@ def network_report(
         {
             "request": request,
             "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
             "stats": stats,
             "chart_data": chart_data,
         },
@@ -378,6 +384,8 @@ def technician_report(
         {
             "request": request,
             "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
             "total_technicians": len(technicians),
             "jobs_completed": total_jobs_completed,
             "avg_completion_hours": avg_completion_hours,

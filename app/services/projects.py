@@ -12,17 +12,21 @@ from app.models.projects import (
     ProjectStatus,
     ProjectTask,
     ProjectTaskComment,
+    ProjectTaskDependency,
     ProjectTemplate,
     ProjectTemplateTask,
+    ProjectTemplateTaskDependency,
     ProjectType,
     TaskPriority,
     TaskStatus,
 )
+from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket
 from app.models.workforce import WorkOrder
 from app.models.domain_settings import SettingDomain
 from app.schemas.projects import (
     ProjectCommentCreate,
+    ProjectCommentUpdate,
     ProjectCreate,
     ProjectTaskCreate,
     ProjectTaskCommentCreate,
@@ -57,6 +61,10 @@ def _ensure_project_template(db: Session, template_id: str):
     return template
 
 
+def _ensure_subscriber(db: Session, subscriber_id: str):
+    ensure_exists(db, Subscriber, subscriber_id, "Subscriber not found")
+
+
 class Projects(ListResponseMixin):
     @staticmethod
     def list_for_site_surveys(db: Session):
@@ -75,6 +83,8 @@ class Projects(ListResponseMixin):
             _ensure_person(db, str(payload.owner_person_id))
         if payload.manager_person_id:
             _ensure_person(db, str(payload.manager_person_id))
+        if payload.subscriber_id:
+            _ensure_subscriber(db, str(payload.subscriber_id))
         if payload.project_template_id:
             _ensure_project_template(db, str(payload.project_template_id))
         data = payload.model_dump()
@@ -433,11 +443,31 @@ class ProjectTemplateTasks(ListResponseMixin):
         if not task:
             raise HTTPException(status_code=404, detail="Project template task not found")
         task.is_active = False
+        db.query(ProjectTemplateTaskDependency).filter(
+            ProjectTemplateTaskDependency.template_task_id == task.id
+        ).delete(synchronize_session=False)
+        db.query(ProjectTemplateTaskDependency).filter(
+            ProjectTemplateTaskDependency.depends_on_template_task_id == task.id
+        ).delete(synchronize_session=False)
         db.commit()
 
     @staticmethod
     def replace_project_tasks(db: Session, project_id: str, template_id: str | None):
         project_uuid = coerce_uuid(project_id)
+        template_task_ids_subquery = (
+            db.query(ProjectTask.id)
+            .filter(
+                ProjectTask.project_id == project_uuid,
+                ProjectTask.template_task_id.isnot(None),
+            )
+            .subquery()
+        )
+        db.query(ProjectTaskDependency).filter(
+            ProjectTaskDependency.task_id.in_(template_task_ids_subquery)
+        ).delete(synchronize_session=False)
+        db.query(ProjectTaskDependency).filter(
+            ProjectTaskDependency.depends_on_task_id.in_(template_task_ids_subquery)
+        ).delete(synchronize_session=False)
         db.query(ProjectTask).filter(
             ProjectTask.project_id == project_uuid,
             ProjectTask.template_task_id.isnot(None),
@@ -452,6 +482,7 @@ class ProjectTemplateTasks(ListResponseMixin):
             .order_by(ProjectTemplateTask.sort_order.asc(), ProjectTemplateTask.created_at.asc())
             .all()
         )
+        task_id_map: dict[str, str] = {}
         for template_task in template_tasks:
             data = {
                 "project_id": project_uuid,
@@ -464,7 +495,31 @@ class ProjectTemplateTasks(ListResponseMixin):
                 data["status"] = template_task.status
             if template_task.priority:
                 data["priority"] = template_task.priority
-            db.add(ProjectTask(**data))
+            task = ProjectTask(**data)
+            db.add(task)
+            db.flush()
+            task_id_map[str(template_task.id)] = str(task.id)
+
+        template_task_ids = [template_task.id for template_task in template_tasks]
+        if template_task_ids:
+            dependencies = (
+                db.query(ProjectTemplateTaskDependency)
+                .filter(ProjectTemplateTaskDependency.template_task_id.in_(template_task_ids))
+                .all()
+            )
+            for dependency in dependencies:
+                task_id = task_id_map.get(str(dependency.template_task_id))
+                depends_on_id = task_id_map.get(str(dependency.depends_on_template_task_id))
+                if not task_id or not depends_on_id or task_id == depends_on_id:
+                    continue
+                db.add(
+                    ProjectTaskDependency(
+                        task_id=task_id,
+                        depends_on_task_id=depends_on_id,
+                        dependency_type=dependency.dependency_type,
+                        lag_days=dependency.lag_days,
+                    )
+                )
         db.commit()
 
 
@@ -650,6 +705,22 @@ class ProjectComments(ListResponseMixin):
             _ensure_person(db, str(payload.author_person_id))
         comment = ProjectComment(**payload.model_dump())
         db.add(comment)
+        db.commit()
+        db.refresh(comment)
+        return comment
+
+    @staticmethod
+    def update(db: Session, comment_id: str, payload: ProjectCommentUpdate):
+        comment = db.get(ProjectComment, comment_id)
+        if not comment:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        data = payload.model_dump(exclude_unset=True)
+        if "body" in data and data["body"] is None:
+            data.pop("body")
+        if not data:
+            return comment
+        for key, value in data.items():
+            setattr(comment, key, value)
         db.commit()
         db.refresh(comment)
         return comment

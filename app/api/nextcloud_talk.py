@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.models.connector import ConnectorConfig
 from app.schemas.nextcloud_talk import (
     NextcloudTalkMessageRequest,
@@ -12,14 +12,6 @@ from app.services.common import coerce_uuid
 from app.services.nextcloud_talk import NextcloudTalkClient, NextcloudTalkError
 
 router = APIRouter(prefix="/nextcloud-talk", tags=["nextcloud-talk"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _resolve_client(db: Session, payload) -> NextcloudTalkClient:

@@ -174,6 +174,7 @@
 {% block content %}
 <div x-data="inboxController()"
      x-init="init()"
+     x-effect="updateNewConversationTarget()"
      x-on:toggle-contact-panel.window="toggleContactPanel()"
      x-on:show-contact-panel.window="showContactPanel = true"
      class="flex h-[calc(100vh-4rem)] min-h-0 w-full overflow-hidden rounded-2xl border border-slate-200/60 bg-white font-editorial shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
@@ -264,7 +265,7 @@
             </div>
         </div>
 
-        <!-- Channel Filters -->
+        {# <!-- Channel Filters (disabled) -->
         <div class="px-4 pb-3">
             <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
                 <button @click="setChannel(null)"
@@ -320,6 +321,7 @@
                 </button>
             </div>
         </div>
+        #}
 
         <!-- Status Tabs -->
         {% if current_channel != 'comments' %}
@@ -350,6 +352,43 @@
             </div>
         </div>
         {% endif %}
+
+        <div class="px-4 pb-3 border-b border-slate-200/60 dark:border-slate-700/60">
+            <div class="flex flex-col gap-2">
+                {% if current_channel != 'comments' %}
+                <div class="flex gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
+                    <button @click="setAssignment(null)"
+                            :class="!currentAssignment ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-200' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                        All
+                    </button>
+                    <button @click="setAssignment('assigned')"
+                            :class="currentAssignment === 'assigned' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                        Assigned to me
+                    </button>
+                    <button @click="setAssignment('unassigned')"
+                            :class="currentAssignment === 'unassigned' ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                        Unassigned
+                    </button>
+                </div>
+                {% endif %}
+
+                <div class="flex items-center gap-2" x-show="availableInboxes(currentChannel).length">
+                    <span class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Inbox</span>
+                    <select x-model="currentInboxTargetId"
+                            @change="filterConversations()"
+                            class="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        <option value="">All inboxes</option>
+                        <template x-for="inbox in availableInboxes(currentChannel)" :key="inbox.target_id">
+                            <option :value="inbox.target_id"
+                                    x-text="formatInboxOption(inbox)"></option>
+                        </template>
+                    </select>
+                </div>
+            </div>
+        </div>
 
         <!-- Conversation List -->
         <div id="conversation-list" class="flex-1 overflow-y-auto inbox-scroll">
@@ -473,6 +512,19 @@
                             <option value="instagram_dm">Instagram</option>
                         </select>
                     </div>
+                    <template x-if="availableInboxes(newConversationChannel).length > 1">
+                        <div>
+                            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                                   x-text="newConversationChannel === 'email' ? 'Email inbox' : 'WhatsApp inbox'"></label>
+                            <select name="channel_target_id"
+                                    x-model="newConversationTargetId"
+                                    class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
+                                <template x-for="inbox in availableInboxes(newConversationChannel)" :key="inbox.target_id">
+                                    <option :value="inbox.target_id" x-text="inbox.name || 'Inbox'"></option>
+                                </template>
+                            </select>
+                        </div>
+                    </template>
                     <div>
                         <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Contact name</label>
                         <input name="contact_name"
@@ -575,6 +627,8 @@ function inboxController() {
         searchQuery: {{ (search or "") | tojson }},
         currentChannel: {{ current_channel | tojson }},
         currentStatus: {{ current_status | tojson }},
+        currentAssignment: {{ (current_assignment or "") | tojson }} || null,
+        currentInboxTargetId: {{ (current_target_id or "") | tojson }} || null,
         selectedConversation: {{ (selected_conversation.id if selected_conversation else None) | tojson }},
         selectedContactId: {{ (selected_conversation.contact.id if selected_conversation else None) | tojson }},
         selectedCommentId: {{ ((selected_comment.id | string) if selected_comment else None) | tojson }},
@@ -582,6 +636,13 @@ function inboxController() {
         sidePanel: null,
         showNewConversation: {{ (new_error is not none) | tojson }},
         newConversationChannel: 'email',
+        newConversationTargetId: null,
+        emailInboxes: {{ (email_inboxes or []) | tojson }},
+        whatsappInboxes: {{ (whatsapp_inboxes or []) | tojson }},
+        facebookInboxes: {{ (facebook_inboxes or []) | tojson }},
+        instagramInboxes: {{ (instagram_inboxes or []) | tojson }},
+        facebookCommentInboxes: {{ (facebook_comment_inboxes or []) | tojson }},
+        instagramCommentInboxes: {{ (instagram_comment_inboxes or []) | tojson }},
         isTyping: false,
         wsConnected: false,
         inboxWs: null,
@@ -607,6 +668,8 @@ function inboxController() {
 
             // Initialize WebSocket connection
             this.initWebSocket();
+            this.updateNewConversationTarget();
+            this.normalizeInboxTarget();
 
             // Setup WebSocket event listeners
             window.addEventListener('inbox-new-message', (e) => {
@@ -645,6 +708,62 @@ function inboxController() {
                 requestAnimationFrame(() => {
                     this.refreshThread(true);
                 });
+            }
+        },
+        availableInboxes(channel) {
+            if (channel === 'email') return this.emailInboxes || [];
+            if (channel === 'whatsapp') return this.whatsappInboxes || [];
+            if (channel === 'facebook_messenger') return this.facebookInboxes || [];
+            if (channel === 'instagram_dm') return this.instagramInboxes || [];
+            if (channel === 'comments') {
+                return [...(this.facebookCommentInboxes || []), ...(this.instagramCommentInboxes || [])];
+            }
+            return [
+                ...(this.emailInboxes || []),
+                ...(this.whatsappInboxes || []),
+                ...(this.facebookInboxes || []),
+                ...(this.instagramInboxes || []),
+                ...(this.facebookCommentInboxes || []),
+                ...(this.instagramCommentInboxes || [])
+            ];
+        },
+        formatInboxOption(inbox) {
+            const name = inbox.name || 'Inbox';
+            const channel = inbox.channel || null;
+            const kind = inbox.kind || 'inbox';
+            const channelLabelMap = {
+                email: 'Email',
+                whatsapp: 'WhatsApp',
+                facebook: 'Facebook',
+                instagram: 'Instagram'
+            };
+            const kindLabel = kind === 'comments' ? 'Comments' : 'Inbox';
+            if (this.currentChannel && this.currentChannel !== 'comments') {
+                return name;
+            }
+            if (!channel) {
+                return name;
+            }
+            const channelLabel = channelLabelMap[channel] || 'Inbox';
+            return `${channelLabel} ${kindLabel} · ${name}`;
+        },
+        normalizeInboxTarget() {
+            if (!this.currentInboxTargetId) {
+                return;
+            }
+            const inboxes = this.availableInboxes(this.currentChannel);
+            if (!inboxes.length || !inboxes.some((i) => i.target_id === this.currentInboxTargetId)) {
+                this.currentInboxTargetId = null;
+            }
+        },
+        updateNewConversationTarget() {
+            const inboxes = this.availableInboxes(this.newConversationChannel);
+            if (!inboxes.length) {
+                this.newConversationTargetId = null;
+                return;
+            }
+            if (!this.newConversationTargetId || !inboxes.some((i) => i.target_id === this.newConversationTargetId)) {
+                this.newConversationTargetId = inboxes[0].target_id;
             }
         },
 
@@ -778,7 +897,9 @@ function inboxController() {
             this.currentChannel = channel;
             if (channel === 'comments') {
                 this.currentStatus = null;
+                this.currentAssignment = null;
             }
+            this.normalizeInboxTarget();
             this.filterConversations();
         },
 
@@ -790,11 +911,21 @@ function inboxController() {
             this.filterConversations();
         },
 
+        setAssignment(assignment) {
+            if (this.currentChannel === 'comments') {
+                return;
+            }
+            this.currentAssignment = assignment;
+            this.filterConversations();
+        },
+
         cacheKey() {
             const channel = this.currentChannel || 'all';
             const status = this.currentStatus || 'all';
+            const assignment = this.currentAssignment || 'all';
+            const targetId = this.currentInboxTargetId || 'all';
             const search = this.searchQuery || '';
-            return `crm:conversations:${channel}:${status}:${search}`;
+            return `crm:conversations:${channel}:${status}:${assignment}:${targetId}:${search}`;
         },
 
         restoreConversationCache() {
@@ -833,6 +964,8 @@ function inboxController() {
             const params = new URLSearchParams();
             if (this.currentChannel) params.set('channel', this.currentChannel);
             if (this.currentStatus) params.set('status', this.currentStatus);
+            if (this.currentAssignment) params.set('assignment', this.currentAssignment);
+            if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
             if (this.searchQuery) params.set('search', this.searchQuery);
 
             if (this.currentChannel === 'comments') {
@@ -920,6 +1053,7 @@ function inboxController() {
             const params = new URLSearchParams();
             if (this.searchQuery) params.set('search', this.searchQuery);
             if (this.selectedCommentId) params.set('comment_id', this.selectedCommentId);
+            if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
 
             htmx.ajax('GET', `/admin/crm/inbox/comments/list?${params.toString()}`, {
                 target: '#conversation-list',

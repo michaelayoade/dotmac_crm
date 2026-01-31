@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.scheduler import (
     ScheduledTaskCreate,
@@ -11,14 +11,6 @@ from app.schemas.scheduler import (
 from app.services import scheduler as scheduler_service
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/tasks", response_model=ListResponse[ScheduledTaskRead])

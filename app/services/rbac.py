@@ -107,9 +107,7 @@ class Permissions(ListResponseMixin):
         offset: int,
     ):
         query = db.query(Permission)
-        if is_active is None:
-            query = query.filter(Permission.is_active.is_(True))
-        else:
+        if is_active is not None:
             query = query.filter(Permission.is_active == is_active)
         query = apply_ordering(
             query,

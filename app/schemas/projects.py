@@ -164,6 +164,11 @@ class ProjectCommentCreate(ProjectCommentBase):
     pass
 
 
+class ProjectCommentUpdate(BaseModel):
+    body: str | None = Field(default=None, min_length=1)
+    attachments: list[dict] | None = None
+
+
 class ProjectCommentRead(ProjectCommentBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

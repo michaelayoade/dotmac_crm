@@ -1,5 +1,6 @@
 """Admin projects web routes."""
 
+import json
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -19,9 +20,20 @@ from app.services.audit_helpers import (
 )
 from app.models.person import Person
 from app.services import person as person_service
-from app.models.projects import ProjectPriority, ProjectStatus, ProjectType, TaskPriority, TaskStatus
+from app.models.projects import (
+    ProjectComment,
+    ProjectPriority,
+    ProjectStatus,
+    ProjectTemplateTask,
+    ProjectTemplateTaskDependency,
+    ProjectType,
+    TaskDependencyType,
+    TaskPriority,
+    TaskStatus,
+)
 from app.schemas.projects import (
     ProjectCommentCreate,
+    ProjectCommentUpdate,
     ProjectCreate,
     ProjectTaskCommentCreate,
     ProjectTaskCreate,
@@ -87,6 +99,8 @@ def _format_activity(event, label: str) -> str:
         return f"Updated {label}"
     if action == "comment":
         return "Added a comment"
+    if action == "comment_edit":
+        return "Edited a comment"
     if action == "status_change":
         from_status = metadata.get("from")
         to_status = metadata.get("to")
@@ -447,6 +461,7 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
     except Exception as exc:
         from app.services import ticket_attachments as ticket_attachment_service
 
+        db.rollback()
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
         error = exc.detail if hasattr(exc, "detail") else str(exc)
         context = _project_form_context(
@@ -462,6 +477,7 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
 @router.get("/tasks", response_class=HTMLResponse)
 def project_tasks_list(
     request: Request,
+    project_id: Optional[str] = None,
     status: Optional[str] = None,
     priority: Optional[str] = None,
     page: int = Query(1, ge=1),
@@ -473,7 +489,7 @@ def project_tasks_list(
 
     tasks = projects_service.project_tasks.list(
         db=db,
-        project_id=None,
+        project_id=project_id if project_id else None,
         status=status if status else None,
         priority=priority if priority else None,
         assigned_to_person_id=None,
@@ -487,7 +503,7 @@ def project_tasks_list(
 
     all_tasks = projects_service.project_tasks.list(
         db=db,
-        project_id=None,
+        project_id=project_id if project_id else None,
         status=status if status else None,
         priority=priority if priority else None,
         assigned_to_person_id=None,
@@ -501,6 +517,21 @@ def project_tasks_list(
     total = len(all_tasks)
     total_pages = (total + per_page - 1) // per_page if total else 1
 
+    projects = projects_service.projects.list(
+        db=db,
+        subscriber_id=None,
+        status=None,
+        priority=None,
+        owner_person_id=None,
+        manager_person_id=None,
+        is_active=True,
+        order_by="name",
+        order_dir="asc",
+        limit=1000,
+        offset=0,
+    )
+    project_map = {str(project.id): project for project in projects}
+
     from app.web.admin import get_sidebar_stats, get_current_user
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
@@ -510,6 +541,9 @@ def project_tasks_list(
         {
             "request": request,
             "tasks": tasks,
+            "projects": projects,
+            "project_map": project_map,
+            "project_id": project_id,
             "status": status,
             "priority": priority,
             "page": page,
@@ -675,6 +709,42 @@ def _template_task_form_context(
     return context
 
 
+def _build_template_task_editor_payload(db: Session, template_id: str) -> tuple[list, list[dict]]:
+    tasks = projects_service.project_template_tasks.list(
+        db=db,
+        template_id=template_id,
+        is_active=True,
+        order_by="sort_order",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    task_ids = [task.id for task in tasks]
+    dependencies_map: dict[str, list[str]] = {}
+    if task_ids:
+        dependencies = (
+            db.query(ProjectTemplateTaskDependency)
+            .filter(ProjectTemplateTaskDependency.template_task_id.in_(task_ids))
+            .all()
+        )
+        for dependency in dependencies:
+            dependencies_map.setdefault(str(dependency.template_task_id), []).append(
+                str(dependency.depends_on_template_task_id)
+            )
+    payload = []
+    for task in tasks:
+        payload.append(
+            {
+                "client_id": str(task.id),
+                "id": str(task.id),
+                "title": task.title,
+                "description": task.description or "",
+                "dependencies": dependencies_map.get(str(task.id), []),
+            }
+        )
+    return tasks, payload
+
+
 @router.get("/templates", response_class=HTMLResponse)
 def project_templates_list(request: Request, db: Session = Depends(get_db)):
     try:
@@ -799,6 +869,184 @@ def project_template_detail(request: Request, template_id: str, db: Session = De
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         },
+    )
+
+
+@router.get("/templates/{template_id}/tasks/editor", response_class=HTMLResponse)
+def project_template_tasks_editor(
+    request: Request, template_id: str, db: Session = Depends(get_db)
+):
+    try:
+        template = projects_service.project_templates.get(db=db, template_id=template_id)
+    except Exception:
+        from app.web.admin import get_sidebar_stats, get_current_user
+        context = {
+            "request": request,
+            "message": "Project template not found",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+        }
+        return templates.TemplateResponse("admin/errors/404.html", context, status_code=404)
+
+    _, tasks_payload = _build_template_task_editor_payload(db, template_id)
+    from app.web.admin import get_sidebar_stats, get_current_user
+    return templates.TemplateResponse(
+        "admin/projects/project_template_tasks_editor.html",
+        {
+            "request": request,
+            "template": template,
+            "tasks_payload": tasks_payload,
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+        },
+    )
+
+
+@router.post("/templates/{template_id}/tasks/editor", response_class=HTMLResponse)
+async def project_template_tasks_editor_update(
+    request: Request, template_id: str, db: Session = Depends(get_db)
+):
+    form = await request.form()
+    raw_tasks = _form_str(form.get("tasks_json")).strip()
+    try:
+        tasks_data = json.loads(raw_tasks) if raw_tasks else []
+    except json.JSONDecodeError:
+        tasks_data = None
+
+    if not isinstance(tasks_data, list):
+        template = projects_service.project_templates.get(db=db, template_id=template_id)
+        from app.web.admin import get_sidebar_stats, get_current_user
+        return templates.TemplateResponse(
+            "admin/projects/project_template_tasks_editor.html",
+            {
+                "request": request,
+                "template": template,
+                "tasks_payload": [],
+                "error": "Tasks data is invalid. Please refresh and try again.",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+            },
+            status_code=400,
+        )
+
+    tasks_payload: list[dict] = []
+    errors: list[str] = []
+    seen_client_ids: set[str] = set()
+    for item in tasks_data:
+        if not isinstance(item, dict):
+            errors.append("Each task must be an object.")
+            continue
+        client_id = str(item.get("client_id") or "").strip()
+        title = str(item.get("title") or "").strip()
+        description = str(item.get("description") or "").strip()
+        dependencies = item.get("dependencies") or []
+        if not client_id:
+            errors.append("Each task must have a client_id.")
+        if not title:
+            errors.append("Each task must have a title.")
+        if client_id in seen_client_ids:
+            errors.append("Duplicate task client_id found.")
+        seen_client_ids.add(client_id)
+        tasks_payload.append(
+            {
+                "client_id": client_id,
+                "title": title,
+                "description": description,
+                "dependencies": dependencies,
+            }
+        )
+
+    if errors:
+        template = projects_service.project_templates.get(db=db, template_id=template_id)
+        from app.web.admin import get_sidebar_stats, get_current_user
+        return templates.TemplateResponse(
+            "admin/projects/project_template_tasks_editor.html",
+            {
+                "request": request,
+                "template": template,
+                "tasks_payload": tasks_payload,
+                "error": " ".join(errors),
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+            },
+            status_code=400,
+        )
+
+    template_uuid = coerce_uuid(template_id)
+    existing_tasks = (
+        db.query(ProjectTemplateTask)
+        .filter(ProjectTemplateTask.template_id == template_uuid)
+        .all()
+    )
+    existing_map = {str(task.id): task for task in existing_tasks}
+    client_id_to_task_id: dict[str, str] = {}
+    kept_task_ids: set[str] = set()
+
+    for index, task_data in enumerate(tasks_payload):
+        client_id = task_data["client_id"]
+        title = task_data["title"]
+        description = task_data["description"]
+        if client_id in existing_map:
+            task = existing_map[client_id]
+            task.title = title
+            task.description = description or None
+            task.sort_order = index
+            task.is_active = True
+            kept_task_ids.add(str(task.id))
+            client_id_to_task_id[client_id] = str(task.id)
+        else:
+            new_task = ProjectTemplateTask(
+                template_id=template_uuid,
+                title=title,
+                description=description or None,
+                sort_order=index,
+                is_active=True,
+            )
+            db.add(new_task)
+            db.flush()
+            kept_task_ids.add(str(new_task.id))
+            client_id_to_task_id[client_id] = str(new_task.id)
+
+    for task in existing_tasks:
+        if str(task.id) not in kept_task_ids:
+            task.is_active = False
+
+    template_task_ids = [str(task.id) for task in existing_tasks] + [
+        task_id for task_id in kept_task_ids if task_id not in existing_map
+    ]
+    if template_task_ids:
+        db.query(ProjectTemplateTaskDependency).filter(
+            ProjectTemplateTaskDependency.template_task_id.in_(template_task_ids)
+        ).delete(synchronize_session=False)
+
+    dependency_pairs: set[tuple[str, str]] = set()
+    for task in tasks_payload:
+        task_id = client_id_to_task_id.get(task["client_id"])
+        if not task_id:
+            continue
+        dependencies = task.get("dependencies") or []
+        if not isinstance(dependencies, list):
+            continue
+        for depends_on_client_id in dependencies:
+            depends_on_id = client_id_to_task_id.get(str(depends_on_client_id))
+            if not depends_on_id or depends_on_id == task_id:
+                continue
+            key = (task_id, depends_on_id)
+            if key in dependency_pairs:
+                continue
+            dependency_pairs.add(key)
+            db.add(
+                ProjectTemplateTaskDependency(
+                    template_task_id=task_id,
+                    depends_on_template_task_id=depends_on_id,
+                    dependency_type=TaskDependencyType.finish_to_start,
+                    lag_days=0,
+                )
+            )
+
+    db.commit()
+    return RedirectResponse(
+        f"/admin/projects/templates/{template_id}", status_code=303
     )
 
 
@@ -1209,6 +1457,50 @@ async def project_comment_create(
         context = {
             "request": request,
             "message": "Unable to add comment",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+        }
+        return templates.TemplateResponse("admin/errors/500.html", context, status_code=500)
+
+
+@router.post("/{project_id}/comments/{comment_id}/edit", response_class=HTMLResponse)
+async def project_comment_edit(
+    request: Request, project_id: str, comment_id: str, db: Session = Depends(get_db)
+):
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    form = await request.form()
+    body = _form_str(form.get("body")).strip()
+    if not body:
+        return RedirectResponse(f"/admin/projects/{project_id}", status_code=303)
+
+    try:
+        comment = db.get(ProjectComment, comment_id)
+        if not comment or str(comment.project_id) != str(project_id):
+            context = {
+                "request": request,
+                "message": "Comment not found",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+            }
+            return templates.TemplateResponse("admin/errors/404.html", context, status_code=404)
+
+        payload = ProjectCommentUpdate.model_validate({"body": body})
+        projects_service.project_comments.update(db=db, comment_id=comment_id, payload=payload)
+        current_user = get_current_user(request)
+        _log_activity(
+            db=db,
+            request=request,
+            action="comment_edit",
+            entity_type="project",
+            entity_id=str(project_id),
+            actor_id=str(current_user.get("person_id")) if current_user else None,
+        )
+        return RedirectResponse(f"/admin/projects/{project_id}", status_code=303)
+    except Exception:
+        context = {
+            "request": request,
+            "message": "Unable to edit comment",
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         }

@@ -16,6 +16,7 @@ from app.models.crm.conversation import (
 from app.models.crm.team import CrmTeam, CrmAgent, CrmAgentTeam, CrmTeamChannel, CrmRoutingRule
 from app.models.crm.sales import Pipeline, PipelineStage, Lead, Quote, CrmQuoteLineItem
 from app.models.crm.comments import SocialComment, SocialCommentPlatform, SocialCommentReply
+from app.models.crm.chat_widget import ChatWidgetConfig, WidgetVisitorSession
 
 __all__ = [
     "ChannelType",
@@ -42,4 +43,6 @@ __all__ = [
     "SocialComment",
     "SocialCommentPlatform",
     "SocialCommentReply",
+    "ChatWidgetConfig",
+    "WidgetVisitorSession",
 ]
