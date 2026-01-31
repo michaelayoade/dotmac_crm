@@ -9,6 +9,7 @@ DotMac Omni is an **omni-channel field service and CRM platform** for telcos/uti
 - **Frontend**: Jinja2 templates + HTMX + Alpine.js + Tailwind CSS v4
 - **Task Queue**: Celery + Redis
 - **Auth**: JWT + Cookies (multi-portal: admin, customer, reseller, vendor)
+- **Deployment**: Single-tenant (one instance per organization)
 
 ### Core Domains
 - **Tickets** - Customer support ticket management
@@ -222,3 +223,25 @@ Global rate limiting via `APIRateLimitMiddleware` (100 req/min default):
 - Uses Redis with in-memory fallback
 - Adds `X-RateLimit-*` headers to responses
 - Exempt paths: `/health`, `/metrics`, `/static/`, `/docs`
+
+## Architectural Decisions
+
+### Single-Tenant Deployment
+This is a **single-tenant application** (one instance per organization). This means:
+- No tenant isolation or multi-tenancy patterns needed
+- No tenant_id scoping in queries
+- Resource-level permissions focus on user ownership, not tenant boundaries
+- Simpler permission model: RBAC + optional resource ownership checks
+
+### Medium-Term Improvements (Planned)
+Focus areas for maintainability and testability:
+
+1. **Query Builders** - Extract filter logic from services into composable builders
+2. **CRM Module Split** - Break 24-file CRM into logical submodules (contacts, inbox, sales, teams)
+3. **Dependency Injection** - Enable proper testing via `dependency-injector` library
+4. **Resource Ownership** - Add ownership checks (user can edit own tickets) where needed
+
+**NOT needed** (single-tenant):
+- Tenant isolation / row-level security
+- Multi-tenant permission scoping
+- Cross-tenant data access controls
