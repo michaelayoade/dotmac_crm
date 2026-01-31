@@ -1,67 +1,166 @@
-from app.services.crm.contact import Contacts, ContactChannels, get_or_create_contact_by_channel
-from app.services.crm.conversation import (
+"""CRM Service Module.
+
+Provides omni-channel customer relationship management including:
+- Contacts: Person and channel management
+- Conversations: Message threads and assignments
+- Teams: Agent teams and routing rules
+- Sales: Pipelines, leads, and quotes
+- Inbox: Email/message processing
+- Widget: Chat widget configuration
+
+Submodule Structure:
+    crm/
+    ├── contacts/      - Contact and channel management
+    ├── conversations/ - Message threads, assignments, tags
+    ├── teams/         - Teams, agents, routing rules
+    ├── sales/         - Pipelines, leads, quotes
+    ├── inbox/         - Email/message ingestion
+    ├── widget/        - Chat widget
+    └── reports.py     - CRM analytics and reporting
+"""
+
+# Contacts submodule
+from app.services.crm.contacts import (
+    Contacts,
+    ContactChannels,
+    contacts,
+    contact_channels,
+)
+from app.services.crm.contacts.service import get_or_create_contact_by_channel
+
+# Conversations submodule
+from app.services.crm.conversations import (
     Conversations,
     ConversationAssignments,
     ConversationTags,
     Messages,
     MessageAttachments,
+    PrivateNotes,
+    SocialComments,
+    SocialCommentReplies,
+    conversations,
+    conversation_assignments,
+    conversation_tags,
+    messages,
+    message_attachments,
+    private_notes,
+    social_comments,
+    social_comment_replies,
+)
+from app.services.crm.conversations.service import (
     resolve_conversation_contact,
     resolve_open_conversation,
 )
-from app.services.crm.team import Teams, Agents, AgentTeams, TeamChannels, RoutingRules, get_agent_labels, get_agent_team_options
-from app.services.crm.sales import Pipelines, PipelineStages, Leads, Quotes, CrmQuoteLineItems
-from app.services.crm import inbox
-from app.services.crm.chat_widget import (
-    ChatWidgetConfigManager,
-    WidgetVisitorManager,
-    widget_configs,
-    widget_visitors,
-    receive_widget_message,
-    send_widget_message,
+
+# Teams submodule
+from app.services.crm.teams import (
+    Teams,
+    Agents,
+    AgentTeams,
+    TeamChannels,
+    RoutingRules,
+    teams,
+    agents,
+    agent_teams,
+    team_channels,
+    routing_rules,
+)
+from app.services.crm.teams.service import get_agent_labels, get_agent_team_options
+
+# Sales submodule
+from app.services.crm.sales import (
+    Pipelines,
+    PipelineStages,
+    Leads,
+    Quotes,
+    CrmQuoteLineItems,
+    pipelines,
+    pipeline_stages,
+    leads,
+    quotes,
+    quote_line_items,
 )
 
-contacts = Contacts()
-contact_channels = ContactChannels()
-conversations = Conversations()
-conversation_assignments = ConversationAssignments()
-conversation_tags = ConversationTags()
-messages = Messages()
-message_attachments = MessageAttachments()
-teams = Teams()
-agents = Agents()
-agent_teams = AgentTeams()
-team_channels = TeamChannels()
-routing_rules = RoutingRules()
-pipelines = Pipelines()
-pipeline_stages = PipelineStages()
-leads = Leads()
-quotes = Quotes()
-quote_line_items = CrmQuoteLineItems()
+# Widget submodule
+from app.services.crm.widget import (
+    ChatWidgetConfigs,
+    WidgetVisitorSessions,
+    chat_widget_configs,
+    widget_visitor_sessions,
+)
+# Backward compatibility aliases
+widget_configs = chat_widget_configs
+widget_visitors = widget_visitor_sessions
+
+# Inbox submodule (keep as namespace import for complex operations)
+from app.services.crm import inbox
+
+# Widget message functions (if they exist in widget service)
+try:
+    from app.services.crm.widget.service import receive_widget_message, send_widget_message
+except ImportError:
+    receive_widget_message = None
+    send_widget_message = None
 
 __all__ = [
+    # Contacts
+    "Contacts",
+    "ContactChannels",
     "contacts",
     "contact_channels",
+    "get_or_create_contact_by_channel",
+    # Conversations
+    "Conversations",
+    "ConversationAssignments",
+    "ConversationTags",
+    "Messages",
+    "MessageAttachments",
+    "PrivateNotes",
+    "SocialComments",
+    "SocialCommentReplies",
     "conversations",
     "conversation_assignments",
     "conversation_tags",
     "messages",
     "message_attachments",
+    "private_notes",
+    "social_comments",
+    "social_comment_replies",
+    "resolve_conversation_contact",
+    "resolve_open_conversation",
+    # Teams
+    "Teams",
+    "Agents",
+    "AgentTeams",
+    "TeamChannels",
+    "RoutingRules",
     "teams",
     "agents",
     "agent_teams",
     "team_channels",
     "routing_rules",
+    "get_agent_labels",
+    "get_agent_team_options",
+    # Sales
+    "Pipelines",
+    "PipelineStages",
+    "Leads",
+    "Quotes",
+    "CrmQuoteLineItems",
     "pipelines",
     "pipeline_stages",
     "leads",
     "quotes",
     "quote_line_items",
-    "get_or_create_contact_by_channel",
-    "resolve_conversation_contact",
-    "resolve_open_conversation",
-    "inbox",
-    "widget_configs",
-    "widget_visitors",
+    # Widget
+    "ChatWidgetConfigs",
+    "WidgetVisitorSessions",
+    "chat_widget_configs",
+    "widget_visitor_sessions",
+    "widget_configs",  # Backward compatibility
+    "widget_visitors",  # Backward compatibility
     "receive_widget_message",
     "send_widget_message",
+    # Inbox
+    "inbox",
 ]

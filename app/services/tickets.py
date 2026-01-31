@@ -14,6 +14,7 @@ from app.models.tickets import (
     TicketStatus,
 )
 from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
+from app.queries.tickets import TicketQuery, TicketCommentQuery, TicketSlaEventQuery
 from app.services.common import (
     apply_ordering,
     apply_pagination,
@@ -147,46 +148,31 @@ class Tickets(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(Ticket)
-        if subscriber_id:
-            query = query.filter(Ticket.subscriber_id == coerce_uuid(subscriber_id))
-        if status:
-            query = query.filter(Ticket.status == validate_enum(status, TicketStatus, "status"))
-        if priority:
-            query = query.filter(
-                Ticket.priority == validate_enum(priority, TicketPriority, "priority")
-            )
-        if channel:
-            query = query.filter(
-                Ticket.channel == validate_enum(channel, TicketChannel, "channel")
-            )
-        if search:
-            like_term = f"%{search.strip()}%"
-            if like_term != "%%":
-                search_filters = [
-                    Ticket.title.ilike(like_term),
-                    Ticket.description.ilike(like_term),
-                    cast(Ticket.id, String).ilike(like_term),
-                ]
-                ticket_number_attr = getattr(Ticket, "ticket_number", None)
-                if ticket_number_attr is not None:
-                    search_filters.append(ticket_number_attr.ilike(like_term))
-                query = query.filter(or_(*search_filters))
-        if created_by_person_id:
-            query = query.filter(Ticket.created_by_person_id == created_by_person_id)
-        if assigned_to_person_id:
-            query = query.filter(Ticket.assigned_to_person_id == assigned_to_person_id)
-        if is_active is None:
-            query = query.filter(Ticket.is_active.is_(True))
-        else:
-            query = query.filter(Ticket.is_active == is_active)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {"created_at": Ticket.created_at, "status": Ticket.status, "priority": Ticket.priority},
+        # Use query builder for cleaner, composable filtering
+        query = (
+            TicketQuery(db)
+            .by_subscriber(subscriber_id)
+            .by_status(status)
+            .by_priority(priority)
+            .by_channel(channel)
+            .search(search)
+            .by_created_by(created_by_person_id)
+            .by_assigned_to(assigned_to_person_id)
         )
-        return apply_pagination(query, limit, offset).all()
+        # Apply active filter
+        if is_active is None:
+            query = query.active_only()
+        elif is_active:
+            query = query.active_only(True)
+        else:
+            query = query.active_only(False)
+
+        return (
+            query
+            .order_by(order_by, order_dir)
+            .paginate(limit, offset)
+            .all()
+        )
 
     @staticmethod
     def status_stats(db: Session) -> dict:
@@ -374,18 +360,14 @@ class TicketComments(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(TicketComment)
-        if ticket_id:
-            query = query.filter(TicketComment.ticket_id == ticket_id)
-        if is_internal is not None:
-            query = query.filter(TicketComment.is_internal == is_internal)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {"created_at": TicketComment.created_at},
+        return (
+            TicketCommentQuery(db)
+            .by_ticket(ticket_id)
+            .is_internal(is_internal)
+            .order_by(order_by, order_dir)
+            .paginate(limit, offset)
+            .all()
         )
-        return apply_pagination(query, limit, offset).all()
 
     @staticmethod
     def update(db: Session, comment_id: str, payload: TicketCommentUpdate):
@@ -436,18 +418,14 @@ class TicketSlaEvents(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(TicketSlaEvent)
-        if ticket_id:
-            query = query.filter(TicketSlaEvent.ticket_id == ticket_id)
-        if event_type:
-            query = query.filter(TicketSlaEvent.event_type == event_type)
-        query = apply_ordering(
-            query,
-            order_by,
-            order_dir,
-            {"created_at": TicketSlaEvent.created_at, "event_type": TicketSlaEvent.event_type},
+        return (
+            TicketSlaEventQuery(db)
+            .by_ticket(ticket_id)
+            .by_event_type(event_type)
+            .order_by(order_by, order_dir)
+            .paginate(limit, offset)
+            .all()
         )
-        return apply_pagination(query, limit, offset).all()
 
     @staticmethod
     def update(db: Session, event_id: str, payload: TicketSlaEventUpdate):
