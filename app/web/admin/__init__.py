@@ -21,13 +21,13 @@ from app.web.admin.integrations import router as integrations_router
 from app.web.admin.legal import router as legal_router
 from app.web.admin.vendors import router as vendors_router
 from app.web.admin.resellers import router as resellers_router
+from app.web.admin.campaigns import router as campaigns_router
+from app.web.admin.surveys import router as surveys_router
 from app.web.admin.crm import router as crm_router
 from app.web.admin.notifications import router as notifications_router
-from app.web.admin.wireguard import router as wireguard_router
 from app.web.admin.network import router as network_router
 from app.web.admin.meta_oauth import router as meta_oauth_router
 from app.web.admin.admin_hub import router as admin_hub_router
-from app.web.admin.subscribers import router as subscribers_router
 from app.web.admin.operations import router as operations_router
 from app.web.admin.reports import router as reports_router
 
@@ -82,14 +82,14 @@ router.include_router(gis_router)
 router.include_router(integrations_router)
 router.include_router(vendors_router)
 router.include_router(resellers_router)
+router.include_router(campaigns_router)
+router.include_router(surveys_router)
 router.include_router(crm_router)
 router.include_router(notifications_router)
-router.include_router(wireguard_router, prefix="/network")
 router.include_router(network_router)
 router.include_router(legal_router, prefix="/system")
 router.include_router(meta_oauth_router)
 router.include_router(admin_hub_router, prefix="/system")
-router.include_router(subscribers_router)
 router.include_router(operations_router)
 router.include_router(reports_router)
 

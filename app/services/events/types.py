@@ -63,10 +63,25 @@ class EventType(enum.Enum):
     session_started = "session.started"
     session_ended = "session.ended"
 
-    # Support - Ticket events (3)
+    # Support - Ticket events (4)
     ticket_created = "ticket.created"
+    ticket_updated = "ticket.updated"
     ticket_escalated = "ticket.escalated"
     ticket_resolved = "ticket.resolved"
+    ticket_assigned = "ticket.assigned"
+
+    # Projects - Project events (4)
+    project_created = "project.created"
+    project_updated = "project.updated"
+    project_completed = "project.completed"
+    project_canceled = "project.canceled"
+
+    # Workforce - Work Order events (5)
+    work_order_created = "work_order.created"
+    work_order_updated = "work_order.updated"
+    work_order_dispatched = "work_order.dispatched"
+    work_order_completed = "work_order.completed"
+    work_order_canceled = "work_order.canceled"
 
     # Collections - Dunning events (4)
     dunning_started = "dunning.started"
@@ -76,6 +91,9 @@ class EventType(enum.Enum):
 
     # Network alert (legacy, kept for compatibility)
     network_alert = "network.alert"
+
+    # Survey events (1)
+    survey_response_submitted = "survey_response.submitted"
 
     # Custom event type for extensibility
     custom = "custom"
@@ -112,6 +130,8 @@ class Event:
     subscription_id: UUID | None = None
     invoice_id: UUID | None = None
     ticket_id: UUID | None = None
+    project_id: UUID | None = None
+    work_order_id: UUID | None = None
     def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for JSON serialization."""
         def _serialize(value: Any) -> Any:
@@ -137,5 +157,7 @@ class Event:
                 "subscription_id": str(self.subscription_id) if self.subscription_id else None,
                 "invoice_id": str(self.invoice_id) if self.invoice_id else None,
                 "ticket_id": str(self.ticket_id) if self.ticket_id else None,
+                "project_id": str(self.project_id) if self.project_id else None,
+                "work_order_id": str(self.work_order_id) if self.work_order_id else None,
             },
         }

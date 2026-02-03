@@ -62,6 +62,8 @@ from app.models.person import (  # noqa: F401
     PersonStatusLog,
 )
 from app.models.subscriber import (  # noqa: F401
+    AccountStatus,
+    AccountType,
     AddressType,
     Organization,
     Reseller,
@@ -217,9 +219,14 @@ from app.models.timecost import (  # noqa: F401
 from app.models.comms import (  # noqa: F401
     CustomerNotificationEvent,
     CustomerNotificationStatus,
+    CustomerSurveyStatus,
     EtaUpdate,
     Survey,
+    SurveyInvitation,
+    SurveyInvitationStatus,
+    SurveyQuestionType,
     SurveyResponse,
+    SurveyTriggerType,
 )
 from app.models.analytics import (  # noqa: F401
     KPIAggregate,
@@ -231,6 +238,12 @@ from app.models.legal import (  # noqa: F401
 )
 from app.models.contracts import ContractSignature  # noqa: F401
 from app.models.crm import (  # noqa: F401
+    Campaign,
+    CampaignRecipient,
+    CampaignRecipientStatus,
+    CampaignStatus,
+    CampaignStep,
+    CampaignType,
     ChannelType,
     ConversationStatus,
     MessageDirection,
@@ -264,12 +277,6 @@ from app.models.wireless_survey import (  # noqa: F401
     WirelessSiteSurvey,
 )
 from app.models.wireless_mast import WirelessMast  # noqa: F401
-from app.models.wireguard import (  # noqa: F401
-    WireGuardConnectionLog,
-    WireGuardPeer,
-    WireGuardPeerStatus,
-    WireGuardServer,
-)
 from app.models.event_store import (  # noqa: F401
     EventStatus,
     EventStore,
