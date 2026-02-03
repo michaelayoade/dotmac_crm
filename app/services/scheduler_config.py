@@ -228,119 +228,9 @@ def build_beat_schedule() -> dict:
                 "task": "app.tasks.gis.sync_gis_sources",
                 "schedule": timedelta(minutes=max(interval_minutes, 1)),
             }
-        usage_enabled = _effective_bool(
-            session,
-            SettingDomain.usage,
-            "usage_rating_enabled",
-            "USAGE_RATING_ENABLED",
-            True,
-        )
-        usage_interval_seconds = _effective_int(
-            session,
-            SettingDomain.usage,
-            "usage_rating_interval_seconds",
-            "USAGE_RATING_INTERVAL_SECONDS",
-            86400,
-        )
-        usage_interval_seconds = max(usage_interval_seconds, 300)
-        _sync_scheduled_task(
-            session,
-            name="usage_rating_runner",
-            task_name="app.tasks.usage.run_usage_rating",
-            enabled=usage_enabled,
-            interval_seconds=usage_interval_seconds,
-        )
-        billing_enabled = _effective_bool(
-            session,
-            SettingDomain.billing,
-            "billing_enabled",
-            "BILLING_ENABLED",
-            True,
-        )
-        billing_interval_seconds = _effective_int(
-            session,
-            SettingDomain.billing,
-            "billing_interval_seconds",
-            "BILLING_INTERVAL_SECONDS",
-            86400,
-        )
-        billing_interval_seconds = max(billing_interval_seconds, 300)
-        _sync_scheduled_task(
-            session,
-            name="billing_runner",
-            task_name="app.tasks.billing.run_invoice_cycle",
-            enabled=billing_enabled,
-            interval_seconds=billing_interval_seconds,
-        )
-        dunning_enabled = _effective_bool(
-            session,
-            SettingDomain.collections,
-            "dunning_enabled",
-            "DUNNING_ENABLED",
-            True,
-        )
-        dunning_interval_seconds = _effective_int(
-            session,
-            SettingDomain.collections,
-            "dunning_interval_seconds",
-            "DUNNING_INTERVAL_SECONDS",
-            86400,
-        )
-        dunning_interval_seconds = max(dunning_interval_seconds, 60)
-        _sync_scheduled_task(
-            session,
-            name="dunning_runner",
-            task_name="app.tasks.collections.run_dunning",
-            enabled=dunning_enabled,
-            interval_seconds=dunning_interval_seconds,
-        )
-        prepaid_enabled = _effective_bool(
-            session,
-            SettingDomain.collections,
-            "prepaid_enforcement_enabled",
-            "PREPAID_ENFORCEMENT_ENABLED",
-            True,
-        )
-        prepaid_interval_seconds = _effective_int(
-            session,
-            SettingDomain.collections,
-            "prepaid_enforcement_interval_seconds",
-            "PREPAID_ENFORCEMENT_INTERVAL_SECONDS",
-            3600,
-        )
-        prepaid_interval_seconds = max(prepaid_interval_seconds, 300)
-        _sync_scheduled_task(
-            session,
-            name="prepaid_enforcement_runner",
-            task_name="app.tasks.collections.run_prepaid_enforcement",
-            enabled=prepaid_enabled,
-            interval_seconds=prepaid_interval_seconds,
-        )
-        # Subscription expiration enforcement (runs daily)
-        subscription_expiration_enabled = _effective_bool(
-            session,
-            SettingDomain.catalog,
-            "subscription_expiration_enabled",
-            "SUBSCRIPTION_EXPIRATION_ENABLED",
-            True,
-        )
-        subscription_expiration_interval_seconds = _effective_int(
-            session,
-            SettingDomain.catalog,
-            "subscription_expiration_interval_seconds",
-            "SUBSCRIPTION_EXPIRATION_INTERVAL_SECONDS",
-            86400,  # Daily
-        )
-        subscription_expiration_interval_seconds = max(
-            subscription_expiration_interval_seconds, 3600
-        )
-        _sync_scheduled_task(
-            session,
-            name="subscription_expiration_runner",
-            task_name="app.tasks.catalog.expire_subscriptions",
-            enabled=subscription_expiration_enabled,
-            interval_seconds=subscription_expiration_interval_seconds,
-        )
+
+        # Note: Legacy scheduled tasks removed (usage_rating, billing, dunning, prepaid, subscription_expiration)
+
         notification_queue_enabled = _effective_bool(
             session,
             SettingDomain.notification,
@@ -429,7 +319,7 @@ def build_beat_schedule() -> dict:
         # Bandwidth monitoring tasks
         bandwidth_enabled = _effective_bool(
             session,
-            SettingDomain.usage,
+            SettingDomain.bandwidth,
             "bandwidth_processing_enabled",
             "BANDWIDTH_PROCESSING_ENABLED",
             True,
@@ -487,29 +377,7 @@ def build_beat_schedule() -> dict:
                 interval_seconds=max(trim_interval, 60),
             )
 
-        # SNMP interface polling and discovery
-        snmp_walk_interval = _coerce_int(
-            resolve_value(session, SettingDomain.snmp, "interface_walk_interval_seconds"),
-            300,
-        )
-        snmp_discovery_interval = _coerce_int(
-            resolve_value(session, SettingDomain.snmp, "interface_discovery_interval_seconds"),
-            3600,
-        )
-        _sync_scheduled_task(
-            session,
-            name="snmp_interface_walk",
-            task_name="app.tasks.snmp.walk_interfaces",
-            enabled=True,
-            interval_seconds=max(snmp_walk_interval, 30),
-        )
-        _sync_scheduled_task(
-            session,
-            name="snmp_interface_discovery",
-            task_name="app.tasks.snmp.discover_interfaces",
-            enabled=True,
-            interval_seconds=max(snmp_discovery_interval, 60),
-        )
+        # Note: SNMP tasks removed (snmp_interface_walk, snmp_interface_discovery)
 
         # SLA breach detection - runs every 30 minutes
         sla_breach_enabled = _effective_bool(
@@ -540,73 +408,32 @@ def build_beat_schedule() -> dict:
             interval_seconds=sla_breach_interval_seconds,
         )
 
-        # WireGuard VPN maintenance tasks
-        wg_log_cleanup_enabled = _effective_bool(
-            session,
-            SettingDomain.network,
-            "wireguard_log_cleanup_enabled",
-            "WIREGUARD_LOG_CLEANUP_ENABLED",
-            True,
-        )
-        wg_log_cleanup_interval = _coerce_int(
-            resolve_value(
-                session, SettingDomain.network, "wireguard_log_cleanup_interval_seconds"
-            ),
-            86400,
-        )
-        wg_log_cleanup_interval = max(wg_log_cleanup_interval, 3600)  # Min: 1 hour
+        # Campaign scheduled send - checks for campaigns due to send
         _sync_scheduled_task(
             session,
-            name="wireguard_log_cleanup",
-            task_name="app.tasks.wireguard.cleanup_connection_logs",
-            enabled=wg_log_cleanup_enabled,
-            interval_seconds=wg_log_cleanup_interval,
+            name="campaign_scheduled_send",
+            task_name="app.tasks.campaigns.process_scheduled_campaigns",
+            enabled=True,
+            interval_seconds=60,
         )
 
-        # WireGuard token cleanup - runs hourly
-        wg_token_cleanup_enabled = _effective_bool(
-            session,
-            SettingDomain.network,
-            "wireguard_token_cleanup_enabled",
-            "WIREGUARD_TOKEN_CLEANUP_ENABLED",
-            True,
-        )
-        wg_token_cleanup_interval = _coerce_int(
-            resolve_value(
-                session, SettingDomain.network, "wireguard_token_cleanup_interval_seconds"
-            ),
-            3600,
-        )
-        wg_token_cleanup_interval = max(wg_token_cleanup_interval, 300)  # Min: 5 minutes
+        # Campaign nurture steps - checks for due nurture steps
         _sync_scheduled_task(
             session,
-            name="wireguard_token_cleanup",
-            task_name="app.tasks.wireguard.cleanup_expired_tokens",
-            enabled=wg_token_cleanup_enabled,
-            interval_seconds=wg_token_cleanup_interval,
+            name="campaign_nurture_steps",
+            task_name="app.tasks.campaigns.process_nurture_steps",
+            enabled=True,
+            interval_seconds=300,
         )
 
-        # WireGuard peer stats sync - runs every 5 minutes
-        wg_stats_sync_enabled = _effective_bool(
-            session,
-            SettingDomain.network,
-            "wireguard_peer_stats_sync_enabled",
-            "WIREGUARD_PEER_STATS_SYNC_ENABLED",
-            True,
-        )
-        wg_stats_sync_interval = _coerce_int(
-            resolve_value(
-                session, SettingDomain.network, "wireguard_peer_stats_sync_interval_seconds"
-            ),
-            300,
-        )
-        wg_stats_sync_interval = max(wg_stats_sync_interval, 60)  # Min: 1 minute
+        # CRM inbox reply reminders - checks for unreplied inbound messages
+        reminder_interval_seconds = 60
         _sync_scheduled_task(
             session,
-            name="wireguard_peer_stats_sync",
-            task_name="app.tasks.wireguard.sync_peer_stats",
-            enabled=wg_stats_sync_enabled,
-            interval_seconds=wg_stats_sync_interval,
+            name="crm_inbox_reply_reminders",
+            task_name="app.tasks.crm_inbox.send_reply_reminders",
+            enabled=True,
+            interval_seconds=reminder_interval_seconds,
         )
 
         # Event retry - retries failed event handlers
@@ -676,6 +503,84 @@ def build_beat_schedule() -> dict:
             task_name="app.tasks.events.cleanup_old_events",
             enabled=event_old_cleanup_enabled,
             interval_seconds=event_old_cleanup_interval,
+        )
+
+        # DotMac ERP sync - pushes projects, tickets, work orders to ERP
+        dotmac_erp_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_sync_enabled",
+            "DOTMAC_ERP_SYNC_ENABLED",
+            False,
+        )
+        dotmac_erp_sync_interval_minutes = _coerce_int(
+            resolve_value(
+                session, SettingDomain.integration, "dotmac_erp_sync_interval_minutes"
+            ),
+            60,
+        )
+        dotmac_erp_sync_interval_seconds = max(dotmac_erp_sync_interval_minutes * 60, 300)
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_sync",
+            task_name="app.tasks.integrations.sync_dotmac_erp",
+            enabled=dotmac_erp_sync_enabled,
+            interval_seconds=dotmac_erp_sync_interval_seconds,
+        )
+
+        # DotMac ERP shift sync - pulls technician shifts and time-off from ERP
+        dotmac_erp_shift_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_shift_sync_enabled",
+            "DOTMAC_ERP_SHIFT_SYNC_ENABLED",
+            False,
+        )
+        dotmac_erp_shift_sync_interval_minutes = _coerce_int(
+            resolve_value(
+                session, SettingDomain.integration, "dotmac_erp_shift_sync_interval_minutes"
+            ),
+            60,  # Default: hourly
+        )
+        dotmac_erp_shift_sync_interval_seconds = max(dotmac_erp_shift_sync_interval_minutes * 60, 300)
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_shift_sync",
+            task_name="app.tasks.integrations.sync_dotmac_erp_shifts",
+            enabled=dotmac_erp_shift_sync_enabled,
+            interval_seconds=dotmac_erp_shift_sync_interval_seconds,
+        )
+
+        # Survey triggers - checks for ticket_closed / work_order_completed triggers
+        _sync_scheduled_task(
+            session,
+            name="survey_triggers",
+            task_name="app.tasks.surveys.process_survey_triggers",
+            enabled=True,
+            interval_seconds=60,
+        )
+
+        # Chatwoot CRM sync - imports contacts, conversations, messages from Chatwoot
+        chatwoot_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "chatwoot_sync_enabled",
+            "CHATWOOT_SYNC_ENABLED",
+            False,
+        )
+        chatwoot_sync_interval_minutes = _coerce_int(
+            resolve_value(
+                session, SettingDomain.integration, "chatwoot_sync_interval_minutes"
+            ),
+            60,
+        )
+        chatwoot_sync_interval_seconds = max(chatwoot_sync_interval_minutes * 60, 300)
+        _sync_scheduled_task(
+            session,
+            name="chatwoot_crm_sync",
+            task_name="app.tasks.integrations.sync_chatwoot",
+            enabled=chatwoot_sync_enabled,
+            interval_seconds=chatwoot_sync_interval_seconds,
         )
 
         tasks = (

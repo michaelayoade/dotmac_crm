@@ -1,0 +1,178 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}{{ 'Edit' if survey else 'New' }} Survey - Admin{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-3xl space-y-6">
+    <!-- Breadcrumb -->
+    <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+        <a href="/admin/surveys" class="hover:text-slate-700 dark:hover:text-slate-200">Surveys</a>
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span class="text-slate-700 dark:text-slate-200">{{ 'Edit' if survey else 'New Survey' }}</span>
+    </nav>
+
+    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit Survey' if survey else 'Create Survey' }}</h1>
+
+    <form method="POST"
+          action="{{ '/admin/surveys/' + survey.id | string if survey else '/admin/surveys' }}"
+          x-data="questionBuilder()"
+          class="space-y-6">
+
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token(request) if csrf_token is defined else '' }}">
+
+        <!-- Basic Info -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Basic Information</h2>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name *</label>
+                <input type="text" name="name" value="{{ survey.name if survey else '' }}" required
+                       class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-700 placeholder-slate-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
+                <textarea name="description" rows="2"
+                          class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-700 placeholder-slate-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 resize-none">{{ survey.description if survey and survey.description else '' }}</textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Trigger Type</label>
+                    <select name="trigger_type"
+                            class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-700 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                        <option value="manual" {{ 'selected' if survey and survey.trigger_type.value == 'manual' }}>Manual</option>
+                        <option value="ticket_closed" {{ 'selected' if survey and survey.trigger_type.value == 'ticket_closed' }}>Ticket Closed</option>
+                        <option value="work_order_completed" {{ 'selected' if survey and survey.trigger_type.value == 'work_order_completed' }}>Work Order Completed</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Public Slug</label>
+                    <div class="flex items-center gap-1">
+                        <span class="text-sm text-slate-400">/s/</span>
+                        <input type="text" name="public_slug" value="{{ survey.public_slug if survey and survey.public_slug else '' }}" placeholder="customer-satisfaction"
+                               class="flex-1 rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-700 placeholder-slate-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Thank You Message</label>
+                <textarea name="thank_you_message" rows="2" placeholder="Your response has been recorded. Thank you!"
+                          class="w-full rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-700 placeholder-slate-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 resize-none">{{ survey.thank_you_message if survey and survey.thank_you_message else '' }}</textarea>
+            </div>
+        </div>
+
+        <!-- Questions Builder -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
+            <div class="flex items-center justify-between">
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Questions</h2>
+                <button type="button" @click="addQuestion()"
+                        class="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add Question
+                </button>
+            </div>
+
+            <!-- Hidden JSON field for form submission -->
+            <input type="hidden" name="questions_json" :value="JSON.stringify(questions)">
+
+            <template x-for="(q, idx) in questions" :key="idx">
+                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-600 space-y-3">
+                    <div class="flex items-start justify-between">
+                        <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-700" x-text="idx + 1"></span>
+                        <button type="button" @click="removeQuestion(idx)" class="text-slate-400 hover:text-red-500">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Key</label>
+                            <input type="text" x-model="q.key" placeholder="q1"
+                                   class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Type</label>
+                            <select x-model="q.type"
+                                    class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                                <option value="rating">Rating (1-5)</option>
+                                <option value="nps">NPS (0-10)</option>
+                                <option value="multiple_choice">Multiple Choice</option>
+                                <option value="free_text">Free Text</option>
+                            </select>
+                        </div>
+                        <div class="flex items-end">
+                            <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                <input type="checkbox" x-model="q.required" class="rounded border-slate-300 text-teal-600 focus:ring-teal-500">
+                                Required
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Question Label</label>
+                        <input type="text" x-model="q.label" placeholder="How would you rate our service?"
+                               class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                    </div>
+
+                    <!-- Options for multiple choice -->
+                    <div x-show="q.type === 'multiple_choice'" class="space-y-2">
+                        <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Options</label>
+                        <template x-for="(opt, oidx) in (q.options || [])" :key="oidx">
+                            <div class="flex gap-2">
+                                <input type="text" x-model="q.options[oidx]" placeholder="Option"
+                                       class="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                                <button type="button" @click="q.options.splice(oidx, 1)" class="text-slate-400 hover:text-red-500">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                        </template>
+                        <button type="button" @click="if (!q.options) q.options = []; q.options.push('')"
+                                class="text-xs text-teal-600 hover:text-teal-700 font-medium">+ Add option</button>
+                    </div>
+                </div>
+            </template>
+
+            <div x-show="questions.length === 0" class="text-center py-8 text-sm text-slate-400 dark:text-slate-500">
+                No questions added yet. Click "Add Question" to start building your survey.
+            </div>
+        </div>
+
+        <!-- Submit -->
+        <div class="flex items-center justify-between">
+            <a href="{{ '/admin/surveys/' + survey.id | string if survey else '/admin/surveys' }}" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">Cancel</a>
+            <button type="submit" class="rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-teal-700 transition-colors">
+                {{ 'Update Survey' if survey else 'Create Survey' }}
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+function questionBuilder() {
+    const existing = {{ survey.questions | tojson if survey and survey.questions else '[]' }};
+    return {
+        questions: existing.map(q => ({
+            key: q.key || '',
+            type: q.type || 'free_text',
+            label: q.label || '',
+            required: q.required !== false,
+            options: q.options || null,
+        })),
+        addQuestion() {
+            this.questions.push({
+                key: 'q' + (this.questions.length + 1),
+                type: 'rating',
+                label: '',
+                required: true,
+                options: null,
+            });
+        },
+        removeQuestion(idx) {
+            this.questions.splice(idx, 1);
+        },
+    };
+}
+</script>
+{% endblock %}

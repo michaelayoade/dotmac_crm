@@ -1,0 +1,24 @@
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-4">
+    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">Invited</p>
+        <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ stats.total_invited }}</p>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">Responses</p>
+        <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ stats.total_responses }}</p>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">Response Rate</p>
+        <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ "%.1f" | format(stats.response_rate) }}%</p>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">Avg Rating</p>
+        <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{% if stats.avg_rating %}{{ "%.1f" | format(stats.avg_rating) }}{% else %}-{% endif %}</p>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">NPS Score</p>
+        <p class="mt-1 text-2xl font-bold {% if stats.nps_score is not none %}{{ 'text-green-600' if stats.nps_score >= 50 else ('text-amber-600' if stats.nps_score >= 0 else 'text-red-600') }}{% else %}text-slate-900 dark:text-white{% endif %}">
+            {% if stats.nps_score is not none %}{{ stats.nps_score | int }}{% else %}-{% endif %}
+        </p>
+    </div>
+</div>

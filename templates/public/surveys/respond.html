@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ survey.name }} - Survey</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        .star-btn { cursor: pointer; transition: color 0.15s; }
+        .star-btn:hover, .star-btn.active { color: #f59e0b; }
+        .nps-btn { transition: all 0.15s; }
+        .nps-btn.active { transform: scale(1.1); font-weight: 700; }
+        .nps-btn.detractor.active { background-color: #ef4444; color: #fff; }
+        .nps-btn.passive.active { background-color: #f59e0b; color: #fff; }
+        .nps-btn.promoter.active { background-color: #22c55e; color: #fff; }
+    </style>
+</head>
+<body class="h-full bg-slate-50">
+    <div class="min-h-full flex flex-col">
+        <!-- Header -->
+        <header class="border-b border-slate-200 bg-white">
+            <div class="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
+                <div class="flex h-14 items-center">
+                    <span class="text-lg font-semibold text-slate-900">{{ branding.company_name | default('Survey', true) }}</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main -->
+        <main class="flex-1 py-8 sm:py-12">
+            <div class="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
+                <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
+                    <!-- Survey Header -->
+                    <div class="border-b border-slate-100 px-6 py-5">
+                        <h1 class="text-xl font-bold text-slate-900">{{ survey.name }}</h1>
+                        {% if survey.description %}
+                        <p class="mt-1.5 text-sm text-slate-500">{{ survey.description }}</p>
+                        {% endif %}
+                    </div>
+
+                    <!-- Survey Form -->
+                    <form method="POST"
+                          action="{% if invitation %}/s/t/{{ invitation.token }}/submit{% else %}/s/{{ survey.public_slug }}/submit{% endif %}"
+                          x-data="surveyForm()"
+                          @submit.prevent="validateAndSubmit($el)"
+                          class="divide-y divide-slate-100">
+
+                        <input type="hidden" name="_csrf_token" value="">
+
+                        {% for q in questions %}
+                        <div class="px-6 py-5">
+                            <label class="block text-sm font-medium text-slate-700 mb-3">
+                                {{ q.label }}
+                                {% if q.get('required', true) %}
+                                <span class="text-red-500 ml-0.5">*</span>
+                                {% endif %}
+                            </label>
+
+                            {% if q.type == 'rating' or q.get('type') == 'rating' %}
+                            <!-- Star Rating (1-5) -->
+                            <div x-data="{ value: 0 }" class="flex items-center gap-1">
+                                <input type="hidden" name="{{ q.key }}" :value="value" x-ref="rating_{{ q.key }}">
+                                {% for star in range(1, 6) %}
+                                <button type="button" @click="value = {{ star }}"
+                                        class="star-btn p-1"
+                                        :class="{ 'active': value >= {{ star }} }">
+                                    <svg class="h-8 w-8" :fill="value >= {{ star }} ? 'currentColor' : 'none'" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+                                    </svg>
+                                </button>
+                                {% endfor %}
+                                <span class="ml-3 text-sm text-slate-400" x-show="value > 0" x-text="value + '/5'"></span>
+                            </div>
+
+                            {% elif q.type == 'nps' or q.get('type') == 'nps' %}
+                            <!-- NPS Scale (0-10) -->
+                            <div x-data="{ value: null }">
+                                <input type="hidden" name="{{ q.key }}" :value="value">
+                                <div class="flex flex-wrap gap-2">
+                                    {% for n in range(0, 11) %}
+                                    <button type="button" @click="value = {{ n }}"
+                                            class="nps-btn h-10 w-10 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:border-slate-300 {% if n <= 6 %}detractor{% elif n <= 8 %}passive{% else %}promoter{% endif %}"
+                                            :class="{ 'active': value === {{ n }} }">
+                                        {{ n }}
+                                    </button>
+                                    {% endfor %}
+                                </div>
+                                <div class="mt-2 flex justify-between text-xs text-slate-400">
+                                    <span>Not likely</span>
+                                    <span>Very likely</span>
+                                </div>
+                            </div>
+
+                            {% elif q.type == 'multiple_choice' or q.get('type') == 'multiple_choice' %}
+                            <!-- Multiple Choice -->
+                            <div class="space-y-2">
+                                {% for option in q.get('options', []) %}
+                                <label class="flex items-center gap-3 rounded-lg border border-slate-200 px-4 py-3 cursor-pointer hover:border-slate-300 hover:bg-slate-50 transition-colors">
+                                    <input type="radio" name="{{ q.key }}" value="{{ option }}" class="h-4 w-4 text-teal-600 border-slate-300 focus:ring-teal-500">
+                                    <span class="text-sm text-slate-700">{{ option }}</span>
+                                </label>
+                                {% endfor %}
+                            </div>
+
+                            {% elif q.type == 'free_text' or q.get('type') == 'free_text' %}
+                            <!-- Free Text -->
+                            <textarea name="{{ q.key }}" rows="3"
+                                      placeholder="Type your answer here..."
+                                      class="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 resize-none"></textarea>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+
+                        <!-- Submit -->
+                        <div class="px-6 py-5">
+                            <button type="submit"
+                                    class="w-full rounded-lg bg-teal-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 transition-colors">
+                                Submit Response
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="border-t border-slate-200 bg-white py-4">
+            <div class="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8 text-center">
+                <p class="text-xs text-slate-400">Powered by {{ branding.company_name | default('Dotmac CRM', true) }}</p>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        function surveyForm() {
+            return {
+                validateAndSubmit(formEl) {
+                    formEl.submit();
+                }
+            };
+        }
+    </script>
+</body>
+</html>
