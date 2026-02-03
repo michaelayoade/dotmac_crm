@@ -11,17 +11,22 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.models.auth import UserCredential
+from app.models.person import Person
 from app.models.sales_order import SalesOrder, SalesOrderStatus, SalesOrderPaymentStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus, WorkOrderPriority, WorkOrderType
 from app.models.vendor import InstallationProject
 from app.models.dispatch import TechnicianProfile
+from app.schemas.dispatch import TechnicianProfileCreate, TechnicianProfileUpdate
 from app.schemas.workforce import WorkOrderCreate, WorkOrderUpdate
 from app.services import sales_orders as sales_orders_service
 from app.services import workforce as workforce_service
 from app.services import dispatch as dispatch_service
 from app.services import vendor as vendor_service
 from app.services.auth_dependencies import require_permission
+from app.services.common import coerce_uuid
 from app.web.admin import get_current_user, get_sidebar_stats
+from app.csrf import get_csrf_token
 
 router = APIRouter(prefix="/operations", tags=["admin-operations"])
 templates = Jinja2Templates(directory="templates")
@@ -619,6 +624,19 @@ def technicians_list(
         limit=per_page,
         offset=offset,
     )
+    credential_exists = (
+        db.query(UserCredential.id)
+        .filter(UserCredential.person_id == Person.id)
+        .exists()
+    )
+    people = (
+        db.query(Person)
+        .filter(credential_exists)
+        .filter(Person.is_active.is_(True))
+        .order_by(Person.last_name.asc(), Person.first_name.asc())
+        .limit(500)
+        .all()
+    )
 
     total = db.query(func.count(TechnicianProfile.id)).filter(TechnicianProfile.is_active.is_(True)).scalar() or 0
     total_pages = math.ceil(total / per_page) if total > 0 else 1
@@ -631,10 +649,98 @@ def technicians_list(
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
             "technicians": technicians,
+            "people": people,
+            "csrf_token": get_csrf_token(request),
             "page": page,
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
+        },
+    )
+
+
+@router.post("/technicians", response_class=HTMLResponse)
+def technicians_create(
+    request: Request,
+    person_id: str = Form(...),
+    title: str | None = Form(None),
+    region: str | None = Form(None),
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    user = get_current_user(request)
+
+    error = None
+    try:
+        person_uuid = coerce_uuid(person_id)
+        existing = (
+            db.query(TechnicianProfile)
+            .filter(TechnicianProfile.person_id == person_uuid)
+            .filter(TechnicianProfile.is_active.is_(True))
+            .first()
+        )
+        if existing:
+            raise HTTPException(status_code=400, detail="This person already has an active technician profile.")
+
+        payload = TechnicianProfileCreate(
+            person_id=person_uuid,
+            title=title.strip() if title else None,
+            region=region.strip() if region else None,
+        )
+        dispatch_service.technicians.create(db, payload)
+        return RedirectResponse(url="/admin/operations/technicians", status_code=303)
+    except Exception as exc:
+        detail = getattr(exc, "detail", None)
+        error = detail if isinstance(detail, str) else str(exc)
+
+    offset = (page - 1) * per_page
+    technicians = dispatch_service.technicians.list(
+        db,
+        person_id=None,
+        region=None,
+        is_active=True,
+        order_by="created_at",
+        order_dir="desc",
+        limit=per_page,
+        offset=offset,
+    )
+    credential_exists = (
+        db.query(UserCredential.id)
+        .filter(UserCredential.person_id == Person.id)
+        .exists()
+    )
+    people = (
+        db.query(Person)
+        .filter(credential_exists)
+        .filter(Person.is_active.is_(True))
+        .order_by(Person.last_name.asc(), Person.first_name.asc())
+        .limit(500)
+        .all()
+    )
+    total = db.query(func.count(TechnicianProfile.id)).filter(TechnicianProfile.is_active.is_(True)).scalar() or 0
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+
+    return templates.TemplateResponse(
+        "admin/operations/technicians.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "technicians": technicians,
+            "people": people,
+            "csrf_token": get_csrf_token(request),
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "error": error,
+            "form": {
+                "person_id": person_id,
+                "title": title,
+                "region": region,
+            },
         },
     )
 
@@ -672,6 +778,60 @@ def technician_detail(
             "sidebar_stats": get_sidebar_stats(db),
             "technician": technician,
             "skills": skills,
+            "csrf_token": get_csrf_token(request),
+        },
+    )
+
+
+@router.post("/technicians/{technician_id}/edit", response_class=HTMLResponse)
+def technician_update(
+    request: Request,
+    technician_id: UUID,
+    title: str | None = Form(None),
+    region: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request)
+    technician = dispatch_service.technicians.get(db, str(technician_id))
+    if not technician:
+        return RedirectResponse(url="/admin/operations/technicians", status_code=303)
+
+    error = None
+    try:
+        payload = TechnicianProfileUpdate(
+            title=title.strip() if title else None,
+            region=region.strip() if region else None,
+            is_active=is_active == "true",
+        )
+        dispatch_service.technicians.update(db, str(technician_id), payload)
+        return RedirectResponse(url=f"/admin/operations/technicians/{technician_id}", status_code=303)
+    except Exception as exc:
+        detail = getattr(exc, "detail", None)
+        error = detail if isinstance(detail, str) else str(exc)
+
+    skills = dispatch_service.technician_skills.list(
+        db,
+        technician_id=str(technician_id),
+        skill_id=None,
+        is_active=True,
+        order_by="created_at",
+        order_dir="asc",
+        limit=50,
+        offset=0,
+    )
+
+    return templates.TemplateResponse(
+        "admin/operations/technician_detail.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "technician": technician,
+            "skills": skills,
+            "csrf_token": get_csrf_token(request),
+            "error": error,
         },
     )
 

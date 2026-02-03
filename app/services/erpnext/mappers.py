@@ -13,7 +13,7 @@ Maps ERPNext doctypes to DotMac model schemas:
 from __future__ import annotations
 
 from datetime import datetime, date
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 from app.models.tickets import TicketStatus, TicketPriority, TicketChannel
@@ -59,6 +59,15 @@ def _clean_html(value: str | None) -> str | None:
     import re
     clean = re.sub(r'<[^>]+>', '', value)
     return clean.strip() or None
+
+
+T = TypeVar("T")
+
+
+def _map_lookup(mapping: dict[str, T], value: Any, default: T) -> T:
+    if isinstance(value, str):
+        return mapping.get(value, default)
+    return default
 
 
 # -----------------------------------------------------------------------------
@@ -152,8 +161,8 @@ def map_hd_ticket(doc: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": doc.get("subject") or doc.get("name"),
         "description": _clean_html(doc.get("description")),
-        "status": HD_TICKET_STATUS_MAP.get(doc.get("status"), TicketStatus.new),
-        "priority": HD_TICKET_PRIORITY_MAP.get(doc.get("priority"), TicketPriority.normal),
+        "status": _map_lookup(HD_TICKET_STATUS_MAP, doc.get("status"), TicketStatus.new),
+        "priority": _map_lookup(HD_TICKET_PRIORITY_MAP, doc.get("priority"), TicketPriority.normal),
         "channel": TicketChannel.email if doc.get("raised_by") else TicketChannel.web,
         "tags": [doc.get("ticket_type")] if doc.get("ticket_type") else None,
         "resolution_notes": _clean_html(doc.get("resolution_details")),
@@ -185,8 +194,8 @@ def map_project(doc: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": doc.get("project_name") or doc.get("name"),
         "description": _clean_html(doc.get("notes")),
-        "status": PROJECT_STATUS_MAP.get(doc.get("status"), ProjectStatus.active),
-        "priority": PROJECT_PRIORITY_MAP.get(doc.get("priority"), ProjectPriority.normal),
+        "status": _map_lookup(PROJECT_STATUS_MAP, doc.get("status"), ProjectStatus.active),
+        "priority": _map_lookup(PROJECT_PRIORITY_MAP, doc.get("priority"), ProjectPriority.normal),
         "start_at": _parse_datetime(doc.get("actual_start_date") or doc.get("expected_start_date")),
         "due_at": _parse_datetime(doc.get("actual_end_date") or doc.get("expected_end_date")),
         "progress_percent": doc.get("percent_complete"),
@@ -216,8 +225,8 @@ def map_task(doc: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": doc.get("subject") or doc.get("name"),
         "description": _clean_html(doc.get("description")),
-        "status": TASK_STATUS_MAP.get(doc.get("status"), TaskStatus.todo),
-        "priority": TASK_PRIORITY_MAP.get(doc.get("priority"), TaskPriority.normal),
+        "status": _map_lookup(TASK_STATUS_MAP, doc.get("status"), TaskStatus.todo),
+        "priority": _map_lookup(TASK_PRIORITY_MAP, doc.get("priority"), TaskPriority.normal),
         "start_at": _parse_datetime(doc.get("exp_start_date")),
         "due_date": _parse_date(doc.get("exp_end_date")),
         "progress_percent": doc.get("progress"),
@@ -284,7 +293,7 @@ def map_contact(doc: dict[str, Any]) -> dict[str, Any]:
         "last_name": last_name,
         "email": email or f"{doc.get('name', 'unknown')}@placeholder.local",
         "phone": phone,
-        "gender": GENDER_MAP.get(doc.get("gender"), Gender.unknown),
+        "gender": _map_lookup(GENDER_MAP, doc.get("gender"), Gender.unknown),
         "is_active": True,
         # Metadata
         "_erpnext_name": doc.get("name"),
@@ -341,7 +350,7 @@ def map_lead(doc: dict[str, Any]) -> dict[str, Any]:
     """
     return {
         "title": doc.get("company_name") or doc.get("lead_name") or doc.get("name"),
-        "status": LEAD_STATUS_MAP.get(doc.get("status"), LeadStatus.new),
+        "status": _map_lookup(LEAD_STATUS_MAP, doc.get("status"), LeadStatus.new),
         "source": doc.get("source"),
         "notes": _clean_html(doc.get("notes")),
         "is_active": doc.get("status") not in ["Do Not Contact", "Converted"],
@@ -400,7 +409,7 @@ def map_quotation(doc: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "quote_number": doc.get("name"),
-        "status": status_map.get(doc.get("status"), "draft"),
+        "status": _map_lookup(status_map, doc.get("status"), "draft"),
         "valid_until": _parse_date(doc.get("valid_till")),
         "subtotal": Decimal(str(doc.get("net_total", 0))),
         "total": Decimal(str(doc.get("grand_total", 0))),

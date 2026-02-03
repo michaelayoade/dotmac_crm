@@ -37,6 +37,10 @@ PASSWORD_CONTEXT = CryptContext(
     deprecated="auto",
 )
 
+# Cache for JWT settings - these rarely change and are queried on every request
+_JWT_SETTINGS_CACHE: dict[str, str | None] = {}
+_JWT_SETTINGS_CACHED = False
+
 
 def _env_value(name: str) -> str | None:
     value = os.getenv(name)
@@ -94,8 +98,26 @@ def _setting_value(db: Session | None, key: str) -> str | None:
     return None
 
 
+def _load_jwt_settings_cache(db: Session | None) -> None:
+    """Load JWT settings into cache once per process lifetime."""
+    global _JWT_SETTINGS_CACHE, _JWT_SETTINGS_CACHED
+    if _JWT_SETTINGS_CACHED:
+        return
+    # Try env vars first (preferred)
+    _JWT_SETTINGS_CACHE["jwt_secret"] = _env_value("JWT_SECRET")
+    _JWT_SETTINGS_CACHE["jwt_algorithm"] = _env_value("JWT_ALGORITHM")
+    # Fall back to DB if needed
+    if db is not None:
+        if not _JWT_SETTINGS_CACHE["jwt_secret"]:
+            _JWT_SETTINGS_CACHE["jwt_secret"] = _setting_value(db, "jwt_secret")
+        if not _JWT_SETTINGS_CACHE["jwt_algorithm"]:
+            _JWT_SETTINGS_CACHE["jwt_algorithm"] = _setting_value(db, "jwt_algorithm")
+    _JWT_SETTINGS_CACHED = True
+
+
 def _jwt_secret(db: Session | None) -> str:
-    secret = _env_value("JWT_SECRET") or _setting_value(db, "jwt_secret")
+    _load_jwt_settings_cache(db)
+    secret = _JWT_SETTINGS_CACHE.get("jwt_secret")
     secret = resolve_secret(secret)
     if not secret:
         raise HTTPException(status_code=500, detail="JWT secret not configured")
@@ -103,7 +125,8 @@ def _jwt_secret(db: Session | None) -> str:
 
 
 def _jwt_algorithm(db: Session | None) -> str:
-    return _env_value("JWT_ALGORITHM") or _setting_value(db, "jwt_algorithm") or "HS256"
+    _load_jwt_settings_cache(db)
+    return _JWT_SETTINGS_CACHE.get("jwt_algorithm") or "HS256"
 
 
 def _access_ttl_minutes(db: Session | None) -> int:
@@ -133,7 +156,7 @@ def _refresh_ttl_days(db: Session | None) -> int:
 
 
 def _totp_issuer(db: Session | None) -> str:
-    return _env_value("TOTP_ISSUER") or _setting_value(db, "totp_issuer") or "dotmac_omni"
+    return _env_value("TOTP_ISSUER") or _setting_value(db, "totp_issuer") or "dotmac_crm"
 
 
 def _refresh_cookie_name(db: Session | None) -> str:

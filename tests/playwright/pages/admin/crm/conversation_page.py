@@ -13,7 +13,7 @@ class ConversationPage(BasePage):
     def __init__(self, page: Page, base_url: str) -> None:
         super().__init__(page, base_url)
 
-    def goto(self, conversation_id: str) -> None:
+    def goto(self, conversation_id: str = "") -> None:
         """Navigate to a specific conversation."""
         super().goto(f"/admin/crm/inbox?conversation_id={conversation_id}")
 
@@ -51,9 +51,11 @@ class ConversationPage(BasePage):
 
     def change_status(self, status: str) -> None:
         """Change conversation status."""
-        self.page.get_by_role("button", name=status).or_(
+        button = self.page.get_by_role("button", name=status)
+        if button.count():
+            button.first.click()
+        else:
             self.page.get_by_label("Status").select_option(status)
-        ).first.click()
 
     def expect_contact_details_visible(self) -> None:
         """Assert contact details sidebar is visible."""

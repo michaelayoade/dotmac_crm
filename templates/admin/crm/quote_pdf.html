@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ quote_name if quote_name else ('Quote ' ~ (quote.id|string|truncate(8, True, ''))) }}</title>
+  <style>
+    @page { margin: 24mm 18mm; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      color: #0f172a;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .header-table {
+      width: 100%;
+      border-bottom: 2px solid #0f172a;
+      margin-bottom: 18px;
+      border-collapse: collapse;
+    }
+    .header-table td {
+      vertical-align: top;
+      padding-bottom: 12px;
+    }
+    .header-right {
+      text-align: right;
+      width: 40%;
+    }
+    .title {
+      font-size: 20px;
+      font-weight: 700;
+      margin: 0 0 6px 0;
+    }
+    .muted { color: #64748b; }
+    .meta-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 12px 0;
+      margin-bottom: 18px;
+    }
+    .card {
+      border: 1px solid #e2e8f0;
+      padding: 10px 12px;
+    }
+    .card h4 {
+      margin: 0 0 6px 0;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    th, td {
+      border-bottom: 1px solid #e2e8f0;
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    th {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #475569;
+      background: #f8fafc;
+    }
+    /* Fixed column widths for line items table */
+    th.col-desc, td.col-desc { width: 50%; }
+    th.col-qty, td.col-qty { width: 12%; }
+    th.col-price, td.col-price { width: 19%; }
+    th.col-amount, td.col-amount { width: 19%; }
+    td.num, th.num { text-align: right; }
+    .totals {
+      margin-top: 12px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .totals table {
+      width: 260px;
+      table-layout: auto;
+    }
+    .totals td {
+      padding: 6px 0;
+      border: none;
+    }
+    .totals .label { color: #64748b; }
+    .totals .grand { font-weight: 700; font-size: 14px; }
+    .notes {
+      margin-top: 18px;
+      border: 1px solid #e2e8f0;
+      padding: 12px;
+      page-break-inside: avoid;
+    }
+    .notes h4 {
+      margin: 0 0 6px 0;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+    }
+    .notes-content {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td>
+        <div class="title">{{ quote_name if quote_name else ('Quote ' ~ (quote.id|string|truncate(8, True, ''))) }}</div>
+        <div class="muted">Quote ID: {{ quote.id }}</div>
+      </td>
+      <td class="muted header-right">
+        <div>Status: {{ quote.status.value if quote.status else 'draft' }}</div>
+        <div>Created: {{ quote.created_at.strftime('%b %d, %Y') if quote.created_at else '—' }}</div>
+        <div>Expires: {{ quote.expires_at.strftime('%b %d, %Y') if quote.expires_at else '—' }}</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="meta-table">
+    <tr>
+      <td class="card">
+        <h4>Contact</h4>
+        <div title="{{ contact.display_name if contact and contact.display_name else (contact.email if contact else '') }}">{{ (contact.display_name if contact and contact.display_name else (contact.email if contact else '—'))|truncate(40, True) }}</div>
+        {% if contact and contact.email %}
+        <div class="muted" title="{{ contact.email }}">{{ contact.email|truncate(35, True) }}</div>
+        {% endif %}
+        {% if contact and contact.phone %}
+        <div class="muted">{{ contact.phone }}</div>
+        {% endif %}
+      </td>
+      <td class="card">
+        <h4>Lead</h4>
+        <div title="{{ lead.title if lead and lead.title else '' }}">{{ (lead.title if lead and lead.title else (lead.id|string|truncate(8, True, '') if lead else '—'))|truncate(40, True) }}</div>
+        {% if quote.project_type %}
+        <div class="muted">Project Type: {{ quote.project_type }}</div>
+        {% endif %}
+        <div class="muted">Currency: {{ quote.currency or '—' }}</div>
+      </td>
+    </tr>
+  </table>
+
+  {# Currency symbol mapping #}
+  {% set currency_symbols = {'NGN': '₦', 'USD': '$', 'EUR': '€', 'GBP': '£', 'KES': 'KSh', 'GHS': 'GH₵', 'ZAR': 'R'} %}
+  {% set currency_symbol = currency_symbols.get(quote.currency, quote.currency ~ ' ') %}
+
+  <table>
+    <thead>
+      <tr>
+        <th class="col-desc">Description</th>
+        <th class="col-qty num">Qty</th>
+        <th class="col-price num">Unit Price</th>
+        <th class="col-amount num">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if items %}
+      {% for item in items %}
+      <tr>
+        <td class="col-desc">{{ item.description }}</td>
+        <td class="col-qty num">{{ "{:,.3g}".format(item.quantity or 0) }}</td>
+        <td class="col-price num">{{ currency_symbol }}{{ "{:,.2f}".format(item.unit_price or 0) }}</td>
+        <td class="col-amount num">{{ currency_symbol }}{{ "{:,.2f}".format(item.amount or 0) }}</td>
+      </tr>
+      {% endfor %}
+      {% else %}
+      <tr>
+        <td colspan="4" class="muted">No line items found.</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <table>
+      <tr>
+        <td class="label">Subtotal</td>
+        <td class="num">{{ currency_symbol }}{{ "{:,.2f}".format(quote.subtotal or 0) }}</td>
+      </tr>
+      <tr>
+        <td class="label">Tax</td>
+        <td class="num">{{ currency_symbol }}{{ "{:,.2f}".format(quote.tax_total or 0) }}</td>
+      </tr>
+      <tr>
+        <td class="label grand">Total</td>
+        <td class="num grand">{{ currency_symbol }}{{ "{:,.2f}".format(quote.total or 0) }}</td>
+      </tr>
+    </table>
+  </div>
+
+  {% if quote.notes %}
+  <div class="notes">
+    <h4>Notes</h4>
+    <div class="notes-content">{{ quote.notes }}</div>
+  </div>
+  {% endif %}
+</body>
+</html>

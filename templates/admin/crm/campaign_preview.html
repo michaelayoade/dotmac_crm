@@ -1,0 +1,72 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Preview: {{ campaign.name }} - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <a href="/admin/crm/inbox" class="hover:text-primary-600">CRM</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <a href="/admin/crm/campaigns" class="hover:text-primary-600">Campaigns</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <a href="/admin/crm/campaigns/{{ campaign.id }}" class="hover:text-primary-600">{{ campaign.name|truncate(30) }}</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span class="text-slate-900 dark:text-white">Preview</span>
+        </nav>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Email Preview</h1>
+    </div>
+
+    <!-- Email Header -->
+    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <dl class="space-y-2">
+            <div class="flex gap-3">
+                <dt class="w-20 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 pt-0.5">From</dt>
+                <dd class="text-sm text-slate-900 dark:text-white">{{ campaign.from_name or 'Not set' }} {% if campaign.from_email %}&lt;{{ campaign.from_email }}&gt;{% endif %}</dd>
+            </div>
+            <div class="flex gap-3">
+                <dt class="w-20 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 pt-0.5">Subject</dt>
+                <dd class="text-sm font-medium text-slate-900 dark:text-white">{{ campaign.subject or '(no subject)' }}</dd>
+            </div>
+            {% if campaign.reply_to %}
+            <div class="flex gap-3">
+                <dt class="w-20 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 pt-0.5">Reply-To</dt>
+                <dd class="text-sm text-slate-900 dark:text-white">{{ campaign.reply_to }}</dd>
+            </div>
+            {% endif %}
+        </dl>
+    </div>
+
+    <!-- Email Body -->
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-3 dark:border-slate-700">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">HTML Preview</span>
+        </div>
+        <div class="p-6">
+            {% if campaign.body_html %}
+            <div class="prose max-w-none dark:prose-invert">
+                {{ campaign.body_html|safe }}
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400 italic">No HTML body set.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if campaign.body_text %}
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-3 dark:border-slate-700">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plain Text</span>
+        </div>
+        <div class="p-6">
+            <pre class="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{{ campaign.body_text }}</pre>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="flex justify-end">
+        <a href="/admin/crm/campaigns/{{ campaign.id }}"
+           class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Back to Campaign</a>
+    </div>
+</div>
+{% endblock %}

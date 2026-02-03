@@ -210,6 +210,8 @@ class WidgetMessageResponse(BaseModel):
     message_id: UUID
     conversation_id: UUID
     status: str
+    body: str
+    created_at: datetime
 
 
 # --------------------------------------------------------------------------

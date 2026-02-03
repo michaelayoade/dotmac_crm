@@ -1,6 +1,11 @@
 <!-- Contact Header -->
 <div class="border-b border-slate-800/60" x-data="{ open: true }">
     <div class="px-4 py-4">
+        {% if assignment_error_detail %}
+        <div class="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+            {{ assignment_error_detail }}
+        </div>
+        {% endif %}
         <div class="flex items-center justify-between mb-3">
             <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Contact</h3>
             <div class="flex items-center gap-2">
@@ -37,7 +42,14 @@
                     {{ contact.avatar_initials }}
                 </div>
                 <div class="flex-1 min-w-0">
-                    <h4 class="text-base font-semibold text-white truncate">{{ contact.name }}</h4>
+                    <div class="flex items-center gap-2">
+                        <h4 class="text-base font-semibold text-white truncate">{{ contact.name }}</h4>
+                        {% if contact.splynx_id %}
+                        <span class="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/20" title="Splynx Customer ID">
+                            #{{ contact.splynx_id }}
+                        </span>
+                        {% endif %}
+                    </div>
                     <p class="text-xs text-slate-400 truncate">{{ contact.company }}</p>
                 </div>
             </div>
@@ -475,6 +487,20 @@
         {% else %}
         <p class="text-xs text-slate-500 italic">No notes added yet</p>
         {% endif %}
+        {% if private_notes %}
+        <div class="mt-3 space-y-2">
+            {% for note in private_notes %}
+            <div class="rounded-lg border border-slate-700/50 bg-slate-900/40 px-3 py-2">
+                <div class="text-[10px] uppercase tracking-wider text-slate-500">
+                    {{ note.sender.name }} · {{ note.timestamp.strftime('%b %d, %H:%M') if note.timestamp else '' }}
+                </div>
+                <div class="mt-1 text-xs text-slate-200 whitespace-pre-wrap">
+                    {{ note.content }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -494,7 +520,7 @@
         {% endif %}
         {% if (show_full_link is defined and not show_full_link) and contact.person_id and not contact.subscriber %}
         <button type="button"
-                @click="openConvert('{{ contact.person_id }}', {{ (contact.name or 'Contact') | tojson }})"
+                @click='openConvert({{ contact.person_id | tojson }}, {{ (contact.name or "Contact") | tojson }})'
                 class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
@@ -502,7 +528,7 @@
             Convert
         </button>
         {% endif %}
-        <a href="/admin/crm/leads/new?contact_id={{ contact.id }}"
+        <a href="/admin/crm/leads/new?person_id={{ contact.id }}"
            class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-primary-500/10 border border-primary-500/30 text-xs font-medium text-primary-400 hover:bg-primary-500/20 transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>

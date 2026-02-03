@@ -15,7 +15,7 @@ class TestSubscriptionActivation:
 
     def test_subscriber_to_active_service_flow(self, admin_page: Page, settings):
         """Complete flow: Create subscriber -> Account -> Subscription -> Service Order -> Active."""
-        from tests.playwright.pages.admin.subscribers_page import SubscribersPage
+        from tests.playwright.pages.admin.subscribers_page import SubscribersPage  # type: ignore[import-untyped]
 
         # Step 1: Navigate to subscribers
         subscribers = SubscribersPage(admin_page, settings.base_url)
@@ -46,7 +46,7 @@ class TestBillingCycle:
 
     def test_invoice_to_payment_flow(self, admin_page: Page, settings):
         """Complete flow: Subscription -> Invoice -> Payment -> Ledger."""
-        from tests.playwright.pages.admin.billing.invoices_page import InvoicesPage
+        from tests.playwright.pages.admin.billing.invoices_page import InvoicesPage  # type: ignore[import-untyped]
 
         # Step 1: View invoices
         invoices = InvoicesPage(admin_page, settings.base_url)
@@ -58,7 +58,7 @@ class TestBillingCycle:
 
     def test_payment_recording_flow(self, admin_page: Page, settings):
         """Should be able to record payments."""
-        from tests.playwright.pages.admin.billing.payments_page import PaymentsPage
+        from tests.playwright.pages.admin.billing.payments_page import PaymentsPage  # type: ignore[import-untyped]
 
         payments = PaymentsPage(admin_page, settings.base_url)
         payments.goto()
@@ -77,9 +77,9 @@ class TestSupportResolution:
 
     def test_ticket_lifecycle_flow(self, admin_page: Page, settings):
         """Complete flow: Create ticket -> Assign -> Work -> Resolve -> Close."""
-        from tests.playwright.pages.admin.tickets_page import TicketsPage
+        from tests.playwright.pages.admin.tickets_page import AdminTicketsPage
 
-        tickets = TicketsPage(admin_page, settings.base_url)
+        tickets = AdminTicketsPage(admin_page, settings.base_url)
         tickets.goto()
         tickets.expect_loaded()
 
@@ -88,9 +88,9 @@ class TestSupportResolution:
 
     def test_ticket_assignment_flow(self, admin_page: Page, settings):
         """Should be able to assign tickets."""
-        from tests.playwright.pages.admin.tickets_page import TicketsPage
+        from tests.playwright.pages.admin.tickets_page import AdminTicketsPage
 
-        tickets = TicketsPage(admin_page, settings.base_url)
+        tickets = AdminTicketsPage(admin_page, settings.base_url)
         tickets.goto()
         tickets.expect_loaded()
 

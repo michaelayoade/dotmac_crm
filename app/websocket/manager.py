@@ -31,6 +31,7 @@ class ConnectionManager:
         self._redis_client: Any | None = None
         self._pubsub: Any | None = None
         self._listener_task: asyncio.Task | None = None
+        self._heartbeat_tasks: dict[tuple[str, int], asyncio.Task] = {}
         self._running = False
 
     async def connect(self) -> None:
@@ -85,9 +86,15 @@ class ConnectionManager:
     async def _handle_redis_message(self, channel: str, data: str) -> None:
         """Process incoming Redis message and dispatch to local connections."""
         try:
+            logger.info("websocket_redis_message_received channel=%s", channel)
             payload = json.loads(data)
             conversation_id = payload.get("conversation_id")
+            user_id = payload.get("user_id")
             event_data = payload.get("event")
+
+            if user_id and event_data:
+                await self._dispatch_to_user(user_id, event_data)
+                return
 
             if conversation_id and event_data:
                 await self._dispatch_to_subscribers(conversation_id, event_data)
@@ -120,6 +127,7 @@ class ConnectionManager:
             data={"user_id": user_id, "status": "connected"},
         )
         await websocket.send_json(ack_event.model_dump(mode="json"))
+        self._start_heartbeat(user_id, websocket)
 
     async def unregister_connection(self, user_id: str, websocket: WebSocket) -> None:
         """Remove a WebSocket connection."""
@@ -127,6 +135,7 @@ class ConnectionManager:
 
     async def _remove_connection(self, user_id: str, websocket: WebSocket) -> None:
         """Internal method to remove a connection and clean up subscriptions."""
+        self._stop_heartbeat(user_id, websocket)
         if user_id in self._connections:
             if websocket in self._connections[user_id]:
                 self._connections[user_id].remove(websocket)
@@ -141,6 +150,27 @@ class ConnectionManager:
                     del self._subscriptions[conv_id]
 
         logger.debug("websocket_unregistered user_id=%s", user_id)
+
+    def _start_heartbeat(self, user_id: str, websocket: WebSocket) -> None:
+        key = (user_id, id(websocket))
+        if key in self._heartbeat_tasks:
+            return
+        task = asyncio.create_task(self._heartbeat_loop(user_id, websocket))
+        self._heartbeat_tasks[key] = task
+
+    def _stop_heartbeat(self, user_id: str, websocket: WebSocket) -> None:
+        key = (user_id, id(websocket))
+        task = self._heartbeat_tasks.pop(key, None)
+        if task:
+            task.cancel()
+
+    async def _heartbeat_loop(self, user_id: str, websocket: WebSocket) -> None:
+        try:
+            while websocket.client_state == WebSocketState.CONNECTED:
+                await self.send_heartbeat(user_id, websocket)
+                await asyncio.sleep(25)
+        except asyncio.CancelledError:
+            pass
 
     async def subscribe_conversation(self, user_id: str, conversation_id: str) -> None:
         """Subscribe a user to conversation updates."""
@@ -172,6 +202,7 @@ class ConnectionManager:
         event_data = event.model_dump(mode="json")
 
         # Publish to Redis for cross-instance delivery
+        # Redis listener will dispatch to local connections, so don't dispatch twice
         if self._redis_client:
             try:
                 payload = json.dumps(
@@ -180,17 +211,34 @@ class ConnectionManager:
                 await self._redis_client.publish(
                     f"{CHANNEL_PREFIX}{conversation_id}", payload
                 )
+                return  # Redis will handle local delivery via listener
             except Exception as exc:
                 logger.warning("websocket_broadcast_redis_error error=%s", exc)
 
-        # Also dispatch locally for same-instance delivery
+        # Fallback: dispatch locally only if Redis is unavailable
         await self._dispatch_to_subscribers(conversation_id, event_data)
 
     async def broadcast_to_user(self, user_id: str, event: WebSocketEvent) -> None:
         """Send event directly to a specific user's connections."""
         event_data = event.model_dump(mode="json")
-        websockets = self._connections.get(user_id, [])
 
+        # Publish to Redis for cross-instance delivery
+        # Redis listener will dispatch to local connections, so don't dispatch twice
+        if self._redis_client:
+            try:
+                payload = json.dumps({"user_id": user_id, "event": event_data})
+                logger.debug("websocket_broadcast_user_redis_publish user_id=%s", user_id)
+                await self._redis_client.publish(f"{CHANNEL_PREFIX}user:{user_id}", payload)
+                return  # Redis will handle local delivery via listener
+            except Exception as exc:
+                logger.warning("websocket_broadcast_redis_error error=%s", exc)
+
+        # Fallback: dispatch locally only if Redis is unavailable
+        await self._dispatch_to_user(user_id, event_data)
+
+    async def _dispatch_to_user(self, user_id: str, event_data: dict) -> None:
+        """Send event to all local connections for a user."""
+        websockets = self._connections.get(user_id, [])
         for ws in list(websockets):
             try:
                 if ws.client_state == WebSocketState.CONNECTED:

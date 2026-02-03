@@ -1,11 +1,15 @@
 """Admin ticket management web routes."""
 
+import json
+import re
+
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional
+from uuid import UUID
 
 from app.db import SessionLocal
 from app.services import tickets as tickets_service
@@ -17,10 +21,12 @@ from app.models.person import Person
 from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import MessageDirection, ChannelType
+from app.models.domain_settings import SettingDomain
 from app.models.subscriber import Organization, Reseller, Subscriber
 
 
 from app.services.person import People as people_service
+from app.services import settings_spec
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/support", tags=["web-admin-support"])
@@ -42,6 +48,54 @@ def _get_inbound_message_bounds(db: Session, conversation_id):
         .first()
     )
     return last_inbound, first_inbound
+
+
+def _load_ticket_types(db: Session) -> tuple[list[dict], dict[str, str]]:
+    raw = settings_spec.resolve_value(db, SettingDomain.comms, "ticket_types")
+    if not raw:
+        return [], {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return [], {}
+    if not isinstance(raw, list):
+        return [], {}
+    normalized: list[dict] = []
+    priority_map: dict[str, str] = {}
+    priority_normalizer = {
+        "high": "high",
+        "medium": "normal",
+        "normal": "normal",
+        "urgent": "urgent",
+        "low": "low",
+        "lower": "low",
+    }
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        if not name:
+            continue
+        priority_raw = (item.get("priority") or "").strip().lower()
+        priority = priority_normalizer.get(priority_raw) if priority_raw else None
+        is_active = item.get("is_active")
+        is_active = True if is_active is None else bool(is_active)
+        normalized.append({"name": name, "priority": priority, "is_active": is_active})
+        if is_active and priority:
+            priority_map[name] = priority
+    return normalized, priority_map
+
+
+def _coerce_uuid_optional(value: str | None, label: str) -> UUID | None:
+    if not value:
+        return None
+    if isinstance(value, str) and value.strip().lower() in {"none", "null"}:
+        return None
+    try:
+        return coerce_uuid(value)
+    except Exception as exc:
+        raise ValueError(f"Invalid {label}.") from exc
 
 def _log_activity(
     db: Session,
@@ -136,6 +190,81 @@ def _map_channel_to_ticket(channel_type: ChannelType | None) -> str | None:
     if channel_type in (ChannelType.whatsapp, ChannelType.facebook_messenger, ChannelType.instagram_dm):
         return TicketChannel.chat.value
     return None
+
+
+_EMAIL_RE = re.compile(r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
+
+
+def _extract_email_and_name(value: str) -> tuple[str | None, str | None]:
+    match = _EMAIL_RE.search(value)
+    if not match:
+        return None, None
+    email = match.group(1)
+    name = value.replace(email, " ")
+    name = re.sub(r"[<>\(\)\[\],;]+", " ", name)
+    name = " ".join(name.split()).strip()
+    return email, (name or None)
+
+
+def _resolve_customer_person_id(
+    db: Session,
+    customer_person_id: str | None,
+    customer_search: str | None,
+) -> UUID | None:
+    if customer_person_id:
+        return _coerce_uuid_optional(customer_person_id, "customer")
+    if not customer_search:
+        return None
+    value = customer_search.strip()
+    if not value:
+        return None
+
+    email, name_hint = _extract_email_and_name(value)
+    if email:
+        person = db.query(Person).filter(func.lower(Person.email) == email.lower()).first()
+        if person:
+            return person.id
+        if name_hint:
+            parts = [p for p in name_hint.replace(".", " ").split() if p]
+            first_name = parts[0].title() if parts else "Customer"
+            last_name = " ".join(p.title() for p in parts[1:]) if len(parts) > 1 else None
+            display_name = name_hint
+        else:
+            local_part = email.split("@", 1)[0]
+            parts = [p for p in local_part.replace(".", " ").split() if p]
+            first_name = parts[0].title() if parts else "Customer"
+            last_name = " ".join(p.title() for p in parts[1:]) if len(parts) > 1 else None
+            display_name = " ".join([p for p in [first_name, last_name] if p])
+        person = Person(
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            display_name=display_name,
+        )
+        db.add(person)
+        db.commit()
+        db.refresh(person)
+        return person.id
+
+    display_match = (
+        db.query(Person)
+        .filter(func.lower(Person.display_name) == value.lower())
+        .first()
+    )
+    if display_match:
+        return display_match.id
+
+    name_matches = (
+        db.query(Person)
+        .filter(func.lower(func.concat(Person.first_name, " ", Person.last_name)) == value.lower())
+        .limit(2)
+        .all()
+    )
+    if len(name_matches) == 1:
+        return name_matches[0].id
+    if len(name_matches) > 1:
+        raise ValueError("Multiple contacts match this name. Select the correct contact from the dropdown.")
+    raise ValueError("Customer not found. Select a contact from the dropdown or enter a valid email.")
 
 
 def _select_subscriber_by_id(db: Session, subscriber_id: str) -> Subscriber | None:
@@ -303,6 +432,8 @@ def ticket_create(
     title: Optional[str] = Query(None),
     description: Optional[str] = Query(None),
     subscriber_id: Optional[str] = Query(None),
+    customer_person_id: Optional[str] = Query(None),
+    lead_id: Optional[str] = Query(None),
     channel: Optional[str] = Query(None),
     subscriber: Optional[str] = Query(None),
     customer: Optional[str] = Query(None),
@@ -318,6 +449,9 @@ def ticket_create(
         "description": None,
         "subscriber_id": None,
         "subscriber_label": "",
+        "lead_id": None,
+        "customer_person_id": None,
+        "customer_label": "",
         "channel": None,
         "customer": None,
     }
@@ -363,7 +497,9 @@ def ticket_create(
             prefill["description"] = (
                 first_inbound.body.strip() if first_inbound and first_inbound.body else ""
             )
-            prefill["customer"] = contact_name
+            prefill["customer_label"] = contact_name
+            if contact and getattr(contact, "id", None):
+                prefill["customer_person_id"] = str(contact.id)
             resolved_subscriber = _resolve_subscriber_from_contact(db, contact)
             if resolved_subscriber:
                 prefill["subscriber_id"] = str(resolved_subscriber.id)
@@ -377,11 +513,15 @@ def ticket_create(
     if description:
         prefill["description"] = description
     if customer:
-        prefill["customer"] = customer
+        prefill["customer_label"] = customer
     if subscriber_id:
         prefill["subscriber_id"] = subscriber_id
         subscriber_obj = _select_subscriber_by_id(db, subscriber_id)
         prefill["subscriber_label"] = _build_subscriber_label(subscriber_obj)
+    if customer_person_id:
+        prefill["customer_person_id"] = customer_person_id
+    if lead_id:
+        prefill["lead_id"] = lead_id
     elif subscriber:
         subscriber_obj = _select_subscriber_by_id(db, subscriber)
         if subscriber_obj:
@@ -411,6 +551,8 @@ def ticket_create(
             (tech.person.first_name or "").lower() if tech.person else "",
         ),
     )
+    ticket_types, ticket_type_priority_map = _load_ticket_types(db)
+    ticket_types = [item for item in ticket_types if item.get("is_active")]
 
     template_name = "admin/tickets/_form_modal.html" if modal else "admin/tickets/form.html"
     return templates.TemplateResponse(
@@ -420,6 +562,8 @@ def ticket_create(
             "ticket": None,
             "accounts": accounts,
             "technicians": technicians,
+            "ticket_types": ticket_types,
+            "ticket_type_priority_map": ticket_type_priority_map,
             "action_url": "/admin/support/tickets",
             "prefill": prefill,
             "active_page": "tickets",
@@ -435,8 +579,11 @@ def ticket_create_post(
     title: str = Form(...),
     description: Optional[str] = Form(None),
     subscriber_id: Optional[str] = Form(None),
-    customer: Optional[str] = Form(None),
+    customer_person_id: Optional[str] = Form(None),
+    customer_search: Optional[str] = Form(None),
+    lead_id: Optional[str] = Form(None),
     assigned_to_person_id: Optional[str] = Form(None),
+    ticket_type: Optional[str] = Form(None),
     priority: str = Form("normal"),
     channel: str = Form("web"),
     status: str = Form("new"),
@@ -453,7 +600,6 @@ def ticket_create_post(
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
-    from uuid import UUID
     from datetime import datetime
 
     prepared_attachments: list[dict] = []
@@ -498,18 +644,24 @@ def ticket_create_post(
         metadata: dict[str, object] = {}
         if saved_attachments:
             metadata["attachments"] = saved_attachments
-        if customer and customer.strip():
-            metadata["customer"] = customer.strip()
         metadata_value: dict[str, object] | None = metadata or None
 
         current_user = get_current_user(request)
+        resolved_customer_person_id = _resolve_customer_person_id(
+            db,
+            customer_person_id,
+            customer_search,
+        )
         payload = TicketCreate(
             title=title,
             description=description if description else None,
-            subscriber_id=UUID(subscriber_id) if subscriber_id else None,
-            assigned_to_person_id=UUID(assigned_to_person_id) if assigned_to_person_id else None,
-            created_by_person_id=UUID(current_user["person_id"]) if current_user and current_user.get("person_id") else None,
+            subscriber_id=_coerce_uuid_optional(subscriber_id, "subscriber"),
+            lead_id=_coerce_uuid_optional(lead_id, "lead"),
+            customer_person_id=resolved_customer_person_id,
+            assigned_to_person_id=_coerce_uuid_optional(assigned_to_person_id, "technician"),
+            created_by_person_id=_coerce_uuid_optional(current_user.get("person_id") if current_user else None, "user"),
             priority=priority_map.get(priority, TicketPriority.normal),
+            ticket_type=ticket_type.strip() if ticket_type else None,
             channel=channel_map.get(channel, TicketChannel.web),
             status=status_map.get(status, TicketStatus.new),
             due_at=due_datetime,
@@ -557,6 +709,8 @@ def ticket_create_post(
                 (tech.person.first_name or "").lower() if tech.person else "",
             ),
         )
+        ticket_types, ticket_type_priority_map = _load_ticket_types(db)
+        ticket_types = [item for item in ticket_types if item.get("is_active")]
         return templates.TemplateResponse(
             "admin/tickets/form.html",
             {
@@ -564,6 +718,8 @@ def ticket_create_post(
                 "ticket": None,
                 "accounts": accounts,
                 "technicians": technicians,
+                "ticket_types": ticket_types,
+                "ticket_type_priority_map": ticket_type_priority_map,
                 "action_url": "/admin/support/tickets",
                 "error": str(e),
                 "active_page": "tickets",
@@ -612,6 +768,11 @@ def ticket_edit(
             (tech.person.first_name or "").lower() if tech.person else "",
         ),
     )
+    ticket_types, ticket_type_priority_map = _load_ticket_types(db)
+    ticket_types = [item for item in ticket_types if item.get("is_active")]
+    if ticket and ticket.ticket_type:
+        if not any(item.get("name") == ticket.ticket_type for item in ticket_types):
+            ticket_types = [{"name": ticket.ticket_type, "priority": None, "is_active": False}] + ticket_types
 
     return templates.TemplateResponse(
         "admin/tickets/form.html",
@@ -620,6 +781,8 @@ def ticket_edit(
             "ticket": ticket,
             "accounts": accounts,
             "technicians": technicians,
+            "ticket_types": ticket_types,
+            "ticket_type_priority_map": ticket_type_priority_map,
             "action_url": f"/admin/support/tickets/{ticket_id}/edit",
             "active_page": "tickets",
             "current_user": get_current_user(request),
@@ -635,8 +798,10 @@ def ticket_edit_post(
     title: str = Form(...),
     description: Optional[str] = Form(None),
     subscriber_id: Optional[str] = Form(None),
-    customer: Optional[str] = Form(None),
+    customer_person_id: Optional[str] = Form(None),
+    customer_search: Optional[str] = Form(None),
     assigned_to_person_id: Optional[str] = Form(None),
+    ticket_type: Optional[str] = Form(None),
     priority: str = Form("normal"),
     channel: str = Form("web"),
     status: str = Form("new"),
@@ -652,7 +817,6 @@ def ticket_edit_post(
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
     from app.web.admin import get_current_user, get_sidebar_stats
-    from uuid import UUID
     from datetime import datetime, timezone
 
     prepared_attachments: list[dict] = []
@@ -671,12 +835,14 @@ def ticket_edit_post(
             ticket,
             include={
                 "subscriber_id",
+                "customer_person_id",
                 "created_by_person_id",
                 "assigned_to_person_id",
                 "title",
                 "description",
                 "status",
                 "priority",
+                "ticket_type",
                 "channel",
                 "tags",
                 "due_at",
@@ -722,7 +888,7 @@ def ticket_edit_post(
 
         metadata_update = None
         metadata_changed = False
-        if saved_attachments or customer is not None:
+        if saved_attachments:
             existing_metadata = (
                 dict(ticket.metadata_) if ticket.metadata_ and isinstance(ticket.metadata_, dict) else {}
             )
@@ -736,26 +902,23 @@ def ticket_edit_post(
                 new_metadata["attachments"] = attachment_list
                 metadata_changed = True
 
-            customer_value = (customer or "").strip()
-            if customer_value:
-                if existing_metadata.get("customer") != customer_value:
-                    metadata_changed = True
-                new_metadata["customer"] = customer_value
-            else:
-                if "customer" in existing_metadata:
-                    metadata_changed = True
-                new_metadata.pop("customer", None)
-
             if metadata_changed:
                 metadata_update = new_metadata if new_metadata else None
 
         new_status = status_map.get(status, ticket.status)
+        resolved_customer_person_id = _resolve_customer_person_id(
+            db,
+            customer_person_id,
+            customer_search,
+        )
         update_data = {
             "title": title,
             "description": description if description else None,
-            "subscriber_id": UUID(subscriber_id) if subscriber_id else None,
-            "assigned_to_person_id": UUID(assigned_to_person_id) if assigned_to_person_id else None,
+            "subscriber_id": _coerce_uuid_optional(subscriber_id, "subscriber"),
+            "customer_person_id": resolved_customer_person_id,
+            "assigned_to_person_id": _coerce_uuid_optional(assigned_to_person_id, "technician"),
             "priority": priority_map.get(priority, ticket.priority),
+            "ticket_type": ticket_type.strip() if ticket_type else None,
             "channel": channel_map.get(channel, ticket.channel),
             "status": new_status,
             "due_at": due_datetime,
@@ -777,12 +940,14 @@ def ticket_edit_post(
             updated_ticket,
             include={
                 "subscriber_id",
+                "customer_person_id",
                 "created_by_person_id",
                 "assigned_to_person_id",
                 "title",
                 "description",
                 "status",
                 "priority",
+                "ticket_type",
                 "channel",
                 "tags",
                 "due_at",
@@ -824,6 +989,11 @@ def ticket_edit_post(
                 (tech.person.first_name or "").lower() if tech.person else "",
             ),
         )
+        ticket_types, ticket_type_priority_map = _load_ticket_types(db)
+        ticket_types = [item for item in ticket_types if item.get("is_active")]
+        if ticket and ticket.ticket_type:
+            if not any(item.get("name") == ticket.ticket_type for item in ticket_types):
+                ticket_types = [{"name": ticket.ticket_type, "priority": None, "is_active": False}] + ticket_types
         return templates.TemplateResponse(
             "admin/tickets/form.html",
             {
@@ -831,6 +1001,8 @@ def ticket_edit_post(
                 "ticket": ticket,
                 "accounts": accounts,
                 "technicians": technicians,
+                "ticket_types": ticket_types,
+                "ticket_type_priority_map": ticket_type_priority_map,
                 "action_url": f"/admin/support/tickets/{ticket_id}/edit",
                 "error": str(e),
                 "active_page": "tickets",
@@ -889,6 +1061,14 @@ def ticket_detail(
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
 
+    # Fetch expense totals from ERP (cached to avoid blocking)
+    expense_totals = None
+    try:
+        from app.services.dotmac_erp.cache import get_cached_expense_totals
+        expense_totals = get_cached_expense_totals(db, "ticket", str(ticket.id))
+    except Exception:
+        pass  # ERP sync not configured or failed
+
     return templates.TemplateResponse(
         "admin/tickets/detail.html",
         {
@@ -896,6 +1076,7 @@ def ticket_detail(
             "ticket": ticket,
             "comments": comments,
             "activities": activities,
+            "expense_totals": expense_totals,
             "current_user": current_user,
             "sidebar_stats": sidebar_stats,
             "active_page": "tickets",

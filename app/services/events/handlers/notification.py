@@ -4,6 +4,7 @@ Queues customer notifications based on configured notification templates.
 """
 
 import logging
+import re
 
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,10 @@ from app.models.notification import (
     NotificationStatus,
     NotificationTemplate,
 )
+from app.models.crm.sales import Lead
+from app.models.person import Person
+from app.models.projects import Project
+from app.models.tickets import Ticket
 from app.services.events.types import Event, EventType
 
 logger = logging.getLogger(__name__)
@@ -41,7 +46,16 @@ EVENT_TYPE_TO_TEMPLATE = {
     EventType.provisioning_failed: "provisioning_failed",
     # Ticket events
     EventType.ticket_created: "ticket_created",
-    EventType.ticket_resolved: "ticket_resolved",
+    EventType.ticket_resolved: ["ticket_resolved", "ticket_completed_technician"],
+    EventType.ticket_assigned: "ticket_assigned_technician",
+    # Project events
+    EventType.project_created: "project_created",
+    EventType.project_completed: "project_completed",
+}
+
+TECHNICIAN_TEMPLATE_CODES = {
+    "ticket_assigned_technician",
+    "ticket_completed_technician",
 }
 
 
@@ -63,73 +77,160 @@ class NotificationHandler:
         if template_code is None:
             return
 
-        # Look up template
-        template = (
-            db.query(NotificationTemplate)
-            .filter(NotificationTemplate.code == template_code)
-            .filter(NotificationTemplate.is_active.is_(True))
-            .first()
+        template_codes = (
+            list(template_code)
+            if isinstance(template_code, (list, tuple, set))
+            else [template_code]
         )
 
-        if not template:
-            logger.debug(
-                f"No active notification template for code {template_code}"
+        for code in template_codes:
+            # Look up template
+            template = (
+                db.query(NotificationTemplate)
+                .filter(NotificationTemplate.code == code)
+                .filter(NotificationTemplate.is_active.is_(True))
+                .first()
             )
-            return
 
-        # Get recipient from event context
-        recipient = self._resolve_recipient(db, event)
-        if not recipient:
-            logger.debug(
-                f"Cannot determine recipient for event {event.event_type.value}"
+            if not template:
+                logger.debug(
+                    f"No active notification template for code {code}"
+                )
+                continue
+
+            # Get recipient from event context
+            recipient = self._resolve_recipient_for_template(db, event, code)
+            if not recipient:
+                logger.debug(
+                    f"Cannot determine recipient for event {event.event_type.value}"
+                )
+                continue
+
+            # Create notification
+            # Include event context in the body for traceability
+            payload = self._build_template_payload(event, code)
+            body = self._render_body(template, payload, event)
+
+            notification = Notification(
+                template_id=template.id,
+                channel=template.channel or NotificationChannel.email,
+                recipient=recipient,
+                subject=self._render_subject(template, payload, event),
+                body=body,
+                status=NotificationStatus.queued,
             )
-            return
+            db.add(notification)
 
-        # Create notification
-        # Include event context in the body for traceability
-        body = self._render_body(template, event)
+            logger.info(
+                f"Queued notification for event {event.event_type.value} "
+                f"to {recipient}"
+            )
 
-        notification = Notification(
-            template_id=template.id,
-            channel=template.channel or NotificationChannel.email,
-            recipient=recipient,
-            subject=self._render_subject(template, event),
-            body=body,
-            status=NotificationStatus.queued,
-        )
-        db.add(notification)
-
-        logger.info(
-            f"Queued notification for event {event.event_type.value} "
-            f"to {recipient}"
-        )
-
-    def _resolve_recipient(self, db: Session, event: Event) -> str | None:
+    def _resolve_recipient_for_template(
+        self, db: Session, event: Event, template_code: str
+    ) -> str | None:
         """Resolve the notification recipient from event context."""
+        if template_code in TECHNICIAN_TEMPLATE_CODES:
+            email = event.payload.get("technician_email")
+            if isinstance(email, str) and email.strip():
+                return email.strip()
+
+            ticket_id = event.ticket_id or event.payload.get("ticket_id")
+            if ticket_id:
+                ticket = db.get(Ticket, ticket_id)
+                if ticket and ticket.assigned_to_person_id:
+                    technician = db.get(Person, ticket.assigned_to_person_id)
+                    if technician and isinstance(technician.email, str) and technician.email.strip():
+                        return technician.email.strip()
+            return None
+
         # Check if email is in payload
         if "email" in event.payload:
             return event.payload["email"]
 
+        ticket_id = event.ticket_id or event.payload.get("ticket_id")
+        if ticket_id:
+            ticket = db.get(Ticket, ticket_id)
+            if ticket and ticket.customer_person_id:
+                customer = db.get(Person, ticket.customer_person_id)
+                if customer and customer.email:
+                    email = customer.email
+                    if isinstance(email, str) and email.strip():
+                        return email.strip()
+            if ticket and ticket.subscriber and ticket.subscriber.person:
+                email = ticket.subscriber.person.email
+                if isinstance(email, str) and email.strip():
+                    return email.strip()
+            if ticket and ticket.lead_id:
+                lead = db.get(Lead, ticket.lead_id)
+                if lead and lead.person and lead.person.email:
+                    email = lead.person.email
+                    if isinstance(email, str) and email.strip():
+                        return email.strip()
+
+        project_id = event.project_id or event.payload.get("project_id")
+        if project_id:
+            project = db.get(Project, project_id)
+            if project and project.subscriber and project.subscriber.person:
+                email = project.subscriber.person.email
+                if isinstance(email, str) and email.strip():
+                    return email.strip()
+            if project and project.lead_id:
+                lead = db.get(Lead, project.lead_id)
+                if lead and lead.person and lead.person.email:
+                    email = lead.person.email
+                    if isinstance(email, str) and email.strip():
+                        return email.strip()
+
         return None
 
-    def _render_subject(self, template: NotificationTemplate, event: Event) -> str:
+    def _build_template_payload(self, event: Event, template_code: str) -> dict:
+        payload = dict(event.payload)
+        if template_code in TECHNICIAN_TEMPLATE_CODES:
+            technician_doc = payload.get("technician_doc")
+            if isinstance(technician_doc, dict):
+                payload["doc"] = technician_doc
+        return payload
+
+    def _render_subject(self, template: NotificationTemplate, payload: dict, event: Event) -> str:
         """Render the notification subject with event data."""
         if not template.subject:
             return f"Notification: {event.event_type.value}"
 
-        # Simple variable substitution
-        subject = template.subject
-        for key, value in event.payload.items():
-            subject = subject.replace(f"{{{key}}}", str(value))
-        return subject
+        return self._render_template_string(template.subject, payload)
 
-    def _render_body(self, template: NotificationTemplate, event: Event) -> str:
+    def _render_body(self, template: NotificationTemplate, payload: dict, event: Event) -> str:
         """Render the notification body with event data."""
         if not template.body:
             return f"Event: {event.event_type.value}\n{event.payload}"
 
-        # Simple variable substitution
-        body = template.body
-        for key, value in event.payload.items():
-            body = body.replace(f"{{{key}}}", str(value))
-        return body
+        return self._render_template_string(template.body, payload)
+
+    def _render_template_string(self, template: str, payload: dict) -> str:
+        def _resolve_token(token: str) -> str | None:
+            parts = token.split(".")
+            current: object = payload
+            for part in parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    return None
+            if current is None:
+                return ""
+            return str(current)
+
+        def _replace_jinja(match):
+            token = match.group(1).strip()
+            resolved = _resolve_token(token)
+            return resolved if resolved is not None else match.group(0)
+
+        def _replace_single_brace(match):
+            token = match.group(1).strip()
+            resolved = _resolve_token(token)
+            return resolved if resolved is not None else match.group(0)
+
+        # Replace {{ token }} first
+        result = re.sub(r"{{\s*([a-zA-Z0-9_.-]+)\s*}}", _replace_jinja, template)
+        # Replace {token} without double braces
+        result = re.sub(r"(?<!{){\s*([a-zA-Z0-9_.-]+)\s*}(?!})", _replace_single_brace, result)
+        return result

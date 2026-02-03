@@ -60,7 +60,7 @@ def _compose_address(data: dict) -> str | None:
 
 def _nominatim_search(db: Session, query: str, limit: int) -> list[dict]:
     base_url = _setting_value(db, "base_url") or "https://nominatim.openstreetmap.org"
-    user_agent = _setting_value(db, "user_agent") or "dotmac_omni"
+    user_agent = _setting_value(db, "user_agent") or "dotmac_crm"
     timeout_sec = _setting_int(db, "timeout_sec", 5)
     email = _setting_value(db, "email")
     params: dict[str, Any] = {

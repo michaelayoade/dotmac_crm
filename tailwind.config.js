@@ -5,6 +5,37 @@ module.exports = {
     "./static/js/**/*.js",
   ],
   darkMode: 'class',
+
+  // Safelist for dynamic color classes used in Jinja2 macros
+  // These classes are interpolated at runtime (e.g., from-{{ color }}-500)
+  // and must be explicitly included since Tailwind can't detect them at build time
+  safelist: [
+    // Dynamic color patterns for all theme colors used in macros
+    {
+      pattern: /^(from|to|via)-(amber|orange|cyan|blue|violet|purple|teal|emerald|indigo|rose|green|slate|red|pink)-(50|100|200|300|400|500|600|700|800|900|950)(\/\d+)?$/,
+      variants: ['hover', 'dark', 'group-hover'],
+    },
+    {
+      pattern: /^bg-(amber|orange|cyan|blue|violet|purple|teal|emerald|indigo|rose|green|slate|red|pink)-(50|100|200|300|400|500|600|700|800|900|950)(\/\d+)?$/,
+      variants: ['hover', 'dark', 'group-hover'],
+    },
+    {
+      pattern: /^text-(amber|orange|cyan|blue|violet|purple|teal|emerald|indigo|rose|green|slate|red|pink)-(50|100|200|300|400|500|600|700|800|900|950)$/,
+      variants: ['hover', 'dark', 'group-hover'],
+    },
+    {
+      pattern: /^border-(amber|orange|cyan|blue|violet|purple|teal|emerald|indigo|rose|green|slate|red|pink)-(100|200|300|400|500|600|700)(\/\d+)?$/,
+      variants: ['hover', 'dark', 'focus'],
+    },
+    {
+      pattern: /^shadow-(amber|orange|cyan|blue|violet|purple|teal|emerald|indigo|rose|green|slate|red|pink)-(500)(\/\d+)?$/,
+      variants: ['hover'],
+    },
+    {
+      pattern: /^ring-(amber|orange|cyan|blue|violet|purple|teal|emerald|indigo|rose|green|slate|red|pink)-(500)(\/\d+)?$/,
+      variants: ['focus', 'dark'],
+    },
+  ],
   theme: {
     extend: {
       fontFamily: {

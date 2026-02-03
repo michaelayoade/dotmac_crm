@@ -239,7 +239,7 @@ class ERPNextClient:
             List of document dicts
         """
         path = f"/api/resource/{doctype}"
-        params = {
+        params: dict[str, Any] = {
             "limit_start": limit_start,
             "limit_page_length": limit_page_length or self.page_size,
         }
@@ -314,7 +314,7 @@ class ERPNextClient:
             Count of matching documents
         """
         path = f"/api/resource/{doctype}"
-        params = {"limit_page_length": 0}
+        params: dict[str, Any] = {"limit_page_length": 0}
 
         if filters:
             if isinstance(filters, dict):

@@ -191,8 +191,18 @@ def poll_email_targets(db: Session, target_id: str | None = None) -> dict:
         return {"processed": 0}
 
     processed_total = 0
+    errors: list[dict[str, str]] = []
     for config in email_connectors:
-        result = email_polling.poll_email_connector(db, config)
-        processed_total += int(result.get("processed") or 0)
+        try:
+            result = email_polling.poll_email_connector(db, config)
+            processed_total += int(result.get("processed") or 0)
+        except Exception as exc:
+            logger.info(
+                "EMAIL_POLL_EXIT reason=connector_failure connector_id=%s error=%s",
+                config.id,
+                exc,
+            )
+            errors.append({"connector_id": str(config.id), "error": str(exc)})
+            continue
 
-    return {"processed": processed_total}
+    return {"processed": processed_total, "errors": errors}

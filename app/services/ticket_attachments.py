@@ -21,7 +21,13 @@ def _validate_attachment(file: UploadFile, content: bytes) -> None:
         raise HTTPException(status_code=400, detail="Unsupported attachment type")
 
 
-def _coerce_upload_files(files: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | str | bytes | None) -> list[UploadFile]:
+def _is_upload_like(item: object) -> bool:
+    return hasattr(item, "filename") and hasattr(item, "file")
+
+
+def _coerce_upload_files(
+    files: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | str | bytes | None,
+) -> list[UploadFile]:
     if files is None:
         return []
     if isinstance(files, UploadFile):
@@ -29,7 +35,14 @@ def _coerce_upload_files(files: UploadFile | list[UploadFile] | tuple[UploadFile
             return []
         return [files]
     if isinstance(files, (list, tuple)):
-        return [item for item in files if isinstance(item, UploadFile) and item.filename]
+        uploads: list[UploadFile] = []
+        for item in files:
+            if isinstance(item, UploadFile):
+                if item.filename:
+                    uploads.append(item)
+            elif _is_upload_like(item) and getattr(item, "filename", None):
+                uploads.append(item)
+        return uploads
     if isinstance(files, (str, bytes)):
         return []
     # Be permissive with unexpected types (e.g., stray form fields) to avoid 400s.

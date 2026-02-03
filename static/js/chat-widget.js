@@ -96,6 +96,7 @@
       this.maxReconnectAttempts = 5;
       this.typingTimeout = null;
       this.pollInterval = null;
+      this.renderedMessageIds = new Set(); // Track rendered messages for animations
 
       // DOM elements
       this.container = null;
@@ -559,6 +560,27 @@
           word-wrap: break-word;
         }
 
+        .dotmac-widget-message-new {
+          animation: dotmac-msg-enter 0.25s ease-out;
+        }
+
+        @keyframes dotmac-msg-enter {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .dotmac-widget-message-new {
+            animation: none;
+          }
+        }
+
         .dotmac-widget-message-inbound {
           align-self: flex-end;
           background: #3b82f6;
@@ -750,16 +772,34 @@
     }
 
     /**
-     * Handle bubble click - toggle panel
+     * Handle bubble click - toggle panel with animation
      */
     handleBubbleClick() {
       this.isOpen = !this.isOpen;
-      this.panel.style.display = this.isOpen ? 'flex' : 'none';
 
       if (this.isOpen) {
+        // Open panel with animation
+        this.panel.style.display = 'flex';
+        this.panel.classList.remove('panel-leave');
+        this.panel.classList.add('panel-enter');
         this.inputField.focus();
         this.scrollToBottom();
         this.updateUnreadBadge(0);
+      } else {
+        // Close panel with animation
+        this.panel.classList.remove('panel-enter');
+        this.panel.classList.add('panel-leave');
+
+        // Hide after animation completes (respects reduced motion)
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const animationDuration = prefersReducedMotion ? 0 : 200;
+
+        setTimeout(() => {
+          if (!this.isOpen) {
+            this.panel.style.display = 'none';
+            this.panel.classList.remove('panel-leave');
+          }
+        }, animationDuration);
       }
     }
 
@@ -869,9 +909,9 @@
         if (idx !== -1) {
           this.messages[idx] = {
             id: data.message_id,
-            body: body,
+            body: typeof data.body === 'string' ? data.body : body,
             direction: 'inbound',
-            created_at: new Date().toISOString()
+            created_at: data.created_at || new Date().toISOString()
           };
         }
 
@@ -905,6 +945,12 @@
         if (msg.sending) classes.push('dotmac-widget-message-sending');
         if (msg.failed) classes.push('dotmac-widget-message-failed');
 
+        // Add entrance animation for new messages (not previously rendered)
+        const isNew = !this.renderedMessageIds.has(msg.id);
+        if (isNew && this.renderedMessageIds.size > 0) {
+          classes.push('dotmac-widget-message-new');
+        }
+
         let authorHtml = '';
         if (msg.author_name && direction === 'outbound') {
           authorHtml = `<div class="dotmac-widget-message-author">${sanitizeHtml(msg.author_name)}</div>`;
@@ -918,6 +964,9 @@
           </div>
         `;
       }).join('');
+
+      // Mark all current messages as rendered
+      this.messages.forEach(msg => this.renderedMessageIds.add(msg.id));
     }
 
     /**
@@ -1004,13 +1053,29 @@
         case 'message_new':
           // Only handle outbound messages (from agent)
           if (data.data.direction === 'outbound') {
-            this.messages.push({
-              id: data.data.message_id,
-              body: data.data.body,
+            const messageId = data.data.message_id;
+            const fallbackBody = typeof data.data.body_preview === 'string' ? data.data.body_preview : '';
+            const body = typeof data.data.body === 'string' ? data.data.body : fallbackBody;
+            const createdAt = data.data.created_at || new Date().toISOString();
+            const existingIdx = this.messages.findIndex(m => m.id === messageId);
+            const nextMessage = {
+              id: messageId,
+              body: body,
               direction: 'outbound',
-              created_at: data.data.created_at || new Date().toISOString(),
+              created_at: createdAt,
               author_name: data.data.author_name
-            });
+            };
+            if (existingIdx === -1) {
+              this.messages.push(nextMessage);
+            } else {
+              const existing = this.messages[existingIdx];
+              this.messages[existingIdx] = {
+                ...existing,
+                body: body || existing.body,
+                created_at: createdAt || existing.created_at,
+                author_name: nextMessage.author_name || existing.author_name
+              };
+            }
             this.renderMessages();
             this.scrollToBottom();
 

@@ -63,6 +63,7 @@ class Person(Base):
     display_name: Mapped[str | None] = mapped_column(String(120))
     avatar_url: Mapped[str | None] = mapped_column(String(512))
     bio: Mapped[str | None] = mapped_column(Text)
+    job_title: Mapped[str | None] = mapped_column(String(120))  # B2B: role at organization
 
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -111,7 +112,11 @@ class Person(Base):
     )
 
     # Relationships
-    organization = relationship("Organization", back_populates="people")
+    organization = relationship(
+        "Organization",
+        back_populates="people",
+        foreign_keys=[organization_id],
+    )
     # subscribers = relationship("Subscriber", back_populates="person")  # Model removed
     channels = relationship("PersonChannel", back_populates="person", cascade="all, delete-orphan")
     status_logs = relationship(

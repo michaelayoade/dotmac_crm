@@ -373,7 +373,6 @@ def upgrade() -> None:
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
-    sa.ForeignKeyConstraint(['approved_quote_id'], ['project_quotes.id'], ),
     sa.ForeignKeyConstraint(['assigned_vendor_id'], ['vendors.id'], ),
     sa.ForeignKeyConstraint(['buildout_project_id'], ['buildout_projects.id'], ),
     sa.ForeignKeyConstraint(['created_by_person_id'], ['people.id'], ),
@@ -549,6 +548,13 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['reviewed_by_person_id'], ['people.id'], ),
     sa.ForeignKeyConstraint(['vendor_id'], ['vendors.id'], ),
     sa.PrimaryKeyConstraint('id')
+    )
+    op.create_foreign_key(
+        'fk_installation_projects_approved_quote_id_project_quotes',
+        'installation_projects',
+        'project_quotes',
+        ['approved_quote_id'],
+        ['id'],
     )
     op.create_table('project_task_status_transitions',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -2578,6 +2584,11 @@ def downgrade() -> None:
     op.drop_table('provisioning_workflows')
     op.drop_table('project_templates')
     op.drop_table('project_task_status_transitions')
+    op.drop_constraint(
+        'fk_installation_projects_approved_quote_id_project_quotes',
+        'installation_projects',
+        type_='foreignkey',
+    )
     op.drop_table('project_quotes')
     op.drop_table('permissions')
     op.drop_table('organizations')

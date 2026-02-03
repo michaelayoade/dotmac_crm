@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import String, cast, or_
+from sqlalchemy.orm import selectinload
 
 from app.models.tickets import (
     Ticket,
@@ -168,6 +169,21 @@ class TicketQuery(BaseQuery[Ticket]):
             TicketStatus.canceled,
         ])
 
+    def with_relations(self) -> "TicketQuery":
+        """Eager load common relationships to avoid N+1 queries.
+
+        Loads: subscriber, customer, created_by, assigned_to, lead.
+        """
+        clone = self._clone()
+        clone._query = clone._query.options(
+            selectinload(Ticket.subscriber),
+            selectinload(Ticket.customer),
+            selectinload(Ticket.created_by),
+            selectinload(Ticket.assigned_to),
+            selectinload(Ticket.lead),
+        )
+        return clone
+
 
 class TicketCommentQuery(BaseQuery[TicketComment]):
     """Query builder for TicketComment model."""
@@ -215,6 +231,12 @@ class TicketCommentQuery(BaseQuery[TicketComment]):
             return self
         clone = self._clone()
         clone._query = clone._query.filter(TicketComment.is_internal == internal)
+        return clone
+
+    def with_author(self) -> "TicketCommentQuery":
+        """Eager load author relationship to avoid N+1 queries."""
+        clone = self._clone()
+        clone._query = clone._query.options(selectinload(TicketComment.author))
         return clone
 
 

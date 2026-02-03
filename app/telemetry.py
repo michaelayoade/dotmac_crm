@@ -25,7 +25,7 @@ def setup_otel(app) -> None:
         logger.exception("OpenTelemetry dependencies not available.")
         return
 
-    service_name = os.getenv("OTEL_SERVICE_NAME", "dotmac_omni")
+    service_name = os.getenv("OTEL_SERVICE_NAME", "dotmac_crm")
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)

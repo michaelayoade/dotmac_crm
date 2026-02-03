@@ -5,7 +5,9 @@ from sqlalchemy import or_
 from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
+from app.models.crm.campaign import Campaign, CampaignRecipient
 from app.services import email as email_service
+from app.models.crm.campaign_smtp import CampaignSmtpConfig
 
 # Timeout for stuck "sending" notifications (5 minutes)
 SENDING_TIMEOUT_MINUTES = 5
@@ -49,14 +51,55 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
         subject = notification.subject or "Notification"
         body = notification.body or ""
         try:
-            success = email_service.send_email(
-                db=db,
-                to_email=notification.recipient,
-                subject=subject,
-                body_html=body,
-                body_text=None,
-                track=False,
-            )
+            if not notification.smtp_config_id:
+                campaign_smtp_id = (
+                    db.query(Campaign.campaign_smtp_config_id)
+                    .join(
+                        CampaignRecipient,
+                        CampaignRecipient.campaign_id == Campaign.id,
+                    )
+                    .filter(CampaignRecipient.notification_id == notification.id)
+                    .scalar()
+                )
+                if campaign_smtp_id:
+                    notification.smtp_config_id = campaign_smtp_id
+                    db.commit()
+
+            if notification.smtp_config_id:
+                smtp_profile = db.get(CampaignSmtpConfig, notification.smtp_config_id)
+                if not smtp_profile or not smtp_profile.is_active:
+                    raise ValueError("SMTP profile not found or inactive")
+                smtp_config = {
+                    "host": smtp_profile.host,
+                    "port": smtp_profile.port,
+                    "username": smtp_profile.username,
+                    "password": smtp_profile.password,
+                    "use_tls": smtp_profile.use_tls,
+                    "use_ssl": smtp_profile.use_ssl,
+                    "from_name": notification.from_name or "DotMac CRM",
+                    "from_email": notification.from_email or "noreply@example.com",
+                    "from_addr": notification.from_email or "noreply@example.com",
+                }
+                success = email_service.send_email_with_config(
+                    smtp_config,
+                    notification.recipient,
+                    subject,
+                    body,
+                    body_text=None,
+                    reply_to=notification.reply_to,
+                )
+            else:
+                success = email_service.send_email(
+                    db=db,
+                    to_email=notification.recipient,
+                    subject=subject,
+                    body_html=body,
+                    body_text=None,
+                    track=False,
+                    from_name=notification.from_name,
+                    from_email=notification.from_email,
+                    reply_to=notification.reply_to,
+                )
         except Exception as exc:
             success = False
             notification.last_error = str(exc)

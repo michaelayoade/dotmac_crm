@@ -6,14 +6,14 @@ import json
 import math
 from typing import cast
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session, load_only
 
 from app.db import SessionLocal
-from app.models.gis import GeoLocation, GeoLocationType
+from app.models.gis import GeoAreaType, GeoLocation, GeoLocationType
 from app.models.domain_settings import SettingDomain
 from app.models.fiber_change_request import FiberChangeRequestOperation
 from app.models.network import (
@@ -29,6 +29,7 @@ from app.services import settings_spec
 from app.services import fiber_change_requests as change_request_service
 from app.services import gis as gis_service
 from app.services import vendor as vendor_service
+from app.services.common import coerce_uuid
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/network", tags=["web-admin-network"])
@@ -382,6 +383,286 @@ def pop_sites_list(
     )
 
 
+@router.get("/fdh-cabinets", response_class=HTMLResponse)
+def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
+    from app.web.admin import get_sidebar_stats, get_current_user
+
+    cabinets = (
+        db.query(FdhCabinet)
+        .order_by(FdhCabinet.name.asc())
+        .all()
+    )
+    stats = {
+        "total": db.query(func.count(FdhCabinet.id)).scalar() or 0,
+    }
+    return templates.TemplateResponse(
+        "admin/network/fiber/fdh-cabinets.html",
+        {
+            "request": request,
+            "active_page": "fdh-cabinets",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "cabinets": cabinets,
+            "stats": stats,
+        },
+    )
+
+
+@router.get("/fdh-cabinets/new", response_class=HTMLResponse)
+def fdh_cabinet_new(request: Request, db: Session = Depends(get_db)):
+    from app.web.admin import get_sidebar_stats, get_current_user
+
+    from app.web.admin import get_sidebar_stats, get_current_user
+
+    regions = gis_service.geo_areas.list(
+        db,
+        area_type=GeoAreaType.region.value,
+        is_active=True,
+        min_latitude=None,
+        min_longitude=None,
+        max_latitude=None,
+        max_longitude=None,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    return templates.TemplateResponse(
+        "admin/network/fiber/fdh-cabinet-form.html",
+        {
+            "request": request,
+            "active_page": "fdh-cabinets",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "cabinet": None,
+            "regions": regions,
+            "action_url": "/admin/network/fdh-cabinets/new",
+        },
+    )
+
+
+@router.post("/fdh-cabinets/new", response_class=HTMLResponse)
+def fdh_cabinet_create(
+    request: Request,
+    name: str = Form(...),
+    code: str | None = Form(None),
+    region_id: str | None = Form(None),
+    latitude: str | None = Form(None),
+    longitude: str | None = Form(None),
+    notes: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    error = None
+    try:
+        lat_value = None
+        lng_value = None
+        if latitude or longitude:
+            lat_value, lng_value = _parse_lat_lng(latitude or "", longitude or "")
+        cabinet = FdhCabinet(
+            name=name.strip(),
+            code=(code or "").strip() or None,
+            region_id=coerce_uuid(region_id) if region_id else None,
+            latitude=lat_value,
+            longitude=lng_value,
+            notes=(notes or "").strip() or None,
+            is_active=is_active == "true",
+        )
+        db.add(cabinet)
+        db.commit()
+        return RedirectResponse(
+            url=f"/admin/network/fdh-cabinets/{cabinet.id}",
+            status_code=303,
+        )
+    except Exception as exc:
+        db.rollback()
+        error = str(exc)
+
+    from app.web.admin import get_sidebar_stats, get_current_user
+
+    regions = gis_service.geo_areas.list(
+        db,
+        area_type=GeoAreaType.region.value,
+        is_active=True,
+        min_latitude=None,
+        min_longitude=None,
+        max_latitude=None,
+        max_longitude=None,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    return templates.TemplateResponse(
+        "admin/network/fiber/fdh-cabinet-form.html",
+        {
+            "request": request,
+            "active_page": "fdh-cabinets",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "cabinet": None,
+            "regions": regions,
+            "action_url": "/admin/network/fdh-cabinets/new",
+            "error": error,
+        },
+        status_code=400,
+    )
+
+
+@router.get("/fdh-cabinets/{cabinet_id}", response_class=HTMLResponse)
+def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(get_db)):
+    from app.web.admin import get_sidebar_stats, get_current_user
+
+    cabinet = db.get(FdhCabinet, cabinet_id)
+    if not cabinet:
+        return RedirectResponse(url="/admin/network/fdh-cabinets", status_code=303)
+    regions = gis_service.geo_areas.list(
+        db,
+        area_type=GeoAreaType.region.value,
+        is_active=True,
+        min_latitude=None,
+        min_longitude=None,
+        max_latitude=None,
+        max_longitude=None,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    region_map = {str(region.id): region for region in regions}
+    setattr(
+        cabinet,
+        "region",
+        region_map.get(str(cabinet.region_id)) if cabinet.region_id else None,
+    )
+    splitters = (
+        db.query(Splitter)
+        .filter(Splitter.fdh_id == cabinet.id)
+        .order_by(Splitter.name.asc())
+        .all()
+    )
+    return templates.TemplateResponse(
+        "admin/network/fiber/fdh-cabinet-detail.html",
+        {
+            "request": request,
+            "active_page": "fdh-cabinets",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "cabinet": cabinet,
+            "splitters": splitters,
+            "activities": [],
+        },
+    )
+
+
+@router.get("/fdh-cabinets/{cabinet_id}/edit", response_class=HTMLResponse)
+def fdh_cabinet_edit(request: Request, cabinet_id: str, db: Session = Depends(get_db)):
+    from app.web.admin import get_sidebar_stats, get_current_user
+
+    cabinet = db.get(FdhCabinet, cabinet_id)
+    if not cabinet:
+        return RedirectResponse(url="/admin/network/fdh-cabinets", status_code=303)
+    regions = gis_service.geo_areas.list(
+        db,
+        area_type=GeoAreaType.region.value,
+        is_active=True,
+        min_latitude=None,
+        min_longitude=None,
+        max_latitude=None,
+        max_longitude=None,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    return templates.TemplateResponse(
+        "admin/network/fiber/fdh-cabinet-form.html",
+        {
+            "request": request,
+            "active_page": "fdh-cabinets",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "cabinet": cabinet,
+            "regions": regions,
+            "action_url": f"/admin/network/fdh-cabinets/{cabinet_id}/edit",
+        },
+    )
+
+
+@router.post("/fdh-cabinets/{cabinet_id}/edit", response_class=HTMLResponse)
+def fdh_cabinet_update(
+    request: Request,
+    cabinet_id: str,
+    name: str = Form(...),
+    code: str | None = Form(None),
+    region_id: str | None = Form(None),
+    latitude: str | None = Form(None),
+    longitude: str | None = Form(None),
+    notes: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    error = None
+    cabinet = db.get(FdhCabinet, cabinet_id)
+    if not cabinet:
+        return RedirectResponse(url="/admin/network/fdh-cabinets", status_code=303)
+    try:
+        lat_value = None
+        lng_value = None
+        if latitude or longitude:
+            lat_value, lng_value = _parse_lat_lng(latitude or "", longitude or "")
+        cabinet.name = name.strip()
+        cabinet.code = (code or "").strip() or None
+        cabinet.region_id = coerce_uuid(region_id) if region_id else None
+        cabinet.latitude = lat_value
+        cabinet.longitude = lng_value
+        cabinet.notes = (notes or "").strip() or None
+        cabinet.is_active = is_active == "true"
+        db.commit()
+        return RedirectResponse(
+            url=f"/admin/network/fdh-cabinets/{cabinet_id}",
+            status_code=303,
+        )
+    except Exception as exc:
+        db.rollback()
+        error = str(exc)
+
+    from app.web.admin import get_sidebar_stats, get_current_user
+
+    regions = gis_service.geo_areas.list(
+        db,
+        area_type=GeoAreaType.region.value,
+        is_active=True,
+        min_latitude=None,
+        min_longitude=None,
+        max_latitude=None,
+        max_longitude=None,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    return templates.TemplateResponse(
+        "admin/network/fiber/fdh-cabinet-form.html",
+        {
+            "request": request,
+            "active_page": "fdh-cabinets",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "cabinet": cabinet,
+            "regions": regions,
+            "action_url": f"/admin/network/fdh-cabinets/{cabinet_id}/edit",
+            "error": error,
+        },
+        status_code=400,
+    )
+
 @router.get("/fiber-map", response_class=HTMLResponse)
 def network_map_alias():
     return RedirectResponse(url="/admin/network/map", status_code=302)
@@ -390,21 +671,6 @@ def network_map_alias():
 @router.get("/fiber-plant", response_class=HTMLResponse)
 def fiber_plant_alias():
     return RedirectResponse(url="/admin/network/map", status_code=302)
-
-
-@router.get("/alarms", response_class=HTMLResponse)
-def network_alarms_alias():
-    return RedirectResponse(url="/admin/notifications", status_code=302)
-
-
-@router.get("/monitoring", response_class=HTMLResponse)
-def network_monitoring_alias():
-    return RedirectResponse(url="/admin/system/health", status_code=302)
-
-
-@router.get("/network-devices", response_class=HTMLResponse)
-def network_devices_alias():
-    return RedirectResponse(url="/admin/reports/network", status_code=302)
 
 
 @router.post("/fiber-map/update-position")

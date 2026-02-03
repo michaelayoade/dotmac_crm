@@ -17,6 +17,7 @@ class InboxSendRequest(BaseModel):
     subject: str | None = Field(default=None, max_length=200)
     body: str = Field(min_length=1)
     personalization: dict | None = None
+    attachments: list[dict] | None = None
 
 
 class InboxSendResponse(BaseModel):

@@ -1,4 +1,5 @@
 import os
+from typing import cast
 
 from dotenv import load_dotenv
 
@@ -15,7 +16,7 @@ def _env_value(name: str) -> str | None:
     return value
 
 
-def main():
+def main() -> None:
     load_dotenv()
     db = SessionLocal()
     try:
@@ -60,7 +61,8 @@ def main():
                     )
             if spec.min_value is not None:
                 try:
-                    if int(effective) < spec.min_value:
+                    value_int = int(str(cast(object, effective)))
+                    if value_int < spec.min_value:
                         errors.append(
                             f"{spec.domain.value}.{spec.key}: value must be >= {spec.min_value}"
                         )
@@ -68,7 +70,8 @@ def main():
                     errors.append(f"{spec.domain.value}.{spec.key}: value must be an integer")
             if spec.max_value is not None:
                 try:
-                    if int(effective) > spec.max_value:
+                    value_int = int(str(cast(object, effective)))
+                    if value_int > spec.max_value:
                         errors.append(
                             f"{spec.domain.value}.{spec.key}: value must be <= {spec.max_value}"
                         )

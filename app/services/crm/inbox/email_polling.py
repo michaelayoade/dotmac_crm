@@ -4,6 +4,7 @@ import base64
 import email
 import imaplib
 import poplib
+import re
 from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
 from datetime import timezone
@@ -20,6 +21,9 @@ from app.services.common import coerce_uuid
 from app.logging import get_logger
 
 logger = get_logger(__name__)
+
+EMAIL_POLL_CONNECT_TIMEOUT = 30
+POP3_UIDL_HISTORY_LIMIT = 500
 
 
 def _decode_header(value: str | None) -> str | None:
@@ -78,25 +82,60 @@ def _payload_to_bytes(value: object | None) -> bytes:
     return str(value).encode("utf-8", errors="replace")
 
 
+def _extract_uid_from_fetch_header(header: object) -> str | None:
+    if isinstance(header, (bytes, bytearray)):
+        header_bytes = header
+    else:
+        header_bytes = str(header).encode("utf-8", errors="replace")
+    match = re.search(rb"UID\s+(\d+)", header_bytes)
+    if not match:
+        return None
+    return match.group(1).decode("utf-8", errors="replace")
 
-def _extract_body(msg: email.message.Message) -> str:
+
+def poll_email_inbox(db: Session, connector_config_id: str) -> dict:
+    config = db.get(ConnectorConfig, coerce_uuid(connector_config_id))
+    if not config:
+        raise HTTPException(status_code=404, detail="Connector config not found")
+    return poll_email_connector(db, config)
+
+
+class EmailPoller:
+    @staticmethod
+    def poll(db: Session, connector_config_id: str) -> dict:
+        return poll_email_inbox(db, connector_config_id)
+
+
+# Singleton instance
+email_poller = EmailPoller()
+
+
+
+def _extract_bodies(msg: email.message.Message) -> tuple[str | None, str | None]:
+    text_body = None
+    html_body = None
     if msg.is_multipart():
         for part in msg.walk():
             content_type = part.get_content_type()
             disposition = part.get("Content-Disposition", "")
-            if content_type == "text/plain" and "attachment" not in disposition:
-                payload = _payload_to_bytes(part.get_payload(decode=True))
-                charset = part.get_content_charset() or "utf-8"
-                return (payload or b"").decode(charset, errors="replace")
-        for part in msg.walk():
-            if part.get_content_type() == "text/html":
-                payload = _payload_to_bytes(part.get_payload(decode=True))
-                charset = part.get_content_charset() or "utf-8"
-                return (payload or b"").decode(charset, errors="replace")
-        return ""
-    payload = _payload_to_bytes(msg.get_payload(decode=True))
-    charset = msg.get_content_charset() or "utf-8"
-    return (payload or b"").decode(charset, errors="replace")
+            if "attachment" in disposition:
+                continue
+            payload = _payload_to_bytes(part.get_payload(decode=True))
+            charset = part.get_content_charset() or "utf-8"
+            content = (payload or b"").decode(charset, errors="replace")
+            if content_type == "text/plain" and text_body is None:
+                text_body = content
+            elif content_type == "text/html" and html_body is None:
+                html_body = content
+    else:
+        payload = _payload_to_bytes(msg.get_payload(decode=True))
+        charset = msg.get_content_charset() or "utf-8"
+        content = (payload or b"").decode(charset, errors="replace")
+        if msg.get_content_type() == "text/html":
+            html_body = content
+        else:
+            text_body = content
+    return text_body, html_body
 
 
 def _extract_attachments(msg: email.message.Message) -> list[dict[str, object]]:
@@ -173,7 +212,11 @@ def _imap_poll(
     metadata = dict(config.metadata_ or {})
     last_uid = metadata.get("imap_last_uid") if isinstance(metadata.get("imap_last_uid"), int) else None
 
-    client = imaplib.IMAP4_SSL(host, port) if use_ssl else imaplib.IMAP4(host, port)
+    client = (
+        imaplib.IMAP4_SSL(host, port, timeout=EMAIL_POLL_CONNECT_TIMEOUT)
+        if use_ssl
+        else imaplib.IMAP4(host, port, timeout=EMAIL_POLL_CONNECT_TIMEOUT)
+    )
     client.login(username, password)
     mailbox = imap_config.get("mailbox", "INBOX")
     mailbox_value = mailbox.strip() if isinstance(mailbox, str) and mailbox.strip() else "INBOX"
@@ -196,6 +239,12 @@ def _imap_poll(
         return []
 
     status, selected = client.select(mailbox_value)
+    selected_count = 0
+    if status == "OK" and selected and selected[0]:
+        try:
+            selected_count = int(selected[0])
+        except (TypeError, ValueError):
+            selected_count = 0
     logger.info(
         "EMAIL_IMAP_SELECT mailbox=%s status=%s messages=%s",
         mailbox_value,
@@ -205,18 +254,116 @@ def _imap_poll(
 
     processed = 0
     search_all = bool(imap_config.get("search_all"))
+    criteria_label = "ALL" if search_all else "UNSEEN"
     if last_uid:
         criteria = f"(UID {last_uid + 1}:*)"
         data = _uid_search(criteria)
     else:
-        data = _uid_search("ALL" if search_all else "UNSEEN")
+        data = _uid_search(criteria_label)
     uids = data[0].split() if data and data[0] else []
     logger.info(
         "EMAIL_IMAP_UIDS mailbox=%s criteria=%s count=%s",
         mailbox_value,
-        criteria if last_uid else ("ALL" if search_all else "UNSEEN"),
+        criteria if last_uid else criteria_label,
         len(uids),
     )
+    if not uids and selected_count > 0:
+        fallback_criteria = criteria_label
+        status_all, data_all = client.search(None, fallback_criteria)
+        seq_nums = data_all[0].split() if status_all == "OK" and data_all and data_all[0] else []
+        logger.info(
+            "EMAIL_IMAP_SEARCH_FALLBACK mailbox=%s criteria=%s status=%s count=%s",
+            mailbox_value,
+            fallback_criteria,
+            status_all,
+            len(seq_nums),
+        )
+        for seq in seq_nums:
+            seq_value = seq.decode() if isinstance(seq, bytes) else str(seq)
+            _, msg_data = client.fetch(seq_value, "(UID RFC822)")
+            if not msg_data or not msg_data[0]:
+                continue
+            header, raw = msg_data[0] if isinstance(msg_data[0], tuple) else (None, None)
+            if not raw:
+                continue
+            uid_value = _extract_uid_from_fetch_header(header)
+            if last_uid is not None:
+                if not uid_value or not uid_value.isdigit():
+                    continue
+                if int(uid_value) <= last_uid:
+                    continue
+            msg = email.message_from_bytes(raw)
+            from_header = msg.get("From") or ""
+            from_addr = parseaddr(from_header)[1]
+            if _is_self_sender(from_addr, config, auth_config):
+                if uid_value and uid_value.isdigit():
+                    uid_int = int(uid_value)
+                    if last_uid is None or uid_int > last_uid:
+                        last_uid = uid_int
+                continue
+            subject = _decode_header(msg.get("Subject"))
+            if isinstance(subject, str):
+                subject = subject.strip()
+                if len(subject) > 200:
+                    subject = subject[:200]
+            message_id = msg.get("Message-ID")
+            reply_to = msg.get_all("Reply-To") or []
+            to_addrs = msg.get_all("To") or []
+            cc_addrs = msg.get_all("Cc") or []
+            in_reply_to = msg.get("In-Reply-To")
+            references = msg.get("References")
+            received_at = None
+            date_header = msg.get("Date")
+            if date_header:
+                try:
+                    parsed_date = parsedate_to_datetime(date_header)
+                    if parsed_date:
+                        received_at = (
+                            parsed_date.astimezone(timezone.utc)
+                            if parsed_date.tzinfo
+                            else parsed_date.replace(tzinfo=timezone.utc)
+                        )
+                except Exception:
+                    received_at = None
+            text_body, html_body = _extract_bodies(msg)
+            body = (text_body or html_body or "").strip()
+            if not body:
+                body = subject or "[No content]"
+            attachments = _extract_attachments(msg)
+            payload = EmailWebhookPayload(
+                contact_address=from_addr,
+                contact_name=_decode_header(parseaddr(from_header)[0]) or None,
+                message_id=message_id,
+                channel_target_id=coerce_uuid(target_id) if target_id else None,
+                subject=subject,
+                body=body or "",
+                received_at=received_at,
+                metadata={
+                    "source": "imap",
+                    "mailbox": mailbox_value,
+                    "uid": uid_value,
+                    "reply_to": reply_to,
+                    "to": to_addrs,
+                    "cc": cc_addrs,
+                    "in_reply_to": in_reply_to,
+                    "references": references,
+                    "html_body": html_body,
+                },
+            )
+            message = inbox_service.receive_email_message(db, payload)
+            if message:
+                _store_attachments(db, message.id, attachments)
+                processed += 1
+            if uid_value and uid_value.isdigit():
+                uid_int = int(uid_value)
+                if last_uid is None or uid_int > last_uid:
+                    last_uid = uid_int
+        if last_uid is not None:
+            metadata["imap_last_uid"] = last_uid
+            config.metadata_ = metadata
+            db.commit()
+        client.logout()
+        return processed
     if uids:
         try:
             first_uid = uids[0].decode() if isinstance(uids[0], bytes) else str(uids[0])
@@ -231,7 +378,8 @@ def _imap_poll(
             pass
 
     for uid in uids:
-        _, msg_data = client.uid("fetch", uid, "(RFC822)")
+        uid_value = uid.decode() if isinstance(uid, bytes) else str(uid)
+        _, msg_data = client.uid("fetch", uid_value, "(RFC822)")
         if not msg_data or not msg_data[0]:
             continue
         raw = msg_data[0][1]
@@ -247,6 +395,10 @@ def _imap_poll(
                 pass
             continue
         subject = _decode_header(msg.get("Subject"))
+        if isinstance(subject, str):
+            subject = subject.strip()
+            if len(subject) > 200:
+                subject = subject[:200]
         message_id = msg.get("Message-ID")
         reply_to = msg.get_all("Reply-To") or []
         to_addrs = msg.get_all("To") or []
@@ -266,7 +418,10 @@ def _imap_poll(
                     )
             except Exception:
                 received_at = None
-        body = _extract_body(msg)
+        text_body, html_body = _extract_bodies(msg)
+        body = (text_body or html_body or "").strip()
+        if not body:
+            body = subject or "[No content]"
         attachments = _extract_attachments(msg)
         uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
         payload = EmailWebhookPayload(
@@ -286,6 +441,7 @@ def _imap_poll(
                 "cc": cc_addrs,
                 "in_reply_to": in_reply_to,
                 "references": references,
+                "html_body": html_body,
             },
         )
         message = inbox_service.receive_email_message(db, payload)
@@ -332,8 +488,18 @@ def _pop3_poll(
 
     metadata = dict(config.metadata_ or {})
     last_uidl = metadata.get("pop3_last_uidl")
+    seen_uidls_raw = metadata.get("pop3_seen_uidls")
+    if not isinstance(seen_uidls_raw, list):
+        seen_uidls_raw = []
+    seen_uidls = {uid for uid in seen_uidls_raw if isinstance(uid, str)}
+    if isinstance(last_uidl, str) and last_uidl:
+        seen_uidls.add(last_uidl)
 
-    client = poplib.POP3_SSL(host, port) if use_ssl else poplib.POP3(host, port)
+    client = (
+        poplib.POP3_SSL(host, port, timeout=EMAIL_POLL_CONNECT_TIMEOUT)
+        if use_ssl
+        else poplib.POP3(host, port, timeout=EMAIL_POLL_CONNECT_TIMEOUT)
+    )
     client.user(username)
     client.pass_(password)
 
@@ -348,7 +514,7 @@ def _pop3_poll(
         if len(parts) != 2:
             continue
         msg_num, uidl = parts
-        if last_uidl and uidl <= last_uidl:
+        if uidl in seen_uidls:
             continue
         _, lines, _ = client.retr(int(msg_num))
         raw = b"\n".join(lines)
@@ -359,6 +525,10 @@ def _pop3_poll(
             last_uidl = uidl
             continue
         subject = _decode_header(msg.get("Subject"))
+        if isinstance(subject, str):
+            subject = subject.strip()
+            if len(subject) > 200:
+                subject = subject[:200]
         message_id = msg.get("Message-ID")
         reply_to = msg.get_all("Reply-To") or []
         to_addrs = msg.get_all("To") or []
@@ -378,7 +548,10 @@ def _pop3_poll(
                     )
             except Exception:
                 received_at = None
-        body = _extract_body(msg)
+        text_body, html_body = _extract_bodies(msg)
+        body = (text_body or html_body or "").strip()
+        if not body:
+            body = subject or "[No content]"
         attachments = _extract_attachments(msg)
         payload = EmailWebhookPayload(
             contact_address=from_addr,
@@ -396,6 +569,7 @@ def _pop3_poll(
                 "cc": cc_addrs,
                 "in_reply_to": in_reply_to,
                 "references": references,
+                "html_body": html_body,
             },
         )
         message = inbox_service.receive_email_message(db, payload)
@@ -403,9 +577,14 @@ def _pop3_poll(
             _store_attachments(db, message.id, attachments)
             processed += 1
         last_uidl = uidl
+        seen_uidls.add(uidl)
+        seen_uidls_raw.append(uidl)
+        if len(seen_uidls_raw) > POP3_UIDL_HISTORY_LIMIT:
+            seen_uidls_raw = seen_uidls_raw[-POP3_UIDL_HISTORY_LIMIT:]
 
     if last_uidl:
         metadata["pop3_last_uidl"] = last_uidl
+        metadata["pop3_seen_uidls"] = seen_uidls_raw
         config.metadata_ = metadata
         db.commit()
 
@@ -445,11 +624,10 @@ def poll_email_connector(db: Session, config: ConnectorConfig) -> dict:
                 auth_config,
                 target_id,
             )
-        except Exception as exc:
-            logger.info(
-                "EMAIL_POLL_EXIT reason=auth_or_connection_failure protocol=imap connector_id=%s error=%s",
+        except Exception:
+            logger.exception(
+                "EMAIL_POLL_EXIT reason=auth_or_connection_failure protocol=imap connector_id=%s",
                 config.id,
-                exc,
             )
             raise
     if isinstance(pop3_config, dict):
@@ -467,11 +645,10 @@ def poll_email_connector(db: Session, config: ConnectorConfig) -> dict:
                 auth_config,
                 target_id,
             )
-        except Exception as exc:
-            logger.info(
-                "EMAIL_POLL_EXIT reason=auth_or_connection_failure protocol=pop3 connector_id=%s error=%s",
+        except Exception:
+            logger.exception(
+                "EMAIL_POLL_EXIT reason=auth_or_connection_failure protocol=pop3 connector_id=%s",
                 config.id,
-                exc,
             )
             raise
     return {"processed": processed}

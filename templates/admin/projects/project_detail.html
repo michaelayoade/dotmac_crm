@@ -82,28 +82,6 @@
                                 <div class="mt-2 text-sm text-slate-700 dark:text-slate-300">
                                     {{ comment.body }}
                                 </div>
-                                <details class="mt-2 text-xs">
-                                    <summary class="cursor-pointer text-slate-500 hover:text-amber-600 dark:text-slate-400 dark:hover:text-amber-400">Edit comment</summary>
-                                    <form method="POST"
-                                          action="/admin/projects/{{ project.id }}/comments/{{ comment.id }}/edit"
-                                          class="mt-2 space-y-2">
-                                        <textarea name="body"
-                                                  rows="3"
-                                                  required
-                                                  class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ comment.body }}</textarea>
-                                        <div class="flex items-center gap-2">
-                                            <button type="submit"
-                                                    class="inline-flex items-center rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600">
-                                                Save
-                                            </button>
-                                            <button type="button"
-                                                    onclick="this.closest('details').removeAttribute('open')"
-                                                    class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
-                                                Cancel
-                                            </button>
-                                        </div>
-                                    </form>
-                                </details>
                                 {% if comment.attachments %}
                                 <div class="mt-3">
                                     <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Attachments</div>
@@ -237,8 +215,36 @@
                         </dd>
                     </div>
                     <div class="flex items-center justify-between">
+                        <dt>Lead</dt>
+                        <dd>{{ customer_name or '—' }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Customer Address</dt>
+                        <dd class="text-right">{{ customer_address or '—' }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
                         <dt>Vendor</dt>
                         <dd>{{ assigned_vendor.name if assigned_vendor else '—' }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Project Manager</dt>
+                        <dd>
+                            {% if project.project_manager %}
+                            {{ project.project_manager.first_name }} {{ project.project_manager.last_name }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Assistant PM</dt>
+                        <dd>
+                            {% if project.assistant_manager %}
+                            {{ project.assistant_manager.first_name }} {{ project.assistant_manager.last_name }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </dd>
                     </div>
                     <div class="flex items-center justify-between">
                         <dt>Status</dt>
@@ -247,6 +253,10 @@
                     <div class="flex items-center justify-between">
                         <dt>Type</dt>
                         <dd>{{ project.project_type.value | replace('_', ' ') | title if project.project_type else '—' }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Region</dt>
+                        <dd>{{ project.region or '—' }}</dd>
                     </div>
                     <div class="flex items-center justify-between">
                         <dt>Priority</dt>
@@ -260,8 +270,48 @@
                         <dt>Due</dt>
                         <dd>{{ project.due_at.strftime('%b %d, %Y') if project.due_at else '—' }}</dd>
                     </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Completion Date</dt>
+                        <dd>{{ project.completed_at.strftime('%b %d, %Y') if project.completed_at else '—' }}</dd>
+                    </div>
                 </dl>
             </div>
+
+            {% if expense_totals %}
+            <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Expenses (from ERP)</h2>
+                    {% if expense_totals.cached %}
+                    <span class="text-xs text-slate-400 dark:text-slate-500" title="Cached data">cached</span>
+                    {% endif %}
+                </div>
+                {% if expense_totals.erp_available %}
+                <dl class="mt-4 space-y-3 text-sm">
+                    <div class="flex items-center justify-between">
+                        <dt class="text-slate-600 dark:text-slate-400">Draft</dt>
+                        <dd class="font-medium text-slate-500 dark:text-slate-400">{{ "{:,.2f}".format(expense_totals.draft or 0) }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt class="text-slate-600 dark:text-slate-400">Submitted</dt>
+                        <dd class="font-medium text-amber-600 dark:text-amber-400">{{ "{:,.2f}".format(expense_totals.submitted or 0) }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt class="text-slate-600 dark:text-slate-400">Approved</dt>
+                        <dd class="font-medium text-blue-600 dark:text-blue-400">{{ "{:,.2f}".format(expense_totals.approved or 0) }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between border-t border-slate-200 pt-3 dark:border-slate-700">
+                        <dt class="text-slate-600 dark:text-slate-400">Paid</dt>
+                        <dd class="font-semibold text-green-600 dark:text-green-400">{{ "{:,.2f}".format(expense_totals.paid or 0) }}</dd>
+                    </div>
+                </dl>
+                {% else %}
+                <div class="mt-4 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                    <svg class="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <span>ERP temporarily unavailable</span>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>

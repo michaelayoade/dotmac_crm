@@ -6,7 +6,7 @@
 {% block content %}
 {{ ambient_background("primary", "amber") }}
 
-<div class="relative space-y-6" x-data="contactsConvert()">
+<div class="relative space-y-6">
     <!-- Page Header -->
     {% call page_header(
         title="Contacts",
@@ -171,67 +171,5 @@
     <!-- Contacts Table -->
     {% include "admin/contacts/_table.html" %}
 
-    <!-- Convert Modal -->
-    <div x-show="convertOpen"
-         x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="fixed inset-0 bg-slate-900/50" @click="convertOpen = false"></div>
-        <div class="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800">
-            <div class="flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Convert to Subscriber</h3>
-                <button type="button" @click="convertOpen = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
-                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>
-            </div>
-            <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                Create a subscriber record for
-                <span class="font-semibold text-slate-700 dark:text-slate-200" x-text="convertName"></span>.
-            </p>
-
-            <form method="post" :action="`/admin/contacts/${convertId}/convert`" class="mt-5 space-y-4">
-                {% include "components/forms/csrf_input.html" %}
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Subscriber Type</label>
-                    <select name="subscriber_type"
-                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                        <option value="person">Individual</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Account Status</label>
-                    <select name="account_status"
-                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                        <option value="active" selected>Active</option>
-                        <option value="delinquent">Delinquent</option>
-                        <option value="suspended">Suspended</option>
-                        <option value="canceled">Canceled</option>
-                    </select>
-                </div>
-                <div class="flex items-center justify-end gap-3 pt-2">
-                    <button type="button" @click="convertOpen = false" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
-                        Cancel
-                    </button>
-                    <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-                        Convert & Create Account
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
 </div>
-
-<script>
-function contactsConvert() {
-    return {
-        convertOpen: false,
-        convertId: null,
-        convertName: "",
-        openConvert(id, name) {
-            this.convertId = id;
-            this.convertName = name || "this customer";
-            this.convertOpen = true;
-        },
-    };
-}
-</script>
 {% endblock %}

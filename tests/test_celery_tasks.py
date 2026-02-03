@@ -21,7 +21,7 @@ class TestBillingTask:
             with patch(
                 "app.tasks.billing.billing_automation_service.run_invoice_cycle"
             ) as mock_run:
-                from app.tasks.billing import run_invoice_cycle
+                from app.tasks.billing import run_invoice_cycle  # type: ignore[import-not-found]
 
                 run_invoice_cycle()
 
@@ -62,7 +62,7 @@ class TestCollectionsTask:
             with patch(
                 "app.tasks.collections.collections_service.dunning_workflow.run"
             ) as mock_run:
-                from app.tasks.collections import run_dunning
+                from app.tasks.collections import run_dunning  # type: ignore[import-not-found]
 
                 run_dunning()
 
@@ -303,7 +303,7 @@ class TestRadiusTask:
             with patch(
                 "app.tasks.radius.radius_service.radius_sync_jobs.run"
             ) as mock_run:
-                from app.tasks.radius import run_radius_sync_job
+                from app.tasks.radius import run_radius_sync_job  # type: ignore[import-not-found]
 
                 run_radius_sync_job("sync-job-123")
 
@@ -343,7 +343,7 @@ class TestUsageTask:
             with patch(
                 "app.tasks.usage.usage_service.usage_rating_runs.run"
             ) as mock_run:
-                from app.tasks.usage import run_usage_rating
+                from app.tasks.usage import run_usage_rating  # type: ignore[import-not-found]
 
                 run_usage_rating()
 

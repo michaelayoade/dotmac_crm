@@ -27,16 +27,20 @@
             </div>
 
             <div>
-                <label for="customer" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Customer</label>
-                {% if ticket and ticket.metadata_ is mapping %}
-                    {% set customer_value = ticket.metadata_.get("customer") or "" %}
+                <label for="customer_search" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Customer</label>
+                {% if ticket and ticket.customer %}
+                    {% set customer_label = ticket.customer.display_name or ticket.customer.email %}
                 {% else %}
-                    {% set customer_value = prefill.customer or "" %}
+                    {% set customer_label = prefill.customer_label or '' %}
                 {% endif %}
-                <input type="text" name="customer" id="customer"
-                    value="{{ customer_value }}"
-                    placeholder="Customer name"
-                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <div class="relative" data-typeahead-url="/api/v1/search/people" data-typeahead-min="2" data-typeahead-limit="8">
+                    <input type="text" name="customer_search" id="customer_search" data-typeahead-input
+                           value="{{ customer_label }}"
+                           placeholder="Search contacts..."
+                           class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <input type="hidden" name="customer_person_id" data-typeahead-hidden value="{{ ticket.customer_person_id if ticket else (prefill.customer_person_id or '') }}">
+                    <div data-typeahead-results></div>
+                </div>
             </div>
 
             <div class="sm:col-span-2">
@@ -86,6 +90,20 @@
                     {% endif %}
                     <option value="{{ tech.person_id }}" {% if ticket and ticket.assigned_to_person_id == tech.person_id %}selected{% endif %}>
                         {{ tech_label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label for="ticket_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ticket Type</label>
+                <select name="ticket_type" id="ticket_type"
+                    data-priority-map='{{ ticket_type_priority_map | tojson }}'
+                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">Select a type</option>
+                    {% for ttype in ticket_types or [] %}
+                    <option value="{{ ttype.name }}" {% if ticket and ticket.ticket_type == ttype.name %}selected{% endif %}>
+                        {{ ttype.name }}
                     </option>
                     {% endfor %}
                 </select>
@@ -147,4 +165,29 @@
     {% if not ticket and prefill.conversation_id %}
     <input type="hidden" name="conversation_id" value="{{ prefill.conversation_id }}">
     {% endif %}
+    {% if not ticket and prefill.lead_id %}
+    <input type="hidden" name="lead_id" value="{{ prefill.lead_id }}">
+    {% endif %}
 </div>
+<script>
+    (function () {
+        const typeSelect = document.getElementById("ticket_type");
+        const prioritySelect = document.getElementById("priority");
+        if (!typeSelect || !prioritySelect) {
+            return;
+        }
+        let priorityMap = {};
+        try {
+            priorityMap = JSON.parse(typeSelect.dataset.priorityMap || "{}");
+        } catch (err) {
+            priorityMap = {};
+        }
+        typeSelect.addEventListener("change", function () {
+            const selected = this.value;
+            const mapped = priorityMap[selected];
+            if (mapped) {
+                prioritySelect.value = mapped;
+            }
+        });
+    })();
+</script>

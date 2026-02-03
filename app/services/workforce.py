@@ -25,6 +25,8 @@ from app.services.common import (
     validate_enum,
 )
 from app.services.response import ListResponseMixin
+from app.services.events import emit_event
+from app.services.events.types import EventType
 from app.schemas.workforce import (
     WorkOrderAssignmentCreate,
     WorkOrderAssignmentUpdate,
@@ -66,6 +68,24 @@ class WorkOrders(ListResponseMixin):
         db.add(work_order)
         db.commit()
         db.refresh(work_order)
+
+        # Emit work order created event
+        emit_event(
+            db,
+            EventType.work_order_created,
+            {
+                "work_order_id": str(work_order.id),
+                "title": work_order.title,
+                "status": work_order.status.value if work_order.status else None,
+                "work_type": work_order.work_type.value if work_order.work_type else None,
+                "project_id": str(work_order.project_id) if work_order.project_id else None,
+                "ticket_id": str(work_order.ticket_id) if work_order.ticket_id else None,
+            },
+            work_order_id=work_order.id,
+            project_id=work_order.project_id,
+            ticket_id=work_order.ticket_id,
+        )
+
         return work_order
 
     @staticmethod
@@ -120,6 +140,7 @@ class WorkOrders(ListResponseMixin):
         work_order = db.get(WorkOrder, work_order_id)
         if not work_order:
             raise HTTPException(status_code=404, detail="Work order not found")
+        previous_status = work_order.status
         data = payload.model_dump(exclude_unset=True)
         if "ticket_id" in data and data["ticket_id"]:
             _ensure_ticket(db, str(data["ticket_id"]))
@@ -131,6 +152,56 @@ class WorkOrders(ListResponseMixin):
             setattr(work_order, key, value)
         db.commit()
         db.refresh(work_order)
+
+        # Emit events based on status changes
+        new_status = work_order.status
+        event_payload: dict[str, object] = {
+            "work_order_id": str(work_order.id),
+            "title": work_order.title,
+            "from_status": previous_status.value if previous_status else None,
+            "to_status": new_status.value if new_status else None,
+            "project_id": str(work_order.project_id) if work_order.project_id else None,
+            "ticket_id": str(work_order.ticket_id) if work_order.ticket_id else None,
+        }
+
+        if new_status == WorkOrderStatus.dispatched and previous_status != WorkOrderStatus.dispatched:
+            emit_event(
+                db,
+                EventType.work_order_dispatched,
+                event_payload,
+                work_order_id=work_order.id,
+                project_id=work_order.project_id,
+                ticket_id=work_order.ticket_id,
+            )
+        elif new_status == WorkOrderStatus.completed and previous_status != WorkOrderStatus.completed:
+            emit_event(
+                db,
+                EventType.work_order_completed,
+                event_payload,
+                work_order_id=work_order.id,
+                project_id=work_order.project_id,
+                ticket_id=work_order.ticket_id,
+            )
+        elif new_status == WorkOrderStatus.canceled and previous_status != WorkOrderStatus.canceled:
+            emit_event(
+                db,
+                EventType.work_order_canceled,
+                event_payload,
+                work_order_id=work_order.id,
+                project_id=work_order.project_id,
+                ticket_id=work_order.ticket_id,
+            )
+        elif previous_status != new_status or len(data) > 1:
+            event_payload["changed_fields"] = list(data.keys())
+            emit_event(
+                db,
+                EventType.work_order_updated,
+                event_payload,
+                work_order_id=work_order.id,
+                project_id=work_order.project_id,
+                ticket_id=work_order.ticket_id,
+            )
+
         return work_order
 
     @staticmethod

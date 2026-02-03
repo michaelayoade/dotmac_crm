@@ -60,6 +60,8 @@ class EventStore(Base):
     subscription_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     invoice_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     ticket_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
 
     # Tracking handlers that failed
     failed_handlers: Mapped[dict | None] = mapped_column(JSONB)

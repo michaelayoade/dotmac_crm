@@ -13,7 +13,7 @@ class ServiceOrderDetailPage(BasePage):
     def __init__(self, page: Page, base_url: str) -> None:
         super().__init__(page, base_url)
 
-    def goto(self, order_id: str) -> None:
+    def goto(self, order_id: str = "") -> None:
         """Navigate to a specific service order's detail page."""
         super().goto(f"/admin/operations/service-orders/{order_id}")
 

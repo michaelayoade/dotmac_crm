@@ -17,8 +17,21 @@
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Quote details and line items.</p>
         </div>
         <div class="flex items-center gap-2">
+            <button type="button"
+                    id="quote-send-summary"
+                    data-has-email="{{ '1' if has_email else '0' }}"
+                    data-has-whatsapp="{{ '1' if has_whatsapp else '0' }}"
+                    class="inline-flex items-center gap-2 rounded-lg border border-primary-200 bg-primary-50 px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 dark:border-primary-700/50 dark:bg-primary-900/20 dark:text-primary-200 dark:hover:bg-primary-900/30">
+                Send Project Summary
+            </button>
             <a href="/admin/crm/quotes/{{ quote.id }}/edit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 Edit
+            </a>
+            <a href="/admin/crm/quotes/{{ quote.id }}/preview" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Preview PDF
+            </a>
+            <a href="/admin/crm/quotes/{{ quote.id }}/pdf" class="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20">
+                Export PDF
             </a>
             <form method="post" action="/admin/crm/quotes/{{ quote.id }}/delete"
                   onsubmit="return confirm('Delete this quote? This will deactivate it.');">
@@ -119,4 +132,99 @@
     </div>
     {% endif %}
 </div>
+
+<div id="quote-summary-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 px-4 py-8">
+    <div class="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <div>
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Send Project Summary</h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400">Review and edit before sending.</p>
+            </div>
+            <button type="button" id="quote-summary-close"
+                    class="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-700 dark:hover:text-white">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <form method="post" action="/admin/crm/quotes/{{ quote.id }}/send-summary" class="space-y-4 px-6 py-5">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Channel</label>
+                <select name="channel_type"
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="email" {% if not has_email %}disabled{% endif %} {% if has_email %}selected{% elif not has_whatsapp %}selected{% endif %}>Email</option>
+                    <option value="whatsapp" {% if not has_whatsapp %}disabled{% endif %} {% if has_whatsapp and not has_email %}selected{% endif %}>WhatsApp</option>
+                </select>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {% if not has_email and not has_whatsapp %}
+                    No contact channels are available for this contact.
+                    {% elif has_email and has_whatsapp %}
+                    Email and WhatsApp are available.
+                    {% elif has_email %}
+                    Only email is available.
+                    {% else %}
+                    Only WhatsApp is available.
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Message</label>
+                <textarea name="message" rows="10"
+                          class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ summary_text }}</textarea>
+            </div>
+            <div class="flex items-center justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+                <button type="button" id="quote-summary-cancel"
+                        class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                    Send
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const trigger = document.getElementById('quote-send-summary');
+    const modal = document.getElementById('quote-summary-modal');
+    const closeBtn = document.getElementById('quote-summary-close');
+    const cancelBtn = document.getElementById('quote-summary-cancel');
+
+    if (!trigger || !modal) return;
+
+    const hasEmail = trigger.dataset.hasEmail === '1';
+    const hasWhatsapp = trigger.dataset.hasWhatsapp === '1';
+
+    const openModal = () => {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    };
+    const closeModal = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    };
+
+    trigger.addEventListener('click', () => {
+        if (!hasEmail && !hasWhatsapp) {
+            alert('Contact details are not present.');
+            return;
+        }
+        openModal();
+    });
+
+    closeBtn?.addEventListener('click', closeModal);
+    cancelBtn?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeModal();
+        }
+    });
+});
+</script>
 {% endblock %}

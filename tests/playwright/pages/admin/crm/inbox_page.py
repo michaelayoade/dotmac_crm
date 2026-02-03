@@ -13,7 +13,7 @@ class InboxPage(BasePage):
     def __init__(self, page: Page, base_url: str) -> None:
         super().__init__(page, base_url)
 
-    def goto(self) -> None:
+    def goto(self, path: str = "") -> None:
         """Navigate to the inbox."""
         super().goto("/admin/crm/inbox")
 
@@ -52,15 +52,19 @@ class InboxPage(BasePage):
 
     def filter_by_channel(self, channel: str) -> None:
         """Filter by channel type."""
-        self.page.get_by_role("button", name=channel).or_(
+        button = self.page.get_by_role("button", name=channel)
+        if button.count():
+            button.first.click()
+        else:
             self.page.get_by_label("Channel").select_option(channel)
-        ).first.click()
 
     def filter_by_status(self, status: str) -> None:
         """Filter by conversation status."""
-        self.page.get_by_role("button", name=status).or_(
+        button = self.page.get_by_role("button", name=status)
+        if button.count():
+            button.first.click()
+        else:
             self.page.get_by_label("Status").select_option(status)
-        ).first.click()
 
     def get_unread_count(self) -> str:
         """Get unread count."""

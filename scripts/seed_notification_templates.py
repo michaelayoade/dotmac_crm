@@ -362,6 +362,106 @@ Thank you for choosing {{company_name}}!""",
 
     # Support Journey
     {
+        "code": "ticket_assigned_technician",
+        "name": "Technician Ticket Created",
+        "channel": NotificationChannel.email,
+        "subject": "Ticket Created",
+        "body": """<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.8; color: #333; background-color: #f4f4f9; padding: 25px; border: 1px solid #ccc; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); position: relative;">
+  <!-- Logo added to the top-right corner -->
+  <div style="position: absolute; top: 15px; right: 15px;">
+    <img src="https://erp.dotmac.ng/files/dotmac%20no%20bg.png" alt="Dotmac Logo" style="max-width: 150px; height: auto;">
+  </div>
+
+  <!-- Main content -->
+  <div style="text-align: center; margin-bottom: 20px;">
+    <h1 style="color: green; font-size: 24px; margin: 0;">Ticket Created</h1>
+  </div>
+
+  <p style="font-size: 16px; color: green; margin-top: 20px;">Dear {{ doc.custom_customer_name }},</p>
+
+  <p style="font-size: 15px; color: #555; margin: 15px 0;">
+    A ticket has been created for your complaint. Someone from our customer support team will review it and respond to it shortly. Please find the details below:
+  </p>
+
+  <div style="background-color: #fff; border: 2px solid #e2e2e2; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+    <p style="font-size: 15px; margin: 0; line-height: 1.5;">
+      <strong style="color: red;">Ticket ID:</strong> <span style="color: #555;">{{ doc.name }}</span><br>
+      <strong style="color: red;">Splynx ID:</strong> <span style="color: #555;">{{ doc.subject }}</span><br>
+      <strong style="color: red;">Status:</strong> <span style="color: #555;">{{ doc.status }}</span>
+    </p>
+  </div>
+
+  <p style="font-size: 15px; color: #555; margin: 15px 0;">
+    We will keep you updated with further progress.
+  </p>
+
+  <!-- Closing message -->
+  <p style="font-size: 15px; color: #555; margin: 15px 0;">
+    For further inquiries, contact us at <a href="mailto:support@dotmac.ng" style="color: green; text-decoration: none;">support@dotmac.ng</a>
+    or send us a WhatsApp message at <a href="https://wa.me/08121179536" style="color: green; text-decoration: none;">08121179536</a>.
+  </p>
+
+  <p style="font-size: 15px; color: green; text-align: left; font-style: italic;">
+    Thank you for choosing <strong style="color: red;">DOTMAC</strong>.
+  </p>
+
+  <p style="font-size: 15px; color: green; text-align: right; font-style: italic;">
+    Best regards,<br>
+    <span style="color: red; font-weight: bold;">Dotmac Support Team</span>
+  </p>
+</div>""",
+    },
+    {
+        "code": "ticket_completed_technician",
+        "name": "Technician Ticket Completed",
+        "channel": NotificationChannel.email,
+        "subject": "Ticket Completed",
+        "body": """<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.8; color: #333; background-color: #f4f4f9; padding: 25px; border: 1px solid #ccc; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); position: relative;">
+  <!-- Logo added to the top-right corner -->
+  <div style="position: absolute; top: 15px; right: 15px;">
+    <img src="https://erp.dotmac.ng/files/dotmac%20no%20bg.png" alt="Dotmac Logo" style="max-width: 150px; height: auto;">
+  </div>
+
+  <!-- Main content -->
+  <div style="text-align: center; margin-bottom: 20px;">
+    <h1 style="color: green; font-size: 24px; margin: 0;">Ticket Completed</h1>
+  </div>
+
+  <p style="font-size: 16px; color: green; margin-top: 20px;">Dear {{ doc.custom_customer_name }},</p>
+
+  <p style="font-size: 15px; color: #555; margin: 15px 0;">
+    A ticket has been completed. Please find the details below:
+  </p>
+
+  <div style="background-color: #fff; border: 2px solid #e2e2e2; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+    <p style="font-size: 15px; margin: 0; line-height: 1.5;">
+      <strong style="color: red;">Ticket ID:</strong> <span style="color: #555;">{{ doc.name }}</span><br>
+      <strong style="color: red;">Splynx ID:</strong> <span style="color: #555;">{{ doc.subject }}</span><br>
+      <strong style="color: red;">Status:</strong> <span style="color: #555;">{{ doc.status }}</span>
+    </p>
+  </div>
+
+  <p style="font-size: 15px; color: #555; margin: 15px 0;">
+    Thank you for your effort on this ticket.
+  </p>
+
+  <!-- Closing message -->
+  <p style="font-size: 15px; color: #555; margin: 15px 0;">
+    For further inquiries, contact us at <a href="mailto:support@dotmac.ng" style="color: green; text-decoration: none;">support@dotmac.ng</a>
+    or send us a WhatsApp message at <a href="https://wa.me/08121179536" style="color: green; text-decoration: none;">08121179536</a>.
+  </p>
+
+  <p style="font-size: 15px; color: green; text-align: left; font-style: italic;">
+    Thank you for choosing <strong style="color: red;">DOTMAC</strong>.
+  </p>
+
+  <p style="font-size: 15px; color: green; text-align: right; font-style: italic;">
+    Best regards,<br>
+    <span style="color: red; font-weight: bold;">Dotmac Support Team</span>
+  </p>
+</div>""",
+    },
+    {
         "code": "ticket_created",
         "name": "Support Ticket Created",
         "channel": NotificationChannel.email,

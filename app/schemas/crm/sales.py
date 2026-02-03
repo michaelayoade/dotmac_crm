@@ -75,6 +75,8 @@ class LeadBase(BaseModel):
     probability: int | None = Field(default=None, ge=0, le=100)
     expected_close_date: date | None = None
     lost_reason: str | None = Field(default=None, max_length=200)
+    region: str | None = Field(default=None, max_length=80)
+    address: str | None = None
     notes: str | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
     is_active: bool = True
@@ -96,6 +98,8 @@ class LeadUpdate(BaseModel):
     probability: int | None = Field(default=None, ge=0, le=100)
     expected_close_date: date | None = None
     lost_reason: str | None = Field(default=None, max_length=200)
+    region: str | None = Field(default=None, max_length=80)
+    address: str | None = None
     notes: str | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
     is_active: bool | None = None

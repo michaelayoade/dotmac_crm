@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Cookie, Page, expect
 
 
 class BasePage:
@@ -106,7 +106,7 @@ class BasePage:
         cookies = self.page.context.cookies()
         return any(c["name"] == name for c in cookies)
 
-    def get_cookie(self, name: str) -> dict | None:
+    def get_cookie(self, name: str) -> Cookie | None:
         """Get a cookie by name."""
         cookies = self.page.context.cookies()
         for cookie in cookies:

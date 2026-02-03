@@ -303,3 +303,41 @@ def get_channel_stats(db: Session) -> dict[str, int]:
     )
 
     return channel_stats
+
+
+class InboxQueries:
+    @staticmethod
+    def list_conversations(
+        db: Session,
+        channel: ChannelType | None = None,
+        status: ConversationStatus | None = None,
+        search: str | None = None,
+        assignment: str | None = None,
+        assigned_person_id: str | None = None,
+        channel_target_id: str | None = None,
+        exclude_superseded_resolved: bool = True,
+        limit: int = 50,
+    ) -> list[tuple]:
+        return list_inbox_conversations(
+            db=db,
+            channel=channel,
+            status=status,
+            search=search,
+            assignment=assignment,
+            assigned_person_id=assigned_person_id,
+            channel_target_id=channel_target_id,
+            exclude_superseded_resolved=exclude_superseded_resolved,
+            limit=limit,
+        )
+
+    @staticmethod
+    def get_inbox_stats(db: Session) -> dict:
+        return get_inbox_stats(db)
+
+    @staticmethod
+    def get_channel_stats(db: Session) -> dict[str, int]:
+        return get_channel_stats(db)
+
+
+# Singleton instance
+inbox_queries = InboxQueries()

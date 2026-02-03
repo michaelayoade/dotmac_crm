@@ -27,9 +27,9 @@ class ProjectPriority(enum.Enum):
 class ProjectType(enum.Enum):
     cable_rerun = "cable_rerun"
     fiber_optics_relocation = "fiber_optics_relocation"
-    radio_fiber_relocation = "radio_fiber_relocation"
+    air_fiber_relocation = "air_fiber_relocation"
     fiber_optics_installation = "fiber_optics_installation"
-    radio_installation = "radio_installation"
+    air_fiber_installation = "air_fiber_installation"
 
 
 class TaskStatus(enum.Enum):
@@ -88,6 +88,7 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     code: Mapped[str | None] = mapped_column(String(80))
     description: Mapped[str | None] = mapped_column(Text)
+    customer_address: Mapped[str | None] = mapped_column(Text)
     project_type: Mapped[ProjectType | None] = mapped_column(Enum(ProjectType))
     project_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("project_templates.id")
@@ -101,6 +102,9 @@ class Project(Base):
     subscriber_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("subscribers.id")
     )
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_leads.id")
+    )
     created_by_person_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id")
     )
@@ -110,9 +114,16 @@ class Project(Base):
     manager_person_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id")
     )
+    project_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id")
+    )
+    assistant_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id")
+    )
     start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    region: Mapped[str | None] = mapped_column(String(80))
     tags: Mapped[list | None] = mapped_column(JSON)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -125,9 +136,12 @@ class Project(Base):
     )
 
     subscriber = relationship("Subscriber", back_populates="projects")
+    lead = relationship("Lead")
     created_by = relationship("Person", foreign_keys=[created_by_person_id])
     owner = relationship("Person", foreign_keys=[owner_person_id])
     manager = relationship("Person", foreign_keys=[manager_person_id])
+    project_manager = relationship("Person", foreign_keys=[project_manager_person_id])
+    assistant_manager = relationship("Person", foreign_keys=[assistant_manager_person_id])
     project_template = relationship("ProjectTemplate")
     tasks = relationship("ProjectTask", back_populates="project")
     comments = relationship("ProjectComment", back_populates="project")

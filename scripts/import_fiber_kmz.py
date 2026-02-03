@@ -4,13 +4,16 @@ import math
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 from xml.etree import ElementTree as ET
 
+load_dotenv: Callable[..., bool] | None
 try:
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv as _load_dotenv
 except ImportError:  # pragma: no cover - optional dependency for local env files
     load_dotenv = None
+else:
+    load_dotenv = _load_dotenv
 from sqlalchemy import func
 
 from app.db import SessionLocal
@@ -27,7 +30,6 @@ from app.models.network import (
     PonPortSplitterLink,
     Splitter,
     SplitterPort,
-    SplitterPortAssignment,
 )
 from app.models.vendor import AsBuiltRoute
 from app.models.wireless_mast import WirelessMast
@@ -503,16 +505,15 @@ def import_buildings(db, paths: list[Path], upsert: bool, limit: int | None):
 
 
 def main():
-    if load_dotenv:
+    if load_dotenv is not None:
         load_dotenv()
     args = parse_args()
     db = SessionLocal()
     try:
         if args.purge:
             # Delete in dependency order: child tables before parent tables
-            # Splitter hierarchy: PonPortSplitterLink/SplitterPortAssignment -> SplitterPort -> Splitter -> FdhCabinet
+            # Splitter hierarchy: PonPortSplitterLink -> SplitterPort -> Splitter -> FdhCabinet
             db.query(PonPortSplitterLink).delete()
-            db.query(SplitterPortAssignment).delete()
             db.query(SplitterPort).delete()
             db.query(Splitter).delete()
             db.query(FdhCabinet).delete()

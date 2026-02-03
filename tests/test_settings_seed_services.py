@@ -243,7 +243,7 @@ class TestSeedGeocodingSettings:
         # Set all required env vars to avoid None value_text
         monkeypatch.setenv("GEOCODING_PROVIDER", "nominatim")
         monkeypatch.setenv("GEOCODING_BASE_URL", "https://nominatim.openstreetmap.org")
-        monkeypatch.setenv("GEOCODING_USER_AGENT", "dotmac_omni")
+        monkeypatch.setenv("GEOCODING_USER_AGENT", "dotmac_crm")
         monkeypatch.setenv("GEOCODING_EMAIL", "test@example.com")
         monkeypatch.setenv("GEOCODING_TIMEOUT_SEC", "5")
 
@@ -260,7 +260,7 @@ class TestSeedGeocodingSettings:
         """Test geocoding provider setting is seeded."""
         monkeypatch.setenv("GEOCODING_PROVIDER", "google")
         monkeypatch.setenv("GEOCODING_BASE_URL", "https://maps.googleapis.com")
-        monkeypatch.setenv("GEOCODING_USER_AGENT", "dotmac_omni")
+        monkeypatch.setenv("GEOCODING_USER_AGENT", "dotmac_crm")
         monkeypatch.setenv("GEOCODING_EMAIL", "test@example.com")
         monkeypatch.setenv("GEOCODING_TIMEOUT_SEC", "5")
 

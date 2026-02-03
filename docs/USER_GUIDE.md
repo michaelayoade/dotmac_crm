@@ -1,6 +1,6 @@
-# DotMac Omni User Guide
+# DotMac CRM User Guide
 
-A comprehensive guide for using the DotMac Omni-Channel Field Service and CRM platform.
+A comprehensive guide for using the DotMac CRM field service and CRM platform.
 
 ---
 

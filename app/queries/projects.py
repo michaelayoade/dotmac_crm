@@ -137,7 +137,7 @@ class ProjectQuery(BaseQuery[Project]):
     def in_progress(self) -> "ProjectQuery":
         """Filter to in-progress projects."""
         return self.by_statuses([
-            ProjectStatus.in_progress,
+            ProjectStatus.active,
             ProjectStatus.on_hold,
         ])
 
@@ -163,11 +163,12 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
     ordering_fields = {
         "created_at": ProjectTask.created_at,
         "updated_at": ProjectTask.updated_at,
-        "name": ProjectTask.name,
+        "name": ProjectTask.title,
+        "title": ProjectTask.title,
         "status": ProjectTask.status,
         "priority": ProjectTask.priority,
-        "sort_order": ProjectTask.sort_order,
-        "due_date": ProjectTask.due_date,
+        "start_at": ProjectTask.start_at,
+        "due_at": ProjectTask.due_at,
     }
 
     def by_project(self, project_id: "UUID | str | None") -> "ProjectTaskQuery":
@@ -218,20 +219,20 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
             return self
         clone = self._clone()
         clone._query = clone._query.filter(
-            ProjectTask.assignee_person_id == coerce_uuid(person_id)
+            ProjectTask.assigned_to_person_id == coerce_uuid(person_id)
         )
         return clone
 
     def unassigned(self) -> "ProjectTaskQuery":
         """Filter to only unassigned tasks."""
         clone = self._clone()
-        clone._query = clone._query.filter(ProjectTask.assignee_person_id.is_(None))
+        clone._query = clone._query.filter(ProjectTask.assigned_to_person_id.is_(None))
         return clone
 
     def pending(self) -> "ProjectTaskQuery":
         """Filter to pending tasks (not started)."""
         return self.by_statuses([
-            TaskStatus.pending,
+            TaskStatus.todo,
             TaskStatus.blocked,
         ])
 
@@ -242,8 +243,8 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
     def completed(self) -> "ProjectTaskQuery":
         """Filter to completed tasks."""
         return self.by_statuses([
-            TaskStatus.completed,
-            TaskStatus.skipped,
+            TaskStatus.done,
+            TaskStatus.canceled,
         ])
 
 

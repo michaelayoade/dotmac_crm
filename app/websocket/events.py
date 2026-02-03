@@ -18,6 +18,8 @@ class EventType(str, Enum):
     USER_TYPING = "user_typing"
     CONNECTION_ACK = "connection_ack"
     HEARTBEAT = "heartbeat"
+    AGENT_NOTIFICATION = "agent_notification"
+    INBOX_UPDATED = "inbox_updated"
 
 
 class WebSocketEvent(BaseModel):

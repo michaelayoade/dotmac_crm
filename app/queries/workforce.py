@@ -149,7 +149,6 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
         """Filter to completed work orders."""
         return self.by_statuses([
             WorkOrderStatus.completed,
-            WorkOrderStatus.closed,
         ])
 
 

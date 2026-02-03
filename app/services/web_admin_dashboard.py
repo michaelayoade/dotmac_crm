@@ -49,31 +49,8 @@ def _is_user_actor(actor_type) -> bool:
     return actor_type in {AuditActorType.user, AuditActorType.user.value, "user"}
 
 
-def _build_dashboard_context(db: Session) -> dict:
-    server_health = system_health_service.get_system_health()
-    thresholds = {
-        "disk_warn_pct": _float_setting(
-            settings_spec.resolve_value(db, SettingDomain.network, "server_health_disk_warn_pct")
-        ),
-        "disk_crit_pct": _float_setting(
-            settings_spec.resolve_value(db, SettingDomain.network, "server_health_disk_crit_pct")
-        ),
-        "mem_warn_pct": _float_setting(
-            settings_spec.resolve_value(db, SettingDomain.network, "server_health_mem_warn_pct")
-        ),
-        "mem_crit_pct": _float_setting(
-            settings_spec.resolve_value(db, SettingDomain.network, "server_health_mem_crit_pct")
-        ),
-        "load_warn": _float_setting(
-            settings_spec.resolve_value(db, SettingDomain.network, "server_health_load_warn")
-        ),
-        "load_crit": _float_setting(
-            settings_spec.resolve_value(db, SettingDomain.network, "server_health_load_crit")
-        ),
-    }
-    server_health_status = system_health_service.evaluate_health(server_health, thresholds)
-
-    # Get counts
+def _build_stats_context(db: Session) -> dict:
+    """Build only stats-related context (counts and network health)."""
     customers_count = db.query(func.count(Person.id)).scalar() or 0
     open_tickets_count = (
         db.query(func.count(Ticket.id))
@@ -94,7 +71,36 @@ def _build_dashboard_context(db: Session) -> dict:
         or 0
     )
 
-    # Recent activity
+    stats = {
+        "olts_total": active_olts,
+        "olts_online": active_olts,
+        "olts_offline": 0,
+        "onts_total": 0,
+        "onts_online": 0,
+        "onts_offline": 0,
+        "subscribers_total": customers_count,
+        "subscribers_active": customers_count,
+        "open_tickets": open_tickets_count,
+        "pending_work_orders": pending_work_orders,
+    }
+
+    network_health = {
+        "status": "healthy" if active_olts > 0 else "unknown",
+        "percent": 100 if active_olts > 0 else 0,
+    }
+
+    return {
+        "stats": stats,
+        "network_health": network_health,
+        "customers_count": customers_count,
+        "open_tickets_count": open_tickets_count,
+        "pending_work_orders": pending_work_orders,
+        "active_olts": active_olts,
+    }
+
+
+def _build_activity_context(db: Session) -> dict:
+    """Build only activity-related context (audit log)."""
     recent_activity = audit_service.audit_events.list(
         db,
         entity_type=None,
@@ -123,40 +129,52 @@ def _build_dashboard_context(db: Session) -> dict:
             "changes": format_changes(changes),
         })
 
-    # Build stats dict for template compatibility
-    stats = {
-        "olts_total": active_olts,
-        "olts_online": active_olts,
-        "olts_offline": 0,
-        "onts_total": 0,
-        "onts_online": 0,
-        "onts_offline": 0,
-        "subscribers_total": customers_count,
-        "subscribers_active": customers_count,
-        "open_tickets": open_tickets_count,
-        "pending_work_orders": pending_work_orders,
+    return {
+        "recent_activity": activity_items,
     }
 
-    # Network health for template
-    network_health = {
-        "status": "healthy" if active_olts > 0 else "unknown",
-        "percent": 100 if active_olts > 0 else 0,
+
+def _build_server_health_context(db: Session) -> dict:
+    """Build only server health context (system metrics and thresholds)."""
+    server_health = system_health_service.get_system_health()
+
+    # Batch load all threshold settings in one query
+    threshold_keys = [
+        "server_health_disk_warn_pct",
+        "server_health_disk_crit_pct",
+        "server_health_mem_warn_pct",
+        "server_health_mem_crit_pct",
+        "server_health_load_warn",
+        "server_health_load_crit",
+    ]
+    values = settings_spec.resolve_values_atomic(db, SettingDomain.network, threshold_keys)
+
+    thresholds = {
+        "disk_warn_pct": _float_setting(values.get("server_health_disk_warn_pct")),
+        "disk_crit_pct": _float_setting(values.get("server_health_disk_crit_pct")),
+        "mem_warn_pct": _float_setting(values.get("server_health_mem_warn_pct")),
+        "mem_crit_pct": _float_setting(values.get("server_health_mem_crit_pct")),
+        "load_warn": _float_setting(values.get("server_health_load_warn")),
+        "load_crit": _float_setting(values.get("server_health_load_crit")),
     }
+    server_health_status = system_health_service.evaluate_health(server_health, thresholds)
 
     return {
-        "stats": stats,
-        "network_health": network_health,
-        "customers_count": customers_count,
-        "open_tickets_count": open_tickets_count,
-        "pending_work_orders": pending_work_orders,
-        "active_olts": active_olts,
-        "recent_activity": activity_items,
         "server_health": server_health,
         "server_health_status": server_health_status,
         "thresholds": thresholds,
-        "now": datetime.now(),
-        "alarms": [],
     }
+
+
+def _build_dashboard_context(db: Session) -> dict:
+    """Build full dashboard context for initial page load."""
+    context = {}
+    context.update(_build_stats_context(db))
+    context.update(_build_activity_context(db))
+    context.update(_build_server_health_context(db))
+    context["now"] = datetime.now()
+    context["alarms"] = []
+    return context
 
 
 def dashboard(request: Request, db: Session):
@@ -170,8 +188,9 @@ def dashboard(request: Request, db: Session):
 
 
 def dashboard_stats_partial(request: Request, db: Session):
+    """HTMX partial for stats section only."""
     context = web_admin_service.build_admin_context(request, db)
-    context.update(_build_dashboard_context(db))
+    context.update(_build_stats_context(db))
     return templates.TemplateResponse(
         request,
         "admin/dashboard/_stats.html",
@@ -180,8 +199,9 @@ def dashboard_stats_partial(request: Request, db: Session):
 
 
 def dashboard_activity_partial(request: Request, db: Session):
+    """HTMX partial for activity section only."""
     context = web_admin_service.build_admin_context(request, db)
-    context.update(_build_dashboard_context(db))
+    context.update(_build_activity_context(db))
     return templates.TemplateResponse(
         request,
         "admin/dashboard/_activity.html",
@@ -190,8 +210,9 @@ def dashboard_activity_partial(request: Request, db: Session):
 
 
 def dashboard_server_health_partial(request: Request, db: Session):
+    """HTMX partial for server health section only."""
     context = web_admin_service.build_admin_context(request, db)
-    context.update(_build_dashboard_context(db))
+    context.update(_build_server_health_context(db))
     return templates.TemplateResponse(
         request,
         "admin/dashboard/_server_health.html",

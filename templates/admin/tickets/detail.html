@@ -366,6 +366,12 @@
                             {% endif %}
                         </dd>
                     </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Ticket Type</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">
+                            {{ ticket.ticket_type or '—' }}
+                        </dd>
+                    </div>
                     {% if ticket.account %}
                     <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Account</dt>
@@ -416,6 +422,48 @@
                     {% endif %}
                 </div>
             </div>
+
+            <!-- Expenses from ERP -->
+            {% if expense_totals %}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 250ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-emerald-600 shadow-sm">
+                        <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Expenses (from ERP)</h2>
+                    {% if expense_totals.cached %}
+                    <span class="ml-auto text-xs text-slate-400 dark:text-slate-500" title="Cached data">cached</span>
+                    {% endif %}
+                </div>
+                <div class="p-5">
+                    {% if expense_totals.erp_available %}
+                    <dl class="space-y-3">
+                        <div class="flex items-center justify-between">
+                            <dt class="text-sm text-slate-500 dark:text-slate-400">Draft</dt>
+                            <dd class="text-sm font-medium text-slate-900 dark:text-white">{{ "{:,.2f}".format(expense_totals.draft or 0) }}</dd>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <dt class="text-sm text-slate-500 dark:text-slate-400">Submitted</dt>
+                            <dd class="text-sm font-medium text-amber-600 dark:text-amber-400">{{ "{:,.2f}".format(expense_totals.submitted or 0) }}</dd>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <dt class="text-sm text-slate-500 dark:text-slate-400">Approved</dt>
+                            <dd class="text-sm font-medium text-emerald-600 dark:text-emerald-400">{{ "{:,.2f}".format(expense_totals.approved or 0) }}</dd>
+                        </div>
+                        <div class="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-700/50">
+                            <dt class="text-sm font-semibold text-slate-700 dark:text-slate-300">Paid</dt>
+                            <dd class="text-sm font-bold text-slate-900 dark:text-white">{{ "{:,.2f}".format(expense_totals.paid or 0) }}</dd>
+                        </div>
+                    </dl>
+                    {% else %}
+                    <div class="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+                        <svg class="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        <span>ERP temporarily unavailable</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>

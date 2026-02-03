@@ -47,6 +47,7 @@ from app.services.crm.conversations import (
     social_comments,
     social_comment_replies,
 )
+from app.services.crm.conversations import comments as comments
 from app.services.crm.conversations.service import (
     resolve_conversation_contact,
     resolve_open_conversation,
@@ -65,6 +66,7 @@ from app.services.crm.teams import (
     team_channels,
     routing_rules,
 )
+from app.services.crm.teams import service as team
 from app.services.crm.teams.service import get_agent_labels, get_agent_team_options
 
 # Sales submodule
@@ -81,6 +83,16 @@ from app.services.crm.sales import (
     quote_line_items,
 )
 
+# Campaigns submodule
+from app.services.crm.campaigns import (
+    Campaigns,
+    CampaignSteps,
+    CampaignRecipients,
+    campaigns,
+    campaign_steps,
+    campaign_recipients,
+)
+
 # Widget submodule
 from app.services.crm.widget import (
     ChatWidgetConfigs,
@@ -94,8 +106,13 @@ widget_visitors = widget_visitor_sessions
 
 # Inbox submodule (keep as namespace import for complex operations)
 from app.services.crm import inbox
+from app.services.crm import smtp_inbound
+
+from typing import Callable, Any
 
 # Widget message functions (if they exist in widget service)
+receive_widget_message: Callable[..., Any] | None
+send_widget_message: Callable[..., Any] | None
 try:
     from app.services.crm.widget.service import receive_widget_message, send_widget_message
 except ImportError:
@@ -126,6 +143,7 @@ __all__ = [
     "private_notes",
     "social_comments",
     "social_comment_replies",
+    "comments",
     "resolve_conversation_contact",
     "resolve_open_conversation",
     # Teams
@@ -152,6 +170,13 @@ __all__ = [
     "leads",
     "quotes",
     "quote_line_items",
+    # Campaigns
+    "Campaigns",
+    "CampaignSteps",
+    "CampaignRecipients",
+    "campaigns",
+    "campaign_steps",
+    "campaign_recipients",
     # Widget
     "ChatWidgetConfigs",
     "WidgetVisitorSessions",
@@ -163,4 +188,5 @@ __all__ = [
     "send_widget_message",
     # Inbox
     "inbox",
+    "smtp_inbound",
 ]

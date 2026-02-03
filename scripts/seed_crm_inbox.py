@@ -9,7 +9,7 @@ from app.db import SessionLocal
 from app.models.person import Person, PersonChannel, ChannelType as PersonChannelType
 from app.models.crm.conversation import Conversation, ConversationTag, Message
 from app.models.crm.enums import ChannelType as CrmChannelType, ConversationStatus, MessageDirection, MessageStatus
-from app.models.organization import Organization
+from app.models import Organization
 
 
 def parse_args():

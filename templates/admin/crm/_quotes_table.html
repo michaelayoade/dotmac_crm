@@ -1,4 +1,4 @@
-{% from "components/ui/macros.html" import status_badge, row_action, empty_state, pagination, icon_view, icon_edit, icon_delete %}
+{% from "components/ui/macros.html" import status_badge, row_action, empty_state, pagination, icon_view, icon_edit, icon_delete, icon_download %}
 
 <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
     <div class="overflow-x-auto">
@@ -96,6 +96,7 @@
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             {{ row_action("/admin/crm/quotes/" ~ quote.id, icon_view(), "View details", "cyan") }}
                             {{ row_action("/admin/crm/quotes/" ~ quote.id ~ "/edit", icon_edit(), "Edit quote", "slate") }}
+                            {{ row_action("/admin/crm/quotes/" ~ quote.id ~ "/pdf", icon_download(), "Export PDF", "emerald") }}
                             <form method="post" action="/admin/crm/quotes/{{ quote.id }}/delete" class="inline">
                                 <button type="submit"
                                         onclick="return confirm('Delete this quote?')"

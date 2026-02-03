@@ -8,7 +8,7 @@ class AdminTicketsPage:
         self.page = page
         self.base_url = base_url
 
-    def goto(self) -> None:
+    def goto(self, path: str = "") -> None:
         self.page.goto(f"{self.base_url}/admin/support/tickets", wait_until="domcontentloaded")
 
     def expect_loaded(self) -> None:

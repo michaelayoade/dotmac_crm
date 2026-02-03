@@ -21,6 +21,7 @@ from app.logic.crm_inbox_logic import (
 )
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
+from app.models.crm.team import CrmAgent
 from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import EmailWebhookPayload, WhatsAppWebhookPayload
 from app.services.common import coerce_uuid
@@ -202,11 +203,33 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
     )
     from app.websocket.broadcaster import broadcast_new_message
     broadcast_new_message(message, conversation)
+    from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+    notify_assigned_agent_new_reply(db, conversation, message)
     from app.websocket.broadcaster import broadcast_conversation_summary
     broadcast_conversation_summary(
         str(conversation.id),
         _build_conversation_summary(db, conversation, message),
     )
+    from app.websocket.broadcaster import broadcast_inbox_updated
+    agent_ids = (
+        db.query(CrmAgent.person_id)
+        .filter(CrmAgent.is_active.is_(True))
+        .filter(CrmAgent.person_id.isnot(None))
+        .distinct()
+        .all()
+    )
+    inbox_payload = {
+        "conversation_id": str(conversation.id),
+        "message_id": str(message.id),
+        "channel_target_id": str(target.id) if target else None,
+        "last_message_at": (
+            (message.received_at or message.created_at).isoformat()
+            if message.received_at or message.created_at
+            else None
+        ),
+    }
+    for agent_id in agent_ids:
+        broadcast_inbox_updated(str(agent_id[0]), inbox_payload)
     return message
 
 
@@ -406,9 +429,41 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
     )
     from app.websocket.broadcaster import broadcast_new_message
     broadcast_new_message(message, conversation)
+    from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+    notify_assigned_agent_new_reply(db, conversation, message)
     from app.websocket.broadcaster import broadcast_conversation_summary
     broadcast_conversation_summary(
         str(conversation.id),
         _build_conversation_summary(db, conversation, message),
     )
+    from app.websocket.broadcaster import broadcast_inbox_updated
+    agent_ids = (
+        db.query(CrmAgent.person_id)
+        .filter(CrmAgent.is_active.is_(True))
+        .filter(CrmAgent.person_id.isnot(None))
+        .distinct()
+        .all()
+    )
+    inbox_payload = {
+        "conversation_id": str(conversation.id),
+        "message_id": str(message.id),
+        "channel_target_id": str(target.id) if target else None,
+        "last_message_at": (
+            (message.received_at or message.created_at).isoformat()
+            if message.received_at or message.created_at
+            else None
+        ),
+    }
+    for agent_id in agent_ids:
+        broadcast_inbox_updated(str(agent_id[0]), inbox_payload)
     return message
+
+
+def receive_sms_message(db: Session, payload):
+    # Placeholder for SMS inbound support.
+    return None
+
+
+def receive_chat_message(db: Session, payload):
+    # Placeholder for chat inbound support.
+    return None

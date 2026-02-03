@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
+from app.models.crm.sales import Lead
 from app.models.person import Person
 from app.models.tickets import (
     Ticket,
@@ -40,6 +41,12 @@ def _ensure_person(db: Session, person_id: str):
     person = db.get(Person, coerce_uuid(person_id))
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
+
+
+def _ensure_lead(db: Session, lead_id: str):
+    lead = db.get(Lead, coerce_uuid(lead_id))
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
 
 
 def _has_field_visit_tag(tags: list | None) -> bool:
@@ -90,6 +97,56 @@ def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder
     return work_order
 
 
+def _resolve_customer_name(ticket: Ticket, db: Session) -> str | None:
+    if ticket.customer:
+        return ticket.customer.display_name or ticket.customer.email
+    if ticket.subscriber and ticket.subscriber.person:
+        person = ticket.subscriber.person
+        return person.display_name or person.email
+    if ticket.lead_id:
+        lead = db.get(Lead, ticket.lead_id)
+        if lead and lead.person:
+            return lead.person.display_name or lead.person.email
+    return None
+
+
+def _resolve_customer_email(ticket: Ticket, db: Session) -> str | None:
+    if ticket.customer and ticket.customer.email:
+        email = ticket.customer.email
+        if isinstance(email, str) and email.strip():
+            return email.strip()
+    if ticket.subscriber and ticket.subscriber.person:
+        email = ticket.subscriber.person.email
+        if isinstance(email, str) and email.strip():
+            return email.strip()
+    if ticket.lead_id:
+        lead = db.get(Lead, ticket.lead_id)
+        if lead and lead.person and lead.person.email:
+            email = lead.person.email
+            if isinstance(email, str) and email.strip():
+                return email.strip()
+    return None
+
+
+def _resolve_technician_contact(db: Session, person_id) -> dict | None:
+    if not person_id:
+        return None
+    technician = db.get(Person, person_id)
+    if not technician:
+        return None
+    name = (
+        technician.display_name
+        or f"{technician.first_name or ''} {technician.last_name or ''}".strip()
+        or "Technician"
+    )
+    email = technician.email if isinstance(technician.email, str) else None
+    email = email.strip() if email else None
+    return {
+        "name": name,
+        "email": email,
+    }
+
+
 class Tickets(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: TicketCreate):
@@ -97,6 +154,10 @@ class Tickets(ListResponseMixin):
             _ensure_person(db, str(payload.created_by_person_id))
         if payload.assigned_to_person_id:
             _ensure_person(db, str(payload.assigned_to_person_id))
+        if payload.lead_id:
+            _ensure_lead(db, str(payload.lead_id))
+        if payload.customer_person_id:
+            _ensure_person(db, str(payload.customer_person_id))
         ticket = Ticket(**payload.model_dump())
         db.add(ticket)
         db.flush()  # Get ticket.id before creating work order
@@ -108,6 +169,9 @@ class Tickets(ListResponseMixin):
         db.commit()
         db.refresh(ticket)
 
+        customer_name = _resolve_customer_name(ticket, db)
+        customer_email = _resolve_customer_email(ticket, db)
+
         # Emit ticket.created event
         emit_event(
             db,
@@ -115,13 +179,49 @@ class Tickets(ListResponseMixin):
             {
                 "ticket_id": str(ticket.id),
                 "title": ticket.title,
+                "subject": ticket.title,
                 "status": ticket.status.value if ticket.status else None,
                 "priority": ticket.priority.value if ticket.priority else None,
                 "channel": ticket.channel.value if ticket.channel else None,
+                "customer_name": customer_name,
+                "email": customer_email,
+                "doc": {
+                    "custom_customer_name": customer_name,
+                    "name": str(ticket.id),
+                    "subject": ticket.title,
+                    "status": ticket.status.value if ticket.status else None,
+                },
             },
             ticket_id=ticket.id,
             subscriber_id=ticket.subscriber_id,
         )
+
+        technician_contact = _resolve_technician_contact(db, ticket.assigned_to_person_id)
+        if technician_contact and technician_contact.get("email"):
+            emit_event(
+                db,
+                EventType.ticket_assigned,
+                {
+                    "ticket_id": str(ticket.id),
+                    "title": ticket.title,
+                    "subject": ticket.title,
+                    "status": ticket.status.value if ticket.status else None,
+                    "priority": ticket.priority.value if ticket.priority else None,
+                    "channel": ticket.channel.value if ticket.channel else None,
+                    "customer_name": customer_name,
+                    "technician_name": technician_contact["name"],
+                    "email": technician_contact["email"],
+                    "technician_email": technician_contact["email"],
+                    "technician_doc": {
+                        "custom_customer_name": technician_contact["name"],
+                        "name": str(ticket.id),
+                        "subject": ticket.title,
+                        "status": ticket.status.value if ticket.status else None,
+                    },
+                },
+                ticket_id=ticket.id,
+                subscriber_id=ticket.subscriber_id,
+            )
 
         return ticket
 
@@ -169,6 +269,7 @@ class Tickets(ListResponseMixin):
 
         return (
             query
+            .with_relations()  # Eager load relationships to avoid N+1
             .order_by(order_by, order_dir)
             .paginate(limit, offset)
             .all()
@@ -203,11 +304,16 @@ class Tickets(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Ticket not found")
         previous_status = ticket.status
         previous_priority = ticket.priority
+        previous_assigned_to = ticket.assigned_to_person_id
         data = payload.model_dump(exclude_unset=True)
         if "created_by_person_id" in data and data["created_by_person_id"]:
             _ensure_person(db, str(data["created_by_person_id"]))
         if "assigned_to_person_id" in data and data["assigned_to_person_id"]:
             _ensure_person(db, str(data["assigned_to_person_id"]))
+        if "lead_id" in data and data["lead_id"]:
+            _ensure_lead(db, str(data["lead_id"]))
+        if "customer_person_id" in data and data["customer_person_id"]:
+            _ensure_person(db, str(data["customer_person_id"]))
 
         # Check if field_visit tag is being added
         had_field_visit = _has_field_visit_tag(ticket.tags)
@@ -230,8 +336,10 @@ class Tickets(ListResponseMixin):
         event_payload = {
             "ticket_id": str(ticket.id),
             "title": ticket.title,
+            "subject": ticket.title,
             "from_status": previous_status.value if previous_status else None,
             "to_status": new_status.value if new_status else None,
+            "status": new_status.value if new_status else None,
         }
         context = {
             "ticket_id": ticket.id,
@@ -240,10 +348,59 @@ class Tickets(ListResponseMixin):
 
         if previous_status != new_status:
             if new_status == TicketStatus.resolved:
+                customer_name = _resolve_customer_name(ticket, db)
+                customer_email = _resolve_customer_email(ticket, db)
+                event_payload["customer_name"] = customer_name
+                event_payload["email"] = customer_email
+                event_payload["doc"] = {
+                    "custom_customer_name": customer_name,
+                    "name": str(ticket.id),
+                    "subject": ticket.title,
+                    "status": new_status.value if new_status else None,
+                }
+                technician_contact = _resolve_technician_contact(db, ticket.assigned_to_person_id)
+                if technician_contact and technician_contact.get("email"):
+                    event_payload["technician_name"] = technician_contact["name"]
+                    event_payload["technician_email"] = technician_contact["email"]
+                    event_payload["technician_doc"] = {
+                        "custom_customer_name": technician_contact["name"],
+                        "name": str(ticket.id),
+                        "subject": ticket.title,
+                        "status": new_status.value if new_status else None,
+                    }
                 emit_event(
                     db,
                     EventType.ticket_resolved,
                     event_payload,
+                    subscriber_id=ticket.subscriber_id,
+                    ticket_id=ticket.id,
+                )
+
+        if ticket.assigned_to_person_id and ticket.assigned_to_person_id != previous_assigned_to:
+            customer_name = _resolve_customer_name(ticket, db)
+            technician_contact = _resolve_technician_contact(db, ticket.assigned_to_person_id)
+            if technician_contact and technician_contact.get("email"):
+                emit_event(
+                    db,
+                    EventType.ticket_assigned,
+                    {
+                        "ticket_id": str(ticket.id),
+                        "title": ticket.title,
+                        "subject": ticket.title,
+                        "status": ticket.status.value if ticket.status else None,
+                        "priority": ticket.priority.value if ticket.priority else None,
+                        "channel": ticket.channel.value if ticket.channel else None,
+                        "customer_name": customer_name,
+                        "technician_name": technician_contact["name"],
+                        "email": technician_contact["email"],
+                        "technician_email": technician_contact["email"],
+                        "technician_doc": {
+                            "custom_customer_name": technician_contact["name"],
+                            "name": str(ticket.id),
+                            "subject": ticket.title,
+                            "status": ticket.status.value if ticket.status else None,
+                        },
+                    },
                     subscriber_id=ticket.subscriber_id,
                     ticket_id=ticket.id,
                 )
@@ -257,6 +414,18 @@ class Tickets(ListResponseMixin):
                 db,
                 EventType.ticket_escalated,
                 event_payload,
+                subscriber_id=ticket.subscriber_id,
+                ticket_id=ticket.id,
+            )
+        # Emit generic update event for ERP sync (if not already emitting resolved/escalated)
+        elif previous_status != new_status or len(data) > 1:
+            emit_event(
+                db,
+                EventType.ticket_updated,
+                {
+                    **event_payload,
+                    "changed_fields": list(data.keys()),
+                },
                 subscriber_id=ticket.subscriber_id,
                 ticket_id=ticket.id,
             )
@@ -364,6 +533,7 @@ class TicketComments(ListResponseMixin):
             TicketCommentQuery(db)
             .by_ticket(ticket_id)
             .is_internal(is_internal)
+            .with_author()  # Eager load author to avoid N+1
             .order_by(order_by, order_dir)
             .paginate(limit, offset)
             .all()

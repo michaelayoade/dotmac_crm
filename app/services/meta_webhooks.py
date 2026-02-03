@@ -45,8 +45,12 @@ from app.schemas.crm.inbox import (
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
-from app.services.crm import comments as comments_service
-from app.services.crm import inbox as inbox_service
+from app.services.crm.conversations import comments as comments_service
+from app.services.crm.inbox.contacts import _ensure_person_channel
+from app.services.crm.inbox_dedup import (
+    _build_inbound_dedupe_id,
+    _find_duplicate_inbound_message,
+)
 
 logger = get_logger(__name__)
 
@@ -230,25 +234,16 @@ def _resolve_meta_person_and_channel(
     contact_name: str | None,
     metadata: dict | None,
 ):
-    account, _ = inbox_service._resolve_account_from_identifiers(
-        db,
-        None,
-        channel_type,
-        metadata,
-    )
+    account = None
     person = None
-    if account and account.subscriber and account.subscriber.person_id:
-        person = db.get(Person, account.subscriber.person_id)
     if not person:
         person = _find_person_by_email_or_phone(db, metadata)
     if person:
-        channel = inbox_service._ensure_person_channel(db, person, channel_type, sender_id)
+        channel = _ensure_person_channel(db, person, channel_type, sender_id)
         if contact_name and not person.display_name:
             person.display_name = contact_name
             db.commit()
             db.refresh(person)
-        if account:
-            inbox_service._apply_account_to_person(db, person, account)
         return person, channel
     person, channel = contact_service.get_or_create_contact_by_channel(
         db,
@@ -256,8 +251,6 @@ def _resolve_meta_person_and_channel(
         sender_id,
         contact_name,
     )
-    if account:
-        inbox_service._apply_account_to_person(db, person, account)
     return person, channel
 
 
@@ -897,7 +890,7 @@ def receive_facebook_message(
 
     external_id = payload.message_id
     if not external_id:
-        external_id = inbox_service._build_inbound_dedupe_id(
+        external_id = _build_inbound_dedupe_id(
             ChannelType.facebook_messenger,
             payload.contact_address,
             None,
@@ -907,7 +900,7 @@ def receive_facebook_message(
         )
 
     # Check for duplicate message
-    existing = inbox_service._find_duplicate_inbound_message(
+    existing = _find_duplicate_inbound_message(
         db,
         ChannelType.facebook_messenger,
         channel.id,
@@ -1009,7 +1002,7 @@ def receive_instagram_message(
 
     external_id = payload.message_id
     if not external_id:
-        external_id = inbox_service._build_inbound_dedupe_id(
+        external_id = _build_inbound_dedupe_id(
             ChannelType.instagram_dm,
             payload.contact_address,
             None,
@@ -1019,7 +1012,7 @@ def receive_instagram_message(
         )
 
     # Check for duplicate message
-    existing = inbox_service._find_duplicate_inbound_message(
+    existing = _find_duplicate_inbound_message(
         db,
         ChannelType.instagram_dm,
         channel.id,

@@ -1,0 +1,194 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}{{ 'Edit' if campaign else 'New' }} Campaign - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <a href="/admin/crm/inbox" class="hover:text-primary-600">CRM</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <a href="/admin/crm/campaigns" class="hover:text-primary-600">Campaigns</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span class="text-slate-900 dark:text-white">{{ 'Edit' if campaign else 'New Campaign' }}</span>
+        </nav>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit Campaign' if campaign else 'Create Campaign' }}</h1>
+    </div>
+
+    {% if errors %}
+    <div class="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+        <ul class="list-inside list-disc text-sm text-red-700 dark:text-red-400">
+            {% for err in errors %}<li>{{ err }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ '/admin/crm/campaigns/' ~ campaign.id if campaign else '/admin/crm/campaigns' }}"
+          class="space-y-6">
+
+        <!-- Basic Info -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Campaign Details</h2>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Campaign Name *</label>
+                    <input type="text" name="name" value="{{ campaign.name if campaign else '' }}" required
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Type</label>
+                    <select name="campaign_type"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="one_time" {{ 'selected' if not campaign or campaign.campaign_type.value == 'one_time' }}>One-Time Send</option>
+                        <option value="nurture" {{ 'selected' if campaign and campaign.campaign_type.value == 'nurture' }}>Nurture Sequence</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Audience Targeting -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-1">Audience</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">Leave all filters empty to target all contacts with an email address.</p>
+
+            {% set sf = (campaign.segment_filter or {}) if campaign else {} %}
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <!-- Active Status -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Contact Activity</label>
+                    <select name="seg_active_status"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% set active_status = sf.get('active_status', 'active') %}
+                        <option value="active" {% if active_status == 'active' %}selected{% endif %}>Active only</option>
+                        <option value="inactive" {% if active_status == 'inactive' %}selected{% endif %}>Inactive only</option>
+                        <option value="all" {% if active_status == 'all' %}selected{% endif %}>All (active + inactive)</option>
+                    </select>
+                </div>
+                <!-- Party Status -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Contact Status</label>
+                    <div class="rounded-lg border border-slate-300 bg-white p-3 max-h-40 overflow-y-auto dark:border-slate-600 dark:bg-slate-700">
+                        <div class="space-y-2">
+                            {% for ps in party_statuses %}
+                            <label class="flex items-center gap-2 text-sm">
+                                <input type="checkbox" name="seg_party_status" value="{{ ps.value }}"
+                                       {% if sf.get('party_status') and ps.value in sf.get('party_status', []) %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                <span class="text-slate-700 dark:text-slate-300">{{ ps.value|capitalize }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Regions -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Region</label>
+                    <div class="rounded-lg border border-slate-300 bg-white p-3 max-h-40 overflow-y-auto dark:border-slate-600 dark:bg-slate-700">
+                        <div class="space-y-2">
+                            {% for region in region_options %}
+                            <label class="flex items-center gap-2 text-sm">
+                                <input type="checkbox" name="seg_regions" value="{{ region }}"
+                                       {% if sf.get('regions') and region in sf.get('regions', []) %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                <span class="text-slate-700 dark:text-slate-300">{{ region }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Created After -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Created After</label>
+                    <input type="date" name="seg_created_after"
+                           value="{{ sf.get('created_after', '')|replace('T', ' ')|truncate(10, end='') if sf.get('created_after') else '' }}"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+
+                <!-- Created Before -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Created Before</label>
+                    <input type="date" name="seg_created_before"
+                           value="{{ sf.get('created_before', '')|replace('T', ' ')|truncate(10, end='') if sf.get('created_before') else '' }}"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+            </div>
+        </div>
+
+        <!-- Email Content -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Email Content</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Subject Line</label>
+                    <input type="text" name="subject" value="{{ campaign.subject if campaign else '' }}"
+                           placeholder="e.g. {{first_name}}, check out our latest update"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <p class="mt-1 text-xs text-slate-400">Variables: <code>&#123;&#123;first_name&#125;&#125;</code>, <code>&#123;&#123;last_name&#125;&#125;</code>, <code>&#123;&#123;email&#125;&#125;</code>, <code>&#123;&#123;organization_name&#125;&#125;</code></p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">HTML Body</label>
+                    <textarea name="body_html" rows="10"
+                              class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ campaign.body_html if campaign else '' }}</textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Plain Text Body (fallback)</label>
+                    <textarea name="body_text" rows="5"
+                              class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ campaign.body_text if campaign else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sender Info -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Sender</h2>
+            {% if not campaign_senders or not campaign_smtp_profiles %}
+            <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+                Missing campaign senders or SMTP profiles. Add them in <a href="/admin/system/settings?domain=campaigns" class="underline">System Settings → Campaigns</a>.
+            </div>
+            {% else %}
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Campaign Sender *</label>
+                    <select name="campaign_sender_id" required
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="" disabled {% if not campaign or not campaign.campaign_sender_id %}selected{% endif %}>Select a sender</option>
+                        {% for sender in campaign_senders %}
+                        <option value="{{ sender.id }}"
+                                {% if campaign and campaign.campaign_sender_id == sender.id %}selected{% endif %}>
+                            {{ sender.name }}{% if not sender.is_active %} (inactive){% endif %} — {{ sender.from_email }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">SMTP Profile *</label>
+                    <select name="campaign_smtp_config_id" required
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="" disabled {% if not campaign or not campaign.campaign_smtp_config_id %}selected{% endif %}>Select SMTP profile</option>
+                        {% for smtp in campaign_smtp_profiles %}
+                        <option value="{{ smtp.id }}"
+                                {% if campaign and campaign.campaign_smtp_config_id == smtp.id %}selected{% endif %}>
+                            {{ smtp.name }}{% if not smtp.is_active %} (inactive){% endif %} — {{ smtp.host }}:{{ smtp.port }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-end gap-3">
+            <a href="{{ '/admin/crm/campaigns/' ~ campaign.id if campaign else '/admin/crm/campaigns' }}"
+               class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Cancel</a>
+            <button type="submit"
+                    class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                {{ 'Update Campaign' if campaign else 'Create Campaign' }}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

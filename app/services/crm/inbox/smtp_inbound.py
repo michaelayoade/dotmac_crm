@@ -280,3 +280,19 @@ def start_smtp_inbound_server() -> None:
     controller.start()
     _SMTP_CONTROLLER = controller
     logger.info("smtp_inbound_server_start host=%s port=%s", host, port)
+
+
+def stop_smtp_inbound_server() -> None:
+    """Stop the inbound SMTP server if running."""
+    global _SMTP_CONTROLLER
+    if _SMTP_CONTROLLER:
+        try:
+            _SMTP_CONTROLLER.stop()
+        except Exception:
+            logger.exception("smtp_inbound_server_stop_failed")
+        _SMTP_CONTROLLER = None
+
+
+# Backwards-compatible aliases
+start_smtp_server = start_smtp_inbound_server
+stop_smtp_server = stop_smtp_inbound_server

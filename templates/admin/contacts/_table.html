@@ -86,7 +86,7 @@
                             </a>
                             {% if contact.type == 'person' and contact.status in ['lead', 'contact', 'customer'] %}
                             <button type="button"
-                                    @click="openConvert({{ contact.id | tojson }}, {{ contact.name | tojson }})"
+                                    @click='openConvert({{ contact.id | tojson }}, {{ contact.name | tojson }})'
                                     class="rounded-lg p-2 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
                                     title="Convert to subscriber">
                                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
