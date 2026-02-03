@@ -1,0 +1,42 @@
+{% if logs %}
+<div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead>
+            <tr class="bg-slate-50 dark:bg-slate-700/50">
+                <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Time</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Event</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Outcome</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Duration</th>
+                <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Error</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+            {% for log in logs %}
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                    <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-700">{{ log.event_type }}</code>
+                </td>
+                <td class="px-4 py-3">
+                    {% set outcome_colors = {
+                        'success': 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400',
+                        'partial_failure': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400',
+                        'failure': 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400',
+                        'skipped': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+                    } %}
+                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {{ outcome_colors.get(log.outcome.value, 'bg-slate-100 text-slate-600') }}">
+                        {{ log.outcome.value|replace('_', ' ')|capitalize }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ log.duration_ms }}ms</td>
+                <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 truncate max-w-xs">
+                    {{ log.error or '' }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-sm text-slate-400 dark:text-slate-500 italic py-4 text-center">No execution logs yet.</p>
+{% endif %}

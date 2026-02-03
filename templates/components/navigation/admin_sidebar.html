@@ -4,7 +4,7 @@
     'inbox': 'customers', 'contacts': 'customers', 'quotes': 'customers', 'sales': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
     'inventory': 'operations',
     'network-map': 'network', 'network-devices': 'network', 'core-devices': 'network', 'olts': 'network', 'onts': 'network', 'devices': 'network',
-    'pop-sites': 'system', 'configuration': 'system',
+    'automations': 'system', 'pop-sites': 'system', 'configuration': 'system',
     'fiber-plant': 'network', 'fiber-map': 'network', 'fiber-change-requests': 'network', 'fdh-cabinets': 'network', 'splitters': 'network', 'fiber-strands': 'network', 'splice-closures': 'network', 'fiber-reports': 'network',
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations'
@@ -119,7 +119,8 @@
 {% set can_system_settings = can_system_configuration %}
 {% set can_system_health = can_system_configuration %}
 {% set can_system_legal = can_system_configuration %}
-{% set system_section_visible = can_admin_hub or can_system_configuration or can_system_settings or can_system_health or can_system_legal %}
+{% set can_automations = is_admin or 'system:automation:read' in user_permissions or 'system:automation:write' in user_permissions or 'system' in user_permissions %}
+{% set system_section_visible = can_admin_hub or can_system_configuration or can_system_settings or can_system_health or can_system_legal or can_automations %}
 {% set has_any_nav = customers_section_visible or network_section_visible or operations_section_visible or reports_section_visible or system_section_visible %}
 
 <div class="space-y-1"
@@ -407,6 +408,9 @@
             {% endif %}
             {% if can_system_settings %}
             <a href="/admin/system/settings" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'settings' else '' }}">Settings</a>
+            {% endif %}
+            {% if can_automations %}
+            <a href="/admin/system/automations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'automations' else '' }}">Automations</a>
             {% endif %}
             {% if can_system_health %}
             <a href="/admin/system/health" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'system-health' else '' }}">Server Health</a>

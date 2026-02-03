@@ -9,7 +9,7 @@ Events are persisted before dispatching to enable retry of failed handlers.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -63,6 +63,8 @@ class EventDispatcher:
             subscription_id=event.subscription_id,
             invoice_id=event.invoice_id,
             ticket_id=event.ticket_id,
+            project_id=event.project_id,
+            work_order_id=event.work_order_id,
         )
         db.add(event_record)
         try:
@@ -100,7 +102,7 @@ class EventDispatcher:
                     event_record.error = json.dumps([fh["error"] for fh in failed_handlers])
                 else:
                     event_record.status = EventStatus.completed
-                event_record.processed_at = datetime.now(timezone.utc)
+                event_record.processed_at = datetime.now(UTC)
                 db.commit()
             except Exception as update_exc:
                 logger.warning(
@@ -131,6 +133,8 @@ class EventDispatcher:
             subscription_id=event_record.subscription_id,
             invoice_id=event_record.invoice_id,
             ticket_id=event_record.ticket_id,
+            project_id=getattr(event_record, "project_id", None),
+            work_order_id=getattr(event_record, "work_order_id", None),
         )
 
         # Get handlers that failed previously
@@ -178,7 +182,7 @@ class EventDispatcher:
             event_record.status = EventStatus.completed
             event_record.failed_handlers = None
             event_record.error = None
-        event_record.processed_at = datetime.now(timezone.utc)
+        event_record.processed_at = datetime.now(UTC)
         db.commit()
 
         return len(new_failures) == 0
@@ -199,12 +203,16 @@ def get_dispatcher() -> EventDispatcher:
 
 def _initialize_handlers(dispatcher: EventDispatcher) -> None:
     """Initialize and register all event handlers."""
-    from app.services.events.handlers.webhook import WebhookHandler
+    from app.services.events.handlers.automation import AutomationHandler
+    from app.services.events.handlers.erp_sync import ERPSyncHandler
     from app.services.events.handlers.notification import NotificationHandler
+    from app.services.events.handlers.webhook import WebhookHandler
     dispatcher.register_handler(WebhookHandler())
     dispatcher.register_handler(NotificationHandler())
+    dispatcher.register_handler(ERPSyncHandler())
+    dispatcher.register_handler(AutomationHandler())  # Must be last
 
-    logger.info("Event handlers initialized: webhook, notification")
+    logger.info("Event handlers initialized: webhook, notification, erp_sync, automation")
 
 
 def emit_event(
@@ -218,6 +226,8 @@ def emit_event(
     subscription_id: UUID | str | None = None,
     invoice_id: UUID | str | None = None,
     ticket_id: UUID | str | None = None,
+    project_id: UUID | str | None = None,
+    work_order_id: UUID | str | None = None,
 ) -> Event:
     """Emit an event to all registered handlers.
 
@@ -283,6 +293,8 @@ def emit_event(
         subscription_id=to_uuid(subscription_id),
         invoice_id=to_uuid(invoice_id),
         ticket_id=to_uuid(ticket_id),
+        project_id=to_uuid(project_id),
+        work_order_id=to_uuid(work_order_id),
     )
 
     dispatcher = get_dispatcher()

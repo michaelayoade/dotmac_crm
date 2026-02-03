@@ -1,0 +1,153 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}{{ rule.name }} - Automation - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/admin/system/configuration" class="hover:text-primary-600">System</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <a href="/admin/system/automations" class="hover:text-primary-600">Automations</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">{{ rule.name }}</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ rule.name }}</h1>
+            {% if rule.description %}
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ rule.description }}</p>
+            {% endif %}
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            <a href="/admin/system/automations/{{ rule.id }}/edit"
+               class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                Edit
+            </a>
+            <form method="post" action="/admin/system/automations/{{ rule.id }}/toggle" class="inline">
+                {% include "components/forms/csrf_input.html" %}
+                {% if rule.status.value == 'active' %}
+                <button type="submit" class="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-700 hover:bg-yellow-100 dark:border-yellow-600 dark:bg-yellow-500/10 dark:text-yellow-400">Pause</button>
+                {% else %}
+                <button type="submit" class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">Activate</button>
+                {% endif %}
+            </form>
+            <form method="post" action="/admin/system/automations/{{ rule.id }}/delete" class="inline" onsubmit="return confirm('Delete this automation rule?');">
+                {% include "components/forms/csrf_input.html" %}
+                <button type="submit" class="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-600 dark:bg-red-500/10 dark:text-red-400">Delete</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</p>
+            {% set status_colors = {
+                'active': 'text-green-600 dark:text-green-400',
+                'paused': 'text-yellow-600 dark:text-yellow-400',
+                'archived': 'text-slate-500 dark:text-slate-400',
+            } %}
+            <p class="mt-1 text-xl font-bold {{ status_colors.get(rule.status.value, 'text-slate-900') }}">{{ rule.status.value|capitalize }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Executions</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ rule.execution_count }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ rule.priority }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Triggered</p>
+            <p class="mt-1 text-sm font-bold text-slate-900 dark:text-white">
+                {% if rule.last_triggered_at %}
+                {{ rule.last_triggered_at.strftime('%Y-%m-%d %H:%M') }}
+                {% else %}
+                Never
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Config -->
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <!-- Conditions -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Configuration</h2>
+            <dl class="space-y-3">
+                <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Event Type</dt>
+                    <dd class="mt-1"><code class="rounded bg-slate-100 px-2 py-1 text-sm dark:bg-slate-700 dark:text-slate-200">{{ rule.event_type }}</code></dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cooldown</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ rule.cooldown_seconds }}s</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Stop After Match</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ 'Yes' if rule.stop_after_match else 'No' }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Conditions</dt>
+                    <dd>
+                        {% if rule.conditions %}
+                        {% for c in rule.conditions %}
+                        <div class="mb-1 rounded bg-slate-50 px-3 py-1.5 text-sm dark:bg-slate-700/50">
+                            <code class="text-primary-600 dark:text-primary-400">{{ c.field }}</code>
+                            <span class="text-slate-500 dark:text-slate-400">{{ c.op }}</span>
+                            {% if c.op not in ['exists', 'not_exists'] %}
+                            <code class="text-slate-800 dark:text-slate-200">{{ c.value }}</code>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <p class="text-sm text-slate-400 dark:text-slate-500 italic">No conditions (always matches)</p>
+                        {% endif %}
+                    </dd>
+                </div>
+            </dl>
+        </div>
+
+        <!-- Actions -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Actions</h2>
+            {% if rule.actions %}
+            {% for a in rule.actions %}
+            <div class="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-600 dark:bg-slate-700/50">
+                <p class="text-sm font-medium text-slate-900 dark:text-white">{{ a.action_type }}</p>
+                {% if a.params %}
+                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {% for key, val in a.params.items() %}
+                    <span class="inline-block mr-3"><span class="font-medium">{{ key }}:</span> {{ val }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="text-sm text-slate-400 dark:text-slate-500 italic">No actions configured</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Execution Logs -->
+    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Execution Logs</h2>
+            <button type="button"
+                    hx-get="/admin/system/automations/{{ rule.id }}/logs"
+                    hx-target="#logs-table"
+                    hx-swap="innerHTML"
+                    class="text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400">
+                Refresh
+            </button>
+        </div>
+        <div id="logs-table">
+            {% include "admin/system/_automation_logs.html" %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}
