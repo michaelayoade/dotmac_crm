@@ -1,0 +1,130 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Automations - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/admin/system/configuration" class="hover:text-primary-600">System</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">Automations</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Automation Rules</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Configure event-driven rules to automate workflows.</p>
+        </div>
+        <a href="/admin/system/automations/new"
+           class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            New Rule
+        </a>
+    </div>
+
+    <!-- Status Tabs -->
+    <div class="flex flex-wrap gap-2">
+        <a href="/admin/system/automations"
+           class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 dark:bg-primary-600/20 dark:text-primary-400' if not filter_status else 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800' }}">
+            All <span class="ml-1 text-xs">({{ status_counts.total }})</span>
+        </a>
+        {% for st in ['active', 'paused', 'archived'] %}
+        <a href="/admin/system/automations?status={{ st }}"
+           class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 dark:bg-primary-600/20 dark:text-primary-400' if filter_status == st else 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800' }}">
+            {{ st|capitalize }} <span class="ml-1 text-xs">({{ status_counts.get(st, 0) }})</span>
+        </a>
+        {% endfor %}
+    </div>
+
+    <!-- Search -->
+    <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex gap-4">
+            <input type="text" name="search" value="{{ search }}" placeholder="Search rules..."
+                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            {% if filter_status %}
+            <input type="hidden" name="status" value="{{ filter_status }}">
+            {% endif %}
+            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Search</button>
+            <a href="/admin/system/automations" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Reset</a>
+        </div>
+    </form>
+
+    <!-- Table -->
+    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-700/50">
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Event</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Priority</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Executions</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Last Triggered</th>
+                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {% if rules %}
+                    {% for rule in rules %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                        <td class="px-6 py-4">
+                            <a href="/admin/system/automations/{{ rule.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ rule.name }}</a>
+                            {% if rule.description %}
+                            <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400 truncate max-w-xs">{{ rule.description }}</p>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                            <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-700">{{ rule.event_type }}</code>
+                        </td>
+                        <td class="px-6 py-4">
+                            {% set status_colors = {
+                                'active': 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400',
+                                'paused': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400',
+                                'archived': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+                            } %}
+                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {{ status_colors.get(rule.status.value, 'bg-slate-100 text-slate-600') }}">
+                                {{ rule.status.value|capitalize }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ rule.priority }}</td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ rule.execution_count }}</td>
+                        <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
+                            {% if rule.last_triggered_at %}
+                            {{ rule.last_triggered_at.strftime('%Y-%m-%d %H:%M') }}
+                            {% else %}
+                            <span class="text-slate-400 dark:text-slate-500">Never</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 text-right text-sm">
+                            <a href="/admin/system/automations/{{ rule.id }}/edit" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
+                            <form method="post" action="/admin/system/automations/{{ rule.id }}/toggle" class="inline ml-3">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+                                    {{ 'Pause' if rule.status.value == 'active' else 'Activate' }}
+                                </button>
+                            </form>
+                            <form method="post" action="/admin/system/automations/{{ rule.id }}/delete" class="inline ml-3" onsubmit="return confirm('Delete this automation rule?');">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="text-red-600 hover:text-red-700">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No automation rules found. <a href="/admin/system/automations/new" class="text-primary-600 hover:underline">Create your first rule</a>.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

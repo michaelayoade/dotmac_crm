@@ -1,0 +1,274 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}{{ 'Edit' if rule else 'New' }} Automation Rule - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6" x-data="automationForm()">
+
+    <!-- Header -->
+    <div>
+        <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <a href="/admin/system/configuration" class="hover:text-primary-600">System</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <a href="/admin/system/automations" class="hover:text-primary-600">Automations</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span class="text-slate-900 dark:text-white">{{ 'Edit' if rule else 'New Rule' }}</span>
+        </nav>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit Automation Rule' if rule else 'Create Automation Rule' }}</h1>
+    </div>
+
+    {% if errors %}
+    <div class="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+        <ul class="list-inside list-disc text-sm text-red-700 dark:text-red-400">
+            {% for err in errors %}<li>{{ err }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <form method="POST"
+          action="{{ '/admin/system/automations/' ~ rule.id if rule else '/admin/system/automations' }}"
+          @submit="serializeFields()">
+        {% include "components/forms/csrf_input.html" %}
+        <input type="hidden" name="conditions_json" :value="conditionsJson">
+        <input type="hidden" name="actions_json" :value="actionsJson">
+
+        <!-- Section 1: Basic Info -->
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Basic Information</h2>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Rule Name *</label>
+                    <input type="text" name="name" value="{{ rule.name if rule else '' }}" required
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Description</label>
+                    <textarea name="description" rows="2"
+                              class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ rule.description if rule and rule.description else '' }}</textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Event Type *</label>
+                    <select name="event_type" required
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">Select event...</option>
+                        {% for et in event_types %}
+                        <option value="{{ et.value }}" {% if rule and rule.event_type == et.value %}selected{% endif %}>{{ et.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Priority</label>
+                        <input type="number" name="priority" value="{{ rule.priority if rule else 0 }}" min="0"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Cooldown (sec)</label>
+                        <input type="number" name="cooldown_seconds" value="{{ rule.cooldown_seconds if rule else 0 }}" min="0"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 2: Conditions -->
+        <div class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Conditions</h2>
+                <button type="button" @click="addCondition()"
+                        class="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add Condition
+                </button>
+            </div>
+            <p class="mb-4 text-xs text-slate-500 dark:text-slate-400">All conditions must match (AND logic). Leave empty for unconditional execution.</p>
+            <template x-for="(cond, idx) in conditions" :key="idx">
+                <div class="mb-3 flex items-center gap-3">
+                    <input type="text" x-model="cond.field" placeholder="e.g. payload.priority"
+                           class="block w-1/3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <select x-model="cond.op"
+                            class="block w-1/5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="eq">equals</option>
+                        <option value="neq">not equals</option>
+                        <option value="in">in list</option>
+                        <option value="not_in">not in list</option>
+                        <option value="contains">contains</option>
+                        <option value="gt">greater than</option>
+                        <option value="lt">less than</option>
+                        <option value="gte">greater or equal</option>
+                        <option value="lte">less or equal</option>
+                        <option value="exists">exists</option>
+                        <option value="not_exists">not exists</option>
+                    </select>
+                    <div class="w-1/3">
+                        <input type="text" x-model="cond.value" placeholder="value" x-show="!['exists','not_exists'].includes(cond.op)"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <p class="mt-1 text-[11px] text-slate-400 dark:text-slate-500" x-show="['in','not_in'].includes(cond.op)">
+                            Use comma-separated values or a JSON array (e.g. ["high","urgent"]).
+                        </p>
+                    </div>
+                    <button type="button" @click="conditions.splice(idx, 1)" class="text-red-500 hover:text-red-700">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </template>
+            <template x-if="conditions.length === 0">
+                <p class="text-sm text-slate-400 dark:text-slate-500 italic">No conditions — rule will trigger on every matching event.</p>
+            </template>
+        </div>
+
+        <!-- Section 3: Actions -->
+        <div class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Actions</h2>
+                <button type="button" @click="addAction()"
+                        class="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Add Action
+                </button>
+            </div>
+            <template x-for="(action, idx) in actions" :key="idx">
+                <div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-700/50">
+                    <div class="flex items-center justify-between mb-3">
+                        <select x-model="action.action_type"
+                                class="block w-1/3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="set_field">Set Field</option>
+                            <option value="add_tag">Add Tag</option>
+                            <option value="assign_conversation">Assign Conversation</option>
+                            <option value="send_notification">Send Notification</option>
+                            <option value="create_work_order">Create Work Order</option>
+                            <option value="emit_event">Emit Event</option>
+                        </select>
+                        <button type="button" @click="actions.splice(idx, 1)" class="text-red-500 hover:text-red-700">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                    <!-- set_field params -->
+                    <template x-if="action.action_type === 'set_field'">
+                        <div class="grid grid-cols-3 gap-3">
+                            <input type="text" x-model="action.params.entity" placeholder="entity (ticket, project, ...)"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="text" x-model="action.params.field" placeholder="field name"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="text" x-model="action.params.value" placeholder="value"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                    </template>
+                    <!-- add_tag params -->
+                    <template x-if="action.action_type === 'add_tag'">
+                        <div class="grid grid-cols-2 gap-3">
+                            <input type="text" x-model="action.params.entity" placeholder="entity (ticket, project, ...)"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="text" x-model="action.params.tag" placeholder="tag"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                    </template>
+                    <!-- assign_conversation params -->
+                    <template x-if="action.action_type === 'assign_conversation'">
+                        <div>
+                            <input type="text" x-model="action.params.agent_id" placeholder="Agent ID (UUID)"
+                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                    </template>
+                    <!-- send_notification params -->
+                    <template x-if="action.action_type === 'send_notification'">
+                        <div class="grid grid-cols-1 gap-3">
+                            <input type="text" x-model="action.params.recipient" placeholder="Recipient email"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="text" x-model="action.params.subject" placeholder="Subject"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <textarea x-model="action.params.body" placeholder="Body" rows="2"
+                                      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+                        </div>
+                    </template>
+                    <!-- create_work_order params -->
+                    <template x-if="action.action_type === 'create_work_order'">
+                        <div class="grid grid-cols-2 gap-3">
+                            <input type="text" x-model="action.params.title" placeholder="Work order title"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="text" x-model="action.params.assigned_technician_id" placeholder="Technician ID (optional)"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                    </template>
+                    <!-- emit_event params -->
+                    <template x-if="action.action_type === 'emit_event'">
+                        <div>
+                            <input type="text" x-model="action.params.event_type" placeholder="Event type (e.g. ticket.updated)"
+                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                    </template>
+                </div>
+            </template>
+            <template x-if="actions.length === 0">
+                <p class="text-sm text-red-500 italic">At least one action is required.</p>
+            </template>
+        </div>
+
+        <!-- Section 4: Options -->
+        <div class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Options</h2>
+            <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="stop_after_match" value="1"
+                       {% if rule and rule.stop_after_match %}checked{% endif %}
+                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                <span class="text-slate-700 dark:text-slate-300">Stop evaluating further rules after this one matches</span>
+            </label>
+        </div>
+
+        <!-- Actions -->
+        <div class="mt-6 flex items-center justify-end gap-3">
+            <a href="{{ '/admin/system/automations/' ~ rule.id if rule else '/admin/system/automations' }}"
+               class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                Cancel
+            </a>
+            <button type="submit"
+                    class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                {{ 'Update Rule' if rule else 'Create Rule' }}
+            </button>
+        </div>
+    </form>
+
+</div>
+
+<script>
+function automationForm() {
+    const existing = {{ (rule.conditions or [])|tojson if rule else '[]' }};
+    const existingActions = {{ (rule.actions or [])|tojson if rule else '[]' }};
+    return {
+        conditions: existing.map(c => ({field: c.field || '', op: c.op || 'eq', value: c.value ?? ''})),
+        actions: existingActions.map(a => ({action_type: a.action_type || 'set_field', params: a.params || {}})),
+        conditionsJson: '[]',
+        actionsJson: '[]',
+        addCondition() {
+            this.conditions.push({field: '', op: 'eq', value: ''});
+        },
+        addAction() {
+            this.actions.push({action_type: 'set_field', params: {}});
+        },
+        serializeFields() {
+            const normalizedConditions = this.conditions
+                .filter(c => c.field)
+                .map(c => {
+                    const next = {field: c.field, op: c.op, value: c.value};
+                    if (['in', 'not_in'].includes(c.op) && typeof c.value === 'string') {
+                        const raw = c.value.trim();
+                        if (raw.startsWith('[') && raw.endsWith(']')) {
+                            try {
+                                const parsed = JSON.parse(raw);
+                                if (Array.isArray(parsed)) {
+                                    next.value = parsed;
+                                }
+                            } catch (err) {}
+                        } else if (raw) {
+                            next.value = raw.split(',').map(item => item.trim()).filter(Boolean);
+                        }
+                    }
+                    return next;
+                });
+            this.conditionsJson = JSON.stringify(normalizedConditions);
+            this.actionsJson = JSON.stringify(this.actions.map(a => ({action_type: a.action_type, params: a.params})));
+        }
+    };
+}
+</script>
+{% endblock %}
