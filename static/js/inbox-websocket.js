@@ -14,6 +14,8 @@ class InboxWebSocket {
         this.maxReconnectDelay = 30000;
         this.heartbeatInterval = null;
         this.heartbeatTimeout = 25000;
+        this.lastCloseCode = null;
+        this.needsFullRefresh = false;
         this.subscriptions = new Set();
         this.onStatusChange = options.onStatusChange || (() => {});
     }
@@ -28,8 +30,7 @@ class InboxWebSocket {
         }
 
         if (!this.token) {
-            console.warn('[InboxWS] No token provided, cannot connect');
-            return;
+            console.warn('[InboxWS] No token provided, attempting cookie auth');
         }
 
         if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
@@ -37,7 +38,8 @@ class InboxWebSocket {
         }
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${protocol}//${window.location.host}/ws/inbox?token=${encodeURIComponent(this.token)}`;
+        const baseUrl = `${protocol}//${window.location.host}/ws/inbox`;
+        const url = this.token ? `${baseUrl}?token=${encodeURIComponent(this.token)}` : baseUrl;
 
         try {
             this.ws = new WebSocket(url);
@@ -57,6 +59,10 @@ class InboxWebSocket {
             this._startHeartbeat();
             this._resubscribe();
             this._emitEvent('inbox-ws-connected', {});
+            if (this.needsFullRefresh) {
+                this._emitEvent('inbox-ws-reconnected', { code: this.lastCloseCode });
+                this.needsFullRefresh = false;
+            }
         };
 
         this.ws.onclose = (event) => {
@@ -65,11 +71,16 @@ class InboxWebSocket {
             this.onStatusChange(false);
             this._stopHeartbeat();
             this._emitEvent('inbox-ws-disconnected', { code: event.code, reason: event.reason });
+            this.lastCloseCode = event.code || null;
 
             // Don't reconnect on auth failure
             if (event.code === 4001) {
                 console.warn('[InboxWS] Authentication failed, not reconnecting');
                 return;
+            }
+            if (event.code === 1012) {
+                console.warn('[InboxWS] Service restart detected (1012), will refresh on reconnect');
+                this.needsFullRefresh = true;
             }
 
             this._scheduleReconnect();
@@ -105,6 +116,12 @@ class InboxWebSocket {
                     break;
                 case 'user_typing':
                     this._emitEvent('inbox-user-typing', eventData);
+                    break;
+                case 'agent_notification':
+                    this._emitEvent('inbox-agent-notification', eventData);
+                    break;
+                case 'inbox_updated':
+                    this._emitEvent('inbox-list-refresh', eventData);
                     break;
                 case 'connection_ack':
                     console.log('[InboxWS] Connection acknowledged:', eventData.user_id);

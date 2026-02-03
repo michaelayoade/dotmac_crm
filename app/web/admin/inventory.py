@@ -12,6 +12,7 @@ from app.services import inventory as inventory_service
 from app.services import audit as audit_service
 from app.services.audit_helpers import build_changes_metadata, extract_changes, format_changes, log_audit_event
 from app.models.person import Person
+from app.csrf import get_csrf_token
 from app.schemas.inventory import (
     InventoryItemCreate,
     InventoryItemUpdate,
@@ -62,6 +63,7 @@ def inventory_index(request: Request, tab: str = "items", db: Session = Depends(
         "stocks": stocks,
         "total_on_hand": total_on_hand,
         "total_reserved": total_reserved,
+        "csrf_token": get_csrf_token(request),
     }
     return templates.TemplateResponse("admin/inventory/index.html", context)
 
@@ -188,6 +190,7 @@ def inventory_item_detail(request: Request, item_id: str, db: Session = Depends(
         "total_on_hand": total_on_hand,
         "total_reserved": total_reserved,
         "activities": activities,
+        "csrf_token": get_csrf_token(request),
     }
     return templates.TemplateResponse("admin/inventory/item_detail.html", context)
 
@@ -258,6 +261,37 @@ def inventory_item_update(
             "error": str(e),
         }
         return templates.TemplateResponse("admin/inventory/item_form.html", context)
+
+
+@router.post("/items/{item_id}/delete", response_class=HTMLResponse)
+def inventory_item_delete(
+    request: Request,
+    item_id: str,
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user
+
+    try:
+        item = inventory_service.inventory_items.get(db=db, item_id=item_id)
+    except Exception:
+        return templates.TemplateResponse(
+            "admin/errors/404.html",
+            {"request": request, "message": "Inventory item not found"},
+            status_code=404,
+        )
+
+    inventory_service.inventory_items.delete(db=db, item_id=item_id)
+    current_user = get_current_user(request)
+    log_audit_event(
+        db=db,
+        request=request,
+        action="delete",
+        entity_type="inventory_item",
+        entity_id=str(item_id),
+        actor_id=str(current_user.get("person_id")) if current_user else None,
+        metadata={"name": item.name, "sku": item.sku},
+    )
+    return RedirectResponse(url="/admin/inventory", status_code=303)
 
 
 @router.get("/locations/new", response_class=HTMLResponse)
@@ -388,6 +422,7 @@ def inventory_location_detail(
         "total_on_hand": total_on_hand,
         "total_reserved": total_reserved,
         "activities": activities,
+        "csrf_token": get_csrf_token(request),
     }
     return templates.TemplateResponse("admin/inventory/location_detail.html", context)
 
@@ -464,3 +499,34 @@ def inventory_location_update(
             "error": str(e),
         }
         return templates.TemplateResponse("admin/inventory/location_form.html", context)
+
+
+@router.post("/locations/{location_id}/delete", response_class=HTMLResponse)
+def inventory_location_delete(
+    request: Request,
+    location_id: str,
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user
+
+    try:
+        location = inventory_service.inventory_locations.get(db=db, location_id=location_id)
+    except Exception:
+        return templates.TemplateResponse(
+            "admin/errors/404.html",
+            {"request": request, "message": "Inventory location not found"},
+            status_code=404,
+        )
+
+    inventory_service.inventory_locations.delete(db=db, location_id=location_id)
+    current_user = get_current_user(request)
+    log_audit_event(
+        db=db,
+        request=request,
+        action="delete",
+        entity_type="inventory_location",
+        entity_id=str(location_id),
+        actor_id=str(current_user.get("person_id")) if current_user else None,
+        metadata={"name": location.name},
+    )
+    return RedirectResponse(url="/admin/inventory?tab=locations", status_code=303)

@@ -13,9 +13,12 @@ class ResetPasswordPage(BasePage):
     def __init__(self, page: Page, base_url: str) -> None:
         super().__init__(page, base_url)
 
-    def goto(self, token: str) -> None:
+    def goto(self, token: str = "") -> None:
         """Navigate to the reset password page with token."""
-        super().goto(f"/auth/reset-password?token={token}")
+        if token:
+            super().goto(f"/auth/reset-password?token={token}")
+            return
+        super().goto("/auth/reset-password")
 
     def expect_loaded(self) -> None:
         """Assert the reset password page is loaded."""

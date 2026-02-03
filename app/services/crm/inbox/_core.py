@@ -754,6 +754,8 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
     )
     from app.websocket.broadcaster import broadcast_new_message
     broadcast_new_message(message, conversation)
+    from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+    notify_assigned_agent_new_reply(db, conversation, message)
     from app.websocket.broadcaster import broadcast_conversation_summary
     broadcast_conversation_summary(
         str(conversation.id),
@@ -908,6 +910,8 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
     )
     from app.websocket.broadcaster import broadcast_new_message
     broadcast_new_message(message, conversation)
+    from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+    notify_assigned_agent_new_reply(db, conversation, message)
     from app.websocket.broadcaster import broadcast_conversation_summary
     broadcast_conversation_summary(
         str(conversation.id),

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -1516,4 +1516,314 @@ def erpnext_run_import_htmx(
             f'ERPNext API error: {e.message}'
             '</div>',
             status_code=502,
+        )
+
+
+# ==================== DotMac ERP Sync ====================
+
+def _humanize_time_ago(dt_str: str | None) -> str:
+    """Convert ISO datetime string to human-readable time ago."""
+    if not dt_str:
+        return "Never"
+    try:
+        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        diff = now - dt
+        seconds = diff.total_seconds()
+
+        if seconds < 60:
+            return "Just now"
+        elif seconds < 3600:
+            minutes = int(seconds / 60)
+            return f"{minutes}m ago"
+        elif seconds < 86400:
+            hours = int(seconds / 3600)
+            return f"{hours}h ago"
+        else:
+            days = int(seconds / 86400)
+            return f"{days}d ago"
+    except Exception:
+        return "Unknown"
+
+
+@router.get("/dotmac-erp", response_class=HTMLResponse)
+def dotmac_erp_index(
+    request: Request,
+    saved: str | None = Query(None),
+    error: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """DotMac ERP sync dashboard page."""
+    from app.models.domain_settings import SettingDomain
+    from app.services import settings_spec
+    from app.services.dotmac_erp import (
+        get_daily_stats,
+        get_last_sync,
+        get_sync_history,
+        get_last_inventory_sync,
+        get_inventory_sync_history,
+    )
+
+    # Get configuration
+    enabled = settings_spec.resolve_value(
+        db, SettingDomain.integration, "dotmac_erp_sync_enabled"
+    )
+    base_url = settings_spec.resolve_value(
+        db, SettingDomain.integration, "dotmac_erp_base_url"
+    )
+    token = settings_spec.resolve_value(
+        db, SettingDomain.integration, "dotmac_erp_token"
+    )
+    timeout = settings_spec.resolve_value(
+        db, SettingDomain.integration, "dotmac_erp_timeout_seconds"
+    ) or 30
+    interval = settings_spec.resolve_value(
+        db, SettingDomain.integration, "dotmac_erp_sync_interval_minutes"
+    ) or 60
+
+    # Get outbound sync stats (push to ERP)
+    daily_stats = get_daily_stats()
+    last_sync = get_last_sync()
+    history = get_sync_history(limit=10)
+
+    # Get inventory sync stats (pull from ERP)
+    last_inventory_sync = get_last_inventory_sync()
+    inventory_history = get_inventory_sync_history(limit=10)
+
+    # Format last sync times
+    last_sync_ago = _humanize_time_ago(last_sync.get("timestamp") if last_sync else None)
+    last_inventory_sync_ago = _humanize_time_ago(
+        last_inventory_sync.get("timestamp") if last_inventory_sync else None
+    )
+
+    # Calculate total today
+    total_today = (
+        daily_stats.get("projects", 0)
+        + daily_stats.get("tickets", 0)
+        + daily_stats.get("work_orders", 0)
+    )
+
+    context = _base_context(request, db, active_page="dotmac-erp")
+    context.update({
+        "enabled": bool(enabled),
+        "base_url": base_url or "",
+        "has_token": bool(token),
+        "timeout": timeout,
+        "interval": interval,
+        "daily_stats": daily_stats,
+        "total_today": total_today,
+        "last_sync": last_sync,
+        "last_sync_ago": last_sync_ago,
+        "history": history,
+        "last_inventory_sync": last_inventory_sync,
+        "last_inventory_sync_ago": last_inventory_sync_ago,
+        "inventory_history": inventory_history,
+        "humanize_time_ago": _humanize_time_ago,
+        "settings_saved": bool(saved),
+        "settings_error": error,
+    })
+    return templates.TemplateResponse("admin/integrations/dotmac_erp.html", context)
+
+
+@router.post("/dotmac-erp/settings")
+def dotmac_erp_save_settings(
+    request: Request,
+    enabled: str | None = Form(None),
+    base_url: str | None = Form(None),
+    token: str | None = Form(None),
+    timeout: str | None = Form(None),
+    interval: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Save DotMac ERP sync settings."""
+    from app.models.domain_settings import DomainSetting, SettingDomain, SettingValueType
+
+    errors = []
+
+    # Validate inputs
+    timeout_val = 30
+    if timeout:
+        try:
+            timeout_val = int(timeout)
+            if timeout_val < 5 or timeout_val > 120:
+                errors.append("Timeout must be between 5 and 120 seconds")
+        except ValueError:
+            errors.append("Timeout must be a number")
+
+    interval_val = 60
+    if interval:
+        try:
+            interval_val = int(interval)
+            if interval_val < 5:
+                errors.append("Sync interval must be at least 5 minutes")
+        except ValueError:
+            errors.append("Interval must be a number")
+
+    if errors:
+        return RedirectResponse(
+            url=f"/admin/integrations/dotmac-erp?error={errors[0]}",
+            status_code=303,
+        )
+
+    def _format_value_text(raw_value, value_type: SettingValueType) -> str:
+        if value_type == SettingValueType.boolean:
+            return "true" if bool(raw_value) else "false"
+        if value_type == SettingValueType.integer:
+            return str(int(raw_value))
+        return str(raw_value) if raw_value is not None else ""
+
+    def _upsert_setting(key: str, value, value_type: SettingValueType):
+        value_text = _format_value_text(value, value_type)
+        setting = (
+            db.query(DomainSetting)
+            .filter(DomainSetting.domain == SettingDomain.integration)
+            .filter(DomainSetting.key == key)
+            .first()
+        )
+        if setting:
+            setting.value_text = value_text
+            setting.value_json = None
+            setting.is_active = True
+        else:
+            setting = DomainSetting(
+                domain=SettingDomain.integration,
+                key=key,
+                value_type=value_type,
+                is_active=True,
+                value_text=value_text,
+            )
+            db.add(setting)
+
+    # Save enabled
+    _upsert_setting("dotmac_erp_sync_enabled", bool(enabled), SettingValueType.boolean)
+
+    # Save base_url
+    if base_url and base_url.strip():
+        _upsert_setting("dotmac_erp_base_url", base_url.strip(), SettingValueType.string)
+
+    # Save token (only if provided - keep existing otherwise)
+    if token and token.strip():
+        _upsert_setting("dotmac_erp_token", token.strip(), SettingValueType.string)
+
+    # Save timeout
+    _upsert_setting("dotmac_erp_timeout_seconds", timeout_val, SettingValueType.integer)
+
+    # Save interval
+    _upsert_setting("dotmac_erp_sync_interval_minutes", interval_val, SettingValueType.integer)
+
+    db.commit()
+
+    return RedirectResponse(
+        url="/admin/integrations/dotmac-erp?saved=1",
+        status_code=303,
+    )
+
+
+@router.post("/dotmac-erp/test", response_class=HTMLResponse)
+def dotmac_erp_test(request: Request, db: Session = Depends(get_db)):
+    """Test DotMac ERP connection (HTMX)."""
+    from app.services.dotmac_erp import DotMacERPSync
+
+    try:
+        sync_service = DotMacERPSync(db)
+        client = sync_service._get_client()
+
+        if not client:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">'
+                'ERP sync is not configured. Please set the base URL and token in Settings.'
+                '</div>',
+                status_code=200,
+            )
+
+        success = client.test_connection()
+        sync_service.close()
+
+        if success:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
+                'Connection successful! API is reachable and authenticated.'
+                '</div>',
+                status_code=200,
+            )
+        else:
+            return HTMLResponse(
+                '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+                'Connection failed. Please check the base URL and token.'
+                '</div>',
+                status_code=200,
+            )
+
+    except Exception as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f'Connection error: {str(e)}'
+            '</div>',
+            status_code=200,
+        )
+
+
+@router.post("/dotmac-erp/sync", response_class=HTMLResponse)
+def dotmac_erp_sync_now(
+    request: Request,
+    mode: str = Form("recently_updated"),
+    db: Session = Depends(get_db),
+):
+    """Trigger manual DotMac ERP sync (HTMX)."""
+    from app.tasks.integrations import sync_dotmac_erp
+
+    valid_modes = ["recently_updated", "all_active"]
+    if mode not in valid_modes:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f'Invalid mode. Must be one of: {", ".join(valid_modes)}'
+            '</div>',
+            status_code=400,
+        )
+
+    try:
+        # Queue Celery task
+        task = sync_dotmac_erp.delay(mode=mode)
+
+        mode_label = "recently updated" if mode == "recently_updated" else "all active"
+        return HTMLResponse(
+            '<div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">'
+            f'Sync started for {mode_label} entities. Task ID: {task.id[:8]}...'
+            '<br><span class="text-xs">Refresh the page to see results.</span>'
+            '</div>',
+            status_code=200,
+        )
+
+    except Exception as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f'Failed to queue sync task: {str(e)}'
+            '</div>',
+            status_code=500,
+        )
+
+
+@router.post("/dotmac-erp/inventory-sync", response_class=HTMLResponse)
+def dotmac_erp_inventory_sync_now(request: Request, db: Session = Depends(get_db)):
+    """Trigger manual inventory sync from DotMac ERP (HTMX)."""
+    from app.tasks.integrations import sync_dotmac_erp_inventory
+
+    try:
+        # Queue Celery task
+        task = sync_dotmac_erp_inventory.delay()
+
+        return HTMLResponse(
+            '<div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">'
+            f'Inventory sync started. Task ID: {task.id[:8]}...'
+            '<br><span class="text-xs">Refresh the page to see results.</span>'
+            '</div>',
+            status_code=200,
+        )
+
+    except Exception as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f'Failed to queue inventory sync task: {str(e)}'
+            '</div>',
+            status_code=500,
         )

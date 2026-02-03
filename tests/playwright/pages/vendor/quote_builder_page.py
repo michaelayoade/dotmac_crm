@@ -13,7 +13,7 @@ class VendorQuoteBuilderPage(BasePage):
     def __init__(self, page: Page, base_url: str) -> None:
         super().__init__(page, base_url)
 
-    def goto(self, project_id: str) -> None:
+    def goto(self, project_id: str = "") -> None:
         """Navigate to quote builder for a project."""
         super().goto(f"/vendor/quotes/builder?project_id={project_id}")
 

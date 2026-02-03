@@ -31,6 +31,8 @@ from app.models.workflow import WorkflowEntityType
 from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote, WorkOrderStatus
 from app.models.webhook import WebhookDelivery, WebhookDeliveryStatus, WebhookEndpoint, WebhookSubscription
 from app.schemas.auth import UserCredentialCreate
+from app.schemas.crm.campaign_sender import CampaignSenderCreate, CampaignSenderUpdate
+from app.schemas.crm.campaign_smtp import CampaignSmtpCreate, CampaignSmtpUpdate
 from app.schemas.person import PersonCreate, PersonUpdate
 from app.schemas.settings import DomainSettingUpdate
 from app.schemas.workflow import (
@@ -60,6 +62,8 @@ from app.services import (
     workflow as workflow_service,
 )
 from app.services import settings_spec
+from app.services.crm.campaign_senders import campaign_senders
+from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
 from app.services import branding_assets
 from app.services.auth_flow import hash_password
 from app.services.auth_dependencies import require_permission
@@ -281,7 +285,7 @@ ENFORCEMENT_DOMAIN = "enforcement"
 
 def _settings_domains() -> list[dict]:
     domains = sorted(
-        {spec.domain for spec in settings_spec.SETTINGS_SPECS},
+        {spec.domain for spec in settings_spec.SETTINGS_SPECS} | {SettingDomain.campaigns},
         key=lambda domain: domain.value,
     )
     items = [
@@ -293,13 +297,14 @@ def _settings_domains() -> list[dict]:
 
 
 # Domain groupings by business function
-# Note: billing, catalog, collections, usage, radius domains have been removed
+# Note: billing, catalog, collections, usage, radius, subscriber, snmp, tr069 domains have been removed
 SETTINGS_DOMAIN_GROUPS = {
     "Enforcement": [ENFORCEMENT_DOMAIN],
-    "Notifications": ["notification", "comms"],
-    "Services": ["subscriber", "provisioning"],
+    "Notifications": ["notification", "comms", "campaigns"],
+    "Services": ["provisioning"],
     "Network": ["network", "network_monitoring", "bandwidth", "gis", "geocoding"],
     "Operations": ["workflow", "projects", "scheduler", "inventory"],
+    "Integrations": ["integration"],
     "Security & System": ["auth", "audit", "imports"],
 }
 
@@ -341,19 +346,6 @@ def _resolve_settings_domain(value: str | None) -> SettingDomain:
 
 def _enforcement_specs() -> list[settings_spec.SettingSpec]:
     ordered_keys = {
-        SettingDomain.radius: [
-            "coa_enabled",
-            "coa_dictionary_path",
-            "coa_timeout_sec",
-            "coa_retries",
-            "refresh_sessions_on_profile_change",
-        ],
-        SettingDomain.usage: [
-            "usage_warning_enabled",
-            "usage_warning_thresholds",
-            "fup_action",
-            "fup_throttle_radius_profile_id",
-        ],
         SettingDomain.network: [
             "mikrotik_session_kill_enabled",
             "address_list_block_enabled",
@@ -376,8 +368,6 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
     if domain_value == ENFORCEMENT_DOMAIN:
         sections: list[dict] = []
         for domain, title in (
-            (SettingDomain.radius, "RADIUS Enforcement"),
-            (SettingDomain.usage, "Usage & FUP"),
             (SettingDomain.network, "Network Controls"),
         ):
             specs = [spec for spec in _enforcement_specs() if spec.domain == domain]
@@ -428,6 +418,32 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
         }
 
     selected_domain = _resolve_settings_domain(domain_value)
+    if selected_domain == SettingDomain.campaigns:
+        senders = campaign_senders.list(
+            db=db,
+            is_active=None,
+            order_by="name",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        smtp_profiles = campaign_smtp_configs.list(
+            db=db,
+            is_active=None,
+            order_by="name",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        return {
+            "domain": selected_domain.value,
+            "domains": _settings_domains(),
+            "grouped_domains": _grouped_settings_domains(),
+            "settings": [],
+            "settings_by_key": {},
+            "campaign_senders": senders,
+            "campaign_smtp_profiles": smtp_profiles,
+        }
     domain_specs = settings_spec.list_specs(selected_domain)
     service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(selected_domain)
     existing = {}
@@ -466,13 +482,139 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
             }
         )
     settings_by_key = {item["key"]: item for item in settings}
-    return {
+    context = {
         "domain": selected_domain.value,
         "domains": _settings_domains(),
         "grouped_domains": _grouped_settings_domains(),
         "settings": settings,
         "settings_by_key": settings_by_key,
     }
+    if selected_domain == SettingDomain.projects:
+        from app.web.admin.projects import REGION_OPTIONS
+        from app.services import dispatch as dispatch_service
+
+        technicians = dispatch_service.technicians.list(
+            db=db,
+            person_id=None,
+            region=None,
+            is_active=True,
+            order_by="created_at",
+            order_dir="desc",
+            limit=500,
+            offset=0,
+        )
+        technicians = sorted(
+            technicians,
+            key=lambda tech: (
+                tech.person.first_name if tech.person else "",
+                tech.person.last_name if tech.person else "",
+            ),
+        )
+        assignments = settings_by_key.get("region_pm_assignments", {}).get("value")
+        if not isinstance(assignments, dict):
+            assignments = {}
+        normalized = {}
+        for region in REGION_OPTIONS:
+            entry = assignments.get(region)
+            if isinstance(entry, dict):
+                normalized[region] = {
+                    "manager_person_id": entry.get("manager_person_id") or "",
+                    "assistant_person_id": entry.get("assistant_person_id") or "",
+                }
+            elif isinstance(entry, str):
+                normalized[region] = {"manager_person_id": entry, "assistant_person_id": ""}
+            else:
+                normalized[region] = {"manager_person_id": "", "assistant_person_id": ""}
+        context["region_pm_regions"] = REGION_OPTIONS
+        context["region_pm_assignments"] = normalized
+        context["technicians"] = technicians
+    if selected_domain == SettingDomain.comms:
+        context["ticket_types_list"] = _normalize_ticket_types(
+            settings_by_key.get("ticket_types", {}).get("value")
+        )
+    return context
+
+
+def _normalize_ticket_types(raw: object) -> list[dict]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    priority_map = {
+        "low": "low",
+        "lower": "low",
+        "normal": "normal",
+        "medium": "normal",
+        "high": "high",
+        "urgent": "urgent",
+    }
+    normalized = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        if not name:
+            continue
+        priority_raw = (item.get("priority") or "").strip().lower()
+        priority = priority_map.get(priority_raw) if priority_raw else ""
+        is_active = item.get("is_active")
+        is_active = True if is_active is None else bool(is_active)
+        normalized.append(
+            {"name": name, "priority": priority, "is_active": is_active}
+        )
+    return normalized
+
+
+def _extract_ticket_types_from_form(form) -> list[dict]:
+    items: list[dict] = []
+    priority_map = {
+        "low": "low",
+        "lower": "low",
+        "normal": "normal",
+        "medium": "normal",
+        "high": "high",
+        "urgent": "urgent",
+    }
+    indices: list[int] = []
+    for key in form.keys():
+        if key.startswith("ticket_type_name_"):
+            try:
+                indices.append(int(key.split("_")[-1]))
+            except ValueError:
+                continue
+    for idx in sorted(set(indices)):
+        name = _form_str_opt(form.get(f"ticket_type_name_{idx}")) or ""
+        name = name.strip()
+        if not name:
+            continue
+        priority_raw = _form_str_opt(form.get(f"ticket_type_priority_{idx}")) or ""
+        priority = priority_map.get(priority_raw.strip().lower()) if priority_raw else None
+        is_active = form.get(f"ticket_type_active_{idx}") == "true"
+        items.append(
+            {"name": name, "priority": priority, "is_active": is_active}
+        )
+    return items
+
+
+def _extract_region_pm_assignments_from_form(form) -> dict:
+    from app.web.admin.projects import REGION_OPTIONS
+
+    assignments: dict[str, dict[str, str]] = {}
+    for region in REGION_OPTIONS:
+        manager_key = f"region_pm_manager_{region}"
+        assistant_key = f"region_pm_assistant_{region}"
+        manager = _form_str_opt(form.get(manager_key)) or ""
+        assistant = _form_str_opt(form.get(assistant_key)) or ""
+        assignments[region] = {
+            "manager_person_id": manager.strip(),
+            "assistant_person_id": assistant.strip(),
+        }
+    return assignments
 
 
 def _user_stats(db: Session) -> dict:
@@ -584,10 +726,9 @@ def _build_users(
         query = query.distinct(Person.id)
     else:
         total = query.count()
+    order_by: list = [Person.last_name.asc(), Person.first_name.asc()]
     if needs_distinct:
-        order_by = (Person.id.asc(), Person.last_name.asc(), Person.first_name.asc())
-    else:
-        order_by = (Person.last_name.asc(), Person.first_name.asc())
+        order_by.insert(0, Person.id.asc())
     people = query.order_by(*order_by).offset(offset).limit(limit).all()
 
     person_ids = [person.id for person in people]
@@ -753,12 +894,8 @@ def system_configuration(request: Request, db: Session = Depends(get_db)):
     from app.models.webhook import WebhookEndpoint
     from app.models.projects import ProjectTemplate
     from app.models.crm.team import CrmAgent
-    from app.models.wireguard import WireGuardServer
 
     pop_sites_count = 0
-    vpn_servers_count = (
-        db.query(WireGuardServer).filter(WireGuardServer.is_active.is_(True)).count()
-    )
     connectors_count = (
         db.query(ConnectorConfig).filter(ConnectorConfig.is_active.is_(True)).count()
     )
@@ -781,7 +918,6 @@ def system_configuration(request: Request, db: Session = Depends(get_db)):
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "pop_sites_count": pop_sites_count,
-            "vpn_servers_count": vpn_servers_count,
             "connectors_count": connectors_count,
             "webhooks_count": webhooks_count,
             "project_templates_count": project_templates_count,
@@ -2643,11 +2779,13 @@ def settings_overview(
     db: Session = Depends(get_db),
 ):
     """System settings management."""
+    from app.csrf import get_csrf_token
     from app.web.admin import get_sidebar_stats, get_current_user
     settings_context = _build_settings_context(db, domain)
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
     crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
+    saved = _form_bool(request.query_params.get("saved"))
     return templates.TemplateResponse(
         "admin/system/settings.html",
         {
@@ -2659,6 +2797,8 @@ def settings_overview(
             "active_menu": "system",
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
+            "saved": saved,
+            "csrf_token": get_csrf_token(request),
         },
     )
 
@@ -2740,49 +2880,85 @@ async def settings_update(
         settings_context = _build_settings_context(db, ENFORCEMENT_DOMAIN)
     else:
         selected_domain = _resolve_settings_domain(domain_value)
+        if selected_domain == SettingDomain.campaigns:
+            settings_context = _build_settings_context(db, selected_domain.value)
+            base_url = str(request.base_url).rstrip("/")
+            crm_meta_callback_url = base_url + "/webhooks/crm/meta"
+            crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
+            from app.csrf import get_csrf_token
+            from app.web.admin import get_sidebar_stats, get_current_user
+            return templates.TemplateResponse(
+                "admin/system/settings.html",
+                {
+                    "request": request,
+                    **settings_context,
+                    "crm_meta_callback_url": crm_meta_callback_url,
+                    "crm_meta_oauth_redirect_url": crm_meta_oauth_redirect_url,
+                    "active_page": "settings",
+                    "active_menu": "system",
+                    "current_user": get_current_user(request),
+                    "sidebar_stats": get_sidebar_stats(db),
+                    "errors": ["Campaign sender settings are managed below."],
+                    "saved": False,
+                    "csrf_token": get_csrf_token(request),
+                },
+            )
         specs = settings_spec.list_specs(selected_domain)
         service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(selected_domain)
         if not service:
             errors.append("Settings service not configured for this domain.")
         else:
+            overrides: dict[str, SettingValue] = {}
+            if selected_domain == SettingDomain.comms:
+                overrides["ticket_types"] = cast(
+                    SettingValue, _extract_ticket_types_from_form(form)
+                )
+            if selected_domain == SettingDomain.projects:
+                overrides["region_pm_assignments"] = cast(
+                    SettingValue, _extract_region_pm_assignments_from_form(form)
+                )
             for spec in specs:
-                raw = form.get(spec.key)
-                raw_value = _form_str_opt(raw)
+                if spec.key in overrides:
+                    raw_value = None
+                    value_setting = overrides[spec.key]
+                else:
+                    raw = form.get(spec.key)
+                    raw_value = _form_str_opt(raw)
                 if spec.is_secret and not raw_value:
                     continue
-                value_setting: SettingValue
-                if spec.value_type == settings_spec.SettingValueType.boolean:
-                    value_setting = _form_bool(raw_value)
-                elif spec.value_type == settings_spec.SettingValueType.integer:
-                    if not raw_value:
-                        value_setting = cast(SettingValue, spec.default)
-                    else:
-                        try:
-                            value_setting = int(raw_value)
-                        except ValueError:
-                            errors.append(f"{spec.key}: Value must be an integer.")
-                            continue
-                else:
-                    if not raw_value:
-                        if spec.value_type == settings_spec.SettingValueType.string:
-                            value_setting = (
-                                cast(SettingValue, spec.default) if spec.default is not None else ""
-                            )
-                        elif spec.value_type == settings_spec.SettingValueType.json:
-                            value_setting = (
-                                cast(SettingValue, spec.default) if spec.default is not None else {}
-                            )
-                        else:
+                if spec.key not in overrides:
+                    if spec.value_type == settings_spec.SettingValueType.boolean:
+                        value_setting = _form_bool(raw_value)
+                    elif spec.value_type == settings_spec.SettingValueType.integer:
+                        if not raw_value:
                             value_setting = cast(SettingValue, spec.default)
-                    else:
-                        if spec.value_type == settings_spec.SettingValueType.json:
-                            try:
-                                value_setting = json.loads(raw_value)
-                            except json.JSONDecodeError:
-                                errors.append(f"{spec.key}: Value must be valid JSON.")
-                                continue
                         else:
-                            value_setting = raw_value
+                            try:
+                                value_setting = int(raw_value)
+                            except ValueError:
+                                errors.append(f"{spec.key}: Value must be an integer.")
+                                continue
+                    else:
+                        if not raw_value:
+                            if spec.value_type == settings_spec.SettingValueType.string:
+                                value_setting = (
+                                    cast(SettingValue, spec.default) if spec.default is not None else ""
+                                )
+                            elif spec.value_type == settings_spec.SettingValueType.json:
+                                value_setting = (
+                                    cast(SettingValue, spec.default) if spec.default is not None else {}
+                                )
+                            else:
+                                value_setting = cast(SettingValue, spec.default)
+                        else:
+                            if spec.value_type == settings_spec.SettingValueType.json:
+                                try:
+                                    value_setting = json.loads(raw_value)
+                                except json.JSONDecodeError:
+                                    errors.append(f"{spec.key}: Value must be valid JSON.")
+                                    continue
+                            else:
+                                value_setting = raw_value
                 if spec.allowed and value_setting is not None and value_setting not in spec.allowed:
                     errors.append(f"{spec.key}: Value must be one of {', '.join(sorted(spec.allowed))}.")
                     continue
@@ -2813,6 +2989,7 @@ async def settings_update(
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
     crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
+    from app.csrf import get_csrf_token
     from app.web.admin import get_sidebar_stats, get_current_user
     return templates.TemplateResponse(
         "admin/system/settings.html",
@@ -2827,8 +3004,273 @@ async def settings_update(
             "sidebar_stats": get_sidebar_stats(db),
             "errors": errors,
             "saved": not errors,
+            "csrf_token": get_csrf_token(request),
         },
     )
+
+
+def _render_campaign_settings(
+    request: Request,
+    db: Session,
+    errors: list[str] | None = None,
+    saved: bool = False,
+) -> HTMLResponse:
+    from app.csrf import get_csrf_token
+    settings_context = _build_settings_context(db, SettingDomain.campaigns.value)
+    base_url = str(request.base_url).rstrip("/")
+    crm_meta_callback_url = base_url + "/webhooks/crm/meta"
+    crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
+    from app.web.admin import get_sidebar_stats, get_current_user
+    return templates.TemplateResponse(
+        "admin/system/settings.html",
+        {
+            "request": request,
+            **settings_context,
+            "crm_meta_callback_url": crm_meta_callback_url,
+            "crm_meta_oauth_redirect_url": crm_meta_oauth_redirect_url,
+            "active_page": "settings",
+            "active_menu": "system",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "errors": errors or [],
+            "saved": saved,
+            "csrf_token": get_csrf_token(request),
+        },
+    )
+
+
+@router.post(
+    "/settings/campaign-senders",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def campaign_sender_create(
+    request: Request,
+    name: str = Form(""),
+    from_name: str = Form(""),
+    from_email: str = Form(""),
+    reply_to: str = Form(""),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    errors: list[str] = []
+    try:
+        payload = CampaignSenderCreate(
+            name=name.strip(),
+            from_name=from_name.strip() or None,
+            from_email=from_email.strip(),
+            reply_to=reply_to.strip() or None,
+            is_active=str(is_active).lower() in {"1", "true", "yes", "on"},
+        )
+    except ValidationError as exc:
+        errors.extend([err.get("msg", "Invalid value") for err in exc.errors()])
+        return _render_campaign_settings(request, db, errors=errors, saved=False)
+
+    try:
+        campaign_senders.create(db, payload)
+    except HTTPException as exc:
+        return _render_campaign_settings(request, db, errors=[str(exc.detail)], saved=False)
+
+    return RedirectResponse(url="/admin/system/settings?domain=campaigns&saved=1", status_code=303)
+
+
+@router.post(
+    "/settings/campaign-senders/{sender_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def campaign_sender_update(
+    request: Request,
+    sender_id: str,
+    name: str = Form(""),
+    from_name: str = Form(""),
+    from_email: str = Form(""),
+    reply_to: str = Form(""),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    errors: list[str] = []
+    try:
+        payload = CampaignSenderUpdate(
+            name=name.strip(),
+            from_name=from_name.strip() or None,
+            from_email=from_email.strip(),
+            reply_to=reply_to.strip() or None,
+            is_active=str(is_active).lower() in {"1", "true", "yes", "on"},
+        )
+    except ValidationError as exc:
+        errors.extend([err.get("msg", "Invalid value") for err in exc.errors()])
+        return _render_campaign_settings(request, db, errors=errors, saved=False)
+
+    try:
+        campaign_senders.update(db, sender_id, payload)
+    except HTTPException as exc:
+        return _render_campaign_settings(request, db, errors=[str(exc.detail)], saved=False)
+
+    return RedirectResponse(url="/admin/system/settings?domain=campaigns&saved=1", status_code=303)
+
+
+@router.post(
+    "/settings/campaign-senders/{sender_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def campaign_sender_delete(
+    request: Request,
+    sender_id: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        campaign_senders.deactivate(db, sender_id)
+    except HTTPException as exc:
+        return _render_campaign_settings(request, db, errors=[str(exc.detail)], saved=False)
+    return RedirectResponse(url="/admin/system/settings?domain=campaigns", status_code=303)
+
+
+@router.post(
+    "/settings/campaign-smtp",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def campaign_smtp_create(
+    request: Request,
+    name: str = Form(""),
+    host: str = Form(""),
+    port: int = Form(587),
+    username: str = Form(""),
+    password: str = Form(""),
+    use_tls: str | None = Form(None),
+    use_ssl: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    errors: list[str] = []
+    try:
+        payload = CampaignSmtpCreate(
+            name=name.strip(),
+            host=host.strip(),
+            port=port,
+            username=username.strip() or None,
+            password=password.strip() or None,
+            use_tls=str(use_tls).lower() in {"1", "true", "yes", "on"},
+            use_ssl=str(use_ssl).lower() in {"1", "true", "yes", "on"},
+            is_active=str(is_active).lower() in {"1", "true", "yes", "on"},
+        )
+    except ValidationError as exc:
+        errors.extend([err.get("msg", "Invalid value") for err in exc.errors()])
+        return _render_campaign_settings(request, db, errors=errors, saved=False)
+
+    try:
+        ok, error = email_service.test_smtp_connection(payload.model_dump(), db=db)
+        if not ok:
+            return _render_campaign_settings(
+                request,
+                db,
+                errors=[error or "SMTP test failed"],
+                saved=False,
+            )
+        campaign_smtp_configs.create(db, payload)
+    except HTTPException as exc:
+        return _render_campaign_settings(request, db, errors=[str(exc.detail)], saved=False)
+
+    return RedirectResponse(url="/admin/system/settings?domain=campaigns", status_code=303)
+
+
+@router.get(
+    "/settings/campaign-smtp",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:read"))],
+)
+async def campaign_smtp_get_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/admin/system/settings?domain=campaigns", status_code=302)
+
+
+@router.post(
+    "/settings/campaign-smtp/{smtp_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def campaign_smtp_update(
+    request: Request,
+    smtp_id: str,
+    name: str = Form(""),
+    host: str = Form(""),
+    port: int = Form(587),
+    username: str = Form(""),
+    password: str = Form(""),
+    use_tls: str | None = Form(None),
+    use_ssl: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    errors: list[str] = []
+    try:
+        password_value = password.strip() if password else ""
+        password_provided = bool(password_value)
+        username_value = username.strip() if username else ""
+        update_data: dict[str, object] = {
+            "name": name.strip(),
+            "host": host.strip(),
+            "port": port,
+            "username": username_value or None,
+            "use_tls": str(use_tls).lower() in {"1", "true", "yes", "on"},
+            "use_ssl": str(use_ssl).lower() in {"1", "true", "yes", "on"},
+            "is_active": str(is_active).lower() in {"1", "true", "yes", "on"},
+        }
+        if password_provided:
+            update_data["password"] = password_value
+        payload = CampaignSmtpUpdate(**update_data)
+    except ValidationError as exc:
+        errors.extend([err.get("msg", "Invalid value") for err in exc.errors()])
+        return _render_campaign_settings(request, db, errors=errors, saved=False)
+
+    try:
+        smtp = campaign_smtp_configs.get(db, smtp_id)
+        effective_username = payload.username if payload.username is not None else smtp.username
+        if effective_username is None:
+            effective_password = None
+        else:
+            effective_password = (
+                payload.password if payload.password is not None else smtp.password
+            )
+        smtp_test_config = {
+            "host": payload.host if payload.host is not None else smtp.host,
+            "port": payload.port if payload.port is not None else smtp.port,
+            "use_tls": payload.use_tls if payload.use_tls is not None else smtp.use_tls,
+            "use_ssl": payload.use_ssl if payload.use_ssl is not None else smtp.use_ssl,
+            "username": effective_username,
+            "password": effective_password,
+        }
+        ok, error = email_service.test_smtp_connection(smtp_test_config, db=db)
+        if not ok:
+            return _render_campaign_settings(
+                request,
+                db,
+                errors=[error or "SMTP test failed"],
+                saved=False,
+            )
+        campaign_smtp_configs.update(db, smtp_id, payload)
+    except HTTPException as exc:
+        return _render_campaign_settings(request, db, errors=[str(exc.detail)], saved=False)
+
+    return RedirectResponse(url="/admin/system/settings?domain=campaigns", status_code=303)
+
+
+@router.post(
+    "/settings/campaign-smtp/{smtp_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def campaign_smtp_delete(
+    request: Request,
+    smtp_id: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        campaign_smtp_configs.deactivate(db, smtp_id)
+    except HTTPException as exc:
+        return _render_campaign_settings(request, db, errors=[str(exc.detail)], saved=False)
+    return RedirectResponse(url="/admin/system/settings?domain=campaigns", status_code=303)
 
 
 @router.post("/settings/branding", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:write"))])

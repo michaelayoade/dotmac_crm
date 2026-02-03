@@ -416,10 +416,16 @@ class WidgetVisitorManager:
                 last_name=last_name or first_name,
                 display_name=name,
                 phone=phone,
+                party_status=PartyStatus.lead,
             )
             db.add(person)
             db.flush()
             logger.info("widget_person_created person_id=%s email=%s", person.id, email_normalized)
+            existing_lead = db.query(Lead).filter(Lead.person_id == person.id).first()
+            if not existing_lead:
+                from app.schemas.crm.sales import LeadCreate
+                from app.services.crm import leads as leads_service
+                leads_service.create(db=db, payload=LeadCreate(person_id=person.id, title="Website chat"))
         elif phone and not person.phone:
             person.phone = phone
 
@@ -468,12 +474,6 @@ class WidgetVisitorManager:
             metadata = session.metadata_ or {}
             metadata.update(custom_fields)
             session.metadata_ = metadata
-
-        existing_lead = db.query(Lead).filter(Lead.person_id == person.id).first()
-        if not existing_lead:
-            from app.schemas.crm.sales import LeadCreate
-            from app.services.crm import leads as leads_service
-            leads_service.create(db=db, payload=LeadCreate(person_id=person.id, title="Website chat"))
 
         db.commit()
         db.refresh(session)
@@ -633,6 +633,8 @@ def receive_widget_message(
         subscribe_widget_to_conversation(str(session.id), str(conversation.id))
 
     broadcast_new_message(message, conversation)
+    from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+    notify_assigned_agent_new_reply(db, conversation, message)
 
     # Build conversation summary
     summary = {
@@ -721,3 +723,17 @@ def send_widget_message(
 # Singleton instances
 widget_configs = ChatWidgetConfigManager()
 widget_visitors = WidgetVisitorManager()
+
+
+# Backwards-compatible class aliases
+class ChatWidgetConfigs(ChatWidgetConfigManager):
+    pass
+
+
+class WidgetVisitorSessions(WidgetVisitorManager):
+    pass
+
+
+# Backwards-compatible singleton aliases
+chat_widget_configs = ChatWidgetConfigs()
+widget_visitor_sessions = WidgetVisitorSessions()

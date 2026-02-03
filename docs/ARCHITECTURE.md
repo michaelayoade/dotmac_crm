@@ -1,4 +1,4 @@
-# DotMac Omni - Architecture Documentation
+# DotMac CRM - Architecture Documentation
 
 > **Generated**: January 2026
 > **Version**: Post-refactoring (omni-channel focus)
@@ -27,7 +27,7 @@
 
 ## 1. Executive Summary
 
-DotMac Omni is an **omni-channel field service and CRM platform** designed for telcos/utilities. The platform has been refactored from a subscription management system to focus on:
+DotMac CRM is an **omni-channel field service and CRM platform** designed for telcos/utilities. The platform has been refactored from a subscription management system to focus on:
 
 - **Core Domains**: Tickets, Projects, Workforce, CRM, Inventory, Notifications
 - **Network Infrastructure**: Fiber plant management (infrastructure-only, no RADIUS/billing)
@@ -215,7 +215,7 @@ The FastAPI application is configured in `app/main.py` (414 lines):
 
 ```python
 # Key components:
-app = FastAPI(title="dotmac_omni API")
+app = FastAPI(title="dotmac_crm API")
 
 # Middleware stack (order matters):
 1. ObservabilityMiddleware  # Request tracking, metrics
@@ -638,7 +638,7 @@ Custom utilities: `.animate-fade-in-up`, `.bg-mesh`, `.card-hover`, `.btn-hover`
 
 ```python
 # app/celery_app.py
-celery_app = Celery("dotmac_omni")
+celery_app = Celery("dotmac_crm")
 celery_app.conf.update(get_celery_config())
 celery_app.conf.beat_schedule = build_beat_schedule()
 celery_app.conf.beat_scheduler = "app.celery_scheduler.DbScheduler"

@@ -255,11 +255,14 @@ async def fetch_and_store_social_comments(
 def list_social_comments(
     db: Session,
     search: str | None = None,
+    platform: SocialCommentPlatform | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[SocialComment]:
     query = db.query(SocialComment).filter(SocialComment.is_active.is_(True))
     query = query.filter(SocialComment.external_id.isnot(None)).filter(SocialComment.external_id != "")
+    if platform:
+        query = query.filter(SocialComment.platform == platform)
     if search:
         pattern = f"%{search.strip()}%"
         query = query.filter(
@@ -287,6 +290,7 @@ def list_social_comment_replies(
     db: Session,
     comment_id: str,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[SocialCommentReply]:
     try:
         comment_uuid = coerce_uuid(comment_id)
@@ -297,6 +301,7 @@ def list_social_comment_replies(
         .filter(SocialCommentReply.comment_id == comment_uuid)
         .filter(SocialCommentReply.is_active.is_(True))
         .order_by(SocialCommentReply.created_time.desc().nullslast(), SocialCommentReply.created_at.desc())
+        .offset(offset)
         .limit(limit)
         .all()
     )
@@ -342,3 +347,54 @@ async def reply_to_social_comment(
     db.commit()
     db.refresh(reply)
     return reply
+
+
+class SocialComments:
+    @staticmethod
+    async def fetch_and_store(db: Session) -> dict:
+        return await fetch_and_store_social_comments(db)
+
+    @staticmethod
+    def list(
+        db: Session,
+        search: str | None = None,
+        platform: SocialCommentPlatform | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[SocialComment]:
+        return list_social_comments(
+            db,
+            search=search,
+            platform=platform,
+            limit=limit,
+            offset=offset,
+        )
+
+
+class SocialCommentReplies:
+    @staticmethod
+    def list(
+        db: Session,
+        comment_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[SocialCommentReply]:
+        return list_social_comment_replies(
+            db,
+            comment_id=comment_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    @staticmethod
+    async def reply(
+        db: Session,
+        comment: SocialComment,
+        message: str,
+    ) -> SocialCommentReply:
+        return await reply_to_social_comment(db, comment, message)
+
+
+# Singleton instances
+social_comments = SocialComments()
+social_comment_replies = SocialCommentReplies()

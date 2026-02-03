@@ -53,15 +53,16 @@
                     </div>
                 </div>
                 <form method="post" action="/admin/operations/technicians" class="p-5 space-y-4">
+                    {% include "components/forms/csrf_input.html" %}
                     <div>
                         <label for="person_id" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Person</label>
                         {% set selected_person = form.person_id if form is defined else '' %}
                         <select name="person_id" id="person_id" required
-                            class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
-                            <option value="">Select a person...</option>
+                            class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-black transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-black dark:focus:border-amber-500">
+                            <option value="" class="text-black">Select a person...</option>
                             {% for person in people %}
                                 {% set label = person.first_name ~ ' ' ~ person.last_name ~ ((' (' ~ person.email ~ ')') if person.email else '') %}
-                                <option value="{{ person.id }}" {% if selected_person == person.id|string %}selected{% endif %}>{{ label }}</option>
+                                <option value="{{ person.id }}" class="text-black" {% if selected_person == person.id|string %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
                         </select>
                     </div>

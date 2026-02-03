@@ -10,163 +10,7 @@
         htmx.config.globalViewTransitions = false;
     });
 </script>
-<style>
-    /* Prevent HTMX swap flash - keep content visible during requests */
-    #conversation-list.htmx-request,
-    #message-thread.htmx-request,
-    #contact-details.htmx-request {
-        opacity: 1 !important;
-    }
-
-    /* Smooth content transitions */
-    #conversation-list,
-    #message-thread,
-    #contact-details {
-        transition: none;
-    }
-
-    /* Match base typography */
-    .font-editorial { font-family: 'Outfit', system-ui, sans-serif; }
-    .font-mono-tight { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-
-    /* Channel color system - Industrial Modern palette */
-    .channel-email { --channel-color: 139, 92, 246; }
-    .channel-whatsapp { --channel-color: 34, 197, 94; }
-    .channel-sms { --channel-color: 249, 115, 22; }
-    .channel-telegram { --channel-color: 14, 165, 233; }
-    .channel-webchat { --channel-color: 245, 158, 11; }
-    .channel-phone { --channel-color: 249, 115, 22; }
-    .channel-facebook_messenger { --channel-color: 24, 119, 242; }
-    .channel-instagram_dm { --channel-color: 236, 72, 153; }
-
-    .channel-indicator {
-        background: rgb(var(--channel-color));
-        box-shadow: 0 0 12px rgba(var(--channel-color), 0.4);
-    }
-
-    .channel-badge {
-        background: rgba(var(--channel-color), 0.15);
-        color: rgb(var(--channel-color));
-        border: 1px solid rgba(var(--channel-color), 0.3);
-    }
-
-    /* Conversation list item states */
-    .conversation-item {
-        transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-        border-left: 3px solid transparent;
-    }
-    .conversation-item:hover {
-        background: linear-gradient(90deg, rgba(245, 158, 11, 0.08) 0%, rgba(249, 115, 22, 0.04) 100%);
-    }
-    .conversation-item.active {
-        background: linear-gradient(90deg, rgba(245, 158, 11, 0.12) 0%, rgba(249, 115, 22, 0.06) 100%);
-        border-left-color: rgb(245, 158, 11);
-    }
-    .conversation-item.unread {
-        background: rgba(var(--channel-color), 0.05);
-    }
-
-    /* Message bubbles - Industrial Modern style */
-    .message-inbound {
-        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-        border: 1px solid rgba(148, 163, 184, 0.3);
-    }
-    .message-outbound {
-        background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(249, 115, 22, 0.08) 100%);
-        border: 1px solid rgba(245, 158, 11, 0.3);
-    }
-    .dark .message-inbound {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border: 1px solid rgba(148, 163, 184, 0.1);
-    }
-    .dark .message-outbound {
-        background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(249, 115, 22, 0.1) 100%);
-        border: 1px solid rgba(245, 158, 11, 0.2);
-    }
-
-    /* Status indicators */
-    .status-dot {
-        animation: pulse-soft 2s infinite;
-    }
-    @keyframes pulse-soft {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
-
-    /* Typing indicator */
-    .typing-dot {
-        animation: typing-bounce 1.4s infinite ease-in-out;
-    }
-    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
-    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
-    @keyframes typing-bounce {
-        0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
-        40% { transform: scale(1); opacity: 1; }
-    }
-
-    /* Scrollbar styling for panels */
-    .inbox-scroll::-webkit-scrollbar { width: 6px; }
-    .inbox-scroll::-webkit-scrollbar-track { background: transparent; }
-    .inbox-scroll::-webkit-scrollbar-thumb {
-        background: rgba(148, 163, 184, 0.35);
-        border-radius: 3px;
-    }
-    .inbox-scroll::-webkit-scrollbar-thumb:hover {
-        background: rgba(148, 163, 184, 0.55);
-    }
-
-    /* Staggered list animation */
-    .conv-stagger {
-        opacity: 0;
-        transform: translateX(-8px);
-        animation: conv-slide-in 0.3s ease-out forwards;
-    }
-    .conv-stagger:nth-child(1) { animation-delay: 0ms; }
-    .conv-stagger:nth-child(2) { animation-delay: 40ms; }
-    .conv-stagger:nth-child(3) { animation-delay: 80ms; }
-    .conv-stagger:nth-child(4) { animation-delay: 120ms; }
-    .conv-stagger:nth-child(5) { animation-delay: 160ms; }
-    .conv-stagger:nth-child(6) { animation-delay: 200ms; }
-    @keyframes conv-slide-in {
-        to { opacity: 1; transform: translateX(0); }
-    }
-
-    /* Message slide-up animation */
-    .msg-slide-up {
-        opacity: 0;
-        transform: translateY(12px);
-        animation: msg-appear 0.25s ease-out forwards;
-    }
-    @keyframes msg-appear {
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* Gradient mesh background - Industrial Modern */
-    .inbox-mesh {
-        background:
-            radial-gradient(ellipse at 0% 0%, rgba(245, 158, 11, 0.06) 0%, transparent 50%),
-            radial-gradient(ellipse at 100% 100%, rgba(249, 115, 22, 0.04) 0%, transparent 50%);
-    }
-
-    /* Contact card glow */
-    .contact-glow {
-        position: relative;
-    }
-    .contact-glow::before {
-        content: '';
-        position: absolute;
-        inset: -1px;
-        background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(249, 115, 22, 0.3));
-        border-radius: inherit;
-        z-index: -1;
-        opacity: 0;
-        transition: opacity 0.3s;
-    }
-    .contact-glow:hover::before {
-        opacity: 1;
-    }
-
-</style>
+<!-- Inbox styles are now in static/css/src/main.css -->
 {% endblock %}
 
 {% block content_container_class %}max-w-none px-0 py-0 h-full{% endblock %}
@@ -207,6 +51,48 @@
     </div>
     {% endif %}
 
+    <div class="pointer-events-none fixed bottom-6 right-6 z-50 flex w-[22rem] flex-col gap-3">
+        <template x-for="notification in notifications" :key="notification.id">
+            <div @click="openNotification(notification)"
+                 class="pointer-events-auto group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-xl shadow-slate-900/10 backdrop-blur transition hover:-translate-y-0.5 hover:border-amber-200 dark:border-slate-700/60 dark:bg-slate-900/90 dark:hover:border-amber-500/40">
+                <div class="absolute left-0 top-0 h-full w-1.5"
+                     :class="notification.kind === 'reminder' ? 'bg-gradient-to-b from-amber-500 to-orange-500' : 'bg-gradient-to-b from-emerald-500 to-teal-500'"></div>
+                <div class="flex items-start gap-3 pl-2.5">
+                    <div class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900/5 text-slate-600 dark:bg-white/10 dark:text-slate-200"
+                         :class="notification.kind === 'reminder' ? 'text-amber-600 dark:text-amber-300' : 'text-emerald-600 dark:text-emerald-300'">
+                        <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path x-show="notification.kind === 'reminder'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            <path x-show="notification.kind !== 'reminder'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 4h4m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex items-start justify-between gap-2">
+                            <div>
+                                <div class="text-sm font-semibold text-slate-900 dark:text-white" x-text="notification.title"></div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400" x-text="notification.subtitle || 'Assigned conversation'"></div>
+                            </div>
+                            <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500" x-text="notification.timeLabel"></div>
+                        </div>
+                        <p class="mt-2 text-xs text-slate-600 line-clamp-2 dark:text-slate-300" x-text="notification.preview || 'New message received.'"></p>
+                        <div class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-600 group-hover:gap-2 transition-all dark:text-amber-300">
+                            Open & reply
+                            <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <button type="button"
+                            @click.stop="dismissNotification(notification.id)"
+                            class="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+
     <!-- Left Sidebar - Channel Filters & Conversation List -->
     <aside class="w-80 flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60">
         <!-- Header -->
@@ -236,6 +122,21 @@
                         title="New conversation">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
+                    </svg>
+                </button>
+                <button type="button"
+                        @click="toggleNotificationSound()"
+                        :class="notificationSoundEnabled ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:text-emerald-300 dark:hover:bg-emerald-500/10' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800'"
+                        class="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+                        title="Toggle notification sound">
+                    <svg x-show="notificationSoundEnabled" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H3v6h3l5 4V5z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 8.5a5 5 0 010 7"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6a8 8 0 010 12"/>
+                    </svg>
+                    <svg x-show="!notificationSoundEnabled" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H3v6h3l5 4V5z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6l-12 12"/>
                     </svg>
                 </button>
                 <a href="/admin/crm/inbox/settings"
@@ -649,15 +550,29 @@ function inboxController() {
         refreshTimer: null,
         refreshDelayMs: 250,
         pendingAttachments: [],
+        notifications: [],
+        notificationAutoDismissSeconds: {{ (notification_auto_dismiss_seconds or 12) | tojson }},
+        notificationSoundEnabled: true,
+        notificationAudioContext: null,
+        _initialized: false,
         init() {
+            // Guard against double initialization (Alpine Devtools can trigger this)
+            if (this._initialized) {
+                console.debug('[Inbox] Already initialized, skipping');
+                return;
+            }
+            this._initialized = true;
+
             // Setup HTMX event listeners
             document.body.addEventListener('htmx:afterSwap', (e) => {
                 if (e.detail.target.id === 'message-thread') {
                     this.scrollToBottom();
                     this.refreshConversations();
+                    this.resizeEmailFrames();
                 }
                 if (e.detail.target.id === 'conversation-list') {
                     this.storeConversationCache();
+                    this.subscribeVisibleConversations();
                 }
             });
             document.body.addEventListener('htmx:beforeRequest', (e) => {
@@ -668,8 +583,10 @@ function inboxController() {
 
             // Initialize WebSocket connection
             this.initWebSocket();
+            this.initNotificationSound();
             this.updateNewConversationTarget();
             this.normalizeInboxTarget();
+            this.resizeEmailFrames();
 
             // Setup WebSocket event listeners
             window.addEventListener('inbox-new-message', (e) => {
@@ -691,9 +608,19 @@ function inboxController() {
                 if (this.selectedConversation && this.inboxWs) {
                     this.inboxWs.subscribe(this.selectedConversation);
                 }
+                this.subscribeVisibleConversations();
+            });
+            window.addEventListener('inbox-ws-reconnected', () => {
+                this.scheduleRefresh();
             });
             window.addEventListener('inbox-ws-disconnected', () => {
                 this.wsConnected = false;
+            });
+            window.addEventListener('inbox-agent-notification', (e) => {
+                this.handleAgentNotification(e.detail);
+            });
+            window.addEventListener('inbox-list-refresh', () => {
+                this.scheduleRefresh('list');
             });
 
             // Fallback polling - always keep comments refreshed
@@ -704,11 +631,49 @@ function inboxController() {
             }, 30000);
 
             this.restoreConversationCache();
+            this.subscribeVisibleConversations();
             if (this.selectedConversation && this.currentChannel !== 'comments') {
                 requestAnimationFrame(() => {
                     this.refreshThread(true);
                 });
             }
+        },
+        resizeEmailFrames() {
+            const frames = document.querySelectorAll('iframe.email-html-frame');
+            frames.forEach((frame) => {
+                const resize = () => {
+                    try {
+                        const doc = frame.contentDocument || frame.contentWindow?.document;
+                        if (!doc) return;
+                        const body = doc.body;
+                        const html = doc.documentElement;
+                        if (!body || !html) return;
+                        const height = Math.max(
+                            body.scrollHeight,
+                            body.offsetHeight,
+                            html.scrollHeight,
+                            html.offsetHeight
+                        );
+                        if (height > 0) {
+                            frame.style.height = `${height}px`;
+                        }
+                    } catch (err) {
+                        // Ignore resize failures for sandboxed content.
+                    }
+                };
+                let attempts = 0;
+                const retry = () => {
+                    if (attempts >= 5) return;
+                    attempts += 1;
+                    resize();
+                    if (!frame.style.height || frame.style.height === '0px') {
+                        setTimeout(retry, 200 * attempts);
+                    }
+                };
+                frame.addEventListener('load', retry, { once: true });
+                // Fallbacks if load already fired or doesn't fire.
+                requestAnimationFrame(retry);
+            });
         },
         availableInboxes(channel) {
             if (channel === 'email') return this.emailInboxes || [];
@@ -770,10 +735,6 @@ function inboxController() {
         initWebSocket() {
             // Get token from cookie or session storage
             const token = this.getAccessToken();
-            if (!token) {
-                console.log('[Inbox] No access token available for WebSocket');
-                return;
-            }
             this.inboxWs = new InboxWebSocket({
                 token: token,
                 onStatusChange: (connected) => {
@@ -781,6 +742,119 @@ function inboxController() {
                 }
             });
             this.inboxWs.connect(token);
+        },
+
+        initNotificationSound() {
+            const stored = localStorage.getItem('inboxNotificationSoundEnabled');
+            if (stored !== null) {
+                this.notificationSoundEnabled = stored === '1' || stored === 'true';
+            }
+        },
+
+        toggleNotificationSound() {
+            this.notificationSoundEnabled = !this.notificationSoundEnabled;
+            localStorage.setItem('inboxNotificationSoundEnabled', this.notificationSoundEnabled ? '1' : '0');
+            if (this.notificationSoundEnabled) {
+                this.primeNotificationSound();
+            }
+        },
+
+        primeNotificationSound() {
+            try {
+                if (!this.notificationAudioContext) {
+                    this.notificationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (this.notificationAudioContext.state === 'suspended') {
+                    this.notificationAudioContext.resume();
+                }
+            } catch (error) {
+                console.warn('[Inbox] Notification sound unavailable', error);
+            }
+        },
+
+        playNotificationSound() {
+            if (!this.notificationSoundEnabled) return;
+            try {
+                if (!this.notificationAudioContext) {
+                    this.notificationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                const context = this.notificationAudioContext;
+                if (context.state === 'suspended') {
+                    context.resume();
+                }
+                const oscillator = context.createOscillator();
+                const gain = context.createGain();
+                oscillator.type = 'sine';
+                oscillator.frequency.value = 880;
+                gain.gain.value = 0.0001;
+                oscillator.connect(gain);
+                gain.connect(context.destination);
+                const now = context.currentTime;
+                gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+            } catch (error) {
+                console.warn('[Inbox] Notification sound error', error);
+            }
+        },
+
+        handleAgentNotification(payload) {
+            if (!payload || !payload.conversation_id) return;
+            if (this.selectedConversation && this.selectedConversation === payload.conversation_id) {
+                return;
+            }
+            const existing = this.notifications.filter(
+                (note) => note.conversationId !== payload.conversation_id
+            );
+            const notification = this.buildNotification(payload);
+            this.notifications = [notification, ...existing].slice(0, 4);
+            if (notification.autoDismissMs > 0) {
+                notification.timeoutId = setTimeout(() => {
+                    this.dismissNotification(notification.id);
+                }, notification.autoDismissMs);
+            }
+            this.playNotificationSound();
+        },
+
+        buildNotification(payload) {
+            const id = `notif-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const createdAt = payload.last_message_at ? new Date(payload.last_message_at) : new Date();
+            const autoDismissMs = (this.notificationAutoDismissSeconds || 0) * 1000;
+            return {
+                id,
+                kind: payload.kind || 'reply',
+                title: payload.title || 'New message',
+                subtitle: payload.subtitle || null,
+                preview: payload.preview || null,
+                conversationId: payload.conversation_id,
+                contactId: payload.contact_id || null,
+                channel: payload.channel || null,
+                timeLabel: this.formatTimeLabel(createdAt),
+                autoDismissMs,
+                timeoutId: null
+            };
+        },
+
+        dismissNotification(notificationId) {
+            const item = this.notifications.find((note) => note.id === notificationId);
+            if (item && item.timeoutId) {
+                clearTimeout(item.timeoutId);
+            }
+            this.notifications = this.notifications.filter((note) => note.id !== notificationId);
+        },
+
+        openNotification(notification) {
+            if (!notification || !notification.conversationId) return;
+            this.dismissNotification(notification.id);
+            this.selectConversation(notification.conversationId, notification.contactId);
+        },
+
+        formatTimeLabel(date) {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+                return 'now';
+            }
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         },
 
         getAccessToken() {
@@ -802,6 +876,7 @@ function inboxController() {
             const bodyField = form.querySelector('textarea[name="body"]');
             const visibilityField = form.querySelector('select[name="visibility"]');
             const errorEl = form.querySelector('[data-private-note-error]');
+            const conversationId = form.getAttribute('data-conversation-id');
             if (errorEl) errorEl.textContent = '';
 
             const body = bodyField ? bodyField.value : '';
@@ -840,9 +915,61 @@ function inboxController() {
                 this.pendingAttachments = [];
                 const hidden = document.querySelector('input[name="attachments"]');
                 if (hidden) hidden.value = '';
+                if (conversationId) {
+                    sessionStorage.removeItem(`privateNoteDraft:${conversationId}`);
+                    sessionStorage.setItem(`privateNoteOpen:${conversationId}`, '0');
+                }
+                if (this.showContactPanel && this.selectedContactId) {
+                    htmx.ajax('GET', `/admin/crm/inbox/contact/${this.selectedContactId}?conversation_id=${this.selectedConversation || ''}`, {
+                        target: '#contact-details',
+                        swap: 'innerHTML transition:false'
+                    });
+                }
             })
             .catch((err) => {
                 if (errorEl) errorEl.textContent = err.message;
+            });
+        },
+
+        deletePrivateNote(event) {
+            const button = event.currentTarget;
+            const noteId = button?.getAttribute('data-note-id');
+            const conversationId = button?.getAttribute('data-conversation-id');
+            if (!noteId || !conversationId) {
+                return;
+            }
+            if (!confirm('Delete this private note?')) {
+                return;
+            }
+            const token = this.getCsrfToken();
+            fetch(`/admin/crm/inbox/conversation/${conversationId}/private_note/${noteId}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRF-Token': token || ''
+                }
+            })
+            .then(async (response) => {
+                if (!response.ok) {
+                    let detail = 'Unable to delete note';
+                    try {
+                        const data = await response.json();
+                        detail = data.detail || detail;
+                    } catch (err) {}
+                    throw new Error(detail);
+                }
+                const wrapper = button.closest('[data-private-note-item]');
+                if (wrapper) {
+                    wrapper.remove();
+                }
+                if (this.showContactPanel && this.selectedContactId) {
+                    htmx.ajax('GET', `/admin/crm/inbox/contact/${this.selectedContactId}?conversation_id=${this.selectedConversation || ''}`, {
+                        target: '#contact-details',
+                        swap: 'innerHTML transition:false'
+                    });
+                }
+            })
+            .catch((err) => {
+                alert(err.message);
             });
         },
 
@@ -1089,6 +1216,19 @@ function inboxController() {
             htmx.ajax('GET', `/admin/crm/inbox/conversation/${this.selectedConversation}`, {
                 target: '#message-thread',
                 swap: 'innerHTML transition:false'
+            });
+        },
+
+        subscribeVisibleConversations() {
+            if (!this.inboxWs || !this.inboxWs.isConnected()) {
+                return;
+            }
+            const rows = document.querySelectorAll('[data-conversation-id]');
+            rows.forEach((row) => {
+                const convId = row.getAttribute('data-conversation-id');
+                if (convId) {
+                    this.inboxWs.subscribe(convId);
+                }
             });
         },
 

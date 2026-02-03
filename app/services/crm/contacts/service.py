@@ -274,6 +274,7 @@ class Contacts(ListResponseMixin):
         db: Session,
         person_id: str | None,
         organization_id: str | None,
+        party_status: str | None,
         is_active: bool | None,
         search: str | None,
         order_by: str,
@@ -286,6 +287,9 @@ class Contacts(ListResponseMixin):
             query = query.filter(Person.id == coerce_uuid(person_id))
         if organization_id:
             query = query.filter(Person.organization_id == coerce_uuid(organization_id))
+        if party_status:
+            status_value = validate_enum(party_status, PartyStatus, "party_status")
+            query = query.filter(Person.party_status == status_value)
         if search:
             like = f"%{search.strip()}%"
             matching_ids = (
@@ -304,9 +308,7 @@ class Contacts(ListResponseMixin):
                 .distinct()
             )
             query = query.filter(Person.id.in_(matching_ids))
-        if is_active is None:
-            query = query.filter(Person.is_active.is_(True))
-        else:
+        if is_active is not None:
             query = query.filter(Person.is_active == is_active)
         query = apply_ordering(
             query,
@@ -1073,3 +1075,8 @@ def get_or_create_contact_by_channel(
     db.refresh(channel)
     _ensure_lead_for_person(db, person)
     return person, channel
+
+
+# Singleton instances
+contacts = Contacts()
+contact_channels = ContactChannels()

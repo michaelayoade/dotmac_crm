@@ -13,27 +13,17 @@ def _get_initials(name: str) -> str:
 
 
 def get_current_user(request) -> dict:
-    """Get current user context from the request state."""
+    """Get current user context from the request state.
+
+    Auth info should already be populated by require_web_auth dependency.
+    No fallback DB queries - if auth isn't set, return empty user.
+    """
     auth = getattr(request.state, "auth", None) or {}
     roles = auth.get("roles", []) if isinstance(auth, dict) else []
     permissions = auth.get("scopes", []) if isinstance(auth, dict) else []
+    user = getattr(request.state, "user", None)
 
-    if hasattr(request.state, "user") and request.state.user:
-        user = request.state.user
-        if not roles and not permissions:
-            # Fallback: load roles/permissions from DB when auth scopes are missing.
-            from app.db import SessionLocal
-            from app.services.auth_flow import _load_rbac_claims
-
-            db = SessionLocal()
-            try:
-                person_id = getattr(user, "person_id", None) or getattr(user, "id", None)
-                if person_id:
-                    roles, permissions = _load_rbac_claims(db, str(person_id))
-            except Exception:
-                pass
-            finally:
-                db.close()
+    if user:
         name = f"{user.first_name} {user.last_name}".strip() if hasattr(user, "first_name") else "User"
         person_id = getattr(user, "person_id", None)
         return {
@@ -58,33 +48,27 @@ def get_current_user(request) -> dict:
 
 
 def get_sidebar_stats(db: Session) -> dict:
-    """Get stats for sidebar badges."""
-    from app.services import tickets as tickets_service
+    """Get stats for sidebar badges.
 
-    def get_status(obj):
-        status = getattr(obj, "status", "")
-        return status.value if hasattr(status, "value") else str(status)
+    Uses SQL COUNT for efficiency instead of loading records into memory.
+    """
+    from sqlalchemy import func
+    from app.models.tickets import Ticket, TicketStatus
 
     try:
-        tickets = tickets_service.tickets.list(
-            db=db,
-            subscriber_id=None,
-            status=None,
-            priority=None,
-            channel=None,
-            search=None,
-            created_by_person_id=None,
-            assigned_to_person_id=None,
-            is_active=None,
-            order_by="created_at",
-            order_dir="desc",
-            limit=1000,
-            offset=0,
-        )
-        open_tickets_count = sum(
-            1 for t in tickets
-            if get_status(t) in ("open", "new", "pending", "on_hold")
-        )
+        # Use SQL COUNT with status filter - much faster than loading 1000 records
+        open_statuses = [
+            TicketStatus.open,
+            TicketStatus.new,
+            TicketStatus.pending,
+            TicketStatus.on_hold,
+        ]
+        open_tickets_count = (
+            db.query(func.count(Ticket.id))
+            .filter(Ticket.status.in_(open_statuses))
+            .filter(Ticket.is_active.is_(True))
+            .scalar()
+        ) or 0
     except Exception:
         open_tickets_count = 0
 

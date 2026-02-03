@@ -17,7 +17,10 @@ def register_error_handlers(app) -> None:
     @app.exception_handler(AuthenticationRequired)
     async def auth_required_handler(request: Request, exc: AuthenticationRequired):
         """Redirect to login page when authentication is required."""
-        return RedirectResponse(url=exc.redirect_url, status_code=303)
+        response = RedirectResponse(url=exc.redirect_url, status_code=303)
+        if request.headers.get("HX-Request") == "true":
+            response.headers["HX-Redirect"] = exc.redirect_url
+        return response
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
         detail = exc.detail

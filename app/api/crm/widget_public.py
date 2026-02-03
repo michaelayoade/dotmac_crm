@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 import re
@@ -292,6 +293,8 @@ def identify_visitor(
         logger.error("widget_identify_error session_id=%s error=%s", session_id, e)
         raise HTTPException(status_code=400, detail="Identification failed")
 
+    if not session.person_id or not session.identified_email:
+        raise HTTPException(status_code=400, detail="Visitor not identified")
     return WidgetIdentifyResponse(
         session_id=session.id,
         person_id=session.person_id,
@@ -337,6 +340,8 @@ def submit_prechat(
         logger.error("widget_prechat_error session_id=%s error=%s", session_id, e)
         raise HTTPException(status_code=400, detail="Pre-chat submission failed")
 
+    if not session.person_id or not session.identified_email:
+        raise HTTPException(status_code=400, detail="Visitor not identified")
     return WidgetIdentifyResponse(
         session_id=session.id,
         person_id=session.person_id,
@@ -392,6 +397,8 @@ def send_message(
         message_id=message.id,
         conversation_id=message.conversation_id,
         status=message.status.value if message.status else "received",
+        body=message.body or "",
+        created_at=message.created_at,
     )
 
 
@@ -441,7 +448,9 @@ def get_messages(
 
     result = []
     for msg in messages:
-        direction = "inbound" if msg.direction == MessageDirection.inbound else "outbound"
+        direction: Literal["inbound", "outbound"] = (
+            "inbound" if msg.direction == MessageDirection.inbound else "outbound"
+        )
 
         # Get author info for outbound messages
         author_name = None

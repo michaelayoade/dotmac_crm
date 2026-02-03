@@ -46,3 +46,26 @@ class QuoteStatus(enum.Enum):
     accepted = "accepted"
     rejected = "rejected"
     expired = "expired"
+
+
+class CampaignStatus(enum.Enum):
+    draft = "draft"
+    scheduled = "scheduled"
+    sending = "sending"
+    sent = "sent"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class CampaignType(enum.Enum):
+    one_time = "one_time"
+    nurture = "nurture"
+
+
+class CampaignRecipientStatus(enum.Enum):
+    pending = "pending"
+    sent = "sent"
+    delivered = "delivered"
+    failed = "failed"
+    bounced = "bounced"
+    unsubscribed = "unsubscribed"

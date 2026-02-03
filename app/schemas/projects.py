@@ -13,17 +13,22 @@ class ProjectBase(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     code: str | None = Field(default=None, max_length=80)
     description: str | None = None
+    customer_address: str | None = None
     project_type: ProjectType | None = None
     project_template_id: UUID | None = None
     status: ProjectStatus = ProjectStatus.planned
     priority: ProjectPriority = ProjectPriority.normal
     subscriber_id: UUID | None = None
+    lead_id: UUID | None = None
     created_by_person_id: UUID | None = None
     owner_person_id: UUID | None = None
     manager_person_id: UUID | None = None
+    project_manager_person_id: UUID | None = None
+    assistant_manager_person_id: UUID | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
     completed_at: datetime | None = None
+    region: str | None = Field(default=None, max_length=80)
     tags: list[str] | None = None
     metadata_: dict | None = Field(
         default=None,
@@ -40,17 +45,22 @@ class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     code: str | None = Field(default=None, max_length=80)
     description: str | None = None
+    customer_address: str | None = None
     project_type: ProjectType | None = None
     project_template_id: UUID | None = None
     status: ProjectStatus | None = None
     priority: ProjectPriority | None = None
     subscriber_id: UUID | None = None
+    lead_id: UUID | None = None
     created_by_person_id: UUID | None = None
     owner_person_id: UUID | None = None
     manager_person_id: UUID | None = None
+    project_manager_person_id: UUID | None = None
+    assistant_manager_person_id: UUID | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
     completed_at: datetime | None = None
+    region: str | None = Field(default=None, max_length=80)
     tags: list[str] | None = None
     metadata_: dict | None = Field(
         default=None,

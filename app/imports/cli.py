@@ -30,7 +30,7 @@ def import_subscriber_custom_fields(path: str) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import CSV data into dotmac_omni")
+    parser = argparse.ArgumentParser(description="Import CSV data into dotmac_crm")
     parser.add_argument(
         "resource",
         choices=["subscriber-custom-fields"],

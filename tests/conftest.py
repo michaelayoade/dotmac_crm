@@ -24,8 +24,7 @@ class _JoseDateTimeProxy:
 
         return datetime.now(tz)
 
-    @staticmethod
-    def __getattr__(name):
+    def __getattr__(self, name: str):
         from datetime import datetime
 
         return getattr(datetime, name)
@@ -95,8 +94,8 @@ def _sqlite_uuid_result_processor(self, dialect, coltype):
     return _original_uuid_result_processor(self, dialect, coltype)
 
 
-sqltypes.Uuid.bind_processor = _sqlite_uuid_bind_processor
-sqltypes.Uuid.result_processor = _sqlite_uuid_result_processor
+setattr(sqltypes.Uuid, "bind_processor", _sqlite_uuid_bind_processor)
+setattr(sqltypes.Uuid, "result_processor", _sqlite_uuid_result_processor)
 
 
 # Monkey-patch PostgreSQL JSONB type for SQLite compatibility
@@ -404,5 +403,4 @@ def crm_agent_team(db_session, crm_agent, crm_team):
     db_session.commit()
     db_session.refresh(link)
     return link
-
 

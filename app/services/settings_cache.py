@@ -36,11 +36,12 @@ class SettingsCache:
     """Redis-based cache for domain settings.
 
     Provides get/set/invalidate operations for settings values.
-    Uses a short TTL to balance performance with consistency.
+    Uses a 5-minute TTL since most settings change infrequently.
+    Settings are invalidated explicitly when updated via the admin UI.
     """
 
     PREFIX = "settings:"
-    TTL = 30  # seconds
+    TTL = 300  # 5 minutes - settings rarely change
 
     @staticmethod
     def _cache_key(domain: str, key: str) -> str:

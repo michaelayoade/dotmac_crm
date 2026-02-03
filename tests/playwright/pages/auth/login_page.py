@@ -13,7 +13,7 @@ class LoginPage(BasePage):
     def __init__(self, page: Page, base_url: str) -> None:
         super().__init__(page, base_url)
 
-    def goto(self) -> None:
+    def goto(self, path: str = "") -> None:
         """Navigate to the login page."""
         super().goto("/auth/login")
 

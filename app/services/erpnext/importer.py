@@ -20,7 +20,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, cast
 from uuid import UUID
 
 from app.logging import get_logger
@@ -227,7 +227,7 @@ class ERPNextImporter:
                 # Map ERPNext doc to Person data
                 data = map_contact(doc)
                 email = data.get("email")
-
+                person: Person | None = None
                 if is_new:
                     # Check if person with this email already exists
                     existing = db.query(Person).filter(Person.email == email).first()
@@ -313,6 +313,7 @@ class ERPNextImporter:
                 )
 
                 data = map_customer(doc)
+                subscriber: Subscriber | None = None
 
                 if is_new:
                     # Create Organization
@@ -330,6 +331,7 @@ class ERPNextImporter:
 
                     # Generate unique subscriber_number (max 60 chars)
                     # If name > 50 chars, truncate and add hash suffix for uniqueness
+                    subscriber_number: str | None
                     if external_id and len(external_id) > 50:
                         import hashlib
                         hash_suffix = hashlib.md5(external_id.encode()).hexdigest()[:8]
@@ -380,7 +382,7 @@ class ERPNextImporter:
 
     def _import_projects(self, db: "Session") -> ImportStats:
         """Import ERPNext Projects."""
-        from app.models.projects import Project
+        from app.models.projects import Project, ProjectPriority, ProjectStatus
         from app.models.external import ExternalEntityType
 
         stats = ImportStats()
@@ -396,6 +398,9 @@ class ERPNextImporter:
                 )
 
                 data = map_project(doc)
+                project_status = cast(ProjectStatus, data.get("status"))
+                project_priority = cast(ProjectPriority, data.get("priority"))
+                project: Project | None = None
 
                 # Resolve customer to subscriber
                 subscriber_id = None
@@ -417,8 +422,8 @@ class ERPNextImporter:
                     project = Project(
                         name=data["name"],
                         description=data.get("description"),
-                        status=data.get("status"),
-                        priority=data.get("priority"),
+                        status=project_status,
+                        priority=project_priority,
                         start_at=data.get("start_at"),
                         due_at=data.get("due_at"),
                         subscriber_id=subscriber_id,
@@ -437,8 +442,8 @@ class ERPNextImporter:
                     if project:
                         project.name = data["name"]
                         project.description = data.get("description") or project.description
-                        project.status = data.get("status")
-                        project.priority = data.get("priority")
+                        project.status = project_status
+                        project.priority = project_priority
                         self._project_cache[external_id] = project.id
                         stats.updated += 1
 
@@ -454,7 +459,7 @@ class ERPNextImporter:
 
     def _import_tasks(self, db: "Session") -> ImportStats:
         """Import ERPNext Tasks as ProjectTasks."""
-        from app.models.projects import ProjectTask
+        from app.models.projects import ProjectTask, TaskPriority, TaskStatus
         from app.models.external import ExternalEntityType
 
         stats = ImportStats()
@@ -495,14 +500,17 @@ class ERPNextImporter:
                 )
 
                 data = map_task(doc)
+                task_status = cast(TaskStatus, data.get("status"))
+                task_priority = cast(TaskPriority, data.get("priority"))
+                task: ProjectTask | None = None
 
                 if is_new:
                     task = ProjectTask(
                         project_id=project_id,
                         title=data["name"],  # ERPNext 'name' maps to 'title'
                         description=data.get("description"),
-                        status=data.get("status"),
-                        priority=data.get("priority"),
+                        status=task_status,
+                        priority=task_priority,
                         due_at=data.get("due_date"),  # ERPNext 'due_date' maps to 'due_at'
                         is_active=data.get("is_active", True),
                     )
@@ -518,7 +526,8 @@ class ERPNextImporter:
                     if task:
                         task.title = data["name"]
                         task.description = data.get("description") or task.description
-                        task.status = data.get("status")
+                        task.status = task_status
+                        task.priority = task_priority
                         stats.updated += 1
 
                 db.commit()
@@ -533,7 +542,7 @@ class ERPNextImporter:
 
     def _import_tickets(self, db: "Session") -> ImportStats:
         """Import ERPNext HD Tickets."""
-        from app.models.tickets import Ticket
+        from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
         from app.models.external import ExternalEntityType
 
         stats = ImportStats()
@@ -551,6 +560,10 @@ class ERPNextImporter:
                 )
 
                 data = map_hd_ticket(doc)
+                ticket_status = cast(TicketStatus, data.get("status"))
+                ticket_priority = cast(TicketPriority, data.get("priority"))
+                ticket_channel = cast(TicketChannel, data.get("channel"))
+                ticket: Ticket | None = None
 
                 # Resolve customer to subscriber
                 subscriber_id = None
@@ -571,9 +584,9 @@ class ERPNextImporter:
                     ticket = Ticket(
                         title=data["title"],
                         description=data.get("description"),
-                        status=data.get("status"),
-                        priority=data.get("priority"),
-                        channel=data.get("channel"),
+                        status=ticket_status,
+                        priority=ticket_priority,
+                        channel=ticket_channel,
                         tags=data.get("tags"),
                         subscriber_id=subscriber_id,
                         is_active=data.get("is_active", True),
@@ -593,8 +606,8 @@ class ERPNextImporter:
                     if ticket:
                         ticket.title = data["title"]
                         ticket.description = data.get("description") or ticket.description
-                        ticket.status = data.get("status")
-                        ticket.priority = data.get("priority")
+                        ticket.status = ticket_status
+                        ticket.priority = ticket_priority
                         stats.updated += 1
 
                 db.commit()
@@ -609,7 +622,7 @@ class ERPNextImporter:
 
     def _import_leads(self, db: "Session") -> ImportStats:
         """Import ERPNext Leads as CRM Leads."""
-        from app.models.crm.sales import Lead
+        from app.models.crm.sales import Lead, LeadStatus
         from app.models.person import Person
         from app.models.external import ExternalEntityType
 
@@ -626,6 +639,8 @@ class ERPNextImporter:
                 )
 
                 data = map_lead(doc)
+                lead_status = cast(LeadStatus, data.get("status"))
+                lead: Lead | None = None
 
                 # Create or find person for lead contact
                 person_id = None
@@ -662,7 +677,7 @@ class ERPNextImporter:
                 if is_new:
                     lead = Lead(
                         title=data["title"],
-                        status=data.get("status"),
+                        status=lead_status,
                         notes=data.get("notes"),
                         person_id=person_id,
                     )
@@ -681,7 +696,7 @@ class ERPNextImporter:
                     lead = db.get(Lead, ref.entity_id)
                     if lead:
                         lead.title = data["title"]
-                        lead.status = data.get("status")
+                        lead.status = lead_status
                         lead.notes = data.get("notes") or lead.notes
                         stats.updated += 1
 
@@ -765,6 +780,7 @@ class ERPNextImporter:
                 except ValueError:
                     status = QuoteStatus.draft
 
+                quote: Quote | None = None
                 if is_new:
                     quote = Quote(
                         person_id=person_id,

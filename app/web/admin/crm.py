@@ -8,11 +8,15 @@ import json
 import poplib
 import uuid
 from html.parser import HTMLParser
+from html import escape as html_escape
+import re
 from urllib.parse import quote, urlparse, urlencode
+import os
+from uuid import UUID
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 import httpx
@@ -23,7 +27,7 @@ from sqlalchemy.orm import Session, selectinload, aliased
 from app.db import SessionLocal
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.domain_settings import SettingDomain, SettingValueType
-from app.models.crm.sales import Lead
+from app.models.crm.sales import Lead, Quote
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.crm.enums import (
@@ -43,9 +47,9 @@ from app.models.integration import (
     IntegrationTarget,
     IntegrationTargetType,
 )
-from app.models.person import Person, PersonChannel, ChannelType as PersonChannelType
+from app.models.person import Person, PersonChannel, ChannelType as PersonChannelType, PartyStatus
 from app.models.projects import Project, ProjectStatus, ProjectTask, ProjectType
-from app.models.subscriber import Organization, Subscriber
+from app.models.subscriber import Organization, Subscriber, SubscriberStatus
 
 
 from app.models.tickets import Ticket
@@ -70,6 +74,7 @@ from app.schemas.crm.sales import (
     QuoteUpdate,
 )
 from app.schemas.integration import IntegrationTargetUpdate
+from app.services.person import InvalidTransitionError, People
 from app.services.subscriber import subscriber as subscriber_service
 
 
@@ -146,12 +151,53 @@ from app.services.audit_helpers import (
     recent_activity_for_paths,
 )
 from app.services import domain_settings as domain_settings_service
+from app.services import settings_spec
 from app.services.settings_spec import resolve_value
 
 _COMMENT_CACHE_TTL_SECONDS = 300
 _COMMENT_CACHE_MAX_ITEMS = 64
 _comment_list_cache: dict[str, dict] = {}
 _comment_thread_cache: dict[str, dict] = {}
+
+
+def _ensure_pydyf_compat() -> None:
+    """Patch pydyf.PDF initializer for older API variants."""
+    try:
+        import pydyf  # type: ignore[import-untyped]
+    except Exception:
+        return
+    try:
+        init_args = pydyf.PDF.__init__.__code__.co_argcount
+    except Exception:
+        return
+    if init_args == 1:
+        original_init = pydyf.PDF.__init__
+
+        def _compat_init(self, *args, **kwargs):
+            original_init(self)
+            version = args[0] if len(args) > 0 else kwargs.get("version")
+            identifier = args[1] if len(args) > 1 else kwargs.get("identifier")
+            if version is not None:
+                self.version = version if isinstance(version, (bytes, bytearray)) else str(version).encode()
+            if identifier is not None:
+                self.identifier = identifier
+            if not hasattr(self, "version"):
+                self.version = b"1.7"
+            if not hasattr(self, "identifier"):
+                self.identifier = None
+            return None
+
+        pydyf.PDF.__init__ = _compat_init
+    if not hasattr(pydyf.Stream, "transform"):
+        def _compat_transform(self, a=1, b=0, c=0, d=1, e=0, f=0):
+            return self.set_matrix(a, b, c, d, e, f)
+
+        pydyf.Stream.transform = _compat_transform
+    if not hasattr(pydyf.Stream, "text_matrix"):
+        def _compat_text_matrix(self, a=1, b=0, c=0, d=1, e=0, f=0):
+            return self.set_matrix(a, b, c, d, e, f)
+
+        pydyf.Stream.text_matrix = _compat_text_matrix
 
 
 def _cache_get(cache: dict, key: str):
@@ -282,6 +328,7 @@ def _build_comment_list_items(
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
+from app.services.crm.conversations.service import MessageAttachments as MessageAttachmentsService
 from app.services.crm import inbox as inbox_service
 from app.services.crm import comments as comments_service
 from app.services import meta_oauth
@@ -290,6 +337,7 @@ from app.csrf import get_csrf_token
 from app.logging import get_logger
 
 templates = Jinja2Templates(directory="templates")
+REGION_OPTIONS = ["Gudu", "Garki", "Gwarimpa", "Jabi", "Lagos"]
 logger = get_logger(__name__)
 
 
@@ -306,7 +354,7 @@ def _infer_project_type_from_quote_items(items: list) -> str | None:
     for item in items:
         desc = (getattr(item, "description", "") or "").lower()
         if "air fiber installation" in desc:
-            return ProjectType.radio_installation.value
+            return ProjectType.air_fiber_installation.value
     for item in items:
         desc = (getattr(item, "description", "") or "").lower()
         if "fiber optics installation" in desc:
@@ -354,6 +402,27 @@ def _as_str(value: object | None) -> str | None:
     if isinstance(value, str):
         return value
     return None
+
+
+def _form_str(form, key: str, default: str = "") -> str:
+    value = form.get(key)
+    return value.strip() if isinstance(value, str) else default
+
+
+def _form_str_opt(form, key: str) -> str | None:
+    value = form.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _coerce_bubble_position(
+    value: str | None,
+) -> Literal["bottom-right", "bottom-left"]:
+    if value == "bottom-left":
+        return "bottom-left"
+    return "bottom-right"
 
 
 def _coerce_uuid_optional(value: str | None) -> uuid.UUID | None:
@@ -468,6 +537,7 @@ def _load_crm_sales_options(db: Session) -> dict:
         db=db,
         person_id=None,
         organization_id=None,
+        party_status=None,
         is_active=True,
         search=None,
         order_by="display_name",
@@ -525,6 +595,59 @@ def _load_crm_sales_options(db: Session) -> dict:
         "agents": agents,
         "agent_labels": agent_labels,
     }
+
+
+def _format_project_summary(quote: Quote, items: list, lead: Lead | None, contact: Person | None) -> str:
+    contact_name = None
+    if contact:
+        contact_name = (
+            contact.display_name
+            or " ".join(part for part in [contact.first_name, contact.last_name] if part).strip()
+            or contact.email
+            or contact.phone
+        )
+    quote_label = (
+        quote.metadata_.get("quote_name")
+        if isinstance(quote.metadata_, dict) and quote.metadata_.get("quote_name")
+        else None
+    )
+    if not quote_label:
+        quote_label = f"Project {str(quote.id)[:8].upper()}"
+
+    lines: list[str] = []
+    if contact_name:
+        lines.append(f"Hi {contact_name},")
+    else:
+        lines.append("Hello,")
+    lines.append("")
+    lines.append("Here is your project summary:")
+    lines.append(f"Project: {quote_label}")
+    if lead:
+        lead_label = lead.title or f"Lead {str(lead.id)[:8].upper()}"
+        lines.append(f"Lead: {lead_label}")
+    lines.append("")
+    lines.append("Totals:")
+    lines.append(f"- Subtotal: {quote.currency} {quote.subtotal or 0:,.2f}")
+    lines.append(f"- Tax: {quote.currency} {quote.tax_total or 0:,.2f}")
+    lines.append(f"- Total: {quote.currency} {quote.total or 0:,.2f}")
+    lines.append("")
+    lines.append("Line items:")
+    if items:
+        for item in items:
+            qty = item.quantity or 0
+            unit = item.unit_price or 0
+            amount = item.amount or 0
+            description = item.description or "Item"
+            lines.append(
+                f"- {description} x {qty} @ {quote.currency} {unit:,.2f} = {quote.currency} {amount:,.2f}"
+            )
+    else:
+        lines.append("- No line items.")
+    if quote.notes:
+        lines.append("")
+        lines.append("Notes:")
+        lines.append(str(quote.notes))
+    return "\n".join(lines)
 
 
 def _load_contact_people_orgs(db: Session) -> dict:
@@ -647,6 +770,43 @@ def _sanitize_message_html(value: str) -> str:
     sanitizer.feed(value)
     sanitizer.close()
     return sanitizer.get_html()
+
+
+def _normalize_cid(value: str | None) -> str | None:
+    if not value:
+        return None
+    cid = value.strip()
+    if cid.startswith("cid:"):
+        cid = cid[4:]
+    if cid.startswith("<") and cid.endswith(">"):
+        cid = cid[1:-1]
+    return cid.strip().lower() or None
+
+
+def _replace_cid_images(html_body: str, attachments: list[dict]) -> str:
+    if not html_body:
+        return html_body
+    cid_map: dict[str, str] = {}
+    for att in attachments:
+        cid = _normalize_cid(att.get("content_id"))
+        url = att.get("url")
+        if not cid or not url:
+            continue
+        mime_type = att.get("mime_type") or ""
+        if not str(mime_type).startswith("image/"):
+            continue
+        cid_map[cid] = url
+    if not cid_map:
+        return html_body
+
+    def _swap(match: re.Match) -> str:
+        raw = match.group(1) or ""
+        key = _normalize_cid(raw)
+        if not key or key not in cid_map:
+            return match.group(0)
+        return cid_map[key]
+
+    return re.sub(r"cid:([^\"'\\s>]+)", _swap, html_body, flags=re.IGNORECASE)
 
 
 def _mark_conversation_read(
@@ -817,6 +977,8 @@ def _build_email_state_for_target(
         "poll_interval_seconds": poll_interval,
         "polling_active": bool(job and job.is_active),
         "receiving_enabled": bool((metadata.get("imap") or metadata.get("pop3")) and job and job.is_active),
+        "is_active": bool(target.is_active),
+        "connector_active": bool(config.is_active),
     }
 
 
@@ -833,6 +995,8 @@ def _build_whatsapp_state_for_target(
         "auth_config": auth_config,
         "base_url": config.base_url,
         "phone_number_id": metadata.get("phone_number_id"),
+        "is_active": bool(target.is_active),
+        "connector_active": bool(config.is_active),
     }
 
 
@@ -841,7 +1005,6 @@ def _list_channel_targets(db: Session, connector_type: ConnectorType) -> list[di
         db.query(IntegrationTarget)
         .join(ConnectorConfig, ConnectorConfig.id == IntegrationTarget.connector_config_id)
         .filter(IntegrationTarget.target_type == IntegrationTargetType.crm)
-        .filter(IntegrationTarget.is_active.is_(True))
         .filter(ConnectorConfig.connector_type == connector_type)
         .order_by(IntegrationTarget.created_at.desc())
         .all()
@@ -942,20 +1105,28 @@ def _format_conversation_for_template(
         channel = contact.channels[0].channel_type.value
 
     assigned_to = None
+    assigned_agent_id = None
+    assigned_agent_name = None
     if conv.assignments:
         active_assignment = next((a for a in conv.assignments if a.is_active), None)
-        if active_assignment and active_assignment.agent:
-            agent = active_assignment.agent
-            if agent.person_id:
-                person = db.get(Person, agent.person_id)
-                if person:
-                    full_name = person.display_name or " ".join(
-                        part for part in [person.first_name, person.last_name] if part
-                    ).strip()
-                    assigned_to = {
-                        "name": full_name or "Agent",
-                        "initials": _get_initials(full_name or "Agent"),
-                    }
+        if active_assignment:
+            if active_assignment.agent_id:
+                assigned_agent_id = str(active_assignment.agent_id)
+                assigned_agent_name = "another agent"
+            if active_assignment.agent:
+                agent = active_assignment.agent
+                if agent.person_id:
+                    person = db.get(Person, agent.person_id)
+                    if person:
+                        full_name = person.display_name or " ".join(
+                            part for part in [person.first_name, person.last_name] if part
+                        ).strip()
+                        assigned_to = {
+                            "name": full_name or "Agent",
+                            "initials": _get_initials(full_name or "Agent"),
+                        }
+                        assigned_agent_id = str(agent.id)
+                        assigned_agent_name = full_name or "Agent"
 
     company = None
     if contact and contact.organization_id:
@@ -1006,15 +1177,32 @@ def _format_conversation_for_template(
         }
         inbox_label = channel_labels.get(channel, "Inbox")
 
+    # For WhatsApp/phone channels, prefer phone number over email as fallback
+    if contact:
+        if channel in ("whatsapp", "sms", "phone"):
+            contact_name = contact.display_name or contact.phone or contact.email or "Unknown"
+        else:
+            contact_name = contact.display_name or contact.email or contact.phone or "Unknown"
+        contact_initials = _get_initials(contact_name)
+    else:
+        contact_name = "Unknown"
+        contact_initials = "?"
+
+    # Get splynx_id from contact metadata if available
+    splynx_id = None
+    if contact and contact.metadata_:
+        splynx_id = contact.metadata_.get("splynx_id")
+
     return {
         "id": str(conv.id),
         "contact": {
             "id": str(contact.id) if contact else "",
-            "name": contact.display_name or contact.email or "Unknown" if contact else "Unknown",
+            "name": contact_name,
             "email": contact.email if contact else "",
             "phone": contact.phone if contact else "",
-            "avatar_initials": _get_initials(contact.display_name or contact.email) if contact else "?",
+            "avatar_initials": contact_initials,
             "company": company,
+            "splynx_id": splynx_id,
         },
         "channel": channel,
         "status": conv.status.value if conv.status else "open",
@@ -1023,6 +1211,8 @@ def _format_conversation_for_template(
         "unread_count": unread_count or 0,
         "last_message_at": conv.last_message_at or latest_message_at or conv.updated_at,
         "assigned_to": assigned_to,
+        "assigned_agent_id": assigned_agent_id,
+        "assigned_agent_name": assigned_agent_name,
         "inbox": {
             "id": str(channel_target_id) if channel_target_id else None,
             "label": inbox_label,
@@ -1150,11 +1340,20 @@ def _format_message_for_template(msg: Message, db: Session) -> dict:
         or note_type == "private_note"
     )
 
+    html_body = metadata.get("html_body") if isinstance(metadata, dict) else None
+    if html_body:
+        html_body = _replace_cid_images(html_body, attachments)
+    html_source = html_body or content
+    if not html_body and "&lt;" in content and "&gt;" in content:
+        html_source = html.unescape(content)
+
     return {
         "id": str(msg.id),
+        "conversation_id": str(msg.conversation_id),
         "direction": msg.direction.value,
         "content": content,
-        "content_html": _sanitize_message_html(content),
+        "content_html": _sanitize_message_html(html_source),
+        "html_body": html_body,
         "timestamp": msg.received_at or msg.sent_at or msg.created_at,
         "status": msg.status.value if msg.status else "received",
         "attachments": attachments,
@@ -1184,6 +1383,22 @@ def _get_current_roles(request: Request) -> list[str]:
         if isinstance(roles, list):
             return [str(role) for role in roles]
     return []
+
+
+def _get_current_agent_id(db: Session, current_user: dict | None) -> str | None:
+    person_id = (current_user or {}).get("person_id")
+    if not person_id:
+        return None
+    try:
+        person_uuid = coerce_uuid(person_id)
+    except Exception:
+        return None
+    agent = (
+        db.query(CrmAgent)
+        .filter(CrmAgent.person_id == person_uuid, CrmAgent.is_active.is_(True))
+        .first()
+    )
+    return str(agent.id) if agent else None
 
 
 def _filter_messages_for_user(
@@ -1324,6 +1539,11 @@ def _format_contact_for_template(contact: Person, db: Session) -> dict:
 
     total_conversations = len(contact.conversations) if contact.conversations else 0
 
+    # Get splynx_id from contact metadata
+    splynx_id = None
+    if contact.metadata_:
+        splynx_id = contact.metadata_.get("splynx_id")
+
     return {
         "id": str(contact.id),
         "name": contact.display_name or contact.email or "Unknown",
@@ -1335,6 +1555,7 @@ def _format_contact_for_template(contact: Person, db: Session) -> dict:
         "channels": channels,
         "tags": list(tags)[:5],
         "subscriber": None,  # Subscriber info removed
+        "splynx_id": splynx_id,
         "recent_tickets": recent_tickets,
         "recent_projects": recent_projects,
         "recent_tasks": recent_tasks,
@@ -1465,6 +1686,7 @@ async def inbox(
     current_user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
     assigned_person_id = current_user.get("person_id")
+    current_agent_id = _get_current_agent_id(db, current_user)
 
     comments_mode = channel == "comments"
     comments: list[dict] = []
@@ -1630,14 +1852,19 @@ async def inbox(
 
     assignment_options = _load_crm_agent_team_options(db)
     from app.logic import private_note_logic
+    notification_auto_dismiss_seconds = resolve_value(
+        db, SettingDomain.notification, "crm_inbox_notification_auto_dismiss_seconds"
+    )
 
     return templates.TemplateResponse(
         "admin/crm/inbox.html",
         {
             "request": request,
             "current_user": current_user,
+            "current_agent_id": current_agent_id,
             "sidebar_stats": sidebar_stats,
             "active_page": "inbox",
+            "csrf_token": get_csrf_token(request),
             "conversations": conversations,
             "selected_conversation": selected_conversation,
             "messages": messages,
@@ -1671,6 +1898,7 @@ async def inbox(
             "teams": assignment_options["teams"],
             "agent_labels": assignment_options["agent_labels"],
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
+            "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
         },
     )
 
@@ -1762,6 +1990,9 @@ async def inbox_settings(
     assignment_setup = request.query_params.get("assignment_setup")
     assignment_error = request.query_params.get("assignment_error")
     assignment_error_detail = request.query_params.get("assignment_error_detail")
+    notification_setup = request.query_params.get("notification_setup")
+    notification_error = request.query_params.get("notification_error")
+    notification_error_detail = request.query_params.get("notification_error_detail")
 
     # Meta (Facebook/Instagram) status
     meta_setup = request.query_params.get("meta_setup")
@@ -1774,6 +2005,20 @@ async def inbox_settings(
     # Get Meta connection status
     from app.web.admin.meta_oauth import get_meta_connection_status
     meta_status = get_meta_connection_status(db)
+    reminder_delay_seconds = resolve_value(
+        db, SettingDomain.notification, "crm_inbox_reply_reminder_delay_seconds"
+    )
+    reminder_repeat_enabled = resolve_value(
+        db, SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled"
+    )
+    reminder_repeat_interval_seconds = resolve_value(
+        db,
+        SettingDomain.notification,
+        "crm_inbox_reply_reminder_repeat_interval_seconds",
+    )
+    notification_auto_dismiss_seconds = resolve_value(
+        db, SettingDomain.notification, "crm_inbox_notification_auto_dismiss_seconds"
+    )
 
     teams = crm_service.teams.list(
         db=db,
@@ -1827,7 +2072,7 @@ async def inbox_settings(
     scheme = request.headers.get("x-forwarded-proto", "http")
     base_url = f"{scheme}://{host}"
     for widget in widgets:
-        widget.embed_code = widget_configs.generate_embed_code(widget, base_url)
+        setattr(widget, "embed_code", widget_configs.generate_embed_code(widget, base_url))
 
     return templates.TemplateResponse(
         "admin/crm/inbox_settings.html",
@@ -1856,6 +2101,9 @@ async def inbox_settings(
             "assignment_setup": assignment_setup,
             "assignment_error": assignment_error,
             "assignment_error_detail": assignment_error_detail,
+            "notification_setup": notification_setup,
+            "notification_error": notification_error,
+            "notification_error_detail": notification_error_detail,
             "meta_setup": meta_setup,
             "meta_error": meta_error,
             "meta_error_detail": meta_error_detail,
@@ -1863,6 +2111,10 @@ async def inbox_settings(
             "meta_pages": meta_pages,
             "meta_instagram": meta_instagram,
             "meta_status": meta_status,
+            "reminder_delay_seconds": reminder_delay_seconds,
+            "reminder_repeat_enabled": reminder_repeat_enabled,
+            "reminder_repeat_interval_seconds": reminder_repeat_interval_seconds,
+            "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
             "teams": teams,
             "agents": agents,
             "agent_teams": agent_teams,
@@ -1871,6 +2123,123 @@ async def inbox_settings(
             "teams_by_id": teams_by_id,
             "widgets": widgets,
         },
+    )
+
+
+@router.post("/inbox/notification-settings", response_class=HTMLResponse)
+async def update_inbox_notification_settings(
+    request: Request,
+    reminder_delay_seconds: str = Form(""),
+    reminder_repeat_enabled: str | None = Form(None),
+    reminder_repeat_interval_seconds: str = Form(""),
+    notification_auto_dismiss_seconds: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    def _coerce_int(key: str, raw_value: str) -> int:
+        spec = settings_spec.get_spec(SettingDomain.notification, key)
+        if not spec:
+            return 0
+        try:
+            parsed = int(str(raw_value).strip())
+        except (TypeError, ValueError):
+            parsed = spec.default if isinstance(spec.default, int) else 0
+        if spec.min_value is not None and parsed < spec.min_value:
+            parsed = spec.min_value
+        if spec.max_value is not None and parsed > spec.max_value:
+            parsed = spec.max_value
+        return parsed
+
+    try:
+        reminder_delay = _coerce_int(
+            "crm_inbox_reply_reminder_delay_seconds", reminder_delay_seconds
+        )
+        repeat_enabled = bool(reminder_repeat_enabled)
+        reminder_repeat_interval = _coerce_int(
+            "crm_inbox_reply_reminder_repeat_interval_seconds",
+            reminder_repeat_interval_seconds,
+        )
+        auto_dismiss_seconds = _coerce_int(
+            "crm_inbox_notification_auto_dismiss_seconds",
+            notification_auto_dismiss_seconds,
+        )
+        settings_service = domain_settings_service.DomainSettings(
+            SettingDomain.notification
+        )
+
+        spec = settings_spec.get_spec(
+            SettingDomain.notification, "crm_inbox_reply_reminder_delay_seconds"
+        )
+        if spec:
+            value_text, value_json = settings_spec.normalize_for_db(spec, reminder_delay)
+            settings_service.upsert_by_key(
+                db,
+                "crm_inbox_reply_reminder_delay_seconds",
+                DomainSettingUpdate(
+                    value_type=SettingValueType.integer,
+                    value_text=value_text,
+                    value_json=value_json,
+                ),
+            )
+
+        spec = settings_spec.get_spec(
+            SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled"
+        )
+        if spec:
+            value_text, value_json = settings_spec.normalize_for_db(spec, repeat_enabled)
+            settings_service.upsert_by_key(
+                db,
+                "crm_inbox_reply_reminder_repeat_enabled",
+                DomainSettingUpdate(
+                    value_type=SettingValueType.boolean,
+                    value_text=value_text,
+                    value_json=value_json,
+                ),
+            )
+
+        spec = settings_spec.get_spec(
+            SettingDomain.notification,
+            "crm_inbox_reply_reminder_repeat_interval_seconds",
+        )
+        if spec:
+            value_text, value_json = settings_spec.normalize_for_db(
+                spec, reminder_repeat_interval
+            )
+            settings_service.upsert_by_key(
+                db,
+                "crm_inbox_reply_reminder_repeat_interval_seconds",
+                DomainSettingUpdate(
+                    value_type=SettingValueType.integer,
+                    value_text=value_text,
+                    value_json=value_json,
+                ),
+            )
+
+        spec = settings_spec.get_spec(
+            SettingDomain.notification,
+            "crm_inbox_notification_auto_dismiss_seconds",
+        )
+        if spec:
+            value_text, value_json = settings_spec.normalize_for_db(
+                spec, auto_dismiss_seconds
+            )
+            settings_service.upsert_by_key(
+                db,
+                "crm_inbox_notification_auto_dismiss_seconds",
+                DomainSettingUpdate(
+                    value_type=SettingValueType.integer,
+                    value_text=value_text,
+                    value_json=value_json,
+                ),
+            )
+    except Exception as exc:
+        detail = quote(str(exc) or "Failed to save notification settings", safe="")
+        return RedirectResponse(
+            url=f"/admin/crm/inbox/settings?notification_error=1&notification_error_detail={detail}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        url="/admin/crm/inbox/settings?notification_setup=1",
+        status_code=303,
     )
 
 
@@ -1904,7 +2273,7 @@ async def create_crm_team(
 @router.post("/inbox/agents", response_class=HTMLResponse)
 async def create_crm_agent(
     request: Request,
-    person_id: str = Form(...),
+    person_id: str | None = Form(None),
     title: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -1912,9 +2281,12 @@ async def create_crm_agent(
     from app.services import crm as crm_service
 
     try:
+        person_id_value = (person_id or "").strip()
+        if not person_id_value:
+            raise ValueError("Please select a person for the agent")
         existing = crm_service.agents.list(
             db=db,
-            person_id=person_id,
+            person_id=person_id_value,
             is_active=None,
             order_by="created_at",
             order_dir="desc",
@@ -1924,7 +2296,7 @@ async def create_crm_agent(
         if existing:
             raise ValueError("Agent already exists for that person")
         payload = AgentCreate(
-            person_id=coerce_uuid(person_id),
+            person_id=coerce_uuid(person_id_value),
             title=title.strip() if title else None,
         )
         crm_service.agents.create(db, payload)
@@ -2111,6 +2483,7 @@ async def inbox_conversation_detail(
     from app.web.admin import get_current_user
     current_user = get_current_user(request)
     current_roles = _get_current_roles(request)
+    current_agent_id = _get_current_agent_id(db, current_user)
     _mark_conversation_read(db, conversation_id, current_user.get("person_id"), last_seen_at)
     messages = _filter_messages_for_user(
         messages,
@@ -2126,6 +2499,7 @@ async def inbox_conversation_detail(
             "conversation": conversation,
             "messages": messages,
             "current_user": current_user,
+            "current_agent_id": current_agent_id,
             "current_roles": current_roles,
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
         },
@@ -2213,6 +2587,28 @@ async def inbox_contact_detail(
         )
 
     contact_details = _format_contact_for_template(contact, db)
+    private_notes = []
+    notes_query = (
+        db.query(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(Conversation.person_id == coerce_uuid(contact_id))
+        .filter(Message.channel_type == ChannelType.note)
+        .order_by(
+            func.coalesce(
+                Message.received_at,
+                Message.sent_at,
+                Message.created_at,
+            ).desc()
+        )
+        .limit(10)
+        .all()
+    )
+    for note in notes_query:
+        payload = _format_message_for_template(note, db)
+        if payload.get("is_private_note"):
+            private_notes.append(payload)
+        if len(private_notes) >= 5:
+            break
     assignment_options = _load_crm_agent_team_options(db)
     from app.logic import private_note_logic
 
@@ -2226,6 +2622,7 @@ async def inbox_contact_detail(
             "teams": assignment_options["teams"],
             "agent_labels": assignment_options["agent_labels"],
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
+            "private_notes": private_notes,
         },
     )
 
@@ -2247,16 +2644,67 @@ def inbox_conversation_assignment(
             status_code=404,
         )
 
-    # Use service method for assignment
-    assigned_by_id = get_current_user(request).get("person_id") or None
-    conversation_service.assign_conversation(
-        db,
-        conversation_id=conversation_id,
-        agent_id=agent_id,
-        team_id=team_id,
-        assigned_by_id=assigned_by_id,
-        update_lead_owner=True,
-    )
+    # Normalize and validate IDs to avoid 500s on bad UUIDs
+    agent_value = (agent_id or "").strip() or None
+    team_value = (team_id or "").strip() or None
+    try:
+        if agent_value:
+            agent_value = str(coerce_uuid(agent_value))
+        if team_value:
+            team_value = str(coerce_uuid(team_value))
+    except Exception:
+        return HTMLResponse(
+            "<div class='p-4 text-sm text-red-500'>Invalid agent or team selection.</div>",
+            status_code=200,
+        )
+
+    assigned_by_id = (get_current_user(request).get("person_id") or "").strip() or None
+    try:
+        if assigned_by_id:
+            assigned_by_id = str(coerce_uuid(assigned_by_id))
+    except Exception:
+        logger.warning("Invalid assigned_by_id for conversation assignment.")
+        assigned_by_id = None
+
+    try:
+        # Use service method for assignment
+        conversation_service.assign_conversation(
+            db,
+            conversation_id=conversation_id,
+            agent_id=agent_value,
+            team_id=team_value,
+            assigned_by_id=assigned_by_id,
+            update_lead_owner=True,
+        )
+    except Exception as exc:
+        logger.exception("Failed to assign conversation.")
+        if request.headers.get("HX-Request"):
+            contact = contact_service.get_person_with_relationships(db, str(conversation.contact_id))
+            if contact:
+                contact_details = _format_contact_for_template(contact, db)
+                assignment_options = _load_crm_agent_team_options(db)
+                from app.logic import private_note_logic
+                return templates.TemplateResponse(
+                    "admin/crm/_contact_details.html",
+                    {
+                        "request": request,
+                        "contact": contact_details,
+                        "conversation_id": str(conversation.id),
+                        "agents": assignment_options["agents"],
+                        "teams": assignment_options["teams"],
+                        "agent_labels": assignment_options["agent_labels"],
+                        "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
+                        "assignment_error_detail": str(exc) or "Assignment failed",
+                    },
+                )
+            return HTMLResponse(
+                "<div class='p-6 text-center text-slate-500'>Contact not found</div>",
+                status_code=200,
+            )
+        return RedirectResponse(
+            url=f"/admin/crm/inbox?conversation_id={conversation_id}",
+            status_code=303,
+        )
 
     # Get contact with relationships
     contact = contact_service.get_person_with_relationships(db, str(conversation.contact_id))
@@ -2423,6 +2871,7 @@ async def send_message(
     author_id = current_user.get("person_id") if current_user.get("person_id") else None
 
     result_msg = None
+    channel_target_uuid = coerce_uuid(channel_target_id) if channel_target_id else None
     attachments_payload: list[dict] = []
     if attachments:
         try:
@@ -2436,8 +2885,9 @@ async def send_message(
             InboxSendRequest(
                 conversation_id=conv.id,
                 channel_type=channel_type,
-                channel_target_id=channel_target_id,
+                channel_target_id=channel_target_uuid,
                 body=message,
+                attachments=attachments_payload or None,
             ),
             author_id=author_id,
         )
@@ -2536,7 +2986,7 @@ def create_private_note(
     author_id = current_user.get("person_id")
 
     try:
-        note = private_notes_service.send_private_note(
+        note = private_notes_service.create(
             db=db,
             conversation_id=conversation_id,
             author_id=author_id,
@@ -2570,7 +3020,7 @@ def _apply_message_attachments(
     for item in attachments:
         if not isinstance(item, dict):
             continue
-        conversation_service.MessageAttachments.create(
+        MessageAttachmentsService.create(
             db,
             MessageAttachmentCreate(
                 message_id=message.id,
@@ -2609,7 +3059,7 @@ def create_private_note_api(
     attachments = payload.attachments or []
 
     try:
-        note = private_notes_service.send_private_note(
+        note = private_notes_service.create(
             db=db,
             conversation_id=conversation_id,
             author_id=author_id,
@@ -2653,6 +3103,34 @@ def create_private_note_api(
     )
 
 
+@router.delete("/inbox/conversation/{conversation_id}/private_note/{note_id}")
+def delete_private_note_api(
+    request: Request,
+    conversation_id: str,
+    note_id: str,
+    db: Session = Depends(get_db),
+):
+    """Delete a private note in a conversation."""
+    from fastapi import HTTPException
+    from app.web.admin import get_current_user
+    from app.services.crm import private_notes as private_notes_service
+
+    current_user = get_current_user(request) or {}
+    author_id = current_user.get("person_id")
+
+    try:
+        private_notes_service.delete(
+            db=db,
+            conversation_id=conversation_id,
+            note_id=note_id,
+            actor_id=author_id,
+        )
+    except HTTPException as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+    return Response(status_code=204)
+
+
 @router.post("/inbox/conversation/{conversation_id}/attachments")
 async def upload_conversation_attachments(
     conversation_id: str,
@@ -2660,16 +3138,16 @@ async def upload_conversation_attachments(
     db: Session = Depends(get_db),
 ):
     """Upload attachments for a conversation message/private note."""
-    import app.services.crm.message_attachments as message_attachment_service
+    from app.services.crm.conversations import message_attachments as message_attachment_service
 
     conversation = db.get(Conversation, coerce_uuid(conversation_id))
     if not conversation:
         return JSONResponse({"detail": "Conversation not found"}, status_code=404)
 
-    prepared = await message_attachment_service.prepare_message_attachments(files)
+    prepared = await message_attachment_service.prepare(files)
     if not prepared:
         return JSONResponse({"detail": "No attachments provided"}, status_code=400)
-    saved = message_attachment_service.save_message_attachments(prepared)
+    saved = message_attachment_service.save(prepared)
     return JSONResponse({"attachments": saved})
 
 
@@ -2885,6 +3363,67 @@ async def start_new_conversation(
     )
 
 
+@router.get("/inbox/email-connector", response_class=HTMLResponse)
+def email_connector_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+def _inbox_settings_redirect(next_url: str | None = None):
+    if next_url and _is_safe_url(next_url):
+        return RedirectResponse(url=next_url, status_code=303)
+    return RedirectResponse(url="/admin/crm/inbox/settings", status_code=303)
+
+
+@router.get("/inbox/whatsapp-connector", response_class=HTMLResponse)
+def whatsapp_connector_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/email-poll", response_class=HTMLResponse)
+def email_poll_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/email-check", response_class=HTMLResponse)
+def email_check_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/email-reset-cursor", response_class=HTMLResponse)
+def email_reset_cursor_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/email-polling/reset", response_class=HTMLResponse)
+def email_polling_reset_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/email-delete", response_class=HTMLResponse)
+def email_delete_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/email-activate", response_class=HTMLResponse)
+def email_activate_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/teams", response_class=HTMLResponse)
+def inbox_teams_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/agents", response_class=HTMLResponse)
+def inbox_agents_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
+@router.get("/inbox/agent-teams", response_class=HTMLResponse)
+def inbox_agent_teams_redirect(next: str | None = None):
+    return _inbox_settings_redirect(next)
+
+
 @router.post("/inbox/email-connector", response_class=HTMLResponse)
 async def configure_email_connector(
     request: Request,
@@ -3029,43 +3568,70 @@ async def configure_email_connector(
     )
 
     smtp_username, smtp_password = _resolve_email_auth(email_channel, username, password)
-    if smtp and not _as_bool(skip_smtp_test):
-        if not smtp_username or not smtp_password:
-            raise ValueError("SMTP credentials are required to validate the connection.")
-        smtp_test_config = dict(smtp)
-        smtp_test_config["username"] = smtp_username
-        smtp_test_config["password"] = smtp_password
-        ok, error = email_service.test_smtp_connection(smtp_test_config)
-        if not ok:
-            raise ValueError(error or "SMTP test failed")
+    try:
+        if smtp and not _as_bool(skip_smtp_test):
+            if not smtp_username or not smtp_password:
+                raise ValueError("SMTP credentials are required to validate the connection.")
+            smtp_test_config = dict(smtp)
+            smtp_test_config["username"] = smtp_username
+            smtp_test_config["password"] = smtp_password
+            ok, error = email_service.test_smtp_connection(smtp_test_config)
+            if not ok:
+                raise ValueError(error or "SMTP test failed")
 
-    if imap:
-        if not smtp_username or not smtp_password:
-            raise ValueError("IMAP credentials are required to validate the connection.")
-        mailbox = imap.get("mailbox") if isinstance(imap, dict) else None
-        ok, error = _test_imap_connection(
-            imap["host"],
-            int(imap["port"]),
-            bool(imap.get("use_ssl")),
-            smtp_username,
-            smtp_password,
-            mailbox or "INBOX",
-        )
-        if not ok:
-            raise ValueError(error or "IMAP test failed")
+        if imap:
+            if not smtp_username or not smtp_password:
+                raise ValueError("IMAP credentials are required to validate the connection.")
+            mailbox = imap.get("mailbox") if isinstance(imap, dict) else None
+            imap_host = str(imap.get("host") or "").strip() if isinstance(imap, dict) else ""
+            imap_port_value = imap.get("port") if isinstance(imap, dict) else None
+            if not imap_host or imap_port_value is None:
+                raise ValueError("IMAP host and port are required to validate the connection.")
+            if isinstance(imap_port_value, (int, str)):
+                imap_port_num = int(imap_port_value)
+            else:
+                raise ValueError("IMAP port must be a number.")
+            ok, error = _test_imap_connection(
+                imap_host,
+                imap_port_num,
+                bool(imap.get("use_ssl")),
+                smtp_username,
+                smtp_password,
+                mailbox or "INBOX",
+            )
+            if not ok:
+                raise ValueError(error or "IMAP test failed")
 
-    if pop3:
-        if not smtp_username or not smtp_password:
-            raise ValueError("POP3 credentials are required to validate the connection.")
-        ok, error = _test_pop3_connection(
-            pop3["host"],
-            int(pop3["port"]),
-            bool(pop3.get("use_ssl")),
-            smtp_username,
-            smtp_password,
+        if pop3:
+            if not smtp_username or not smtp_password:
+                raise ValueError("POP3 credentials are required to validate the connection.")
+            pop3_host = str(pop3.get("host") or "").strip() if isinstance(pop3, dict) else ""
+            pop3_config_port_value = pop3.get("port") if isinstance(pop3, dict) else None
+            if not pop3_host or pop3_config_port_value is None:
+                raise ValueError("POP3 host and port are required to validate the connection.")
+            if isinstance(pop3_config_port_value, (int, str)):
+                pop3_port_num = int(pop3_config_port_value)
+            else:
+                raise ValueError("POP3 port must be a number.")
+            ok, error = _test_pop3_connection(
+                pop3_host,
+                pop3_port_num,
+                bool(pop3.get("use_ssl")),
+                smtp_username,
+                smtp_password,
+            )
+            if not ok:
+                raise ValueError(error or "POP3 test failed")
+    except Exception as exc:
+        logger.exception("crm_inbox_email_validation_failed", extra={"error": str(exc)})
+        next_url = request.query_params.get("next")
+        if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
+            next_url = "/admin/crm/inbox"
+        detail = quote(str(exc) or "Email validation failed", safe="")
+        return RedirectResponse(
+            url=f"{next_url}?email_error=1&email_error_detail={detail}",
+            status_code=303,
         )
-        if not ok:
-            raise ValueError(error or "POP3 test failed")
 
     try:
         if not create_new_flag and email_channel and email_channel.get("connector_id"):
@@ -3106,6 +3672,7 @@ async def configure_email_connector(
                     connector_type=ConnectorType.email,
                     auth_config=auth_config,
                     metadata_=metadata,
+                    is_active=True,
                 ),
             )
             logger.info(
@@ -3120,7 +3687,7 @@ async def configure_email_connector(
             integration_service.integration_targets.update(
                 db,
                 email_channel["target_id"],
-                IntegrationTargetUpdate(name=name.strip() if name else None),
+                IntegrationTargetUpdate(name=name.strip() if name else None, is_active=True),
             )
             target_id = email_channel["target_id"]
         else:
@@ -3182,7 +3749,8 @@ async def configure_email_connector(
                 interval_seconds=interval_seconds or 300,
                 name=f"{name.strip() if name else 'CRM Email'} Polling",
             )
-    except Exception:
+    except Exception as exc:
+        logger.exception("crm_inbox_email_save_failed", extra={"error": str(exc)})
         next_url = request.query_params.get("next")
         if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
             next_url = "/admin/crm/inbox"
@@ -3471,6 +4039,50 @@ async def delete_email_inbox(
     return RedirectResponse(url=f"{next_url}?email_setup=1", status_code=303)
 
 
+@router.post("/inbox/email-activate", response_class=HTMLResponse)
+async def activate_email_inbox(
+    request: Request,
+    target_id: str | None = Form(None),
+    connector_id: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    form = await request.form()
+    target_id_value = _as_str(form.get("target_id")) if "target_id" in form else target_id
+    connector_id_value = _as_str(form.get("connector_id")) if "connector_id" in form else connector_id
+    if not target_id_value:
+        return HTMLResponse(
+            "<p class='text-xs text-red-400'>Inbox target is required.</p>",
+            status_code=400,
+        )
+    try:
+        integration_service.integration_targets.update(
+            db,
+            target_id_value,
+            IntegrationTargetUpdate(is_active=True),
+        )
+    except Exception as exc:
+        detail = quote(str(exc) or "Failed to activate inbox", safe="")
+        next_url = request.query_params.get("next")
+        if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
+            next_url = "/admin/crm/inbox/settings"
+        return RedirectResponse(url=f"{next_url}?email_error=1&email_error_detail={detail}", status_code=303)
+
+    if connector_id_value:
+        try:
+            connector_service.connector_configs.update(
+                db,
+                connector_id_value,
+                ConnectorConfigUpdate(is_active=True),
+            )
+        except Exception:
+            pass
+
+    next_url = request.query_params.get("next")
+    if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/admin/crm/inbox/settings"
+    return RedirectResponse(url=f"{next_url}?email_setup=1", status_code=303)
+
+
 @router.post("/inbox/comments/{comment_id}/reply", response_class=HTMLResponse)
 async def reply_to_social_comment(
     request: Request,
@@ -3525,6 +4137,7 @@ def reply_to_social_comment_get(
 def crm_contacts_list(
     request: Request,
     search: str | None = None,
+    party_status: str | None = None,
     is_active: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
@@ -3538,6 +4151,7 @@ def crm_contacts_list(
         db=db,
         person_id=None,
         organization_id=None,
+        party_status=party_status,
         is_active=active_filter,
         search=search,
         order_by="created_at",
@@ -3549,6 +4163,7 @@ def crm_contacts_list(
         db=db,
         person_id=None,
         organization_id=None,
+        party_status=party_status,
         is_active=active_filter,
         search=search,
         order_by="created_at",
@@ -3577,6 +4192,8 @@ def crm_contacts_list(
             "people_map": people_map,
             "org_map": org_map,
             "search": search or "",
+            "party_status": party_status or "",
+            "party_statuses": [item.value for item in PartyStatus],
             "is_active": "" if is_active is None else str(is_active),
             "page": page,
             "per_page": per_page,
@@ -3586,6 +4203,8 @@ def crm_contacts_list(
         }
     )
     return templates.TemplateResponse("admin/crm/contacts.html", context)
+
+
 
 
 @router.get("/contacts/new", response_class=HTMLResponse)
@@ -3598,6 +4217,7 @@ def crm_contact_new(request: Request, db: Session = Depends(get_db)):
         "person_id": "",
         "organization_id": "",
         "notes": "",
+        "party_status": PartyStatus.contact.value,
         "is_active": True,
     }
     context = _crm_base_context(request, db, "contacts")
@@ -3605,6 +4225,7 @@ def crm_contact_new(request: Request, db: Session = Depends(get_db)):
         {
             "contact": contact,
             "organization_label": None,
+            "party_statuses": [item.value for item in PartyStatus],
             "form_title": "New Contact",
             "submit_label": "Create Contact",
             "action_url": "/admin/crm/contacts",
@@ -3622,6 +4243,7 @@ def crm_contact_create(
     person_id: str | None = Form(None),
     organization_id: str | None = Form(None),
     notes: str | None = Form(None),
+    party_status: str | None = Form(None),
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -3633,6 +4255,7 @@ def crm_contact_create(
         "person_id": (person_id or "").strip(),
         "organization_id": (organization_id or "").strip(),
         "notes": (notes or "").strip(),
+        "party_status": (party_status or "").strip(),
         "is_active": is_active == "true",
     }
     try:
@@ -3652,6 +4275,7 @@ def crm_contact_create(
             email=email_value,
             phone=phone_value or None,
             organization_id=_coerce_uuid_optional(organization_id_value),
+            party_status=contact["party_status"] or None,
             notes=notes_value or None,
             is_active=bool(contact["is_active"]),
         )
@@ -3676,6 +4300,7 @@ def crm_contact_create(
         {
             "contact": contact,
             "organization_label": organization_label,
+            "party_statuses": [item.value for item in PartyStatus],
             "form_title": "New Contact",
             "submit_label": "Create Contact",
             "action_url": "/admin/crm/contacts",
@@ -3696,6 +4321,7 @@ def crm_contact_edit(request: Request, contact_id: str, db: Session = Depends(ge
         "person_id": str(contact_obj.person_id) if contact_obj.person_id else "",
         "organization_id": str(contact_obj.organization_id) if contact_obj.organization_id else "",
         "notes": contact_obj.notes or "",
+        "party_status": contact_obj.party_status.value if contact_obj.party_status else PartyStatus.contact.value,
         "is_active": contact_obj.is_active,
     }
 
@@ -3709,6 +4335,7 @@ def crm_contact_edit(request: Request, contact_id: str, db: Session = Depends(ge
         {
             "contact": contact,
             "organization_label": organization_label,
+            "party_statuses": [item.value for item in PartyStatus],
             "form_title": "Edit Contact",
             "submit_label": "Save Contact",
             "action_url": f"/admin/crm/contacts/{contact_id}/edit",
@@ -3727,6 +4354,7 @@ def crm_contact_update(
     person_id: str | None = Form(None),
     organization_id: str | None = Form(None),
     notes: str | None = Form(None),
+    party_status: str | None = Form(None),
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -3739,6 +4367,7 @@ def crm_contact_update(
         "person_id": (person_id or "").strip(),
         "organization_id": (organization_id or "").strip(),
         "notes": (notes or "").strip(),
+        "party_status": (party_status or "").strip(),
         "is_active": is_active == "true",
     }
     try:
@@ -3752,6 +4381,7 @@ def crm_contact_update(
             email=email_value or None,
             phone=phone_value or None,
             organization_id=_coerce_uuid_optional(organization_id_value),
+            party_status=contact["party_status"] or None,
             notes=notes_value or None,
             is_active=bool(contact["is_active"]),
         )
@@ -3774,6 +4404,7 @@ def crm_contact_update(
         {
             "contact": contact,
             "organization_label": organization_label,
+            "party_statuses": [item.value for item in PartyStatus],
             "form_title": "Edit Contact",
             "submit_label": "Save Contact",
             "action_url": f"/admin/crm/contacts/{contact_id}/edit",
@@ -3788,6 +4419,43 @@ def crm_contact_delete(request: Request, contact_id: str, db: Session = Depends(
     _ = request
     crm_service.contacts.delete(db=db, contact_id=contact_id)
     return RedirectResponse(url="/admin/crm/contacts", status_code=303)
+
+
+@router.post("/contacts/{person_id}/convert", response_class=HTMLResponse)
+def crm_contact_convert(
+    person_id: UUID,
+    subscriber_type: str = Form("person"),
+    account_status: str = Form("active"),
+    db: Session = Depends(get_db),
+):
+    person = db.get(Person, person_id)
+    if not person:
+        return RedirectResponse(url="/admin/crm/contacts", status_code=303)
+
+    status_map = {
+        "active": SubscriberStatus.active,
+        "canceled": SubscriberStatus.terminated,
+        "delinquent": SubscriberStatus.pending,
+    }
+    status = status_map.get(account_status, SubscriberStatus.active)
+
+    subscriber = subscriber_service.create(
+        db,
+        {
+            "person_id": person.id,
+            "status": status,
+        },
+    )
+    try:
+        People.transition_status(db, str(person.id), PartyStatus.subscriber)
+    except InvalidTransitionError:
+        pass
+    db.commit()
+
+    return RedirectResponse(
+        url=f"/admin/subscribers/{subscriber.id}",
+        status_code=303,
+    )
 
 
 @router.get("/contacts/{contact_id}", response_class=HTMLResponse)
@@ -3921,7 +4589,17 @@ def crm_lead_new(request: Request, db: Session = Depends(get_db)):
     person_id = request.query_params.get("person_id", "").strip()
     contact_id = request.query_params.get("contact_id", "").strip()  # Legacy support
     pipeline_id = request.query_params.get("pipeline_id", "").strip()
+    if not person_id and contact_id:
+        person_id = contact_id
     options = _load_crm_sales_options(db)
+    if person_id:
+        from app.services.person import people as person_svc
+        if not any(str(person.id) == person_id for person in options["people"]):
+            try:
+                person = person_svc.get(db, person_id)
+                options["people"] = [person] + options["people"]
+            except Exception:
+                pass
     lead = {
         "id": "",
         "person_id": person_id,
@@ -3936,6 +4614,8 @@ def crm_lead_new(request: Request, db: Session = Depends(get_db)):
         "probability": None,
         "expected_close_date": "",
         "lost_reason": "",
+        "region": "",
+        "address": "",
         "notes": "",
         "is_active": True,
     }
@@ -3953,6 +4633,7 @@ def crm_lead_new(request: Request, db: Session = Depends(get_db)):
             "form_title": "New Lead",
             "submit_label": "Create Lead",
             "action_url": "/admin/crm/leads",
+            "region_options": REGION_OPTIONS,
         }
     )
     return templates.TemplateResponse("admin/crm/lead_form.html", context)
@@ -4011,6 +4692,8 @@ def crm_lead_create(
     probability: str | None = Form(None),
     expected_close_date: str | None = Form(None),
     lost_reason: str | None = Form(None),
+    region: str | None = Form(None),
+    address: str | None = Form(None),
     notes: str | None = Form(None),
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
@@ -4031,6 +4714,8 @@ def crm_lead_create(
         "probability": (probability or "").strip(),
         "expected_close_date": (expected_close_date or "").strip(),
         "lost_reason": (lost_reason or "").strip(),
+        "region": (region or "").strip(),
+        "address": (address or "").strip(),
         "notes": (notes or "").strip(),
         "is_active": is_active == "true",
     }
@@ -4049,6 +4734,8 @@ def crm_lead_create(
             lead["expected_close_date"] if isinstance(lead["expected_close_date"], str) else ""
         )
         lost_reason_value = lead["lost_reason"] if isinstance(lead["lost_reason"], str) else ""
+        region_value = lead["region"] if isinstance(lead["region"], str) else ""
+        address_value = lead["address"] if isinstance(lead["address"], str) else ""
         notes_value = lead["notes"] if isinstance(lead["notes"], str) else ""
         value = _parse_decimal(estimated_value_value, "estimated_value")
         prob_value = int(probability_value) if probability_value else None
@@ -4075,6 +4762,8 @@ def crm_lead_create(
             probability=prob_value,
             expected_close_date=close_date,
             lost_reason=lost_reason_value or None,
+            region=region_value or None,
+            address=address_value or None,
             notes=notes_value or None,
             is_active=bool(lead["is_active"]),
         )
@@ -4101,6 +4790,7 @@ def crm_lead_create(
             "submit_label": "Create Lead",
             "action_url": "/admin/crm/leads",
             "error": error,
+            "region_options": REGION_OPTIONS,
         }
     )
     return templates.TemplateResponse("admin/crm/lead_form.html", context, status_code=400)
@@ -4123,10 +4813,19 @@ def crm_lead_edit(request: Request, lead_id: str, db: Session = Depends(get_db))
         "probability": lead_obj.probability,
         "expected_close_date": lead_obj.expected_close_date.isoformat() if lead_obj.expected_close_date else "",
         "lost_reason": lead_obj.lost_reason or "",
+        "region": lead_obj.region or "",
+        "address": lead_obj.address or "",
         "notes": lead_obj.notes or "",
         "is_active": lead_obj.is_active,
     }
     options = _load_crm_sales_options(db)
+    if lead_obj.person_id and not any(str(person.id) == str(lead_obj.person_id) for person in options["people"]):
+        from app.services.person import people as person_svc
+        try:
+            person = person_svc.get(db, str(lead_obj.person_id))
+            options["people"] = [person] + options["people"]
+        except Exception:
+            pass
     context = _crm_base_context(request, db, "contacts")
     context.update(
         {
@@ -4141,6 +4840,7 @@ def crm_lead_edit(request: Request, lead_id: str, db: Session = Depends(get_db))
             "form_title": "Edit Lead",
             "submit_label": "Save Lead",
             "action_url": f"/admin/crm/leads/{lead_id}/edit",
+            "region_options": REGION_OPTIONS,
         }
     )
     return templates.TemplateResponse("admin/crm/lead_form.html", context)
@@ -4162,6 +4862,8 @@ def crm_lead_update(
     probability: str | None = Form(None),
     expected_close_date: str | None = Form(None),
     lost_reason: str | None = Form(None),
+    region: str | None = Form(None),
+    address: str | None = Form(None),
     notes: str | None = Form(None),
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
@@ -4183,6 +4885,8 @@ def crm_lead_update(
         "probability": (probability or "").strip(),
         "expected_close_date": (expected_close_date or "").strip(),
         "lost_reason": (lost_reason or "").strip(),
+        "region": (region or "").strip(),
+        "address": (address or "").strip(),
         "notes": (notes or "").strip(),
         "is_active": is_active == "true",
     }
@@ -4201,6 +4905,8 @@ def crm_lead_update(
             lead["expected_close_date"] if isinstance(lead["expected_close_date"], str) else ""
         )
         lost_reason_value = lead["lost_reason"] if isinstance(lead["lost_reason"], str) else ""
+        region_value = lead["region"] if isinstance(lead["region"], str) else ""
+        address_value = lead["address"] if isinstance(lead["address"], str) else ""
         notes_value = lead["notes"] if isinstance(lead["notes"], str) else ""
         value = _parse_decimal(estimated_value_value, "estimated_value")
         prob_value = int(probability_value) if probability_value else None
@@ -4226,6 +4932,8 @@ def crm_lead_update(
             probability=prob_value,
             expected_close_date=close_date,
             lost_reason=lost_reason_value or None,
+            region=region_value or None,
+            address=address_value or None,
             notes=notes_value or None,
             is_active=bool(lead["is_active"]),
         )
@@ -4252,6 +4960,7 @@ def crm_lead_update(
             "submit_label": "Save Lead",
             "action_url": f"/admin/crm/leads/{lead_id}/edit",
             "error": error,
+            "region_options": REGION_OPTIONS,
         }
     )
     return templates.TemplateResponse("admin/crm/lead_form.html", context, status_code=400)
@@ -4444,7 +5153,20 @@ def crm_quote_detail(request: Request, quote_id: str, db: Session = Depends(get_
             lead = None
     contact = None
     if quote.person_id:
-        contact = db.get(Person, quote.person_id)
+        contact = contact_service.get_person_with_relationships(db, str(quote.person_id))
+
+    has_email = False
+    has_whatsapp = False
+    if contact and contact.channels:
+        for channel in contact.channels:
+            if not channel.address:
+                continue
+            if channel.channel_type == PersonChannelType.email:
+                has_email = True
+            if channel.channel_type == PersonChannelType.whatsapp:
+                has_whatsapp = True
+
+    summary_text = _format_project_summary(quote, items, lead, contact)
 
     context = _crm_base_context(request, db, "quotes")
     context.update(
@@ -4453,9 +5175,304 @@ def crm_quote_detail(request: Request, quote_id: str, db: Session = Depends(get_
             "items": items,
             "lead": lead,
             "contact": contact,
+            "summary_text": summary_text,
+            "has_email": has_email,
+            "has_whatsapp": has_whatsapp,
         }
     )
     return templates.TemplateResponse("admin/crm/quote_detail.html", context)
+
+
+@router.post("/quotes/{quote_id}/send-summary", response_class=HTMLResponse)
+def crm_quote_send_summary(
+    request: Request,
+    quote_id: str,
+    channel_type: str = Form(...),
+    message: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user
+
+    quote = crm_service.quotes.get(db=db, quote_id=quote_id)
+    items = crm_service.quote_line_items.list(
+        db=db,
+        quote_id=quote_id,
+        order_by="created_at",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    lead = None
+    if quote.lead_id:
+        try:
+            lead = crm_service.leads.get(db=db, lead_id=str(quote.lead_id))
+        except Exception:
+            lead = None
+
+    if not quote.person_id:
+        return RedirectResponse(
+            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
+            status_code=303,
+        )
+
+    contact = contact_service.get_person_with_relationships(db, str(quote.person_id))
+    if not contact:
+        return RedirectResponse(
+            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
+            status_code=303,
+        )
+
+    try:
+        channel_enum = ChannelType(channel_type)
+    except ValueError:
+        return RedirectResponse(
+            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
+            status_code=303,
+        )
+
+    if channel_enum not in (ChannelType.email, ChannelType.whatsapp):
+        return RedirectResponse(
+            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
+            status_code=303,
+        )
+
+    person_channel = conversation_service.resolve_person_channel(
+        db, str(contact.id), channel_enum
+    )
+    if not person_channel:
+        return RedirectResponse(
+            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
+            status_code=303,
+        )
+
+    body = (message or "").strip()
+    if not body:
+        body = _format_project_summary(quote, items, lead, contact)
+
+    quote_label = None
+    if isinstance(quote.metadata_, dict):
+        quote_label = quote.metadata_.get("quote_name")
+    subject = None
+    if channel_enum == ChannelType.email:
+        subject_label = quote_label or f"Project {str(quote.id)[:8].upper()}"
+        subject = f"Project Summary - {subject_label}"
+
+    conversation = conversation_service.resolve_open_conversation_for_channel(
+        db, str(contact.id), channel_enum
+    )
+    if not conversation:
+        conversation = conversation_service.Conversations.create(
+            db,
+            ConversationCreate(
+                person_id=contact.id,
+                subject=subject if channel_enum == ChannelType.email else None,
+            ),
+        )
+
+    current_user = get_current_user(request)
+    author_id = current_user.get("person_id") if current_user else None
+
+    try:
+        result_msg = inbox_service.send_message(
+            db,
+            InboxSendRequest(
+                conversation_id=conversation.id,
+                channel_type=channel_enum,
+                subject=subject,
+                body=body,
+            ),
+            author_id=author_id,
+        )
+        if result_msg and result_msg.status == MessageStatus.failed:
+            return RedirectResponse(
+                url=f"/admin/crm/quotes/{quote_id}?send_error=1",
+                status_code=303,
+            )
+    except Exception:
+        return RedirectResponse(
+            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
+            status_code=303,
+        )
+
+    return RedirectResponse(
+        url=f"/admin/crm/quotes/{quote_id}?send=1",
+        status_code=303,
+    )
+
+
+@router.get("/quotes/{quote_id}/pdf")
+def crm_quote_pdf(request: Request, quote_id: str, db: Session = Depends(get_db)):
+    quote = crm_service.quotes.get(db=db, quote_id=quote_id)
+    items = crm_service.quote_line_items.list(
+        db=db,
+        quote_id=quote_id,
+        order_by="created_at",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    lead = None
+    if quote.lead_id:
+        try:
+            lead = crm_service.leads.get(db=db, lead_id=str(quote.lead_id))
+        except Exception:
+            lead = None
+    contact = None
+    if quote.person_id:
+        contact = db.get(Person, quote.person_id)
+
+    stored_name = None
+    if isinstance(quote.metadata_, dict):
+        stored_name = quote.metadata_.get("quote_name")
+    quote_name = stored_name or (contact.display_name if contact and contact.display_name else None)
+    if not quote_name and contact:
+        quote_name = contact.email
+
+    template = templates.get_template("admin/crm/quote_pdf.html")
+    template_path = getattr(template, "filename", None)
+    if template_path:
+        template_path = os.path.abspath(template_path)
+    html = template.render(
+        {
+            "request": request,
+            "quote": quote,
+            "items": items,
+            "lead": lead,
+            "contact": contact,
+            "quote_name": quote_name or "",
+        }
+    )
+    if request.query_params.get("smoke") == "1":
+        html = f"""
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>PDF Smoke Test</title></head>
+<body style="font-family: Arial, sans-serif; font-size: 16px; line-height: 1.6;">
+  <p>PDF smoke test</p>
+  <p>Quote ID: {quote.id}</p>
+  <p>Line items: {len(items) if items else 0}</p>
+  <p>Subtotal: {quote.subtotal or 0}</p>
+  <p>Tax: {quote.tax_total or 0}</p>
+  <p>Total: {quote.total or 0}</p>
+  <p>End of test.</p>
+</body>
+</html>
+"""
+    if request.query_params.get("plain") == "1":
+        currency = quote.currency or ""
+        plain_rows = []
+        if items:
+            for item in items:
+                desc = html_escape(str(getattr(item, "description", "") or ""))
+                qty = getattr(item, "quantity", 0) or 0
+                unit_price = getattr(item, "unit_price", 0) or 0
+                amount = getattr(item, "amount", 0) or 0
+                plain_rows.append(
+                    f"<tr><td>{desc}</td><td style='text-align:right'>{qty}</td>"
+                    f"<td style='text-align:right'>{unit_price}</td>"
+                    f"<td style='text-align:right'>{amount}</td></tr>"
+                )
+        else:
+            plain_rows.append("<tr><td colspan='4'>No line items found.</td></tr>")
+        plain_html = f"""
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Quote {quote.id}</title></head>
+<body>
+  <h1>{html_escape(quote_name or f"Quote {str(quote.id)[:8]}")}</h1>
+  <div>Quote ID: {quote.id}</div>
+  <div>Status: {(quote.status.value if quote.status else 'draft')}</div>
+  <div>Currency: {html_escape(currency)}</div>
+  <table border="1" cellpadding="6" cellspacing="0" width="100%%">
+    <thead>
+      <tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr>
+    </thead>
+    <tbody>
+      {''.join(plain_rows)}
+    </tbody>
+  </table>
+  <div>Subtotal: {quote.subtotal or 0}</div>
+  <div>Tax: {quote.tax_total or 0}</div>
+  <div>Total: {quote.total or 0}</div>
+</body>
+</html>
+"""
+        html = plain_html
+    logger.info(
+        "quote_pdf_template=%s quote_pdf_html_len=%s items=%s totals=subtotal:%s tax:%s total:%s currency=%s",
+        template_path or "unknown",
+        len(html),
+        len(items) if items else 0,
+        quote.subtotal,
+        quote.tax_total,
+        quote.total,
+        quote.currency,
+    )
+    if request.query_params.get("debug") == "1":
+        return HTMLResponse(content=html)
+    try:
+        from weasyprint import HTML
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="WeasyPrint is not installed on the server. Install it to generate PDFs.",
+        ) from exc
+    _ensure_pydyf_compat()
+    if request.query_params.get("nocss") == "1":
+        html = re.sub(r"<style[\\s\\S]*?</style>", "", html, flags=re.IGNORECASE)
+    doc = HTML(string=html, base_url=str(request.base_url)).render()
+    pdf_bytes = doc.write_pdf()
+    logger.info(
+        "quote_pdf_pages=%s quote_pdf_len=%s",
+        len(doc.pages),
+        len(pdf_bytes),
+    )
+    if request.query_params.get("save") == "1":
+        try:
+            tmp_html = f"/tmp/quote_{quote.id}.html"
+            tmp_pdf = f"/tmp/quote_{quote.id}.pdf"
+            with open(tmp_html, "w", encoding="utf-8") as handle:
+                handle.write(html)
+            with open(tmp_pdf, "wb") as handle:
+                handle.write(pdf_bytes)
+            logger.info("quote_pdf_saved html=%s pdf=%s", tmp_html, tmp_pdf)
+        except Exception:
+            logger.exception("quote_pdf_save_failed")
+    filename = f"quote_{quote.id}.pdf"
+    disposition = "inline" if request.query_params.get("inline") == "1" else "attachment"
+    return Response(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@router.get("/quotes/{quote_id}/preview", response_class=HTMLResponse)
+def crm_quote_preview(request: Request, quote_id: str):
+    extra = "&plain=1" if request.query_params.get("plain") == "1" else ""
+    cache_bust = int(datetime.now(timezone.utc).timestamp())
+    pdf_url = f"/admin/crm/quotes/{quote_id}/pdf?inline=1{extra}&ts={cache_bust}"
+    html = f"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Quote PDF Preview</title>
+  <style>
+    html, body {{ height: 100%; margin: 0; }}
+    .frame {{ width: 100%; height: 100vh; border: none; }}
+  </style>
+</head>
+<body>
+  <iframe class="frame" src="{pdf_url}" title="Quote PDF Preview"></iframe>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html)
 
 
 @router.post("/quotes", response_class=HTMLResponse)
@@ -4473,10 +5490,10 @@ def crm_quote_create(
     expires_at: str | None = Form(None),
     notes: str | None = Form(None),
     is_active: str | None = Form(None),
-    item_description: str | list[str] | None = Form(None),
-    item_quantity: str | list[str] | None = Form(None),
-    item_unit_price: str | list[str] | None = Form(None),
-    item_inventory_item_id: str | list[str] | None = Form(None),
+    item_description: list[str] = Form([]),
+    item_quantity: list[str] = Form([]),
+    item_unit_price: list[str] = Form([]),
+    item_inventory_item_id: list[str] = Form([]),
     db: Session = Depends(get_db),
 ):
     error = None
@@ -4495,10 +5512,10 @@ def crm_quote_create(
         "is_active": is_active == "true",
     }
     quote_items = _collect_quote_item_inputs(
-        _as_list(item_description),
-        _as_list(item_quantity),
-        _as_list(item_unit_price),
-        _as_list(item_inventory_item_id),
+        item_description,
+        item_quantity,
+        item_unit_price,
+        item_inventory_item_id,
     )
     try:
         lead_id_value = quote["lead_id"] if isinstance(quote["lead_id"], str) else ""
@@ -4730,8 +5747,13 @@ def crm_quote_update(
             status_enum = QuoteStatus(status_value) if status_value else None
         except ValueError:
             status_enum = None
+        person_id_value = (
+            coerce_uuid(resolved_person_id) if resolved_person_id else quote_obj.person_id
+        )
+        if not person_id_value:
+            raise ValueError("Quote must be linked to a person.")
         payload = QuoteUpdate(
-            person_id=coerce_uuid(resolved_person_id),
+            person_id=person_id_value,
             status=status_enum,
             currency=currency_value or None,
             subtotal=_parse_decimal(subtotal_value, "subtotal"),
@@ -4758,8 +5780,10 @@ def crm_quote_update(
         )
         return RedirectResponse(url="/admin/crm/quotes", status_code=303)
     except (ValidationError, ValueError) as exc:
+        db.rollback()
         error = str(exc)
     except Exception as exc:
+        db.rollback()
         error = exc.detail if hasattr(exc, "detail") else str(exc)
 
     options = _load_crm_sales_options(db)
@@ -5022,11 +6046,17 @@ def crm_pipeline_create(
         pipeline = crm_service.pipelines.create(db=db, payload=payload)
         if pipeline_data["create_default_stages"]:
             for index, stage in enumerate(_DEFAULT_PIPELINE_STAGES):
+                probability_value = stage.get("probability")
+                default_probability = (
+                    int(probability_value)
+                    if isinstance(probability_value, (int, str))
+                    else 0
+                )
                 stage_payload = PipelineStageCreate(
                     pipeline_id=pipeline.id,
-                    name=stage["name"],
+                    name=str(stage["name"]),
                     order_index=index,
-                    default_probability=stage["probability"],
+                    default_probability=default_probability,
                     is_active=True,
                 )
                 crm_service.pipeline_stages.create(db=db, payload=stage_payload)
@@ -5105,7 +6135,7 @@ async def crm_widget_create(
     form = await request.form()
 
     try:
-        prechat_fields_raw = form.get("prechat_fields_json", "") or ""
+        prechat_fields_raw = _form_str(form, "prechat_fields_json")
         prechat_fields = None
         if prechat_fields_raw.strip():
             try:
@@ -5114,21 +6144,25 @@ async def crm_widget_create(
             except Exception as exc:
                 raise ValueError("Invalid pre-chat field configuration") from exc
         # Parse allowed domains
-        allowed_domains_str = form.get("allowed_domains", "")
+        allowed_domains_str = _form_str(form, "allowed_domains")
         allowed_domains = [
             d.strip() for d in allowed_domains_str.split(",") if d.strip()
         ] if allowed_domains_str else []
 
         payload = ChatWidgetConfigCreate(
-            name=form.get("name", "").strip(),
+            name=_form_str(form, "name"),
             allowed_domains=allowed_domains,
-            primary_color=form.get("primary_color", "#3B82F6"),
-            bubble_position=form.get("bubble_position", "bottom-right"),
-            widget_title=form.get("widget_title", "Chat with us"),
-            welcome_message=form.get("welcome_message") or None,
-            placeholder_text=form.get("placeholder_text", "Type a message..."),
-            rate_limit_messages_per_minute=int(form.get("rate_limit_messages_per_minute", 10)),
-            rate_limit_sessions_per_ip=int(form.get("rate_limit_sessions_per_ip", 5)),
+            primary_color=_form_str(form, "primary_color", "#3B82F6"),
+            bubble_position=_coerce_bubble_position(_form_str_opt(form, "bubble_position")),
+            widget_title=_form_str(form, "widget_title", "Chat with us"),
+            welcome_message=_form_str_opt(form, "welcome_message"),
+            placeholder_text=_form_str(form, "placeholder_text", "Type a message..."),
+            rate_limit_messages_per_minute=_as_int(
+                _form_str_opt(form, "rate_limit_messages_per_minute"), 10
+            ) or 10,
+            rate_limit_sessions_per_ip=_as_int(
+                _form_str_opt(form, "rate_limit_sessions_per_ip"), 5
+            ) or 5,
             prechat_form_enabled="prechat_form_enabled" in form,
             prechat_fields=prechat_fields,
         )
@@ -5209,7 +6243,7 @@ async def crm_widget_update(
     form = await request.form()
 
     try:
-        prechat_fields_raw = form.get("prechat_fields_json", "") or ""
+        prechat_fields_raw = _form_str(form, "prechat_fields_json")
         prechat_fields = None
         if prechat_fields_raw.strip():
             try:
@@ -5218,21 +6252,29 @@ async def crm_widget_update(
             except Exception as exc:
                 raise ValueError("Invalid pre-chat field configuration") from exc
         # Parse allowed domains
-        allowed_domains_str = form.get("allowed_domains", "")
+        allowed_domains_str = _form_str(form, "allowed_domains")
         allowed_domains = [
             d.strip() for d in allowed_domains_str.split(",") if d.strip()
         ] if allowed_domains_str else []
 
         payload = ChatWidgetConfigUpdate(
-            name=form.get("name", "").strip() or None,
+            name=_form_str_opt(form, "name"),
             allowed_domains=allowed_domains,
-            primary_color=form.get("primary_color") or None,
-            bubble_position=form.get("bubble_position") or None,
-            widget_title=form.get("widget_title") or None,
-            welcome_message=form.get("welcome_message") or None,
-            placeholder_text=form.get("placeholder_text") or None,
-            rate_limit_messages_per_minute=int(form.get("rate_limit_messages_per_minute", 10)),
-            rate_limit_sessions_per_ip=int(form.get("rate_limit_sessions_per_ip", 5)),
+            primary_color=_form_str_opt(form, "primary_color"),
+            bubble_position=(
+                _coerce_bubble_position(bubble_position_value)
+                if (bubble_position_value := _form_str_opt(form, "bubble_position"))
+                else None
+            ),
+            widget_title=_form_str_opt(form, "widget_title"),
+            welcome_message=_form_str_opt(form, "welcome_message"),
+            placeholder_text=_form_str_opt(form, "placeholder_text"),
+            rate_limit_messages_per_minute=_as_int(
+                _form_str_opt(form, "rate_limit_messages_per_minute"), 10
+            ) or 10,
+            rate_limit_sessions_per_ip=_as_int(
+                _form_str_opt(form, "rate_limit_sessions_per_ip"), 5
+            ) or 5,
             is_active="is_active" in form,
             prechat_form_enabled="prechat_form_enabled" in form,
             prechat_fields=prechat_fields,

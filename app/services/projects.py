@@ -1,9 +1,12 @@
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timezone, timedelta
+import html
+import logging
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.crm.sales import Lead
 from app.models.person import Person
 from app.models.projects import (
     Project,
@@ -46,6 +49,10 @@ from app.services.common import (
 )
 from app.services.response import ListResponseMixin
 from app.services import settings_spec
+from app.services.events import emit_event
+from app.services.events.types import EventType
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -65,7 +72,191 @@ def _ensure_subscriber(db: Session, subscriber_id: str):
     ensure_exists(db, Subscriber, subscriber_id, "Subscriber not found")
 
 
+def _ensure_lead(db: Session, lead_id: str):
+    lead = db.get(Lead, coerce_uuid(lead_id))
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+
+def _person_label(person: Person | None) -> str:
+    if not person:
+        return "Someone"
+    if person.display_name:
+        return person.display_name
+    name = f"{person.first_name} {person.last_name}".strip()
+    if name:
+        return name
+    return person.email
+
+
+def _format_dt(value: datetime | None) -> str | None:
+    if not value:
+        return None
+    if value.tzinfo:
+        return value.strftime("%b %d, %Y %H:%M %Z")
+    return value.strftime("%b %d, %Y %H:%M")
+
+
+def _notify_project_task_assigned(
+    db: Session,
+    task: ProjectTask,
+    project: Project,
+    assigned_to: Person,
+    created_by: Person | None,
+) -> None:
+    from app.services import email as email_service
+
+    try:
+        if not assigned_to.email:
+            logger.warning("project_task_assigned_missing_email task_id=%s", task.id)
+            return
+
+        assignee_name = html.escape(_person_label(assigned_to))
+        creator_name = html.escape(_person_label(created_by)) if created_by else None
+        due_label = _format_dt(task.due_at)
+        start_label = _format_dt(task.start_at)
+
+        app_url = email_service._get_app_url(db).rstrip("/")
+        task_url = f"{app_url}/admin/projects/tasks/{task.id}" if app_url else None
+
+        subject = f"New project task assigned: {task.title or 'Task'}"
+        safe_title = html.escape(task.title or "Task")
+        safe_project = html.escape(project.name or "Project")
+        status_label = html.escape(task.status.value) if task.status else "todo"
+        priority_label = html.escape(task.priority.value) if task.priority else "normal"
+        description_block = ""
+        if task.description:
+            description_block = (
+                f"<p><strong>Description:</strong><br>{html.escape(task.description)}</p>"
+            )
+
+        list_url = task_url or "https://crm.dotmac.io/admin/projects/tasks"
+        link_block = (
+            "<div style=\"text-align: center; margin: 20px 0;\">"
+            f"<a href=\"{list_url}\" "
+            "style=\"background-color: #16a34a; color: #fff; text-decoration: none; "
+            "padding: 12px 20px; border-radius: 6px; display: inline-block; font-weight: 600;\">"
+            "View Project Task"
+            "</a>"
+            "</div>"
+        )
+
+        body = (
+            "<div style=\"font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.8; "
+            "color: #333; background-color: #f4f4f9; padding: 25px; border: 1px solid #ccc; "
+            "border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); position: relative;\">"
+            "<div style=\"position: absolute; top: 15px; right: 15px;\">"
+            "<img src=\"https://erp.dotmac.ng/files/dotmac%20no%20bg.png\" "
+            "alt=\"Dotmac Logo\" style=\"max-width: 150px; height: auto;\">"
+            "</div>"
+            "<div style=\"text-align: center; margin-bottom: 20px;\">"
+            "<h1 style=\"color: green; font-size: 24px; margin: 0;\">Task Assigned</h1>"
+            "</div>"
+            f"<p style=\"font-size: 16px; color: green; margin-top: 20px;\">Dear {assignee_name},</p>"
+            "<p style=\"font-size: 15px; color: #555; margin: 15px 0;\">"
+            "You have been assigned a new project task. Please find the details below:"
+            "</p>"
+            "<div style=\"background-color: #fff; border: 2px solid #e2e2e2; border-radius: 8px; "
+            "padding: 20px; margin-bottom: 20px;\">"
+            f"<p style=\"font-size: 15px; margin: 0; line-height: 1.5;\">"
+            f"<strong style=\"color: red;\">Task:</strong> <span style=\"color: #555;\">{safe_title}</span><br>"
+            f"<strong style=\"color: red;\">Project:</strong> <span style=\"color: #555;\">{safe_project}</span><br>"
+            f"<strong style=\"color: red;\">Status:</strong> "
+            f"<span style=\"color: #555;\">{status_label}</span><br>"
+            f"<strong style=\"color: red;\">Task ID:</strong> <span style=\"color: #555;\">{task.id}</span><br>"
+            f"<strong style=\"color: red;\">Start:</strong> <span style=\"color: #555;\">{start_label or 'N/A'}</span><br>"
+            f"<strong style=\"color: red;\">Due:</strong> <span style=\"color: #555;\">{due_label or 'N/A'}</span><br>"
+            f"<strong style=\"color: red;\">Priority:</strong> "
+            f"<span style=\"color: #555;\">{priority_label}</span>"
+            f"</p>"
+            "</div>"
+            f"{description_block}"
+            "<p style=\"font-size: 15px; color: #555; margin: 15px 0;\">"
+            "We will keep you updated with further progress."
+            "</p>"
+            f"{link_block}"
+            "<p style=\"font-size: 15px; color: #555; margin: 15px 0;\">"
+            "For further inquiries, contact us at "
+            "<a href=\"mailto:support@dotmac.ng\" style=\"color: green; text-decoration: none;\">support@dotmac.ng</a> "
+            "or send us a WhatsApp message at "
+            "<a href=\"https://wa.me/08121179536\" style=\"color: green; text-decoration: none;\">08121179536</a>."
+            "</p>"
+            "<p style=\"font-size: 15px; color: green; text-align: left; font-style: italic;\">"
+            "Thank you for choosing <strong style=\"color: red;\">DOTMAC</strong>."
+            "</p>"
+            "<p style=\"font-size: 15px; color: green; text-align: right; font-style: italic;\">"
+            "Best regards,<br>"
+            "<span style=\"color: red; font-weight: bold;\">Dotmac Support Team</span>"
+            "</p>"
+            "</div>"
+        )
+
+        email_service.send_email(
+            db=db,
+            to_email=assigned_to.email,
+            subject=subject,
+            body_html=body,
+            body_text=None,
+            track=True,
+        )
+    except Exception as exc:
+        logger.error("project_task_assigned_notify_failed task_id=%s error=%s", task.id, exc)
+
+
 class Projects(ListResponseMixin):
+    PROJECT_TYPE_DURATIONS = {
+        ProjectType.air_fiber_installation: 3,
+        ProjectType.air_fiber_relocation: 3,
+        ProjectType.fiber_optics_installation: 14,
+        ProjectType.fiber_optics_relocation: 14,
+        ProjectType.cable_rerun: 5,
+    }
+
+    @staticmethod
+    def _duration_days_for_type(project_type: ProjectType | None) -> int | None:
+        if not project_type:
+            return None
+        return Projects.PROJECT_TYPE_DURATIONS.get(project_type)
+
+    @staticmethod
+    def _get_region_pm_assignments(
+        db: Session, region: str | None
+    ) -> tuple[str | None, str | None]:
+        """Look up PM + assistant person_id for the given region from settings."""
+        if not region:
+            return None, None
+        region_pm_map = settings_spec.resolve_value(
+            db, SettingDomain.projects, "region_pm_assignments"
+        )
+        if not region_pm_map or not isinstance(region_pm_map, dict):
+            return None, None
+        entry = region_pm_map.get(region)
+        pm_id: str | None = None
+        assistant_id: str | None = None
+        if isinstance(entry, dict):
+            pm_id = entry.get("manager_person_id") or entry.get("project_manager_person_id")
+            assistant_id = entry.get("assistant_person_id") or entry.get("assistant_manager_person_id")
+        elif isinstance(entry, str):
+            pm_id = entry
+        if pm_id:
+            person = db.get(Person, coerce_uuid(pm_id))
+            if not person:
+                pm_id = None
+            else:
+                pm_id = str(person.id)
+        if assistant_id:
+            person = db.get(Person, coerce_uuid(assistant_id))
+            if not person:
+                assistant_id = None
+            else:
+                assistant_id = str(person.id)
+        return pm_id, assistant_id
+
+    @staticmethod
+    def _get_pm_for_region(db: Session, region: str | None) -> str | None:
+        pm_id, _assistant_id = Projects._get_region_pm_assignments(db, region)
+        return pm_id
+
     @staticmethod
     def list_for_site_surveys(db: Session):
         return (
@@ -85,9 +276,23 @@ class Projects(ListResponseMixin):
             _ensure_person(db, str(payload.manager_person_id))
         if payload.subscriber_id:
             _ensure_subscriber(db, str(payload.subscriber_id))
+        if payload.lead_id:
+            _ensure_lead(db, str(payload.lead_id))
         if payload.project_template_id:
             _ensure_project_template(db, str(payload.project_template_id))
         data = payload.model_dump()
+        # Auto-assign PM based on region if not already specified
+        if data.get("region"):
+            auto_pm, auto_assistant = Projects._get_region_pm_assignments(
+                db, data["region"]
+            )
+            if auto_pm:
+                if not data.get("project_manager_person_id"):
+                    data["project_manager_person_id"] = coerce_uuid(auto_pm)
+                if not data.get("manager_person_id"):
+                    data["manager_person_id"] = coerce_uuid(auto_pm)
+            if auto_assistant and not data.get("assistant_manager_person_id"):
+                data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
             default_status = settings_spec.resolve_value(
@@ -105,10 +310,43 @@ class Projects(ListResponseMixin):
                 data["priority"] = validate_enum(
                     default_priority, ProjectPriority, "priority"
                 )
+        if not data.get("start_at") or not data.get("due_at"):
+            duration_days = Projects._duration_days_for_type(data.get("project_type"))
+            if duration_days:
+                start_at = data.get("start_at") or datetime.now(timezone.utc)
+                data["start_at"] = start_at
+                if not data.get("due_at"):
+                    data["due_at"] = start_at + timedelta(days=duration_days)
         project = Project(**data)
         db.add(project)
         db.commit()
         db.refresh(project)
+
+        customer_name = None
+        if project.subscriber and project.subscriber.person:
+            person = project.subscriber.person
+            customer_name = person.display_name or person.email
+        if not customer_name and project.lead_id:
+            lead = db.get(Lead, project.lead_id)
+            if lead and lead.person:
+                customer_name = lead.person.display_name or lead.person.email
+
+        # Emit project created event
+        emit_event(
+            db,
+            EventType.project_created,
+            {
+                "project_id": str(project.id),
+                "name": project.name,
+                "status": project.status.value if project.status else None,
+                "project_type": project.project_type.value if project.project_type else None,
+                "region": project.region,
+                "customer_name": customer_name,
+            },
+            project_id=project.id,
+            subscriber_id=project.subscriber_id,
+        )
+
         if payload.project_template_id:
             ProjectTemplateTasks.replace_project_tasks(
                 db=db, project_id=str(project.id), template_id=str(payload.project_template_id)
@@ -260,6 +498,8 @@ class Projects(ListResponseMixin):
             project.status = ProjectStatus(new_status)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid status") from exc
+        if project.status == ProjectStatus.completed and project.completed_at is None:
+            project.completed_at = datetime.now(timezone.utc)
         db.commit()
         return {"status": "ok"}
 
@@ -277,6 +517,7 @@ class Projects(ListResponseMixin):
         project = db.get(Project, project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
+        previous_status = project.status
         previous_template_id = str(project.project_template_id) if project.project_template_id else None
         data = payload.model_dump(exclude_unset=True)
         if "created_by_person_id" in data and data["created_by_person_id"]:
@@ -287,10 +528,81 @@ class Projects(ListResponseMixin):
             _ensure_person(db, str(data["manager_person_id"]))
         if "project_template_id" in data and data["project_template_id"]:
             _ensure_project_template(db, str(data["project_template_id"]))
+        if "lead_id" in data and data["lead_id"]:
+            _ensure_lead(db, str(data["lead_id"]))
+        # Auto-assign PM based on region if region changes and no PM is set
+        new_region = data.get("region")
+        current_pm = data.get("manager_person_id") if "manager_person_id" in data else project.manager_person_id
+        if new_region:
+            auto_pm, auto_assistant = Projects._get_region_pm_assignments(db, new_region)
+            if auto_pm and not current_pm:
+                data["manager_person_id"] = coerce_uuid(auto_pm)
+            if auto_pm and not project.project_manager_person_id and "project_manager_person_id" not in data:
+                data["project_manager_person_id"] = coerce_uuid(auto_pm)
+            if auto_assistant and not project.assistant_manager_person_id and "assistant_manager_person_id" not in data:
+                data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
         for key, value in data.items():
             setattr(project, key, value)
+        if (
+            data.get("status") == ProjectStatus.completed
+            and project.completed_at is None
+        ):
+            project.completed_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(project)
+
+        # Emit events based on status changes
+        new_status = project.status
+        if new_status == ProjectStatus.completed and previous_status != ProjectStatus.completed:
+            customer_name = None
+            if project.subscriber and project.subscriber.person:
+                person = project.subscriber.person
+                customer_name = person.display_name or person.email
+            if not customer_name and project.lead_id:
+                lead = db.get(Lead, project.lead_id)
+                if lead and lead.person:
+                    customer_name = lead.person.display_name or lead.person.email
+            emit_event(
+                db,
+                EventType.project_completed,
+                {
+                    "project_id": str(project.id),
+                    "name": project.name,
+                    "from_status": previous_status.value if previous_status else None,
+                    "to_status": new_status.value,
+                    "customer_name": customer_name,
+                },
+                project_id=project.id,
+                subscriber_id=project.subscriber_id,
+            )
+        elif new_status == ProjectStatus.canceled and previous_status != ProjectStatus.canceled:
+            emit_event(
+                db,
+                EventType.project_canceled,
+                {
+                    "project_id": str(project.id),
+                    "name": project.name,
+                    "from_status": previous_status.value if previous_status else None,
+                    "to_status": new_status.value,
+                },
+                project_id=project.id,
+                subscriber_id=project.subscriber_id,
+            )
+        elif previous_status != new_status or len(data) > 1:
+            # Emit generic update if status changed or other fields updated
+            emit_event(
+                db,
+                EventType.project_updated,
+                {
+                    "project_id": str(project.id),
+                    "name": project.name,
+                    "status": new_status.value if new_status else None,
+                    "changed_fields": list(data.keys()),
+                },
+                project_id=project.id,
+                subscriber_id=project.subscriber_id,
+            )
+
         if "project_template_id" in data:
             new_template_id = str(project.project_template_id) if project.project_template_id else None
             if previous_template_id != new_template_id:
@@ -455,12 +767,11 @@ class ProjectTemplateTasks(ListResponseMixin):
     def replace_project_tasks(db: Session, project_id: str, template_id: str | None):
         project_uuid = coerce_uuid(project_id)
         template_task_ids_subquery = (
-            db.query(ProjectTask.id)
-            .filter(
+            select(ProjectTask.id)
+            .where(
                 ProjectTask.project_id == project_uuid,
                 ProjectTask.template_task_id.isnot(None),
             )
-            .subquery()
         )
         db.query(ProjectTaskDependency).filter(
             ProjectTaskDependency.task_id.in_(template_task_ids_subquery)
@@ -567,6 +878,19 @@ class ProjectTasks(ListResponseMixin):
         db.add(task)
         db.commit()
         db.refresh(task)
+        if task.assigned_to_person_id:
+            assigned_to = db.get(Person, task.assigned_to_person_id)
+            if assigned_to:
+                created_by = None
+                if task.created_by_person_id:
+                    created_by = db.get(Person, task.created_by_person_id)
+                _notify_project_task_assigned(
+                    db=db,
+                    task=task,
+                    project=project,
+                    assigned_to=assigned_to,
+                    created_by=created_by,
+                )
         return task
 
     @staticmethod

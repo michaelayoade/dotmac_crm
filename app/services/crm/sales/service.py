@@ -10,7 +10,7 @@ from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.models.domain_settings import SettingDomain
 from app.models.person import PartyStatus, Person
-from app.models.projects import Project, ProjectTemplate, ProjectType
+from app.models.projects import Project, ProjectStatus, ProjectTemplate, ProjectType
 from app.schemas.projects import ProjectCreate
 from app.services import projects as projects_service
 from app.services import settings_spec
@@ -32,6 +32,21 @@ def _resolve_owner_agent_id_for_person(db: Session, person_id):
     )
     if assignment and assignment.agent_id:
         return assignment.agent_id
+    return None
+
+
+def _lead_title_from_person(person: Person) -> str | None:
+    if not person:
+        return None
+    if person.display_name:
+        return person.display_name.strip() or None
+    name = " ".join([part for part in [person.first_name, person.last_name] if part]).strip()
+    if name:
+        return name
+    if person.email:
+        return person.email.strip() or None
+    if person.phone:
+        return person.phone.strip() or None
     return None
 
 
@@ -67,6 +82,12 @@ def _recalculate_quote_totals(db: Session, quote: Quote) -> None:
 def _resolve_project_type(value: str | None) -> ProjectType | None:
     if not value:
         return None
+    legacy_map = {
+        "radio_installation": ProjectType.air_fiber_installation,
+        "radio_fiber_relocation": ProjectType.air_fiber_relocation,
+    }
+    if value in legacy_map:
+        return legacy_map[value]
     try:
         return ProjectType(value)
     except ValueError:
@@ -77,7 +98,7 @@ def _find_existing_project_for_quote(db: Session, quote_id) -> Project | None:
     return (
         db.query(Project)
         .filter(Project.is_active.is_(True))
-        .filter(Project.metadata_["quote_id"].astext == str(quote_id))
+        .filter(cast(Project.metadata_["quote_id"], String) == str(quote_id))
         .first()
     )
 
@@ -97,6 +118,7 @@ def _ensure_project_from_quote(db: Session, quote: Quote, sales_order_id: str | 
     if existing:
         return existing
 
+    lead = db.get(Lead, quote.lead_id) if quote.lead_id else None
     metadata = quote.metadata_ if isinstance(quote.metadata_, dict) else {}
     project_type_value = metadata.get("project_type") if isinstance(metadata, dict) else None
     project_type = _resolve_project_type(project_type_value if isinstance(project_type_value, str) else None)
@@ -120,7 +142,11 @@ def _ensure_project_from_quote(db: Session, quote: Quote, sales_order_id: str | 
         name=project_name,
         project_type=project_type,
         project_template_id=template.id if template else None,
+        status=ProjectStatus.active,
+        lead_id=quote.lead_id,
         owner_person_id=quote.person_id,
+        region=lead.region if lead else None,
+        customer_address=lead.address if lead else None,
         metadata_=project_metadata or None,
     )
     return projects_service.projects.create(db, payload)
@@ -255,6 +281,10 @@ class Leads(ListResponseMixin):
         if person.party_status == PartyStatus.lead:
             person.party_status = PartyStatus.contact
 
+        title_value = data.get("title")
+        if not title_value or (isinstance(title_value, str) and not title_value.strip()):
+            data["title"] = _lead_title_from_person(person)
+
         if not data.get("owner_agent_id"):
             data["owner_agent_id"] = _resolve_owner_agent_id_for_person(db, person_id)
         if not data.get("currency"):
@@ -325,6 +355,14 @@ class Leads(ListResponseMixin):
             person = db.get(Person, data["person_id"])
             if not person:
                 raise HTTPException(status_code=404, detail="Person not found")
+        else:
+            person = lead.person
+
+        if "title" in data:
+            title_value = data.get("title")
+            if not title_value or (isinstance(title_value, str) and not title_value.strip()):
+                inferred = _lead_title_from_person(person) if person else None
+                data["title"] = inferred
 
         for key, value in data.items():
             setattr(lead, key, value)
@@ -661,3 +699,11 @@ class CrmQuoteLineItems(ListResponseMixin):
             {"created_at": CrmQuoteLineItem.created_at},
         )
         return apply_pagination(query, limit, offset).all()
+
+
+# Singleton instances
+pipelines = Pipelines()
+pipeline_stages = PipelineStages()
+leads = Leads()
+quotes = Quotes()
+quote_line_items = CrmQuoteLineItems()

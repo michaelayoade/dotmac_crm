@@ -36,7 +36,7 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Phone</label>
                     <input type="text" name="phone" value="{{ contact.phone }}"
@@ -48,6 +48,17 @@
                             class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                         <option value="true" {% if contact.is_active %}selected{% endif %}>Active</option>
                         <option value="false" {% if not contact.is_active %}selected{% endif %}>Inactive</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Contact Type</label>
+                    <select name="party_status"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for status in party_statuses %}
+                        <option value="{{ status }}" {% if contact.party_status == status %}selected{% endif %}>
+                            {{ status | replace('_', ' ') | title }}
+                        </option>
+                        {% endfor %}
                     </select>
                 </div>
             </div>

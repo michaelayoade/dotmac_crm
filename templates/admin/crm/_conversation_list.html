@@ -89,7 +89,14 @@
                 <!-- Content -->
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center justify-between gap-2 mb-0.5">
-                        <h4 class="text-sm font-semibold text-slate-900 truncate dark:text-white" data-role="contact-name">{{ conv.contact.name }}</h4>
+                        <div class="flex items-center gap-2 min-w-0">
+                            <h4 class="text-sm font-semibold text-slate-900 truncate dark:text-white" data-role="contact-name">{{ conv.contact.name }}</h4>
+                            {% if conv.contact.splynx_id %}
+                            <span class="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-600 border border-blue-500/25 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20" title="Splynx Customer ID">
+                                #{{ conv.contact.splynx_id }}
+                            </span>
+                            {% endif %}
+                        </div>
                         <span class="text-xs text-slate-500 font-mono-tight whitespace-nowrap dark:text-slate-500"
                               data-role="last-message-at"
                               {% if conv.last_message_at %}data-timestamp="{{ conv.last_message_at.isoformat() }}"{% endif %}>

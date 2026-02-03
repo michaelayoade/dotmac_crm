@@ -1,11 +1,20 @@
-<div class="msg-slide-up flex justify-center" style="animation-delay: 0ms;">
+<div class="msg-slide-up flex justify-center" style="animation-delay: 0ms;" data-private-note-item data-note-id="{{ msg.id }}">
     <div class="max-w-[85%] w-full">
         <div class="rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 shadow-sm dark:border-amber-400/30 dark:bg-amber-500/10">
             <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300">
-                <span class="font-semibold">Private note</span>
-                <span class="rounded-full border border-amber-300/60 px-2 py-0.5 text-[9px] font-semibold text-amber-700 dark:border-amber-400/40 dark:text-amber-200">
-                    {{ msg.visibility or 'team' }}
-                </span>
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold">Private note</span>
+                    <span class="rounded-full border border-amber-300/60 px-2 py-0.5 text-[9px] font-semibold text-amber-700 dark:border-amber-400/40 dark:text-amber-200">
+                        {{ msg.visibility or 'team' }}
+                    </span>
+                </div>
+                <button type="button"
+                        class="text-[10px] font-semibold text-amber-700/80 hover:text-amber-800 dark:text-amber-200/80 dark:hover:text-amber-100"
+                        data-note-id="{{ msg.id }}"
+                        data-conversation-id="{{ msg.conversation_id }}"
+                        @click="deletePrivateNote($event)">
+                    Delete
+                </button>
             </div>
             <div class="mt-2 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
                 {{ msg.content_html | safe if msg.content_html else msg.content }}

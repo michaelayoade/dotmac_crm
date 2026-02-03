@@ -14,7 +14,7 @@ class ReportsPage(BasePage):
     def __init__(self, page: Page, base_url: str) -> None:
         super().__init__(page, base_url)
 
-    def goto(self) -> None:
+    def goto(self, path: str = "") -> None:
         """Navigate to reports page."""
         super().goto("/admin/reports")
 

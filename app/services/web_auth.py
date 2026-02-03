@@ -1,6 +1,6 @@
 """Service helpers for web auth routes."""
 
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -14,10 +14,36 @@ from app.services.email import send_password_reset_email
 templates = Jinja2Templates(directory="templates")
 
 
+_UNSAFE_REFRESH_SEGMENTS = {
+    "/email-connector",
+    "/whatsapp-connector",
+    "/convert",
+    "/poll",
+    "/reset",
+    "/delete",
+    "/activate",
+    "/teams",
+    "/agents",
+    "/agent-teams",
+}
+
+
+def _sanitize_refresh_next(next_url: str | None, fallback: str) -> str:
+    if not next_url or not next_url.startswith("/"):
+        return fallback
+    parsed = urlparse(next_url)
+    for segment in _UNSAFE_REFRESH_SEGMENTS:
+        if segment in parsed.path:
+            if parsed.path.startswith("/admin/crm/inbox"):
+                return urlunparse(("", "", "/admin/crm/inbox", "", parsed.query, ""))
+            if parsed.path.startswith("/admin/crm/contacts"):
+                return urlunparse(("", "", "/admin/crm/contacts", "", "", ""))
+            return fallback
+    return next_url
+
+
 def _safe_next(next_url: str | None, fallback: str = "/admin/dashboard") -> str:
-    if next_url and next_url.startswith("/"):
-        return next_url
-    return fallback
+    return _sanitize_refresh_next(next_url, fallback)
 
 
 def _set_refresh_cookie(response, db: Session, refresh_token: str):

@@ -43,6 +43,7 @@ class TechnicianProfile(Base):
     )
     title: Mapped[str | None] = mapped_column(String(120))
     region: Mapped[str | None] = mapped_column(String(120))
+    erp_employee_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)  # ERP employee ID
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -91,9 +92,14 @@ class Shift(Base):
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     timezone: Mapped[str | None] = mapped_column(String(64))
+    shift_type: Mapped[str | None] = mapped_column(String(60))  # e.g., "regular", "overtime", "on_call"
+    erp_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)  # External ID for dedup
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     technician = relationship("TechnicianProfile")
@@ -111,10 +117,15 @@ class AvailabilityBlock(Base):
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(160))
+    block_type: Mapped[str | None] = mapped_column(String(60))  # e.g., "leave", "sick", "training"
     is_available: Mapped[bool] = mapped_column(Boolean, default=False)
+    erp_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)  # External ID for dedup
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     technician = relationship("TechnicianProfile")

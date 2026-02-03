@@ -6,6 +6,7 @@
             <thead>
                 <tr class="bg-gradient-to-r from-slate-50 to-slate-100/50 dark:from-slate-800/80 dark:to-slate-800/50">
                     <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ticket</th>
+                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
                     <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
                     <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
                     <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Channel</th>
@@ -35,6 +36,11 @@
                                 </p>
                                 {% endif %}
                             </div>
+                        </div>
+                    </td>
+                    <td class="px-5 py-4">
+                        <div class="text-sm font-medium text-slate-900 dark:text-white">
+                            {{ ticket.ticket_type or '—' }}
                         </div>
                     </td>
                     <td class="px-5 py-4 whitespace-nowrap">
@@ -140,7 +146,7 @@
                     color2="orange",
                     action_label="Create First Ticket" if not (status or priority or channel) else "",
                     action_href="/admin/support/tickets/create" if not (status or priority or channel) else "",
-                    colspan=6
+                    colspan=7
                 ) }}
                 {% endfor %}
             </tbody>

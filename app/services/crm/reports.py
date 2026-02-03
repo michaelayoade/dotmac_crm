@@ -157,6 +157,8 @@ def inbox_kpis(
     agent_id: str | None,
     team_id: str | None,
 ) -> dict:
+    from app.models.integration import IntegrationTarget
+
     message_query = db.query(Message)
     message_time = func.coalesce(
         Message.received_at,
@@ -288,12 +290,27 @@ def inbox_kpis(
     )
     channel_volume_map = {str(channel): count for channel, count in channel_volume}
 
+    email_inbox_rows = (
+        message_query
+        .filter(Message.channel_type == ChannelType.email)
+        .outerjoin(IntegrationTarget, IntegrationTarget.id == Message.channel_target_id)
+        .with_entities(Message.channel_target_id, IntegrationTarget.name, func.count(Message.id))
+        .group_by(Message.channel_target_id, IntegrationTarget.name)
+        .all()
+    )
+    email_inbox_map: dict[str, dict[str, Any]] = {}
+    for inbox_id, inbox_name, count in email_inbox_rows:
+        inbox_key = str(inbox_id) if inbox_id else "none"
+        label = inbox_name or "Unknown Inbox"
+        email_inbox_map[inbox_key] = {"label": label, "count": int(count or 0)}
+
     return {
         "messages": {
             "total": total_messages,
             "inbound": inbound_messages,
             "outbound": outbound_messages,
             "by_channel": channel_volume_map,
+            "by_email_inbox": email_inbox_map,
         },
         "avg_response_minutes": avg_response_minutes,
         "avg_resolution_minutes": avg_resolution_minutes,
@@ -488,9 +505,15 @@ def agent_performance_metrics(
         if channel_type:
             try:
                 channel_value = ChannelType(channel_type)
-                convo_query = convo_query.filter(Conversation.channel_type == channel_value)  # type: ignore[attr-defined]
             except ValueError:
-                pass
+                channel_value = None
+            if channel_value:
+                convo_query = convo_query.filter(
+                    db.query(Message.id)
+                    .filter(Message.conversation_id == Conversation.id)
+                    .filter(Message.channel_type == channel_value)
+                    .exists()
+                )
 
         conversations = convo_query.all()
         total = len(conversations)
@@ -603,9 +626,15 @@ def conversation_trend(
         if channel_type:
             try:
                 channel_value = ChannelType(channel_type)
-                query = query.filter(Conversation.channel_type == channel_value)  # type: ignore[attr-defined]
             except ValueError:
-                pass
+                channel_value = None
+            if channel_value:
+                query = query.filter(
+                    db.query(Message.id)
+                    .filter(Message.conversation_id == Conversation.id)
+                    .filter(Message.channel_type == channel_value)
+                    .exists()
+                )
 
         conversations = query.all()
         total = len(conversations)

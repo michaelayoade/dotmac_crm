@@ -3,17 +3,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.logic import private_note_logic
 from app.logic.private_note_logic import LogicService, PrivateNoteContext, Visibility
 from typing import cast
-from app.models.crm.conversation import Conversation, Message
+from app.models.crm.conversation import Conversation, Message, MessageAttachment
 from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
 from app.models.rbac import PersonRole, Role
 from app.schemas.crm.conversation import MessageCreate
 from app.services.common import coerce_uuid
-from app.services.crm import conversation as conversation_service
+from app.services.crm.conversations import service as conversation_service
 
 _logic_service = LogicService()
 
@@ -109,3 +110,84 @@ def send_private_note(
         ),
     )
     return message
+
+
+def _recompute_conversation_last_message_at(db: Session, conversation_id: str) -> None:
+    conv = db.get(Conversation, coerce_uuid(conversation_id))
+    if not conv:
+        return
+    last_message_at = (
+        db.query(
+            func.coalesce(
+                Message.received_at,
+                Message.sent_at,
+                Message.created_at,
+            )
+        )
+        .filter(Message.conversation_id == coerce_uuid(conversation_id))
+        .order_by(func.coalesce(Message.received_at, Message.sent_at, Message.created_at).desc())
+        .limit(1)
+        .scalar()
+    )
+    conv.last_message_at = last_message_at
+    conv.updated_at = _now()
+    db.commit()
+
+
+def delete_private_note(
+    db: Session,
+    conversation_id: str,
+    note_id: str,
+    actor_id: str | None,
+) -> None:
+    """Delete an internal-only private note message."""
+    message = db.get(Message, coerce_uuid(note_id))
+    if not message:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if str(message.conversation_id) != str(coerce_uuid(conversation_id)):
+        raise HTTPException(status_code=404, detail="Note not found")
+    metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
+    if message.channel_type != ChannelType.note and metadata.get("type") != "private_note":
+        raise HTTPException(status_code=400, detail="Message is not a private note")
+
+    if not actor_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    is_author = message.author_id and str(message.author_id) == str(coerce_uuid(actor_id))
+    if not is_author and not _author_is_admin(db, actor_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    db.query(MessageAttachment).filter(MessageAttachment.message_id == message.id).delete()
+    db.delete(message)
+    db.commit()
+    _recompute_conversation_last_message_at(db, conversation_id)
+
+
+class PrivateNotes:
+    @staticmethod
+    def create(
+        db: Session,
+        conversation_id: str,
+        author_id: str | None,
+        body: str | None,
+        requested_visibility: Visibility | None,
+    ) -> Message:
+        return send_private_note(
+            db,
+            conversation_id=conversation_id,
+            author_id=author_id,
+            body=body,
+            requested_visibility=requested_visibility,
+        )
+
+    @staticmethod
+    def delete(
+        db: Session,
+        conversation_id: str,
+        note_id: str,
+        actor_id: str | None,
+    ) -> None:
+        delete_private_note(db, conversation_id, note_id, actor_id)
+
+
+# Singleton instance
+private_notes = PrivateNotes()

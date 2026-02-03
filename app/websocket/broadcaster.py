@@ -36,6 +36,14 @@ def _run_async(coro):
             logger.error("async_run_error error=%s", exc)
 
 
+def _ensure_manager_connected(manager) -> None:
+    try:
+        if getattr(manager, "_redis_client", None) is None:
+            _run_async(manager.connect())
+    except Exception as exc:
+        logger.warning("websocket_manager_connect_error error=%s", exc)
+
+
 def broadcast_new_message(message: "Message", conversation: "Conversation"):
     """
     Broadcast a new message event to conversation subscribers.
@@ -57,6 +65,7 @@ def broadcast_new_message(message: "Message", conversation: "Conversation"):
             },
         )
         manager = get_connection_manager()
+        _ensure_manager_connected(manager)
         _run_async(manager.broadcast_to_conversation(str(conversation.id), event))
         logger.debug(
             "broadcast_new_message conversation_id=%s message_id=%s",
@@ -85,6 +94,7 @@ def broadcast_message_status(
             },
         )
         manager = get_connection_manager()
+        _ensure_manager_connected(manager)
         _run_async(manager.broadcast_to_conversation(str(conversation_id), event))
         logger.debug(
             "broadcast_message_status conversation_id=%s message_id=%s status=%s",
@@ -113,6 +123,7 @@ def broadcast_conversation_updated(conversation: "Conversation"):
             },
         )
         manager = get_connection_manager()
+        _ensure_manager_connected(manager)
         _run_async(manager.broadcast_to_conversation(str(conversation.id), event))
         logger.debug(
             "broadcast_conversation_updated conversation_id=%s", conversation.id
@@ -131,6 +142,7 @@ def broadcast_conversation_summary(conversation_id: str, summary: dict):
             data=payload,
         )
         manager = get_connection_manager()
+        _ensure_manager_connected(manager)
         _run_async(manager.broadcast_to_conversation(str(conversation_id), event))
     except Exception as exc:
         logger.warning("broadcast_conversation_summary_error error=%s", exc)
@@ -162,6 +174,7 @@ def broadcast_to_widget_visitor(session_id: str, message: "Message"):
             },
         )
         manager = get_connection_manager()
+        _ensure_manager_connected(manager)
         # Widget connections are registered with "widget:{session_id}" prefix
         _run_async(manager.broadcast_to_user(f"widget:{session_id}", event))
         logger.debug(
@@ -181,6 +194,7 @@ def subscribe_widget_to_conversation(session_id: str, conversation_id: str):
     """
     try:
         manager = get_connection_manager()
+        _ensure_manager_connected(manager)
         _run_async(manager.subscribe_conversation(f"widget:{session_id}", conversation_id))
         event = WebSocketEvent(
             event=EventType.CONVERSATION_CREATED,
@@ -194,3 +208,39 @@ def subscribe_widget_to_conversation(session_id: str, conversation_id: str):
         )
     except Exception as exc:
         logger.warning("widget_auto_subscribe_error error=%s", exc)
+
+
+def broadcast_agent_notification(user_id: str, payload: dict):
+    """Send a notification event directly to an agent's inbox connections."""
+    try:
+        event = WebSocketEvent(
+            event=EventType.AGENT_NOTIFICATION,
+            data=payload,
+        )
+        manager = get_connection_manager()
+        _ensure_manager_connected(manager)
+        logger.info(
+            "agent_notification_broadcast user_id=%s conversation_id=%s kind=%s",
+            user_id,
+            payload.get("conversation_id"),
+            payload.get("kind"),
+        )
+        _run_async(manager.broadcast_to_user(str(user_id), event))
+        logger.debug("broadcast_agent_notification user_id=%s", user_id)
+    except Exception as exc:
+        logger.warning("broadcast_agent_notification_error error=%s", exc)
+
+
+def broadcast_inbox_updated(user_id: str, payload: dict):
+    """Send a lightweight inbox refresh event to a specific user."""
+    try:
+        event = WebSocketEvent(
+            event=EventType.INBOX_UPDATED,
+            data=payload,
+        )
+        manager = get_connection_manager()
+        _ensure_manager_connected(manager)
+        _run_async(manager.broadcast_to_user(str(user_id), event))
+        logger.info("broadcast_inbox_updated user_id=%s", user_id)
+    except Exception as exc:
+        logger.warning("broadcast_inbox_updated_error error=%s", exc)

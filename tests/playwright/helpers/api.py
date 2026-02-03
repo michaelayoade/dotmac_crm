@@ -37,7 +37,7 @@ def api_post_json(
 def api_post_form(
     context: APIRequestContext,
     url: str,
-    payload: Mapping[str, Any],
+    payload: Mapping[str, str | float | bool],
     headers: Mapping[str, str] | None = None,
     follow_redirects: bool = False,
 ) -> APIResponse:
@@ -45,4 +45,4 @@ def api_post_form(
     # Use form= parameter for form-encoded data (Playwright handles Content-Type)
     # Don't follow redirects by default for API tests (use max_redirects=0)
     max_redirects = 0 if not follow_redirects else 30
-    return context.post(url, form=payload, headers=merged, max_redirects=max_redirects)
+    return context.post(url, form=dict(payload), headers=merged, max_redirects=max_redirects)

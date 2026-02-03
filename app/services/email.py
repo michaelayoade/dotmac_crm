@@ -1,8 +1,11 @@
+import base64
 import logging
 import os
 import smtplib
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email import encoders
 
 from sqlalchemy.orm import Session
 
@@ -89,7 +92,7 @@ def _get_smtp_config(db: Session | None) -> dict:
         "use_tls": use_tls,
         "use_ssl": use_ssl,
         "from_email": from_email,
-        "from_name": _env_value("SMTP_FROM_NAME") or _setting_value(db, "smtp_from_name") or "DotMac SM",
+        "from_name": _env_value("SMTP_FROM_NAME") or _setting_value(db, "smtp_from_name") or "DotMac CRM",
         "user": username,
         "from_addr": from_email,
     }
@@ -121,15 +124,20 @@ def send_email_with_config(
     subject: str,
     body_html: str,
     body_text: str | None = None,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> bool:
-    msg = MIMEMultipart("alternative")
+    msg = _build_email_message(
+        subject=subject,
+        from_name=config.get("from_name", "DotMac CRM"),
+        from_email=config.get("from_email", "noreply@example.com"),
+        to_email=to_email,
+        body_html=body_html,
+        body_text=body_text,
+        reply_to=reply_to,
+        attachments=attachments,
+    )
     msg["Subject"] = subject
-    msg["From"] = f"{config.get('from_name', 'DotMac SM')} <{config.get('from_email', 'noreply@example.com')}>"
-    msg["To"] = to_email
-
-    if body_text:
-        msg.attach(MIMEText(body_text, "plain"))
-    msg.attach(MIMEText(body_html, "html"))
 
     try:
         host = str(config.get("host") or "localhost")
@@ -167,6 +175,10 @@ def send_email(
     body_html: str,
     body_text: str | None = None,
     track: bool = True,
+    from_name: str | None = None,
+    from_email: str | None = None,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,
 ) -> bool:
     """
     Send an email via SMTP.
@@ -183,15 +195,22 @@ def send_email(
         True if email was sent successfully, False otherwise
     """
     config = _get_smtp_config(db)
+    if from_name:
+        config["from_name"] = from_name
+    if from_email:
+        config["from_email"] = from_email
+        config["from_addr"] = from_email
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"{config['from_name']} <{config['from_email']}>"
-    msg["To"] = to_email
-
-    if body_text:
-        msg.attach(MIMEText(body_text, "plain"))
-    msg.attach(MIMEText(body_html, "html"))
+    msg = _build_email_message(
+        subject=subject,
+        from_name=config["from_name"],
+        from_email=config["from_email"],
+        to_email=to_email,
+        body_html=body_html,
+        body_text=body_text,
+        reply_to=reply_to,
+        attachments=attachments,
+    )
 
     notification = None
     if track and db:
@@ -245,6 +264,53 @@ def send_email(
             notification.last_error = str(e)
             db.commit()
         return False
+
+
+def _build_email_message(
+    subject: str,
+    from_name: str,
+    from_email: str,
+    to_email: str,
+    body_html: str,
+    body_text: str | None = None,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,
+) -> MIMEMultipart:
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"] = f"{from_name} <{from_email}>"
+    msg["To"] = to_email
+    if reply_to:
+        msg["Reply-To"] = reply_to
+
+    alternative = MIMEMultipart("alternative")
+    if body_text:
+        alternative.attach(MIMEText(body_text, "plain"))
+    alternative.attach(MIMEText(body_html, "html"))
+    msg.attach(alternative)
+
+    if attachments:
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            filename = attachment.get("file_name") or "attachment"
+            mime_type = attachment.get("mime_type") or "application/octet-stream"
+            content_base64 = attachment.get("content_base64")
+            if not content_base64:
+                continue
+            try:
+                content = base64.b64decode(content_base64)
+            except Exception:
+                continue
+            maintype, subtype = (
+                mime_type.split("/", 1) if "/" in mime_type else ("application", "octet-stream")
+            )
+            part = MIMEBase(maintype, subtype)
+            part.set_payload(content)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=filename)
+            msg.attach(part)
+    return msg
 
 
 def test_smtp_connection(

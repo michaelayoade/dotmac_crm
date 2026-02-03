@@ -8,7 +8,7 @@ class AdminLoginPage:
         self.page = page
         self.base_url = base_url
 
-    def goto(self) -> None:
+    def goto(self, path: str = "") -> None:
         self.page.goto(f"{self.base_url}/auth/login", wait_until="domcontentloaded")
 
     def login(self, username: str, password: str) -> None:

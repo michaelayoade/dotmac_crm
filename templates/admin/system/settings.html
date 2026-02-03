@@ -50,6 +50,258 @@
     </div>
     {% endif %}
 
+    {% if domain == "campaigns" %}
+    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-6">
+        <div>
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Campaign Senders</h2>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage the sender identities available for CRM campaigns.</p>
+        </div>
+
+        <form method="POST" action="/admin/system/settings/campaign-senders" class="grid gap-4 sm:grid-cols-6">
+            {% include "components/forms/csrf_input.html" %}
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Label</label>
+                <input type="text" name="name" required
+                       placeholder="Marketing Team"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">From Name</label>
+                <input type="text" name="from_name"
+                       placeholder="DotMac CRM"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">From Email *</label>
+                <input type="email" name="from_email" required
+                       placeholder="marketing@dotmac.io"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-3">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Reply-To</label>
+                <input type="email" name="reply_to"
+                       placeholder="support@dotmac.io"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-2 flex items-end">
+                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" name="is_active" value="true" checked
+                           class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                    Active
+                </label>
+            </div>
+            <div class="sm:col-span-1 flex items-end justify-end">
+                <button type="submit"
+                        class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                    Add Sender
+                </button>
+            </div>
+        </form>
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-700/50">
+                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Label</th>
+                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">From</th>
+                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Reply-To</th>
+                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Active</th>
+                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {% if campaign_senders %}
+                    {% for sender in campaign_senders %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                        <td class="px-4 py-3">
+                            <input type="text" form="sender-{{ sender.id }}" name="name" value="{{ sender.name }}"
+                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="grid gap-2">
+                                <input type="text" form="sender-{{ sender.id }}" name="from_name" value="{{ sender.from_name or '' }}"
+                                       placeholder="From Name"
+                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <input type="email" form="sender-{{ sender.id }}" name="from_email" value="{{ sender.from_email }}"
+                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <input type="email" form="sender-{{ sender.id }}" name="reply_to" value="{{ sender.reply_to or '' }}"
+                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </td>
+                        <td class="px-4 py-3">
+                            <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" form="sender-{{ sender.id }}" name="is_active" value="true"
+                                       {% if sender.is_active %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                            </label>
+                        </td>
+                        <td class="px-4 py-3 text-right text-sm">
+                            <form id="sender-{{ sender.id }}" method="POST" action="/admin/system/settings/campaign-senders/{{ sender.id }}" class="inline">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="text-primary-600 hover:text-primary-700">Save</button>
+                            </form>
+                            <form method="POST" action="/admin/system/settings/campaign-senders/{{ sender.id }}/delete" class="inline" onsubmit="return confirm('Deactivate this sender?');">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="ml-3 text-red-600 hover:text-red-700">Deactivate</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No campaign senders configured yet.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">SMTP Profiles</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage SMTP profiles available for campaigns.</p>
+            </div>
+        </div>
+        <form method="POST" action="/admin/system/settings/campaign-smtp" class="grid gap-4 sm:grid-cols-6">
+            {% include "components/forms/csrf_input.html" %}
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Label</label>
+                <input type="text" name="name" required placeholder="Campaign SMTP"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Host</label>
+                <input type="text" name="host" required placeholder="smtp.mailserver.com"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-1">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Port</label>
+                <input type="number" name="port" value="587"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-1 flex items-end">
+                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" name="use_tls" value="true" checked
+                           class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                    TLS
+                </label>
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Username</label>
+                <input type="text" name="username"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Password</label>
+                <input type="password" name="password"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-1 flex items-end">
+                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" name="use_ssl" value="true"
+                           class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                    SSL
+                </label>
+            </div>
+            <div class="sm:col-span-1 flex items-end">
+                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" name="is_active" value="true" checked
+                           class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                    Active
+                </label>
+            </div>
+            <div class="sm:col-span-6 flex items-center justify-end">
+                <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                    Add SMTP Profile
+                </button>
+            </div>
+        </form>
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-700/50">
+                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Label</th>
+                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Host</th>
+                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Auth</th>
+                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Flags</th>
+                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {% if campaign_smtp_profiles %}
+                    {% for smtp in campaign_smtp_profiles %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                        <td class="px-4 py-3">
+                            <input type="text" form="smtp-{{ smtp.id }}" name="name" value="{{ smtp.name }}"
+                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="grid gap-2">
+                                <input type="text" form="smtp-{{ smtp.id }}" name="host" value="{{ smtp.host }}"
+                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <input type="number" form="smtp-{{ smtp.id }}" name="port" value="{{ smtp.port }}"
+                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="grid gap-2">
+                                <input type="text" form="smtp-{{ smtp.id }}" name="username" value="{{ smtp.username or '' }}"
+                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <input type="password" form="smtp-{{ smtp.id }}" name="password" value=""
+                                       placeholder="••••••"
+                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                {% if smtp.password %}
+                                <p class="text-xs text-slate-500 dark:text-slate-400">Stored password hidden.</p>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" form="smtp-{{ smtp.id }}" name="use_tls" value="true"
+                                       {% if smtp.use_tls %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                                TLS
+                            </label>
+                            <label class="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" form="smtp-{{ smtp.id }}" name="use_ssl" value="true"
+                                       {% if smtp.use_ssl %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                                SSL
+                            </label>
+                            <label class="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" form="smtp-{{ smtp.id }}" name="is_active" value="true"
+                                       {% if smtp.is_active %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                                Active
+                            </label>
+                        </td>
+                        <td class="px-4 py-3 text-right text-sm">
+                            <form id="smtp-{{ smtp.id }}" method="POST" action="/admin/system/settings/campaign-smtp/{{ smtp.id }}" class="inline">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="text-primary-600 hover:text-primary-700">Save</button>
+                            </form>
+                            <form method="POST" action="/admin/system/settings/campaign-smtp/{{ smtp.id }}/delete" class="inline" onsubmit="return confirm('Deactivate this SMTP profile?');">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="ml-3 text-red-600 hover:text-red-700">Deactivate</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No SMTP profiles configured yet.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
     <form method="POST" action="/admin/system/settings" class="space-y-6">
         {% include "components/forms/csrf_input.html" %}
         <input type="hidden" name="domain" value="{{ domain }}">
@@ -61,7 +313,7 @@
                 </div>
                 <span class="text-xs font-medium uppercase tracking-wide text-slate-400">Settings</span>
             </div>
-            {% set hidden_keys = ['brand_logo_url', 'brand_favicon_url'] %}
+            {% set hidden_keys = ['brand_logo_url', 'brand_favicon_url', 'ticket_types'] %}
             {% if sections %}
             <div class="mt-6 space-y-6">
                 {% for section in sections %}
@@ -93,8 +345,46 @@
                                     {% endfor %}
                                 </select>
                             {% elif setting.value_type == 'json' %}
+                                {% if domain == 'projects' and setting.key == 'region_pm_assignments' %}
+                                <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
+                                    <div class="grid gap-3">
+                                        {% for region in region_pm_regions or [] %}
+                                        <div class="grid gap-3 sm:grid-cols-3">
+                                            <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
+                                            <div>
+                                                <select name="region_pm_manager_{{ region }}"
+                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">Project Manager</option>
+                                                    {% for tech in technicians or [] %}
+                                                    {% if tech.person %}
+                                                    <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].manager_person_id == tech.person.id|string %}selected{% endif %}>
+                                                        {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                                    </option>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <select name="region_pm_assistant_{{ region }}"
+                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">Assistant PM</option>
+                                                    {% for tech in technicians or [] %}
+                                                    {% if tech.person %}
+                                                    <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
+                                                        {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                                    </option>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% else %}
                                 <textarea name="{{ setting.key }}" rows="8"
                                           class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-mono shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ setting.display_value }}</textarea>
+                                {% endif %}
                             {% elif setting.value_type == 'integer' %}
                                 <input type="number" name="{{ setting.key }}" value="{{ setting.value }}"
                                        {% if setting.min_value is not none %}min="{{ setting.min_value }}"{% endif %}
@@ -145,8 +435,46 @@
                             {% endfor %}
                         </select>
                     {% elif setting.value_type == 'json' %}
+                        {% if domain == 'projects' and setting.key == 'region_pm_assignments' %}
+                        <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
+                            <div class="grid gap-3">
+                                {% for region in region_pm_regions or [] %}
+                                <div class="grid gap-3 sm:grid-cols-3">
+                                    <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
+                                    <div>
+                                        <select name="region_pm_manager_{{ region }}"
+                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">Project Manager</option>
+                                            {% for tech in technicians or [] %}
+                                            {% if tech.person %}
+                                            <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].manager_person_id == tech.person.id|string %}selected{% endif %}>
+                                                {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                            </option>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <select name="region_pm_assistant_{{ region }}"
+                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">Assistant PM</option>
+                                            {% for tech in technicians or [] %}
+                                            {% if tech.person %}
+                                            <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
+                                                {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                            </option>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% else %}
                         <textarea name="{{ setting.key }}" rows="8"
                                   class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-mono shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ setting.display_value }}</textarea>
+                        {% endif %}
                     {% elif setting.value_type == 'integer' %}
                         <input type="number" name="{{ setting.key }}" value="{{ setting.value }}"
                                {% if setting.min_value is not none %}min="{{ setting.min_value }}"{% endif %}
@@ -177,6 +505,63 @@
     </form>
 
     {% if domain == "comms" %}
+    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Ticket Type Settings</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage ticket types and default priorities.</p>
+            </div>
+            <button type="button" id="add-ticket-type"
+                    class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Add Type
+            </button>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+            <table class="min-w-full text-sm">
+                <thead class="text-xs uppercase text-slate-500 dark:text-slate-400">
+                    <tr>
+                        <th class="px-2 py-2 text-left">Name</th>
+                        <th class="px-2 py-2 text-left">Priority</th>
+                        <th class="px-2 py-2 text-left">Active</th>
+                        <th class="px-2 py-2 text-right">Remove</th>
+                    </tr>
+                </thead>
+                <tbody id="ticket-types-body">
+                    {% for item in ticket_types_list or [] %}
+                    <tr class="border-t border-slate-100 dark:border-slate-700">
+                        <td class="px-2 py-2">
+                            <input type="text" name="ticket_type_name_{{ loop.index0 }}"
+                                   value="{{ item.name }}"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </td>
+                        <td class="px-2 py-2">
+                            <select name="ticket_type_priority_{{ loop.index0 }}"
+                                    class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <option value="" {% if not item.priority %}selected{% endif %}>No default</option>
+                                <option value="low" {% if item.priority == 'low' %}selected{% endif %}>Low</option>
+                                <option value="normal" {% if item.priority == 'normal' %}selected{% endif %}>Normal</option>
+                                <option value="high" {% if item.priority == 'high' %}selected{% endif %}>High</option>
+                                <option value="urgent" {% if item.priority == 'urgent' %}selected{% endif %}>Urgent</option>
+                            </select>
+                        </td>
+                        <td class="px-2 py-2">
+                            <label class="inline-flex items-center gap-2">
+                                <input type="checkbox" name="ticket_type_active_{{ loop.index0 }}" value="true"
+                                       {% if item.is_active %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                <span class="text-xs text-slate-600 dark:text-slate-300">Enabled</span>
+                            </label>
+                        </td>
+                        <td class="px-2 py-2 text-right">
+                            <button type="button" class="remove-ticket-type text-xs text-red-600 hover:text-red-700">Remove</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Disabled items stay in history but won’t show up in ticket creation.</p>
+    </div>
     <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div class="flex items-center justify-between">
             <div>
@@ -217,6 +602,65 @@
     </div>
     {% endif %}
 
+    {% if domain == "comms" %}
+    <script>
+        (function () {
+            const tbody = document.getElementById("ticket-types-body");
+            const addBtn = document.getElementById("add-ticket-type");
+            if (!tbody || !addBtn) {
+                return;
+            }
+            const nextIndex = () => {
+                const rows = tbody.querySelectorAll("tr");
+                return rows.length;
+            };
+            const bindRemove = (row) => {
+                const removeBtn = row.querySelector(".remove-ticket-type");
+                if (!removeBtn) {
+                    return;
+                }
+                removeBtn.addEventListener("click", () => {
+                    row.remove();
+                });
+            };
+            tbody.querySelectorAll("tr").forEach(bindRemove);
+            addBtn.addEventListener("click", () => {
+                const idx = nextIndex();
+                const row = document.createElement("tr");
+                row.className = "border-t border-slate-100 dark:border-slate-700";
+                row.innerHTML = `
+                    <td class="px-2 py-2">
+                        <input type="text" name="ticket_type_name_${idx}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </td>
+                    <td class="px-2 py-2">
+                        <select name="ticket_type_priority_${idx}"
+                                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="" selected>No default</option>
+                            <option value="low">Low</option>
+                            <option value="normal">Normal</option>
+                            <option value="high">High</option>
+                            <option value="urgent">Urgent</option>
+                        </select>
+                    </td>
+                    <td class="px-2 py-2">
+                        <label class="inline-flex items-center gap-2">
+                            <input type="checkbox" name="ticket_type_active_${idx}" value="true" checked
+                                   class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                            <span class="text-xs text-slate-600 dark:text-slate-300">Enabled</span>
+                        </label>
+                    </td>
+                    <td class="px-2 py-2 text-right">
+                        <button type="button" class="remove-ticket-type text-xs text-red-600 hover:text-red-700">Remove</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+                bindRemove(row);
+            });
+        })();
+    </script>
+    {% endif %}
+
     {% if domain == "notification" %}
     <!-- SMTP Test Section -->
     <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -236,8 +680,10 @@
                 Test Connection
             </button>
         </div>
-        <div id="smtp-test-result" class="mt-4"></div>
-    </div>
+    <div id="smtp-test-result" class="mt-4"></div>
+</div>
+    {% endif %}
+
     {% endif %}
 
 </div>

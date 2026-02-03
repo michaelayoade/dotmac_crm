@@ -91,6 +91,8 @@ class Lead(Base):
     probability: Mapped[int | None] = mapped_column(Integer)
     expected_close_date: Mapped[date | None] = mapped_column(Date)
     lost_reason: Mapped[str | None] = mapped_column(String(200))
+    region: Mapped[str | None] = mapped_column(String(80))
+    address: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

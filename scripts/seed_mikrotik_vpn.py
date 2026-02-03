@@ -21,9 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 
 from app.db import SessionLocal
-from app.models.vpn import VpnAuthDigest, VpnCipher, VpnProtocol, VpnServer
-from app.schemas.vpn import GenerateCertificatesRequest
-from app.services.vpn import VpnServerService
+from app.models.vpn import VpnAuthDigest, VpnCipher, VpnProtocol, VpnServer  # type: ignore[import-not-found]
+from app.schemas.vpn import GenerateCertificatesRequest  # type: ignore[import-not-found]
+from app.services.vpn import VpnServerService  # type: ignore[import-not-found]
 
 
 MIKROTIK_VPN_CONFIG = {

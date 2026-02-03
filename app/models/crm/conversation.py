@@ -215,6 +215,7 @@ class Message(Base):
 
     conversation = relationship("Conversation", back_populates="messages")
     person_channel = relationship("PersonChannel")
+    author = relationship("Person", foreign_keys=[author_id])
     attachments = relationship("MessageAttachment", back_populates="message")
 
 

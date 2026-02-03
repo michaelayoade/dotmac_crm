@@ -29,10 +29,50 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from dependency_injector import containers, providers
+from dependency_injector import containers, providers  # type: ignore[import-not-found]
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+
+def _ticket_query_factory(db: "Session"):
+    from app.queries.tickets import TicketQuery
+    return TicketQuery(db)
+
+
+def _work_order_query_factory(db: "Session"):
+    from app.queries.workforce import WorkOrderQuery
+    return WorkOrderQuery(db)
+
+
+def _project_query_factory(db: "Session"):
+    from app.queries.projects import ProjectQuery
+    return ProjectQuery(db)
+
+
+def _get_ticket_service():
+    from app.services.tickets import tickets
+    return tickets
+
+
+def _get_ticket_comments_service():
+    from app.services.tickets import ticket_comments
+    return ticket_comments
+
+
+def _get_work_orders_service():
+    from app.services.workforce import work_orders
+    return work_orders
+
+
+def _get_projects_service():
+    from app.services.projects import projects
+    return projects
+
+
+def _get_project_tasks_service():
+    from app.services.projects import project_tasks
+    return project_tasks
 
 
 class Container(containers.DeclarativeContainer):
@@ -71,61 +111,21 @@ class Container(containers.DeclarativeContainer):
     # -------------------------------------------------------------------------
     # These create query builders with injected database sessions
 
-    @staticmethod
-    def _ticket_query_factory(db: "Session"):
-        from app.queries.tickets import TicketQuery
-        return TicketQuery(db)
-
-    @staticmethod
-    def _work_order_query_factory(db: "Session"):
-        from app.queries.workforce import WorkOrderQuery
-        return WorkOrderQuery(db)
-
-    @staticmethod
-    def _project_query_factory(db: "Session"):
-        from app.queries.projects import ProjectQuery
-        return ProjectQuery(db)
-
-    ticket_query = providers.Factory(_ticket_query_factory.__func__)
-    work_order_query = providers.Factory(_work_order_query_factory.__func__)
-    project_query = providers.Factory(_project_query_factory.__func__)
+    ticket_query = providers.Factory(_ticket_query_factory)
+    work_order_query = providers.Factory(_work_order_query_factory)
+    project_query = providers.Factory(_project_query_factory)
 
     # -------------------------------------------------------------------------
     # Service Providers
     # -------------------------------------------------------------------------
     # Services are provided as singletons since they're stateless managers
 
-    @staticmethod
-    def _get_ticket_service():
-        from app.services.tickets import tickets
-        return tickets
-
-    @staticmethod
-    def _get_ticket_comments_service():
-        from app.services.tickets import ticket_comments
-        return ticket_comments
-
-    @staticmethod
-    def _get_work_orders_service():
-        from app.services.workforce import work_orders
-        return work_orders
-
-    @staticmethod
-    def _get_projects_service():
-        from app.services.projects import projects
-        return projects
-
-    @staticmethod
-    def _get_project_tasks_service():
-        from app.services.projects import project_tasks
-        return project_tasks
-
     # Service providers - return existing singleton instances
-    ticket_service = providers.Singleton(_get_ticket_service.__func__)
-    ticket_comments_service = providers.Singleton(_get_ticket_comments_service.__func__)
-    work_orders_service = providers.Singleton(_get_work_orders_service.__func__)
-    projects_service = providers.Singleton(_get_projects_service.__func__)
-    project_tasks_service = providers.Singleton(_get_project_tasks_service.__func__)
+    ticket_service = providers.Singleton(_get_ticket_service)
+    ticket_comments_service = providers.Singleton(_get_ticket_comments_service)
+    work_orders_service = providers.Singleton(_get_work_orders_service)
+    projects_service = providers.Singleton(_get_projects_service)
+    project_tasks_service = providers.Singleton(_get_project_tasks_service)
 
 
 # Global container instance

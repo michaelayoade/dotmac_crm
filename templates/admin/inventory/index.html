@@ -95,7 +95,13 @@
                                 {% endif %}
                             </td>
                             <td class="px-4 py-3 text-right">
-                                <a href="/admin/inventory/items/{{ item.id }}/edit" class="text-sm text-primary-600 hover:text-primary-700">Edit</a>
+                                <div class="inline-flex items-center gap-3">
+                                    <a href="/admin/inventory/items/{{ item.id }}/edit" class="text-sm text-primary-600 hover:text-primary-700">Edit</a>
+                                    <form method="post" action="/admin/inventory/items/{{ item.id }}/delete" class="inline" onsubmit="return confirm('Delete this item? This will deactivate it.');">
+                                        {% include "components/forms/csrf_input.html" %}
+                                        <button type="submit" class="text-sm text-red-600 hover:text-red-700">Delete</button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}

@@ -5,8 +5,10 @@ Instagram DM, and chat widget channels.
 """
 from __future__ import annotations
 
+import base64
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, cast as typing_cast
 
 import httpx
@@ -25,6 +27,7 @@ from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
 from app.models.person import ChannelType as PersonChannelType, PersonChannel
 from app.schemas.crm.conversation import MessageCreate
 from app.schemas.crm.inbox import InboxSendRequest
+from app.config import settings
 from app.services import email as email_service
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
@@ -38,7 +41,8 @@ from app.services.crm.inbox_normalizers import _normalize_email_address
 
 if TYPE_CHECKING:
     from app.models.crm.conversation import Conversation
-    from app.models.crm.inbox import ConnectorConfig, IntegrationTarget
+    from app.models.connector import ConnectorConfig
+    from app.models.integration import IntegrationTarget
 
 logger = get_logger(__name__)
 USE_INBOX_LOGIC_SERVICE = os.getenv("USE_INBOX_LOGIC_SERVICE", "0") == "1"
@@ -57,6 +61,34 @@ def _render_personalization(body: str, personalization: dict | None) -> str:
     for key, value in personalization.items():
         rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
     return rendered
+
+
+def _prepare_email_attachments(attachments: list[dict] | None) -> list[dict] | None:
+    if not attachments:
+        return None
+    prepared: list[dict] = []
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        if item.get("content_base64"):
+            prepared.append(item)
+            continue
+        stored_name = item.get("stored_name")
+        if not stored_name:
+            continue
+        file_path = Path(settings.message_attachment_upload_dir) / stored_name
+        try:
+            content = file_path.read_bytes()
+        except Exception:
+            continue
+        prepared.append(
+            {
+                "file_name": item.get("file_name") or stored_name,
+                "mime_type": item.get("mime_type") or "application/octet-stream",
+                "content_base64": base64.b64encode(content).decode("ascii"),
+            }
+        )
+    return prepared or None
 
 
 def _set_message_send_error(
@@ -154,6 +186,7 @@ def _send_email_message(
     )
 
     sent = False
+    email_attachments = _prepare_email_attachments(payload.attachments)
     if config:
         smtp_config = _smtp_config_from_connector(config)
         if smtp_config:
@@ -163,6 +196,7 @@ def _send_email_message(
                 payload.subject or "Message",
                 rendered_body,
                 rendered_body,
+                attachments=email_attachments,
             )
 
     if not sent:
@@ -172,6 +206,7 @@ def _send_email_message(
             payload.subject or "Message",
             rendered_body,
             rendered_body,
+            attachments=email_attachments,
         )
 
     message.status = MessageStatus.sent if sent else MessageStatus.failed
@@ -699,3 +734,13 @@ def send_message(
         )
 
     raise HTTPException(status_code=400, detail="Unsupported channel type")
+
+
+def send_reply(db: Session, payload: InboxSendRequest, author_id: str | None = None) -> Message:
+    return send_message(db, payload, author_id=author_id)
+
+
+def send_outbound_message(
+    db: Session, payload: InboxSendRequest, author_id: str | None = None
+) -> Message:
+    return send_message(db, payload, author_id=author_id)

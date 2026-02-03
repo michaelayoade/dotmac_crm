@@ -13,7 +13,7 @@ class VendorAsBuiltPage(BasePage):
     def __init__(self, page: Page, base_url: str) -> None:
         super().__init__(page, base_url)
 
-    def goto(self, project_id: str) -> None:
+    def goto(self, project_id: str = "") -> None:
         """Navigate to as-built submission for a project."""
         super().goto(f"/vendor/as-built/submit?project_id={project_id}")
 

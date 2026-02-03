@@ -43,6 +43,10 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
                 Filter
             </button>
+            <a href="/admin/reports/crm-performance/export?days={{ days }}{% if selected_agent_id %}&agent_id={{ selected_agent_id }}{% endif %}{% if selected_team_id %}&team_id={{ selected_team_id }}{% endif %}{% if selected_channel_type %}&channel_type={{ selected_channel_type }}{% endif %}" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Export CSV
+            </a>
         </form>
     </div>
 
@@ -159,7 +163,9 @@
                 <div class="space-y-3">
                     {% for channel, count in channel_breakdown.items() %}
                     <div class="flex items-center justify-between">
-                        <span class="text-sm text-slate-700 dark:text-slate-300">{{ channel | replace('ChannelType.', '') | replace('_', ' ') | title }}</span>
+                        <span class="text-sm text-slate-700 dark:text-slate-300">
+                            {{ channel_labels.get(channel) or (channel | replace('ChannelType.', '') | replace('_', ' ') | title) }}
+                        </span>
                         <span class="text-sm font-semibold text-slate-900 dark:text-white">{{ count }}</span>
                     </div>
                     {% else %}
@@ -171,8 +177,29 @@
                     const ctx = document.getElementById('channel-chart');
                     if (!ctx) return;
                     const channelData = {{ channel_breakdown | tojson }};
-                    const labels = Object.keys(channelData).map(k => k.replace('ChannelType.', '').replace(/_/g, ' '));
+                    const keys = Object.keys(channelData);
+                    const channelLabels = {{ channel_labels | tojson }};
+                    const labels = keys.map(k => channelLabels[k] || k.replace('ChannelType.', '').replace(/_/g, ' '));
                     const values = Object.values(channelData);
+                    function inboxColor(key, label) {
+                        const name = (label || '').toLowerCase();
+                        if (name.includes('support')) return '#22c55e';
+                        let hash = 0;
+                        for (let i = 0; i < key.length; i++) {
+                            hash = ((hash << 5) - hash) + key.charCodeAt(i);
+                            hash |= 0;
+                        }
+                        const hue = Math.abs(hash) % 360;
+                        return `hsl(${hue}, 70%, 50%)`;
+                    }
+                    const colors = keys.map(k => {
+                        const key = k.replace('ChannelType.', '').toLowerCase();
+                        if (key === 'whatsapp') return '#25d366';
+                        if (key === 'facebook_messenger') return '#1877f2';
+                        if (key === 'instagram_dm') return '#e1306c';
+                        if (key.startsWith('email:')) return inboxColor(key, channelLabels[k] || '');
+                        return '#06b6d4';
+                    });
                     if (labels.length > 0) {
                         const chart = new Chart(ctx, {
                             type: 'doughnut',
@@ -180,7 +207,7 @@
                                 labels: labels,
                                 datasets: [{
                                     data: values,
-                                    backgroundColor: ['#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899']
+                                    backgroundColor: colors
                                 }]
                             },
                             options: {

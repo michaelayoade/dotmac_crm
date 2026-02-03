@@ -27,7 +27,9 @@ def subscriber_list(
 ):
     """List subscribers."""
     from app.web.admin import get_current_user
+    from app.web.admin import get_sidebar_stats
     user = get_current_user(request)
+    sidebar_stats = get_sidebar_stats(db)
 
     status_filter = None
     if status:
@@ -76,6 +78,8 @@ def subscriber_list(
         {
             "request": request,
             "user": user,
+            "current_user": user,
+            "sidebar_stats": sidebar_stats,
             "subscribers": subscribers,
             "stats": stats,
             "search": search,
@@ -96,13 +100,17 @@ def subscriber_new(
 ):
     """Show subscriber creation form."""
     from app.web.admin import get_current_user
+    from app.web.admin import get_sidebar_stats
     user = get_current_user(request)
+    sidebar_stats = get_sidebar_stats(db)
 
     return templates.TemplateResponse(
         "admin/subscribers/form.html",
         {
             "request": request,
             "user": user,
+            "current_user": user,
+            "sidebar_stats": sidebar_stats,
             "subscriber": None,
             "statuses": [s.value for s in SubscriberStatus],
             "is_edit": False,
@@ -160,7 +168,9 @@ def subscriber_detail(
 ):
     """Show subscriber detail page."""
     from app.web.admin import get_current_user
+    from app.web.admin import get_sidebar_stats
     user = get_current_user(request)
+    sidebar_stats = get_sidebar_stats(db)
 
     subscriber = subscriber_service.get(db, subscriber_id)
     if not subscriber:
@@ -171,6 +181,8 @@ def subscriber_detail(
         {
             "request": request,
             "user": user,
+            "current_user": user,
+            "sidebar_stats": sidebar_stats,
             "subscriber": subscriber,
         },
     )
@@ -184,7 +196,9 @@ def subscriber_edit(
 ):
     """Show subscriber edit form."""
     from app.web.admin import get_current_user
+    from app.web.admin import get_sidebar_stats
     user = get_current_user(request)
+    sidebar_stats = get_sidebar_stats(db)
 
     subscriber = subscriber_service.get(db, subscriber_id)
     if not subscriber:
@@ -195,6 +209,8 @@ def subscriber_edit(
         {
             "request": request,
             "user": user,
+            "current_user": user,
+            "sidebar_stats": sidebar_stats,
             "subscriber": subscriber,
             "statuses": [s.value for s in SubscriberStatus],
             "is_edit": True,

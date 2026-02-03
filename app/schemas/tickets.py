@@ -11,12 +11,15 @@ from app.models.tickets import TicketChannel, TicketPriority, TicketStatus
 class TicketBase(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     subscriber_id: UUID | None = None
+    lead_id: UUID | None = None
+    customer_person_id: UUID | None = None
     created_by_person_id: UUID | None = None
     assigned_to_person_id: UUID | None = None
     title: str = Field(min_length=1, max_length=200)
     description: str | None = None
     status: TicketStatus = TicketStatus.new
     priority: TicketPriority = TicketPriority.normal
+    ticket_type: str | None = Field(default=None, max_length=120)
     channel: TicketChannel = TicketChannel.web
     tags: list[str] | None = None
     metadata_: dict | None = Field(
@@ -36,12 +39,15 @@ class TicketCreate(TicketBase):
 class TicketUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     subscriber_id: UUID | None = None
+    lead_id: UUID | None = None
+    customer_person_id: UUID | None = None
     created_by_person_id: UUID | None = None
     assigned_to_person_id: UUID | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
     status: TicketStatus | None = None
     priority: TicketPriority | None = None
+    ticket_type: str | None = Field(default=None, max_length=120)
     channel: TicketChannel | None = None
     tags: list[str] | None = None
     metadata_: dict | None = Field(

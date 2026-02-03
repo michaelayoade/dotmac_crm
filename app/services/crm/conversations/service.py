@@ -628,3 +628,10 @@ def unassign_conversation(
         ConversationAssignment.is_active.is_(True),
     ).update({"is_active": False, "updated_at": _now()})
     db.commit()
+
+
+# Singleton instances
+conversations = Conversations()
+conversation_assignments = ConversationAssignments()
+conversation_tags = ConversationTags()
+messages = Messages()

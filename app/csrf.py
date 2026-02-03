@@ -17,10 +17,13 @@ def generate_csrf_token() -> str:
 
 def get_csrf_token(request: Request) -> str:
     """Get CSRF token from cookie or generate a new one."""
+    state_token = getattr(request.state, "csrf_token", None)
+    if state_token:
+        return state_token
     token = request.cookies.get(CSRF_COOKIE_NAME)
-    if not token:
-        token = generate_csrf_token()
-    return token
+    if token:
+        return token
+    return generate_csrf_token()
 
 
 def set_csrf_cookie(response: Response, token: str) -> None:

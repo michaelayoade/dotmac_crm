@@ -43,6 +43,12 @@ class Ticket(Base):
     subscriber_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("subscribers.id")
     )
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_leads.id")
+    )
+    customer_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id")
+    )
     created_by_person_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id")
     )
@@ -57,6 +63,7 @@ class Ticket(Base):
     priority: Mapped[TicketPriority] = mapped_column(
         Enum(TicketPriority), default=TicketPriority.normal
     )
+    ticket_type: Mapped[str | None] = mapped_column(String(120))
     channel: Mapped[TicketChannel] = mapped_column(
         Enum(TicketChannel), default=TicketChannel.web
     )
@@ -75,6 +82,8 @@ class Ticket(Base):
     )
 
     subscriber = relationship("Subscriber", back_populates="tickets")
+    lead = relationship("Lead")
+    customer = relationship("Person", foreign_keys=[customer_person_id])
     created_by = relationship("Person", foreign_keys=[created_by_person_id])
     assigned_to = relationship("Person", foreign_keys=[assigned_to_person_id])
     comments = relationship("TicketComment", back_populates="ticket")

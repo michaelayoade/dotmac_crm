@@ -51,7 +51,6 @@ from app.api.subscribers import router as subscribers_router
 from app.api.wireless_survey import router as wireless_survey_router
 from app.api.wireless_masts import router as wireless_masts_router
 from app.api.nextcloud_talk import router as nextcloud_talk_router
-from app.api.wireguard import router as wireguard_router, public_router as wireguard_public_router
 from app.api.bandwidth import router as bandwidth_router
 from app.api.validation import router as validation_router
 from app.api.defaults import router as defaults_router
@@ -78,7 +77,6 @@ from app.services.settings_seed import (
     seed_scheduler_settings,
     seed_projects_settings,
     seed_provisioning_settings,
-    seed_wireguard_settings,
     seed_workflow_settings,
 )
 from app.logging import configure_logging
@@ -87,12 +85,18 @@ from app.middleware.api_rate_limit import APIRateLimitMiddleware
 from app.telemetry import setup_otel
 from app.errors import register_error_handlers
 
-app = FastAPI(title="dotmac_omni API")
+app = FastAPI(title="dotmac_crm API")
 
 _AUDIT_SETTINGS_CACHE: dict | None = None
 _AUDIT_SETTINGS_CACHE_AT: float | None = None
 _AUDIT_SETTINGS_CACHE_TTL_SECONDS = 30.0
 _AUDIT_SETTINGS_LOCK = Lock()
+
+# Branding cache - 5 minute TTL since branding rarely changes
+_BRANDING_CACHE: dict | None = None
+_BRANDING_CACHE_AT: float | None = None
+_BRANDING_CACHE_TTL_SECONDS = 300.0  # 5 minutes
+_BRANDING_LOCK = Lock()
 configure_logging()
 setup_otel(app)
 app.add_middleware(ObservabilityMiddleware)
@@ -150,27 +154,68 @@ async def audit_middleware(request: Request, call_next):
             db.close()
 
 
+def _load_branding_settings(db: Session) -> dict:
+    """Load branding settings with double-checked locking pattern.
+
+    Uses 5-minute cache since branding rarely changes, avoiding DB query on every request.
+    """
+    global _BRANDING_CACHE, _BRANDING_CACHE_AT
+    now = monotonic()
+
+    # Fast path: check cache validity without lock
+    cache = _BRANDING_CACHE
+    cache_at = _BRANDING_CACHE_AT
+    if (
+        cache is not None
+        and cache_at is not None
+        and now - cache_at < _BRANDING_CACHE_TTL_SECONDS
+    ):
+        return cache
+
+    # Slow path: acquire lock and recheck
+    with _BRANDING_LOCK:
+        if (
+            _BRANDING_CACHE is not None
+            and _BRANDING_CACHE_AT is not None
+            and now - _BRANDING_CACHE_AT < _BRANDING_CACHE_TTL_SECONDS
+        ):
+            return _BRANDING_CACHE
+
+        # Cache miss - query database
+        try:
+            branding_keys = ["company_name", "brand_logo_url", "brand_favicon_url"]
+            values = settings_spec.resolve_values_atomic(db, SettingDomain.comms, branding_keys)
+            result = {
+                "company_name": values.get("company_name") or "Dotmac",
+                "logo_url": values.get("brand_logo_url"),
+                "favicon_url": values.get("brand_favicon_url"),
+            }
+        except Exception:
+            result = {
+                "company_name": "Dotmac",
+                "logo_url": None,
+                "favicon_url": None,
+            }
+
+        _BRANDING_CACHE = result
+        _BRANDING_CACHE_AT = now
+        return result
+
+
 @app.middleware("http")
 async def branding_middleware(request: Request, call_next):
-    """Attach branding settings to request state for templates."""
+    """Attach branding settings to request state for templates.
+
+    Uses in-memory cache with 5-minute TTL to avoid DB query on every request.
+    """
     db: Session = getattr(request.state, "middleware_db", None) or SessionLocal()
     owns_db = not hasattr(request.state, "middleware_db")
     try:
-        company_name = settings_spec.resolve_value(db, SettingDomain.comms, "company_name")
-        logo_url = settings_spec.resolve_value(db, SettingDomain.comms, "brand_logo_url")
-        favicon_url = settings_spec.resolve_value(db, SettingDomain.comms, "brand_favicon_url")
-    except Exception:
-        company_name = "Dotmac"
-        logo_url = None
-        favicon_url = None
+        branding = _load_branding_settings(db)
     finally:
         if owns_db:
             db.close()
-    request.state.branding = {
-        "company_name": company_name or "Dotmac",
-        "logo_url": logo_url,
-        "favicon_url": favicon_url,
-    }
+    request.state.branding = branding
     return await call_next(request)
 
 
@@ -199,6 +244,10 @@ async def csrf_middleware(request: Request, call_next):
 
     if not needs_protection:
         return await call_next(request)
+
+    # Ensure a consistent CSRF token for this request/response cycle
+    if CSRF_COOKIE_NAME not in request.cookies:
+        request.state.csrf_token = generate_csrf_token()
 
     # For state-changing methods, validate CSRF token
     if method in ("POST", "PUT", "DELETE", "PATCH"):
@@ -257,59 +306,93 @@ async def csrf_middleware(request: Request, call_next):
                 except Exception:
                     pass  # If parsing fails, continue (token validation happens elsewhere)
 
-                # Reconstruct request with body for downstream handlers
+                # Reconstruct request with body for downstream handlers.
+                # Starlette expects a stream; return body once then empty.
+                body_sent = False
+
                 async def receive():
-                    return {"type": "http.request", "body": body}
+                    nonlocal body_sent
+                    if body_sent:
+                        return {"type": "http.request", "body": b"", "more_body": False}
+                    body_sent = True
+                    return {"type": "http.request", "body": body, "more_body": False}
+
                 request = Request(scope=request.scope, receive=receive)
 
     response = await call_next(request)
+    if response is None:
+        return Response(
+            content='{"detail":"No response returned"}',
+            media_type="application/json",
+            status_code=500,
+        )
 
     # Set CSRF cookie on responses if not present
     if CSRF_COOKIE_NAME not in request.cookies:
-        token = generate_csrf_token()
+        token = getattr(request.state, "csrf_token", None) or generate_csrf_token()
         set_csrf_cookie(response, token)
 
     return response
 
 
 def _load_audit_settings(db: Session):
+    """Load audit settings with double-checked locking pattern.
+
+    This avoids acquiring the lock on every request when cache is valid,
+    reducing contention under high load.
+    """
     global _AUDIT_SETTINGS_CACHE, _AUDIT_SETTINGS_CACHE_AT
     now = monotonic()
+
+    # Fast path: check cache validity without lock (read is atomic for these types)
+    cache = _AUDIT_SETTINGS_CACHE
+    cache_at = _AUDIT_SETTINGS_CACHE_AT
+    if (
+        cache is not None
+        and cache_at is not None
+        and now - cache_at < _AUDIT_SETTINGS_CACHE_TTL_SECONDS
+    ):
+        return cache
+
+    # Slow path: acquire lock and recheck (double-checked locking)
     with _AUDIT_SETTINGS_LOCK:
+        # Recheck after acquiring lock (another thread may have updated)
         if (
-            _AUDIT_SETTINGS_CACHE
-            and _AUDIT_SETTINGS_CACHE_AT
+            _AUDIT_SETTINGS_CACHE is not None
+            and _AUDIT_SETTINGS_CACHE_AT is not None
             and now - _AUDIT_SETTINGS_CACHE_AT < _AUDIT_SETTINGS_CACHE_TTL_SECONDS
         ):
             return _AUDIT_SETTINGS_CACHE
-    defaults = {
-        "enabled": True,
-        "methods": {"POST", "PUT", "PATCH", "DELETE"},
-        "skip_paths": ["/static", "/web", "/health"],
-        "read_trigger_header": "x-audit-read",
-        "read_trigger_query": "audit",
-    }
-    rows = (
-        db.query(DomainSetting)
-        .filter(DomainSetting.domain == SettingDomain.audit)
-        .filter(DomainSetting.is_active.is_(True))
-        .all()
-    )
-    values = {row.key: row for row in rows}
-    if "enabled" in values:
-        defaults["enabled"] = _to_bool(values["enabled"])
-    if "methods" in values:
-        defaults["methods"] = _to_list(values["methods"], upper=True)
-    if "skip_paths" in values:
-        defaults["skip_paths"] = _to_list(values["skip_paths"], upper=False)
-    if "read_trigger_header" in values:
-        defaults["read_trigger_header"] = _to_str(values["read_trigger_header"])
-    if "read_trigger_query" in values:
-        defaults["read_trigger_query"] = _to_str(values["read_trigger_query"])
-    with _AUDIT_SETTINGS_LOCK:
+
+        # Cache miss - query database
+        defaults = {
+            "enabled": True,
+            "methods": {"POST", "PUT", "PATCH", "DELETE"},
+            "skip_paths": ["/static", "/web", "/health"],
+            "read_trigger_header": "x-audit-read",
+            "read_trigger_query": "audit",
+        }
+        rows = (
+            db.query(DomainSetting)
+            .filter(DomainSetting.domain == SettingDomain.audit)
+            .filter(DomainSetting.is_active.is_(True))
+            .all()
+        )
+        values = {row.key: row for row in rows}
+        if "enabled" in values:
+            defaults["enabled"] = _to_bool(values["enabled"])
+        if "methods" in values:
+            defaults["methods"] = _to_list(values["methods"], upper=True)
+        if "skip_paths" in values:
+            defaults["skip_paths"] = _to_list(values["skip_paths"], upper=False)
+        if "read_trigger_header" in values:
+            defaults["read_trigger_header"] = _to_str(values["read_trigger_header"])
+        if "read_trigger_query" in values:
+            defaults["read_trigger_query"] = _to_str(values["read_trigger_query"])
+
         _AUDIT_SETTINGS_CACHE = defaults
         _AUDIT_SETTINGS_CACHE_AT = now
-    return defaults
+        return defaults
 
 
 def _to_bool(setting: DomainSetting) -> bool:
@@ -384,13 +467,10 @@ _include_api_router(sales_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(wireless_survey_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(wireless_masts_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(nextcloud_talk_router, dependencies=[Depends(require_user_auth)])
-_include_api_router(wireguard_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(bandwidth_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(validation_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(defaults_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)])
-# WireGuard provisioning public endpoints - no auth required (token-based)
-_include_api_router(wireguard_public_router)
 # Chat widget public endpoints - no auth required (visitor token-based)
 from app.api.crm.widget_public import router as widget_public_router
 _include_api_router(widget_public_router)
@@ -407,6 +487,39 @@ app.include_router(ws_router)
 app.include_router(ws_widget_router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.middleware("http")
+async def static_cache_middleware(request: Request, call_next):
+    """Add Cache-Control headers for static assets.
+
+    - CSS/JS/fonts: 1 year cache (immutable, versioned by content hash)
+    - Images: 1 week cache
+    - Other static: 1 day cache
+    """
+    response = await call_next(request)
+    if response is None:
+        return Response(
+            content='{"detail":"No response returned"}',
+            media_type="application/json",
+            status_code=500,
+        )
+    path = request.url.path
+
+    if path.startswith("/static/"):
+        # Skip if already has cache headers
+        if "cache-control" not in response.headers:
+            if any(path.endswith(ext) for ext in (".css", ".js", ".woff2", ".woff")):
+                # Long cache for versioned assets
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            elif any(path.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")):
+                # Medium cache for images
+                response.headers["Cache-Control"] = "public, max-age=604800"
+            else:
+                # Short cache for other static files
+                response.headers["Cache-Control"] = "public, max-age=86400"
+
+    return response
 
 
 @app.get("/health")
@@ -438,7 +551,6 @@ def _start_jobs():
         seed_network_settings(db)
         seed_inventory_settings(db)
         seed_comms_settings(db)
-        seed_wireguard_settings(db)
     finally:
         db.close()
     smtp_inbound_service.start_smtp_inbound_server()

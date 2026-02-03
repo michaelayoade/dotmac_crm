@@ -81,12 +81,18 @@ class Notification(Base):
     connector_config_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("connector_configs.id")
     )
+    smtp_config_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_campaign_smtp_configs.id")
+    )
     channel: Mapped[NotificationChannel] = mapped_column(
         Enum(NotificationChannel), nullable=False
     )
     recipient: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str | None] = mapped_column(String(200))
     body: Mapped[str | None] = mapped_column(Text)
+    from_name: Mapped[str | None] = mapped_column(String(160))
+    from_email: Mapped[str | None] = mapped_column(String(255))
+    reply_to: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[NotificationStatus] = mapped_column(
         Enum(NotificationStatus), default=NotificationStatus.queued
     )

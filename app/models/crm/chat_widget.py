@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSON, UUID
-from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -40,7 +40,7 @@ class ChatWidgetConfig(Base):
 
     # Pre-chat form configuration
     prechat_form_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    prechat_fields: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON()))
+    prechat_fields: Mapped[list | None] = mapped_column(MutableList.as_mutable(JSON()))
 
     # Business hours - JSON with schedule
     business_hours: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON()))

@@ -142,9 +142,10 @@ def require_user_auth(
                 expires_dt = datetime.fromisoformat(cached_expires_at)
                 if expires_dt <= now:
                     raise HTTPException(status_code=401, detail="Unauthorized")
-            roles = cached.get("roles", [])
-            scopes = cached.get("scopes", [])
-            if not roles or not scopes:
+            roles = cached.get("roles")
+            scopes = cached.get("scopes")
+            # Only reload if roles/scopes were never cached (None), not if empty lists
+            if roles is None or scopes is None:
                 roles, scopes = _load_rbac_claims(db, str(person_id))
                 set_cached_session(str(session_id), {
                     "person_id": str(person_id),
@@ -152,6 +153,8 @@ def require_user_auth(
                     "scopes": scopes,
                     "expires_at": cached_expires_at,
                 })
+            roles = roles or []
+            scopes = scopes or []
             actor_id = str(person_id)
             if request is not None:
                 request.state.actor_id = actor_id

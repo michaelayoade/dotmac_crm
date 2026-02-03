@@ -1,17 +1,17 @@
 """Admin reports web routes."""
+import csv
+import io
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.models.dispatch import TechnicianProfile
-from app.services.subscriber import subscriber as subscriber_service
 from app.services import workforce as workforce_service
 from app.services import dispatch as dispatch_service
 from app.services.crm import reports as crm_reports_service
@@ -22,213 +22,72 @@ router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
 
 
+def _parse_date_range(
+    days: int | None,
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[datetime, datetime]:
+    """Parse date range from days or custom dates."""
+    now = datetime.now(timezone.utc)
+    end_dt = now
+
+    if start_date and end_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+            end_dt = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+            # Ensure end_date is end of day
+            end_dt = end_dt.replace(hour=23, minute=59, second=59)
+            return start_dt, end_dt
+        except ValueError:
+            pass
+
+    # Fall back to days
+    days = days or 30
+    start_dt = now - timedelta(days=days)
+    return start_dt, end_dt
+
+
+def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
+    """Create a CSV streaming response."""
+    if not data:
+        output = io.StringIO()
+        output.write("No data available\n")
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=data[0].keys())
+    writer.writeheader()
+    writer.writerows(data)
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.get("/operations")
 def operations_report_alias():
     return RedirectResponse(url="/admin/operations/work-orders", status_code=302)
 
 
-# =============================================================================
-# Subscriber Growth Report
-# =============================================================================
-
-@router.get("/subscribers", response_class=HTMLResponse)
-def subscribers_report(
-    request: Request,
-    db: Session = Depends(get_db),
-    days: int = Query(30, ge=7, le=365),
-):
-    """Subscriber growth report."""
-    user = get_current_user(request)
-
-    now = datetime.now(timezone.utc)
-    start_date = now - timedelta(days=days)
-    month_ago = now - timedelta(days=30)
-
-    # Get stats from subscriber service
-    stats = subscriber_service.get_stats(db)
-
-    # Total subscribers
-    total_subscribers = stats.get("total", 0)
-    active_subscribers = stats.get("active", 0)
-    suspended_subscribers = stats.get("suspended", 0)
-
-    # New this month
-    new_this_month = (
-        db.query(func.count(Subscriber.id))
-        .filter(Subscriber.created_at >= month_ago)
-        .scalar()
-    ) or 0
-
-    # Calculate growth rate
-    subscribers_month_ago = (
-        db.query(func.count(Subscriber.id))
-        .filter(Subscriber.created_at < month_ago)
-        .scalar()
-    ) or 0
-
-    if subscribers_month_ago > 0:
-        subscriber_growth = ((total_subscribers - subscribers_month_ago) / subscribers_month_ago) * 100
-    else:
-        subscriber_growth = 100.0 if total_subscribers > 0 else 0.0
-
-    active_rate = (active_subscribers / total_subscribers * 100) if total_subscribers > 0 else 0
-
-    # Build chart data - group by day
-    chart_data = []
-    cumulative_total = subscribers_month_ago
-    for i in range(days):
-        day = start_date + timedelta(days=i)
-        day_end = day + timedelta(days=1)
-        count = (
-            db.query(func.count(Subscriber.id))
-            .filter(Subscriber.created_at >= day)
-            .filter(Subscriber.created_at < day_end)
-            .scalar()
-        ) or 0
-        cumulative_total += count
-        chart_data.append({
-            "date": day.strftime("%Y-%m-%d"),
-            "count": count,
-            "total": cumulative_total,
-        })
-
-    # Build growth_data for chart (last 6 months)
-    growth_labels = []
-    growth_total = []
-    growth_new = []
-    for i in range(5, -1, -1):
-        month_start = now - timedelta(days=(i + 1) * 30)
-        month_end = now - timedelta(days=i * 30)
-        growth_labels.append(month_start.strftime("%b"))
-        # Total at end of month
-        total_at_month = (
-            db.query(func.count(Subscriber.id))
-            .filter(Subscriber.created_at < month_end)
-            .scalar()
-        ) or 0
-        growth_total.append(total_at_month)
-        # New during month
-        new_in_month = (
-            db.query(func.count(Subscriber.id))
-            .filter(Subscriber.created_at >= month_start)
-            .filter(Subscriber.created_at < month_end)
-            .scalar()
-        ) or 0
-        growth_new.append(new_in_month)
-
-    growth_data = {
-        "labels": growth_labels,
-        "total": growth_total,
-        "new": growth_new,
-    }
-
-    # Status breakdown
-    status_breakdown = {}
-    for status in SubscriberStatus:
-        count = (
-            db.query(func.count(Subscriber.id))
-            .filter(Subscriber.status == status)
-            .scalar()
-        ) or 0
-        if count > 0:
-            status_breakdown[status.value] = count
-
-    # Recent subscribers
-    recent_subscribers = (
-        db.query(Subscriber)
-        .order_by(Subscriber.created_at.desc())
-        .limit(5)
-        .all()
-    )
-
-    return templates.TemplateResponse(
-        "admin/reports/subscribers.html",
-        {
-            "request": request,
-            "user": user,
-            "current_user": user,
-            "sidebar_stats": get_sidebar_stats(db),
-            "total_subscribers": total_subscribers,
-            "new_this_month": new_this_month,
-            "active_subscribers": active_subscribers,
-            "suspended_subscribers": suspended_subscribers,
-            "subscriber_growth": subscriber_growth,
-            "active_rate": active_rate,
-            "chart_data": chart_data,
-            "growth_data": growth_data,
-            "status_breakdown": status_breakdown,
-            "recent_subscribers": recent_subscribers,
-            "days": days,
-        },
-    )
+# Legacy subscriber/churn reports removed - redirect to dashboard
+@router.get("/subscribers")
+def subscribers_report_redirect():
+    """Legacy subscriber report - redirect to dashboard."""
+    return RedirectResponse(url="/admin/dashboard", status_code=302)
 
 
-# =============================================================================
-# Churn Analysis Report
-# =============================================================================
-
-@router.get("/churn", response_class=HTMLResponse)
-def churn_report(
-    request: Request,
-    db: Session = Depends(get_db),
-    days: int = Query(90, ge=30, le=365),
-):
-    """Churn analysis report."""
-    user = get_current_user(request)
-
-    now = datetime.now(timezone.utc)
-    start_date = now - timedelta(days=days)
-
-    # Get terminated subscribers in period
-    terminated_count = (
-        db.query(func.count(Subscriber.id))
-        .filter(Subscriber.terminated_at >= start_date)
-        .filter(Subscriber.status == SubscriberStatus.terminated)
-        .scalar()
-    ) or 0
-
-    # Get total at start of period (approximation)
-    total_at_start = (
-        db.query(func.count(Subscriber.id))
-        .filter(Subscriber.created_at < start_date)
-        .scalar()
-    ) or 0
-
-    # Churn rate
-    churn_rate = (terminated_count / total_at_start * 100) if total_at_start > 0 else 0
-
-    # Monthly churn breakdown
-    monthly_churn = []
-    for i in range(min(days // 30, 12)):
-        month_start = now - timedelta(days=(i + 1) * 30)
-        month_end = now - timedelta(days=i * 30)
-        churned = (
-            db.query(func.count(Subscriber.id))
-            .filter(Subscriber.terminated_at >= month_start)
-            .filter(Subscriber.terminated_at < month_end)
-            .scalar()
-        ) or 0
-        monthly_churn.append({
-            "month": month_start.strftime("%b %Y"),
-            "churned": churned,
-        })
-
-    monthly_churn.reverse()
-
-    return templates.TemplateResponse(
-        "admin/reports/churn.html",
-        {
-            "request": request,
-            "user": user,
-            "current_user": user,
-            "sidebar_stats": get_sidebar_stats(db),
-            "terminated_count": terminated_count,
-            "total_at_start": total_at_start,
-            "churn_rate": churn_rate,
-            "monthly_churn": monthly_churn,
-            "days": days,
-        },
-    )
+@router.get("/churn")
+def churn_report_redirect():
+    """Legacy churn report - redirect to dashboard."""
+    return RedirectResponse(url="/admin/dashboard", status_code=302)
 
 
 # =============================================================================
@@ -280,18 +139,11 @@ def network_report(
 # Technician Performance Report
 # =============================================================================
 
-@router.get("/technician", response_class=HTMLResponse)
-def technician_report(
-    request: Request,
-    db: Session = Depends(get_db),
-    days: int = Query(30, ge=7, le=90),
-):
-    """Technician performance report."""
-    user = get_current_user(request)
-
-    now = datetime.now(timezone.utc)
-    start_date = now - timedelta(days=days)
-
+def _get_technician_stats(
+    db: Session,
+    start_date: datetime,
+) -> tuple[list[dict], int, dict[str, int], list]:
+    """Get technician performance stats for a date range."""
     # Get all active technicians
     technicians = dispatch_service.technicians.list(
         db,
@@ -307,8 +159,6 @@ def technician_report(
     # Build performance data for each technician
     technician_stats = []
     total_jobs_completed = 0
-    total_hours = 0
-    job_count_with_hours = 0
 
     for tech in technicians:
         # Count completed work orders
@@ -348,7 +198,7 @@ def technician_report(
             "completed_jobs": completed,
             "avg_hours": avg_hours,
             "rating": rating,
-            "completion_rate": completion_rate,
+            "completion_rate": round(completion_rate, 1),
         })
 
     # Sort by completed jobs (descending)
@@ -375,6 +225,25 @@ def technician_report(
         .all()
     )
 
+    return technician_stats, total_jobs_completed, job_type_breakdown, recent_completions
+
+
+@router.get("/technician", response_class=HTMLResponse)
+def technician_report(
+    request: Request,
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=90),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Technician performance report."""
+    user = get_current_user(request)
+
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+
+    technician_stats, total_jobs_completed, job_type_breakdown, recent_completions = \
+        _get_technician_stats(db, start_dt)
+
     # Summary stats
     avg_completion_hours = 2.5  # Placeholder
     first_visit_rate = 85.0  # Placeholder
@@ -386,7 +255,7 @@ def technician_report(
             "user": user,
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
-            "total_technicians": len(technicians),
+            "total_technicians": len(technician_stats),
             "jobs_completed": total_jobs_completed,
             "avg_completion_hours": avg_completion_hours,
             "first_visit_rate": first_visit_rate,
@@ -394,8 +263,38 @@ def technician_report(
             "job_type_breakdown": job_type_breakdown,
             "recent_completions": recent_completions,
             "days": days,
+            "start_date": start_dt.strftime("%Y-%m-%d"),
+            "end_date": end_dt.strftime("%Y-%m-%d"),
         },
     )
+
+
+@router.get("/technician/export")
+def technician_report_export(
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=90),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Export technician performance report as CSV."""
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    technician_stats, _, _, _ = _get_technician_stats(db, start_dt)
+
+    # Format for CSV
+    export_data = []
+    for i, tech in enumerate(technician_stats, 1):
+        export_data.append({
+            "Rank": i,
+            "Technician": tech["name"],
+            "Total Jobs": tech["total_jobs"],
+            "Completed Jobs": tech["completed_jobs"],
+            "Completion Rate (%)": tech["completion_rate"],
+            "Avg Hours": tech["avg_hours"],
+            "Rating": tech["rating"],
+        })
+
+    filename = f"technician_performance_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
 
 
 # =============================================================================
@@ -481,8 +380,23 @@ def crm_performance_report(
     )
     agent_labels = crm_team_service.get_agent_labels(db, agents)
 
-    # Channel type breakdown
+    # Channel type breakdown (ensure key channels appear even with zero data)
     channel_breakdown = inbox_stats.get("messages", {}).get("by_channel", {})
+    channel_labels: dict[str, str] = {}
+    email_inbox_breakdown = inbox_stats.get("messages", {}).get("by_email_inbox", {}) or {}
+
+    if email_inbox_breakdown:
+        channel_breakdown.pop(str(ChannelType.email), None)
+        for inbox_id, data in email_inbox_breakdown.items():
+            inbox_key = f"email:{inbox_id}"
+            channel_breakdown[inbox_key] = data.get("count", 0)
+            inbox_label = data.get("label") or "Unknown Inbox"
+            channel_labels[inbox_key] = f"Email - {inbox_label}"
+
+    for channel in (ChannelType.whatsapp, ChannelType.facebook_messenger, ChannelType.instagram_dm):
+        channel_key = str(channel)
+        if channel_key not in channel_breakdown:
+            channel_breakdown[channel_key] = 0
 
     return templates.TemplateResponse(
         "admin/reports/crm_performance.html",
@@ -508,6 +422,7 @@ def crm_performance_report(
             "trend_data": trend_data,
             # Channel breakdown
             "channel_breakdown": channel_breakdown,
+            "channel_labels": channel_labels,
             # Filters
             "days": days,
             "selected_agent_id": agent_id,
@@ -520,3 +435,47 @@ def crm_performance_report(
             "channel_types": [t.value for t in ChannelType],
         },
     )
+
+
+@router.get("/crm-performance/export")
+def crm_performance_report_export(
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=90),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    team_id: str | None = Query(None),
+    channel_type: str | None = Query(None),
+):
+    """Export CRM performance report as CSV."""
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+
+    # Get per-agent performance metrics
+    agent_stats = crm_reports_service.agent_performance_metrics(
+        db=db,
+        start_at=start_dt,
+        end_at=end_dt,
+        agent_id=agent_id,
+        team_id=team_id,
+        channel_type=channel_type,
+    )
+
+    # Format for CSV
+    export_data = []
+    for i, agent in enumerate(agent_stats, 1):
+        resolution_rate = (
+            agent["resolved_conversations"] / agent["total_conversations"] * 100
+            if agent["total_conversations"] > 0 else 0
+        )
+        export_data.append({
+            "Rank": i,
+            "Agent": agent["name"],
+            "Total Conversations": agent["total_conversations"],
+            "Resolved": agent["resolved_conversations"],
+            "Resolution Rate (%)": round(resolution_rate, 1),
+            "Avg First Response (min)": round(agent["avg_first_response_minutes"], 1) if agent["avg_first_response_minutes"] else "",
+            "Avg Resolution Time (min)": round(agent["avg_resolution_minutes"], 1) if agent["avg_resolution_minutes"] else "",
+        })
+
+    filename = f"crm_performance_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)

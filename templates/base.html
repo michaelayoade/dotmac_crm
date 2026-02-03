@@ -28,69 +28,31 @@
     <!-- Compiled CSS (includes Tailwind + fonts + custom styles) -->
     <link rel="stylesheet" href="/static/css/main.css" />
 
-    <!-- Design System CSS Variables & Animations -->
+    <!--
+        Design System Notes:
+        ====================
+        Colors are defined in tailwind.config.js as the single source of truth:
+        - primary-*: Teal/Cyan palette (#06b6d4)
+        - accent-*: Warm Orange palette (#f97316)
+
+        Use Tailwind classes (text-primary-500, bg-accent-600, etc.) instead of CSS variables.
+        Typography fonts (Outfit, Plus Jakarta Sans) are defined in main.css @font-face.
+    -->
     <style>
         :root {
-            /* Typography */
-            --font-display: 'Outfit', 'DM Sans', system-ui, sans-serif;
-            --font-body: 'DM Sans', system-ui, sans-serif;
+            /* Typography - matches main.css */
+            --font-display: 'Outfit', system-ui, sans-serif;
+            --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
 
-            /* Brand Colors - Warm, distinctive palette */
-            --color-brand-50: #fef7ee;
-            --color-brand-100: #fdedd3;
-            --color-brand-200: #f9d7a5;
-            --color-brand-300: #f5bc6d;
-            --color-brand-400: #f09732;
-            --color-brand-500: #ec7a0c;
-            --color-brand-600: #dd6007;
-            --color-brand-700: #b74709;
-            --color-brand-800: #92390f;
-            --color-brand-900: #773010;
-
-            /* Accent - Electric teal for CTAs */
-            --color-accent-50: #effefb;
-            --color-accent-100: #c8fff4;
-            --color-accent-200: #91feea;
-            --color-accent-300: #53f5dc;
-            --color-accent-400: #1fe2c8;
-            --color-accent-500: #06c6ae;
-            --color-accent-600: #02a08f;
-            --color-accent-700: #067f74;
-            --color-accent-800: #0a655e;
-            --color-accent-900: #0d534e;
-
-            /* Status Colors - More distinctive */
-            --color-success: #10b981;
-            --color-success-light: #d1fae5;
-            --color-warning: #f59e0b;
-            --color-warning-light: #fef3c7;
-            --color-error: #ef4444;
-            --color-error-light: #fee2e2;
-            --color-info: #3b82f6;
-            --color-info-light: #dbeafe;
-
-            /* Surfaces - Warmer neutrals */
+            /* Surface colors for glassmorphism and mesh gradients */
             --surface-primary: #ffffff;
             --surface-secondary: #fafaf9;
-            --surface-tertiary: #f5f5f4;
-            --text-primary: #1c1917;
-            --text-secondary: #57534e;
-            --text-tertiary: #a8a29e;
-            --border-default: #e7e5e4;
-            --border-subtle: #f5f5f4;
         }
 
         .dark {
             --surface-primary: #1c1917;
             --surface-secondary: #292524;
-            --surface-tertiary: #44403c;
-            --text-primary: #fafaf9;
-            --text-secondary: #d6d3d1;
-            --text-tertiary: #78716c;
-            --border-default: #44403c;
-            --border-subtle: #292524;
         }
-
 
         /* Premium Typography Classes */
         .font-display {
@@ -102,9 +64,9 @@
             font-family: var(--font-body);
         }
 
-        /* Gradient text */
+        /* Gradient text - uses Tailwind color values */
         .text-gradient {
-            background: linear-gradient(135deg, var(--color-brand-500) 0%, var(--color-accent-500) 100%);
+            background: linear-gradient(135deg, #06b6d4 0%, #f97316 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -161,20 +123,20 @@
             pointer-events: none;
         }
 
-        /* Mesh gradient background */
+        /* Mesh gradient background - uses Tailwind primary/accent colors */
         .mesh-gradient {
             background:
-                radial-gradient(at 40% 20%, var(--color-brand-100) 0px, transparent 50%),
-                radial-gradient(at 80% 0%, var(--color-accent-100) 0px, transparent 50%),
-                radial-gradient(at 0% 50%, var(--color-brand-50) 0px, transparent 50%),
+                radial-gradient(at 40% 20%, rgba(6, 182, 212, 0.1) 0px, transparent 50%),
+                radial-gradient(at 80% 0%, rgba(249, 115, 22, 0.08) 0px, transparent 50%),
+                radial-gradient(at 0% 50%, rgba(6, 182, 212, 0.05) 0px, transparent 50%),
                 var(--surface-secondary);
         }
 
         .dark .mesh-gradient {
             background:
-                radial-gradient(at 40% 20%, rgba(183, 71, 9, 0.15) 0px, transparent 50%),
-                radial-gradient(at 80% 0%, rgba(6, 198, 174, 0.1) 0px, transparent 50%),
-                radial-gradient(at 0% 50%, rgba(221, 96, 7, 0.1) 0px, transparent 50%),
+                radial-gradient(at 40% 20%, rgba(6, 182, 212, 0.15) 0px, transparent 50%),
+                radial-gradient(at 80% 0%, rgba(249, 115, 22, 0.1) 0px, transparent 50%),
+                radial-gradient(at 0% 50%, rgba(6, 182, 212, 0.08) 0px, transparent 50%),
                 var(--surface-secondary);
         }
     </style>
@@ -320,6 +282,18 @@
                 open: false,
                 selectedIndex: -1,
                 abortController: null,
+
+                init() {
+                    // Register Cmd+K / Ctrl+K keyboard shortcut
+                    document.addEventListener('keydown', (e) => {
+                        // Check for Cmd+K (Mac) or Ctrl+K (Windows/Linux)
+                        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                            e.preventDefault();
+                            this.$refs.searchInput?.focus();
+                            this.$refs.searchInput?.select();
+                        }
+                    });
+                },
 
                 async search() {
                     if (this.query.length < 2) {

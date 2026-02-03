@@ -1,6 +1,6 @@
-# DotMac SM Developer Guide
+# DotMac CRM Developer Guide
 
-A comprehensive guide for developers working on the DotMac Subscriber Management platform.
+A comprehensive guide for developers working on the DotMac CRM platform.
 
 ---
 
@@ -22,7 +22,7 @@ A comprehensive guide for developers working on the DotMac Subscriber Management
 
 ## Architecture Overview
 
-DotMac SM is a multi-portal subscriber management system built with a clean separation between:
+DotMac CRM is a multi-portal CRM platform built with a clean separation between:
 
 - **Web Layer** (`app/web/`) - HTML responses using Jinja2 templates
 - **API Layer** (`app/api/`) - RESTful JSON endpoints
@@ -70,7 +70,7 @@ DotMac SM is a multi-portal subscriber management system built with a clean sepa
 ## Project Structure
 
 ```
-dotmac_omni/
+dotmac_crm/
 ├── app/
 │   ├── main.py                 # FastAPI app initialization
 │   ├── config.py               # Configuration settings

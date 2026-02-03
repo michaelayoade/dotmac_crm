@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from app.logging import get_logger
 
@@ -54,7 +54,7 @@ def get_cached_session(session_id: str) -> dict | None:
     if not client:
         return None
     try:
-        data = client.get(f"{AUTH_CACHE_PREFIX}session:{session_id}")
+        data = cast(str | None, client.get(f"{AUTH_CACHE_PREFIX}session:{session_id}"))
         if data:
             return json.loads(data)
         return None

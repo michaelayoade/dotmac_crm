@@ -34,6 +34,30 @@
 
     <!-- Actions -->
     <div class="flex items-center gap-2">
+        {% if current_agent_id %}
+        <button type="button"
+                hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/assignment"
+                hx-vals='{"agent_id":"{{ current_agent_id }}"}'
+                hx-target="#contact-details"
+                hx-swap="innerHTML"
+                hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'}); htmx.ajax('GET', '/admin/crm/inbox/conversation/{{ conversation.id }}', {target:'#message-thread', swap:'innerHTML'});"
+                {% if conversation.assigned_agent_id and conversation.assigned_agent_id != current_agent_id %}
+                hx-confirm="This conversation is already assigned to {{ conversation.assigned_agent_name|default('another agent') }}. Assign to you anyway?"
+                {% endif %}
+                {% if conversation.assigned_agent_id and conversation.assigned_agent_id == current_agent_id %}
+                disabled
+                class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-400 shadow-sm cursor-not-allowed dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-500"
+                {% else %}
+                class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
+                {% endif %}
+                >
+            {% if conversation.assigned_agent_id and conversation.assigned_agent_id == current_agent_id %}
+                Assigned
+            {% else %}
+                Assign to me
+            {% endif %}
+        </button>
+        {% endif %}
         <!-- Status dropdown -->
         <div x-data="{ open: false }" class="relative">
             <button @click="open = !open"
@@ -151,7 +175,7 @@
 
 <!-- Messages Container -->
 <div id="messages-container" class="relative z-0 flex-1 min-h-0 overflow-y-auto inbox-scroll px-6 py-6">
-    <div id="message-list" class="max-w-3xl mx-auto space-y-6">
+<div id="message-list" class="max-w-3xl mx-auto space-y-6">
         {% for msg in messages %}
         {% if msg.is_private_note %}
         {% include "admin/crm/_private_note_item.html" %}
@@ -167,7 +191,14 @@
                     <div class="flex-1">
                         <div class="message-inbound rounded-2xl rounded-tl-md px-4 py-3 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40">
                             <div class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
+                                {% if msg.html_body %}
+                                <iframe class="email-html-frame"
+                                        srcdoc="{{ msg.html_body | e }}"
+                                        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                        style="width: 100%; border: none; min-height: 140px;"></iframe>
+                                {% else %}
                                 {{ msg.content_html | safe if msg.content_html else msg.content }}
+                                {% endif %}
                             </div>
                             {% if msg.attachments %}
                             <div class="mt-3 space-y-2">
@@ -217,7 +248,14 @@
                     <div class="flex-1">
                         <div class="message-outbound rounded-2xl rounded-tr-md px-4 py-3 bg-primary-500/10 border border-primary-500/20 dark:bg-transparent dark:border-primary-500/20">
                             <div class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
+                                {% if msg.html_body %}
+                                <iframe class="email-html-frame"
+                                        srcdoc="{{ msg.html_body | e }}"
+                                        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                        style="width: 100%; border: none; min-height: 140px;"></iframe>
+                                {% else %}
                                 {{ msg.content_html | safe if msg.content_html else msg.content }}
+                                {% endif %}
                             </div>
                             {% if msg.attachments %}
                             <div class="mt-3 space-y-2">
@@ -289,7 +327,12 @@
 </div>
 
 <!-- Compose Area -->
-<div class="border-t border-slate-200 bg-slate-50/90 backdrop-blur-sm px-6 py-4 dark:border-slate-800/60 dark:bg-slate-900/50" x-data="{ showPrivateNote: false }">
+<div class="border-t border-slate-200 bg-slate-50/90 backdrop-blur-sm px-6 py-4 dark:border-slate-800/60 dark:bg-slate-900/50"
+     x-data="{
+         showPrivateNote: sessionStorage.getItem('privateNoteOpen:{{ conversation.id }}') === '1',
+         privateNoteDraft: sessionStorage.getItem('privateNoteDraft:{{ conversation.id }}') || ''
+     }"
+     x-init="if (privateNoteDraft && !showPrivateNote) { showPrivateNote = true; }">
     {% if reply_error %}
     <div class="max-w-3xl mx-auto mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
         Reply failed. Please try again.
@@ -300,7 +343,9 @@
     {% endif %}
     <div class="max-w-3xl mx-auto mb-3">
         <button type="button"
-                @click="showPrivateNote = !showPrivateNote; if (showPrivateNote) { $nextTick(() => $refs.privateNoteInput?.focus()); }"
+                @click="showPrivateNote = !showPrivateNote;
+                        sessionStorage.setItem('privateNoteOpen:{{ conversation.id }}', showPrivateNote ? '1' : '0');
+                        if (showPrivateNote) { $nextTick(() => $refs.privateNoteInput?.focus()); }"
                 class="inline-flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/20">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
@@ -313,11 +358,19 @@
           hx-boost="false"
           action="/admin/crm/inbox/{{ conversation.id }}/private_note"
           class="max-w-3xl mx-auto mb-4 space-y-2"
+          data-conversation-id="{{ conversation.id }}"
           x-on:submit.prevent="submitPrivateNote($event)">
         <textarea x-ref="privateNoteInput"
                   name="body"
+                  x-model="privateNoteDraft"
                   rows="2"
                   placeholder="Add a private note..."
+                  @input="
+                      sessionStorage.setItem('privateNoteDraft:{{ conversation.id }}', privateNoteDraft);
+                      if (!privateNoteDraft.trim()) {
+                          sessionStorage.removeItem('privateNoteDraft:{{ conversation.id }}');
+                      }
+                  "
                   class="w-full rounded-xl border border-slate-700/50 bg-slate-900/40 px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400/60"></textarea>
         <div class="flex items-center justify-end">
             <button type="submit"

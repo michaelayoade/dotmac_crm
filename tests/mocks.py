@@ -7,44 +7,49 @@ from unittest.mock import MagicMock
 class FakeSMTP:
     """Mock SMTP server for email tests."""
 
-    def __init__(self, host: str = "", port: int = 25, **kwargs):
+    def __init__(self, host: str = "", port: int = 25, **kwargs: Any) -> None:
         self.host = host
         self.port = port
         self.messages: list[tuple[str, list[str], str]] = []
         self.connected = False
         self.logged_in = False
 
-    def __enter__(self):
+    def __enter__(self) -> "FakeSMTP":
         self.connected = True
         return self
 
-    def __exit__(self, *args):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: object | None,
+    ) -> None:
         self.connected = False
 
-    def starttls(self):
-        pass
+    def starttls(self) -> None:
+        return None
 
-    def login(self, user: str, password: str):
+    def login(self, user: str, password: str) -> None:
         self.logged_in = True
 
-    def sendmail(self, from_addr: str, to_addrs: list[str], msg: str):
+    def sendmail(self, from_addr: str, to_addrs: list[str], msg: str) -> None:
         self.messages.append((from_addr, to_addrs, msg))
 
-    def quit(self):
+    def quit(self) -> None:
         self.connected = False
 
 
 class FakeHTTPXResponse:
     """Mock httpx response for API tests."""
 
-    def __init__(self, json_data: dict | None = None, status_code: int = 200):
+    def __init__(self, json_data: dict | None = None, status_code: int = 200) -> None:
         self._json_data = json_data or {}
         self.status_code = status_code
 
     def json(self) -> dict:
         return self._json_data
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise Exception(f"HTTP Error: {self.status_code}")
 
@@ -52,15 +57,15 @@ class FakeHTTPXResponse:
 class FakeHTTPXClient:
     """Mock httpx client for OpenBao/API tests."""
 
-    def __init__(self, responses: dict[str, FakeHTTPXResponse] | None = None):
+    def __init__(self, responses: dict[str, FakeHTTPXResponse] | None = None) -> None:
         self.responses = responses or {}
         self.requests: list[tuple[str, str, dict]] = []
 
-    def get(self, url: str, **kwargs) -> FakeHTTPXResponse:
+    def get(self, url: str, **kwargs: Any) -> FakeHTTPXResponse:
         self.requests.append(("GET", url, kwargs))
         return self.responses.get(url, FakeHTTPXResponse())
 
-    def post(self, url: str, **kwargs) -> FakeHTTPXResponse:
+    def post(self, url: str, **kwargs: Any) -> FakeHTTPXResponse:
         self.requests.append(("POST", url, kwargs))
         return self.responses.get(url, FakeHTTPXResponse())
 
@@ -68,11 +73,11 @@ class FakeHTTPXClient:
 class FakePyRadPacket:
     """Mock pyrad packet for RADIUS tests."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.code = 0
         self._attrs: dict[str, Any] = {}
 
-    def __setitem__(self, key: str, value: Any):
+    def __setitem__(self, key: str, value: Any) -> None:
         self._attrs[key] = value
 
     def __getitem__(self, key: str) -> Any:
@@ -93,7 +98,7 @@ class FakePyRadClient:
         dict_path: str = "",
         should_accept: bool = True,
         should_timeout: bool = False,
-    ):
+    ) -> None:
         self.server = server
         self.secret = secret
         self.dict_path = dict_path
@@ -105,7 +110,7 @@ class FakePyRadClient:
         self.retries = 3
         self.packets_sent: list[FakePyRadPacket] = []
 
-    def CreateAuthPacket(self, **kwargs) -> FakePyRadPacket:
+    def CreateAuthPacket(self, **kwargs: Any) -> FakePyRadPacket:
         packet = FakePyRadPacket()
         for key, value in kwargs.items():
             packet[key] = value
@@ -124,7 +129,7 @@ class FakePyRadClient:
 class FakeGenieACSClient:
     """Mock GenieACS client for TR-069 tests."""
 
-    def __init__(self, base_url: str = "", should_fail: bool = False):
+    def __init__(self, base_url: str = "", should_fail: bool = False) -> None:
         self.base_url = base_url
         self.should_fail = should_fail
         self.calls: list[tuple[str, dict]] = []
@@ -160,28 +165,28 @@ class FakeGenieACSClient:
 class FakeProvisioner:
     """Mock provisioning adapter for provisioning tests."""
 
-    def __init__(self, should_fail: bool = False, fail_step: int | None = None):
+    def __init__(self, should_fail: bool = False, fail_step: int | None = None) -> None:
         self.should_fail = should_fail
         self.fail_step = fail_step
         self.calls: list[tuple[str, dict]] = []
         self.step_count = 0
 
-    def assign_ont(self, **kwargs) -> dict:
+    def assign_ont(self, **kwargs: Any) -> dict:
         self.calls.append(("assign_ont", kwargs))
         return {"success": not self.should_fail, "ont_id": "ONT-001"}
 
-    def push_config(self, **kwargs) -> dict:
+    def push_config(self, **kwargs: Any) -> dict:
         self.calls.append(("push_config", kwargs))
         self.step_count += 1
         if self.fail_step and self.step_count == self.fail_step:
             return {"success": False, "error": "Config push failed"}
         return {"success": not self.should_fail}
 
-    def confirm_up(self, **kwargs) -> dict:
+    def confirm_up(self, **kwargs: Any) -> dict:
         self.calls.append(("confirm_up", kwargs))
         return {"success": not self.should_fail, "status": "up"}
 
-    def deprovision(self, **kwargs) -> dict:
+    def deprovision(self, **kwargs: Any) -> dict:
         self.calls.append(("deprovision", kwargs))
         return {"success": not self.should_fail}
 
@@ -189,7 +194,7 @@ class FakeProvisioner:
 class FakeRedis:
     """Mock Redis client for rate limiting and caching tests."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.store: dict[str, Any] = {}
         self.expiry: dict[str, int] = {}
 

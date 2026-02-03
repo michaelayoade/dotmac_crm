@@ -21,6 +21,10 @@ def _validate_attachment(file: UploadFile, content: bytes) -> None:
         raise HTTPException(status_code=400, detail="Unsupported attachment type")
 
 
+def _is_upload_like(item: object) -> bool:
+    return hasattr(item, "filename") and hasattr(item, "file")
+
+
 def _coerce_upload_files(files: UploadFile | list[UploadFile] | None) -> list[UploadFile]:
     if files is None:
         return []
@@ -29,7 +33,14 @@ def _coerce_upload_files(files: UploadFile | list[UploadFile] | None) -> list[Up
             return []
         return [files]
     if isinstance(files, list):
-        return [item for item in files if isinstance(item, UploadFile) and item.filename]
+        uploads: list[UploadFile] = []
+        for item in files:
+            if isinstance(item, UploadFile):
+                if item.filename:
+                    uploads.append(item)
+            elif _is_upload_like(item) and getattr(item, "filename", None):
+                uploads.append(item)
+        return uploads
     raise HTTPException(
         status_code=400,
         detail="Attachment upload failed. Please refresh and try again.",
@@ -80,3 +91,17 @@ def save_message_attachments(prepared: list[dict]) -> list[dict]:
             }
         )
     return saved
+
+
+class MessageAttachments:
+    @staticmethod
+    async def prepare(files: UploadFile | list[UploadFile] | None) -> list[dict]:
+        return await prepare_message_attachments(files)
+
+    @staticmethod
+    def save(prepared: list[dict]) -> list[dict]:
+        return save_message_attachments(prepared)
+
+
+# Singleton instance
+message_attachments = MessageAttachments()

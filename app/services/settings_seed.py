@@ -77,7 +77,7 @@ def seed_auth_settings(db: Session) -> None:
         db,
         key="totp_issuer",
         value_type=SettingValueType.string,
-        value_text=os.getenv("TOTP_ISSUER", "dotmac_omni"),
+        value_text=os.getenv("TOTP_ISSUER", "dotmac_crm"),
     )
     auth_settings.ensure_by_key(
         db,
@@ -302,7 +302,7 @@ def seed_geocoding_settings(db: Session) -> None:
         db,
         key="user_agent",
         value_type=SettingValueType.string,
-        value_text=os.getenv("GEOCODING_USER_AGENT", "dotmac_omni"),
+        value_text=os.getenv("GEOCODING_USER_AGENT", "dotmac_crm"),
     )
     geocoding_settings.ensure_by_key(
         db,
@@ -671,103 +671,5 @@ def seed_comms_settings(db: Session) -> None:
         db,
         key="company_name",
         value_type=SettingValueType.string,
-        value_text=os.getenv("COMPANY_NAME", "Dotmac"),
-    )
-
-
-def seed_wireguard_settings(db: Session) -> None:
-    """Seed WireGuard VPN settings from environment variables."""
-    # Encryption key for storing WireGuard private keys at rest
-    wg_key = os.getenv("WIREGUARD_KEY_ENCRYPTION_KEY")
-    if wg_key and is_openbao_ref(wg_key):
-        network_settings.ensure_by_key(
-            db,
-            key="wireguard_key_encryption_key",
-            value_type=SettingValueType.string,
-            value_text=wg_key,
-            is_secret=True,
-        )
-    # Log retention
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_log_retention_days",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("WIREGUARD_LOG_RETENTION_DAYS", "90"),
-    )
-    # Log cleanup task settings
-    log_cleanup_enabled = os.getenv("WIREGUARD_LOG_CLEANUP_ENABLED", "true")
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_log_cleanup_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=log_cleanup_enabled,
-        value_json=log_cleanup_enabled.lower() in {"1", "true", "yes", "on"},
-    )
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_log_cleanup_interval_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("WIREGUARD_LOG_CLEANUP_INTERVAL_SECONDS", "86400"),
-    )
-    # Token cleanup settings
-    token_cleanup_enabled = os.getenv("WIREGUARD_TOKEN_CLEANUP_ENABLED", "true")
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_token_cleanup_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=token_cleanup_enabled,
-        value_json=token_cleanup_enabled.lower() in {"1", "true", "yes", "on"},
-    )
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_token_cleanup_interval_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("WIREGUARD_TOKEN_CLEANUP_INTERVAL_SECONDS", "3600"),
-    )
-    # Peer stats sync settings
-    stats_sync_enabled = os.getenv("WIREGUARD_PEER_STATS_SYNC_ENABLED", "true")
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_peer_stats_sync_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=stats_sync_enabled,
-        value_json=stats_sync_enabled.lower() in {"1", "true", "yes", "on"},
-    )
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_peer_stats_sync_interval_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("WIREGUARD_PEER_STATS_SYNC_INTERVAL_SECONDS", "300"),
-    )
-
-    # VPN Server Defaults
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_default_listen_port",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("WIREGUARD_DEFAULT_LISTEN_PORT", "51820"),
-    )
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_default_vpn_address",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("WIREGUARD_DEFAULT_VPN_ADDRESS", "10.10.0.1/24"),
-    )
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_default_vpn_address_v6",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("WIREGUARD_DEFAULT_VPN_ADDRESS_V6", ""),
-    )
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_default_mtu",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("WIREGUARD_DEFAULT_MTU", "1420"),
-    )
-    network_settings.ensure_by_key(
-        db,
-        key="wireguard_default_interface_name",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("WIREGUARD_DEFAULT_INTERFACE_NAME", "wg0"),
+        value_text=os.getenv("COMPANY_NAME", "Dotmac CRM"),
     )

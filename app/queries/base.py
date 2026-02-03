@@ -5,7 +5,7 @@ Provides common query operations that all query builders inherit.
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar, TYPE_CHECKING
+from typing import Any, Generic, TypeVar, TYPE_CHECKING, Self
 
 from sqlalchemy import asc, desc
 from sqlalchemy.orm import Query
@@ -39,7 +39,7 @@ class BaseQuery(Generic[T]):
         self.db = db
         self._query: Query = db.query(self.model_class)
 
-    def _clone(self) -> "BaseQuery[T]":
+    def _clone(self) -> Self:
         """Create a copy of this query builder with current state."""
         new = self.__class__.__new__(self.__class__)
         new.db = self.db
@@ -50,7 +50,7 @@ class BaseQuery(Generic[T]):
     # Common filters
     # -------------------------------------------------------------------------
 
-    def by_id(self, id: "UUID | str") -> "BaseQuery[T]":
+    def by_id(self, id: "UUID | str") -> Self:
         """Filter by primary key ID."""
         from app.services.common import coerce_uuid
 
@@ -60,7 +60,7 @@ class BaseQuery(Generic[T]):
             clone._query = clone._query.filter(id_column == coerce_uuid(id))
         return clone
 
-    def by_ids(self, ids: list["UUID | str"]) -> "BaseQuery[T]":
+    def by_ids(self, ids: list["UUID | str"]) -> Self:
         """Filter by multiple IDs."""
         from app.services.common import coerce_uuid
 
@@ -71,7 +71,7 @@ class BaseQuery(Generic[T]):
             clone._query = clone._query.filter(id_column.in_(uuid_ids))
         return clone
 
-    def active_only(self, active: bool = True) -> "BaseQuery[T]":
+    def active_only(self, active: bool = True) -> Self:
         """Filter by is_active flag."""
         clone = self._clone()
         is_active_col = getattr(self.model_class, "is_active", None)
@@ -82,7 +82,7 @@ class BaseQuery(Generic[T]):
                 clone._query = clone._query.filter(is_active_col.is_(False))
         return clone
 
-    def include_inactive(self) -> "BaseQuery[T]":
+    def include_inactive(self) -> Self:
         """Don't filter by is_active (include all records)."""
         # This is a no-op since we don't filter by default
         # But it makes the intent explicit when chaining
@@ -92,7 +92,7 @@ class BaseQuery(Generic[T]):
     # Ordering
     # -------------------------------------------------------------------------
 
-    def order_by(self, field: str, direction: str = "asc") -> "BaseQuery[T]":
+    def order_by(self, field: str, direction: str = "asc") -> Self:
         """Apply ordering to the query.
 
         Args:
@@ -112,7 +112,7 @@ class BaseQuery(Generic[T]):
     # Pagination
     # -------------------------------------------------------------------------
 
-    def paginate(self, limit: int = 50, offset: int = 0) -> "BaseQuery[T]":
+    def paginate(self, limit: int = 50, offset: int = 0) -> Self:
         """Apply pagination to the query."""
         clone = self._clone()
         if limit > 0:

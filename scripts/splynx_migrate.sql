@@ -1,4 +1,4 @@
--- One-time migration from splynx_staging into dotmac_omni core tables.
+-- One-time migration from splynx_staging into dotmac_crm core tables.
 -- Requires splynx_staging tables to be populated (see scripts/splynx_staging.sql).
 
 BEGIN;

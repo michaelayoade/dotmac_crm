@@ -353,3 +353,11 @@ def get_agent_team_options(db: Session) -> dict:
     agent_labels = get_agent_labels(db, agents)
 
     return {"agents": agents, "teams": teams, "agent_labels": agent_labels}
+
+
+# Singleton instances
+teams = Teams()
+agents = Agents()
+agent_teams = AgentTeams()
+team_channels = TeamChannels()
+routing_rules = RoutingRules()

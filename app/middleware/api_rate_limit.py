@@ -10,7 +10,7 @@ import os
 import time
 from collections import defaultdict
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -69,7 +69,7 @@ class APIRateLimitMiddleware:
         app: "ASGIApp",
         limit: int = DEFAULT_LIMIT,
         window_seconds: int = DEFAULT_WINDOW,
-        key_func: callable = None,
+        key_func: Callable[[Request], str] | None = None,
     ):
         self.app = app
         self.limit = limit

@@ -1,5 +1,6 @@
 import argparse
 import os
+from typing import cast
 
 from dotenv import load_dotenv
 
@@ -21,7 +22,7 @@ def _env_value(name: str) -> str | None:
     return value
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Sync settings from env to DB (one-way)."
     )
@@ -30,7 +31,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     load_dotenv()
     args = parse_args()
     db = SessionLocal()
@@ -56,10 +57,11 @@ def main():
                 errors.append(f"{spec.domain.value}.{spec.key}: env {error}")
                 continue
             value_text, value_json = normalize_for_db(spec, value)
+            value_json_typed = cast(dict | list | bool | int | str | None, value_json)
             payload = DomainSettingUpdate(
                 value_type=spec.value_type,
                 value_text=value_text,
-                value_json=value_json,
+                value_json=value_json_typed,
                 is_secret=spec.is_secret,
                 is_active=True,
             )

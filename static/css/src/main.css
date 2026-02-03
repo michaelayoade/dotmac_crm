@@ -214,28 +214,73 @@ h1, h2, h3, .font-display {
     radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.08) 0px, transparent 50%);
 }
 
-/* Enhanced button hover states */
-.btn-hover {
+/* ==========================================================================
+   UNIFIED HOVER SYSTEM
+   Consistent interaction feedback across all interactive elements
+   ========================================================================== */
+
+/* Base hover transition - apply to all interactive elements */
+.hover-lift,
+.btn-hover,
+.card-hover,
+.list-item-hover {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Button hover - subtle lift with brand shadow */
 .btn-hover:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px -2px rgba(6, 182, 212, 0.25);
 }
 .btn-hover:active:not(:disabled) {
   transform: translateY(0);
+  box-shadow: none;
 }
 
-/* Card hover lift effect */
-.card-hover {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
+/* Card hover - pronounced lift effect */
 .card-hover:hover {
   transform: translateY(-2px);
   box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.12);
 }
 .dark .card-hover:hover {
   box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.4);
+}
+
+/* List item hover - horizontal slide hint */
+.list-item-hover:hover {
+  transform: translateX(2px);
+  background: rgba(6, 182, 212, 0.04);
+}
+.dark .list-item-hover:hover {
+  background: rgba(6, 182, 212, 0.08);
+}
+
+/* Generic lift - small vertical movement */
+.hover-lift:hover {
+  transform: translateY(-1px);
+}
+
+/* Interactive row hover - table rows, list items */
+.row-hover {
+  transition: background-color 0.15s ease;
+}
+.row-hover:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+.dark .row-hover:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+/* Icon button hover - scale effect for icon-only buttons */
+.icon-btn-hover {
+  transition: all 0.15s ease;
+}
+.icon-btn-hover:hover {
+  transform: scale(1.05);
+  background: rgba(148, 163, 184, 0.12);
+}
+.icon-btn-hover:active {
+  transform: scale(0.98);
 }
 
 /* Animated number counter */
@@ -274,6 +319,64 @@ h1, h2, h3, .font-display {
   display: inline-block;
   width: 80px;
   height: 24px;
+}
+
+/* ==========================================================================
+   LOADING SPINNER
+   ========================================================================== */
+
+/* Spinner animation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Spinner component sizes */
+.spinner {
+  display: inline-block;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.spinner-md {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
+.spinner-lg {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+}
+
+/* Button loading state */
+.btn-loading {
+  position: relative;
+  pointer-events: none;
+}
+
+.btn-loading .btn-text {
+  opacity: 0;
+}
+
+.btn-loading .btn-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ==========================================================================
@@ -322,33 +425,144 @@ h1, h2, h3, .font-display {
 }
 
 /* ==========================================================================
+   EXIT ANIMATIONS
+   Smooth removal animations for dynamically removed elements
+   ========================================================================== */
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes fadeOutUp {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes fadeOutDown {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+
+@keyframes scaleOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
+}
+
+@keyframes slideOutLeft {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-12px); }
+}
+
+@keyframes slideOutRight {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(12px); }
+}
+
+/* Exit animation classes */
+.animate-fade-out {
+  animation: fadeOut 0.2s ease-out forwards;
+}
+
+.animate-fade-out-up {
+  animation: fadeOutUp 0.25s ease-out forwards;
+}
+
+.animate-fade-out-down {
+  animation: fadeOutDown 0.25s ease-out forwards;
+}
+
+.animate-scale-out {
+  animation: scaleOut 0.2s ease-out forwards;
+}
+
+.animate-slide-out-left {
+  animation: slideOutLeft 0.2s ease-out forwards;
+}
+
+.animate-slide-out-right {
+  animation: slideOutRight 0.2s ease-out forwards;
+}
+
+/* HTMX swap-out animation - applied during htmx:beforeSwap */
+.htmx-swapping {
+  animation: fadeOut 0.15s ease-out forwards;
+}
+
+/* Modal/overlay exit */
+.modal-exit {
+  animation: scaleOut 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Toast exit - already handled by Alpine x-transition, but useful for JS */
+.toast-exit {
+  animation: fadeOutDown 0.2s ease-out forwards;
+}
+
+/* List item removal */
+.list-item-exit {
+  animation: slideOutLeft 0.25s ease-out forwards;
+}
+
+/* ==========================================================================
    ACCESSIBILITY
    ========================================================================== */
 
 /* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
+  /* Disable all custom animations */
   .fade-in,
+  .animate-fade-in,
   .animate-fade-in-up,
   .stagger-in,
-  .counter-animate {
+  .counter-animate,
+  .animate-scale-in,
+  .animate-shimmer,
+  .animate-float {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
   }
+
+  /* Disable exit animations */
+  .animate-fade-out,
+  .animate-fade-out-up,
+  .animate-fade-out-down,
+  .animate-scale-out,
+  .animate-slide-out-left,
+  .animate-slide-out-right,
+  .htmx-swapping,
+  .modal-exit,
+  .toast-exit,
+  .list-item-exit {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  /* Disable staggered children animations */
   .stagger-children > * {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
   }
+
+  /* Disable hover/transition effects */
   .btn-hover,
   .card-hover,
+  .list-item-hover,
+  .hover-lift,
+  .row-hover,
+  .icon-btn-hover,
   .icon-hover-spin,
   .htmx-indicator {
     transition: none !important;
   }
-  .animate-scale-in,
-  .animate-shimmer,
-  .animate-float {
+
+  /* Disable Tailwind's built-in animations */
+  .animate-ping,
+  .animate-pulse,
+  .animate-bounce,
+  .animate-spin {
     animation: none !important;
   }
 }
@@ -371,4 +585,212 @@ h1, h2, h3, .font-display {
 }
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
+}
+
+/* ==========================================================================
+   INBOX STYLES
+   Extracted from templates/admin/crm/inbox.html for maintainability
+   ========================================================================== */
+
+/* Prevent HTMX swap flash - keep content visible during requests */
+#conversation-list.htmx-request,
+#message-thread.htmx-request,
+#contact-details.htmx-request {
+  opacity: 1 !important;
+}
+
+/* Smooth content transitions */
+#conversation-list,
+#message-thread,
+#contact-details {
+  transition: none;
+}
+
+/* Channel color system - Industrial Modern palette */
+.channel-email { --channel-color: 139, 92, 246; }
+.channel-whatsapp { --channel-color: 34, 197, 94; }
+.channel-sms { --channel-color: 249, 115, 22; }
+.channel-telegram { --channel-color: 14, 165, 233; }
+.channel-webchat { --channel-color: 245, 158, 11; }
+.channel-phone { --channel-color: 249, 115, 22; }
+.channel-facebook_messenger { --channel-color: 24, 119, 242; }
+.channel-instagram_dm { --channel-color: 236, 72, 153; }
+
+.channel-indicator {
+  background: rgb(var(--channel-color));
+  box-shadow: 0 0 12px rgba(var(--channel-color), 0.4);
+}
+
+.channel-badge {
+  background: rgba(var(--channel-color), 0.15);
+  color: rgb(var(--channel-color));
+  border: 1px solid rgba(var(--channel-color), 0.3);
+}
+
+/* Conversation list item states */
+.conversation-item {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  border-left: 3px solid transparent;
+}
+.conversation-item:hover {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.08) 0%, rgba(249, 115, 22, 0.04) 100%);
+}
+.conversation-item.active {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.12) 0%, rgba(249, 115, 22, 0.06) 100%);
+  border-left-color: rgb(245, 158, 11);
+}
+.conversation-item.unread {
+  background: rgba(var(--channel-color), 0.05);
+}
+
+/* Message bubbles - Industrial Modern style */
+.message-inbound {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+.message-outbound {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(249, 115, 22, 0.08) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.dark .message-inbound {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+.dark .message-outbound {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(249, 115, 22, 0.1) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+/* Typing indicator */
+.typing-dot {
+  animation: typing-bounce 1.4s infinite ease-in-out;
+}
+.typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dot:nth-child(2) { animation-delay: -0.16s; }
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* Scrollbar styling for inbox panels */
+.inbox-scroll::-webkit-scrollbar { width: 6px; }
+.inbox-scroll::-webkit-scrollbar-track { background: transparent; }
+.inbox-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 3px;
+}
+.inbox-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
+}
+
+/* Staggered conversation list animation */
+.conv-stagger {
+  opacity: 0;
+  transform: translateX(-8px);
+  animation: conv-slide-in 0.3s ease-out forwards;
+}
+.conv-stagger:nth-child(1) { animation-delay: 0ms; }
+.conv-stagger:nth-child(2) { animation-delay: 40ms; }
+.conv-stagger:nth-child(3) { animation-delay: 80ms; }
+.conv-stagger:nth-child(4) { animation-delay: 120ms; }
+.conv-stagger:nth-child(5) { animation-delay: 160ms; }
+.conv-stagger:nth-child(6) { animation-delay: 200ms; }
+@keyframes conv-slide-in {
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Message slide-up animation */
+.msg-slide-up {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: msg-appear 0.25s ease-out forwards;
+}
+@keyframes msg-appear {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Gradient mesh background - Industrial Modern */
+.inbox-mesh {
+  background:
+    radial-gradient(ellipse at 0% 0%, rgba(245, 158, 11, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 100%, rgba(249, 115, 22, 0.04) 0%, transparent 50%);
+}
+
+/* Contact card glow */
+.contact-glow {
+  position: relative;
+}
+.contact-glow::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(249, 115, 22, 0.3));
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.contact-glow:hover::before {
+  opacity: 1;
+}
+
+/* Inbox reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .conv-stagger,
+  .msg-slide-up,
+  .typing-dot {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .conversation-item {
+    transition: none !important;
+  }
+}
+
+/* ==========================================================================
+   CHAT WIDGET PANEL ANIMATIONS
+   ========================================================================== */
+
+/* Panel open/close animations */
+@keyframes panel-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes panel-slide-down {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+}
+
+.panel-enter {
+  animation: panel-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.panel-leave {
+  animation: panel-slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Chat widget panel reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .panel-enter,
+  .panel-leave {
+    animation: none !important;
+  }
+  .spinner,
+  .animate-spin {
+    animation: none !important;
+  }
 }
