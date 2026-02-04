@@ -6,6 +6,7 @@ from uuid import UUID
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 import re
 from sqlalchemy.orm import Session
 
@@ -118,7 +119,7 @@ def _validate_prechat_payload(config: ChatWidgetConfig, fields: dict) -> dict:
             continue
 
         if field.field_type == "email":
-            if not re.match(r"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", value):
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value):
                 errors.append(f"{field.label} must be a valid email")
             else:
                 email_value = value
@@ -325,7 +326,27 @@ def submit_prechat(
     _validate_origin(config, request)
     _set_cors_headers(response, request.headers.get("origin"))
 
-    values = _validate_prechat_payload(config, payload.fields or {})
+    try:
+        values = _validate_prechat_payload(config, payload.fields or {})
+    except HTTPException as exc:
+        field_names = list((payload.fields or {}).keys())
+        logger.info(
+            "widget_prechat_validation_error session_id=%s detail=%s fields=%s",
+            session_id,
+            exc.detail,
+            field_names,
+        )
+        # Return CORS-safe error response so browsers don't surface "Failed to fetch".
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers={
+                "Access-Control-Allow-Origin": request.headers.get("origin") or "*",
+                "Vary": "Origin",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+            },
+        )
 
     try:
         session = widget_visitors.identify_visitor(

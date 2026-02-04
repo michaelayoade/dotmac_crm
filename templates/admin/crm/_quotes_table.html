@@ -96,7 +96,6 @@
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             {{ row_action("/admin/crm/quotes/" ~ quote.id, icon_view(), "View details", "cyan") }}
                             {{ row_action("/admin/crm/quotes/" ~ quote.id ~ "/edit", icon_edit(), "Edit quote", "slate") }}
-                            {{ row_action("/admin/crm/quotes/" ~ quote.id ~ "/pdf", icon_download(), "Export PDF", "emerald") }}
                             <form method="post" action="/admin/crm/quotes/{{ quote.id }}/delete" class="inline">
                                 <button type="submit"
                                         onclick="return confirm('Delete this quote?')"
