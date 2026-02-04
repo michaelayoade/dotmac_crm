@@ -371,6 +371,10 @@
       const errors = [];
       configFields.forEach((field) => {
         const value = (fields[field.name] || '').trim();
+        if (field.field_type === 'email' && !value) {
+          errors.push(`${field.label || field.name} is required`);
+          return;
+        }
         if (field.required && !value) {
           errors.push(`${field.label || field.name} is required`);
           return;
@@ -421,7 +425,15 @@
           body: JSON.stringify({ fields })
         });
         if (!response.ok) {
-          throw new Error(`Pre-chat failed: ${response.status}`);
+          let detail = '';
+          try {
+            const data = await response.json();
+            detail = data && data.detail ? String(data.detail) : '';
+          } catch (e) {
+            detail = '';
+          }
+          const message = detail || `Pre-chat failed: ${response.status}`;
+          throw new Error(message);
         }
         const data = await response.json();
         this.session.isIdentified = true;
@@ -431,7 +443,7 @@
         this.disableInput(false);
       } catch (error) {
         if (errorEl) {
-          errorEl.textContent = 'Unable to submit. Please try again.';
+          errorEl.textContent = error?.message || 'Unable to submit. Please try again.';
           errorEl.style.display = 'block';
         }
         console.error('[DotMac Widget] Pre-chat failed:', error);
