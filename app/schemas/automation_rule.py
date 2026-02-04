@@ -17,6 +17,7 @@ class AutomationActionType(enum.Enum):
     send_notification = "send_notification"
     create_work_order = "create_work_order"
     emit_event = "emit_event"
+    reject_creation = "reject_creation"
 
 
 class ConditionItem(BaseModel):

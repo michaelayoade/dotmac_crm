@@ -6,7 +6,7 @@ plus the Event dataclass that encapsulates event data.
 
 import enum
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -64,6 +64,7 @@ class EventType(enum.Enum):
     session_ended = "session.ended"
 
     # Support - Ticket events (4)
+    ticket_pre_create = "ticket.pre_create"
     ticket_created = "ticket.created"
     ticket_updated = "ticket.updated"
     ticket_escalated = "ticket.escalated"
@@ -121,7 +122,7 @@ class Event:
     event_type: EventType
     payload: dict[str, Any]
     event_id: UUID = field(default_factory=uuid4)
-    occurred_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Context fields - optional, used for routing and filtering
     actor: str | None = None  # Who triggered the event (user ID, system, etc.)
@@ -132,8 +133,10 @@ class Event:
     ticket_id: UUID | None = None
     project_id: UUID | None = None
     work_order_id: UUID | None = None
+
     def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for JSON serialization."""
+
         def _serialize(value: Any) -> Any:
             if isinstance(value, UUID):
                 return str(value)

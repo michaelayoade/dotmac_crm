@@ -1,25 +1,16 @@
 """Admin projects web routes."""
 
 import json
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from typing import Optional
-from datetime import datetime
 
 from app.db import SessionLocal
-from app.services import projects as projects_service
-from app.services import audit as audit_service
-from app.services.audit_helpers import (
-    build_changes_metadata,
-    extract_changes,
-    format_changes,
-    log_audit_event,
-)
 from app.models.person import Person
-from app.services import person as person_service
 from app.models.projects import (
     ProjectComment,
     ProjectPriority,
@@ -45,7 +36,16 @@ from app.schemas.projects import (
     ProjectUpdate,
 )
 from app.schemas.vendor import InstallationProjectCreate, InstallationProjectUpdate
+from app.services import audit as audit_service
+from app.services import person as person_service
+from app.services import projects as projects_service
 from app.services import vendor as vendor_service
+from app.services.audit_helpers import (
+    build_changes_metadata,
+    extract_changes,
+    format_changes,
+    log_audit_event,
+)
 from app.services.common import coerce_uuid
 
 templates = Jinja2Templates(directory="templates")
@@ -121,10 +121,7 @@ def _build_activity_feed(db: Session, events: list, label: str) -> list[dict]:
     actor_ids = {str(event.actor_id) for event in events if getattr(event, "actor_id", None)}
     people = {}
     if actor_ids:
-        people = {
-            str(person.id): person
-            for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()
-        }
+        people = {str(person.id): person for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()}
     activities = []
     for event in events:
         actor = people.get(str(event.actor_id)) if getattr(event, "actor_id", None) else None
@@ -165,7 +162,8 @@ def _project_form_context(
     error: str | None = None,
     labels: dict | None = None,
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     template_items = projects_service.project_templates.list(
         db=db,
         project_type=None,
@@ -211,7 +209,8 @@ def _task_form_context(
     action_url: str,
     error: str | None = None,
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     projects = projects_service.projects.list(
         db=db,
         subscriber_id=None,
@@ -226,6 +225,7 @@ def _task_form_context(
         offset=0,
     )
     from app.services import dispatch as dispatch_service
+
     people = person_service.people.list(
         db=db,
         email=None,
@@ -275,8 +275,8 @@ def _task_form_context(
 @router.get("", response_class=HTMLResponse)
 def projects_list(
     request: Request,
-    status: Optional[str] = None,
-    priority: Optional[str] = None,
+    status: str | None = None,
+    priority: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
@@ -333,7 +333,8 @@ def projects_list(
         status_counts[status_value] = status_counts.get(status_value, 0) + 1
     total_count = len(all_projects_unfiltered)
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
 
@@ -387,6 +388,7 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     from app.web.admin import get_current_user
+
     current_user = get_current_user(request)
     project = {
         "name": _form_str(form.get("name")).strip(),
@@ -409,9 +411,7 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
         "is_active": form.get("is_active") == "true",
     }
     if not project["name"]:
-        context = _project_form_context(
-            request, db, project, "/admin/projects", "Name is required."
-        )
+        context = _project_form_context(request, db, project, "/admin/projects", "Name is required.")
         return templates.TemplateResponse("admin/projects/project_form.html", context)
 
     payload_data = {
@@ -471,10 +471,7 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
         )
         # Auto-create InstallationProject for installation types or if vendor assigned
         installation_types = {"fiber_optics_installation", "air_fiber_installation"}
-        should_create_installation = (
-            project["assigned_vendor_id"]
-            or project["project_type"] in installation_types
-        )
+        should_create_installation = project["assigned_vendor_id"] or project["project_type"] in installation_types
         if should_create_installation:
             install_payload = InstallationProjectCreate.model_validate(
                 {
@@ -504,9 +501,9 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
 @router.get("/tasks", response_class=HTMLResponse)
 def project_tasks_list(
     request: Request,
-    project_id: Optional[str] = None,
-    status: Optional[str] = None,
-    priority: Optional[str] = None,
+    project_id: str | None = None,
+    status: str | None = None,
+    priority: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
@@ -559,7 +556,8 @@ def project_tasks_list(
     )
     project_map = {str(project.id): project for project in projects}
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
 
@@ -606,6 +604,7 @@ async def project_task_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     from app.web.admin import get_current_user
+
     current_user = get_current_user(request)
     task = {
         "project_id": _form_str(form.get("project_id")).strip(),
@@ -620,14 +619,10 @@ async def project_task_create(request: Request, db: Session = Depends(get_db)):
         "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
     if not task["project_id"]:
-        context = _task_form_context(
-            request, db, task, "/admin/projects/tasks", "Project is required."
-        )
+        context = _task_form_context(request, db, task, "/admin/projects/tasks", "Project is required.")
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
     if not task["title"]:
-        context = _task_form_context(
-            request, db, task, "/admin/projects/tasks", "Title is required."
-        )
+        context = _task_form_context(request, db, task, "/admin/projects/tasks", "Title is required.")
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
     payload_data: dict[str, object] = {
@@ -700,7 +695,8 @@ def _template_form_context(
     action_url: str,
     error: str | None = None,
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     context = {
         "request": request,
         "template": template,
@@ -722,7 +718,8 @@ def _template_task_form_context(
     action_url: str,
     error: str | None = None,
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     context = {
         "request": request,
         "template": template,
@@ -766,6 +763,7 @@ def _build_template_task_editor_payload(db: Session, template_id: str) -> tuple[
                 "id": str(task.id),
                 "title": task.title,
                 "description": task.description or "",
+                "effort_hours": task.effort_hours if task.effort_hours is not None else "",
                 "dependencies": dependencies_map.get(str(task.id), []),
             }
         )
@@ -801,7 +799,8 @@ def project_templates_list(request: Request, db: Session = Depends(get_db)):
             .all()
         )
         template_items = [dict(row) for row in rows]
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     return templates.TemplateResponse(
         "admin/projects/project_templates.html",
         {
@@ -835,9 +834,7 @@ async def project_template_create(request: Request, db: Session = Depends(get_db
         "is_active": form.get("is_active") == "true",
     }
     if not template["name"]:
-        context = _template_form_context(
-            request, db, template, "/admin/projects/templates", "Name is required."
-        )
+        context = _template_form_context(request, db, template, "/admin/projects/templates", "Name is required.")
         return templates.TemplateResponse("admin/projects/project_template_form.html", context)
     payload_data = {
         "name": template["name"],
@@ -868,7 +865,8 @@ def project_template_detail(request: Request, template_id: str, db: Session = De
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
     except Exception:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         context = {
             "request": request,
             "message": "Project template not found",
@@ -886,7 +884,8 @@ def project_template_detail(request: Request, template_id: str, db: Session = De
         limit=500,
         offset=0,
     )
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     return templates.TemplateResponse(
         "admin/projects/project_template_detail.html",
         {
@@ -900,13 +899,12 @@ def project_template_detail(request: Request, template_id: str, db: Session = De
 
 
 @router.get("/templates/{template_id}/tasks/editor", response_class=HTMLResponse)
-def project_template_tasks_editor(
-    request: Request, template_id: str, db: Session = Depends(get_db)
-):
+def project_template_tasks_editor(request: Request, template_id: str, db: Session = Depends(get_db)):
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
     except Exception:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         context = {
             "request": request,
             "message": "Project template not found",
@@ -916,7 +914,8 @@ def project_template_tasks_editor(
         return templates.TemplateResponse("admin/errors/404.html", context, status_code=404)
 
     _, tasks_payload = _build_template_task_editor_payload(db, template_id)
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     return templates.TemplateResponse(
         "admin/projects/project_template_tasks_editor.html",
         {
@@ -930,9 +929,7 @@ def project_template_tasks_editor(
 
 
 @router.post("/templates/{template_id}/tasks/editor", response_class=HTMLResponse)
-async def project_template_tasks_editor_update(
-    request: Request, template_id: str, db: Session = Depends(get_db)
-):
+async def project_template_tasks_editor_update(request: Request, template_id: str, db: Session = Depends(get_db)):
     form = await request.form()
     raw_tasks = _form_str(form.get("tasks_json")).strip()
     try:
@@ -942,7 +939,8 @@ async def project_template_tasks_editor_update(
 
     if not isinstance(tasks_data, list):
         template = projects_service.project_templates.get(db=db, template_id=template_id)
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         return templates.TemplateResponse(
             "admin/projects/project_template_tasks_editor.html",
             {
@@ -966,6 +964,7 @@ async def project_template_tasks_editor_update(
         client_id = str(item.get("client_id") or "").strip()
         title = str(item.get("title") or "").strip()
         description = str(item.get("description") or "").strip()
+        effort_hours_raw = str(item.get("effort_hours") or "").strip()
         dependencies = item.get("dependencies") or []
         if not client_id:
             errors.append("Each task must have a client_id.")
@@ -974,18 +973,28 @@ async def project_template_tasks_editor_update(
         if client_id in seen_client_ids:
             errors.append("Duplicate task client_id found.")
         seen_client_ids.add(client_id)
+
+        effort_hours: int | None = None
+        if effort_hours_raw:
+            try:
+                effort_hours = int(effort_hours_raw)
+            except ValueError:
+                errors.append(f"Invalid effort_hours for task '{title}'.")
+
         tasks_payload.append(
             {
                 "client_id": client_id,
                 "title": title,
                 "description": description,
+                "effort_hours": effort_hours,
                 "dependencies": dependencies,
             }
         )
 
     if errors:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         return templates.TemplateResponse(
             "admin/projects/project_template_tasks_editor.html",
             {
@@ -1000,11 +1009,7 @@ async def project_template_tasks_editor_update(
         )
 
     template_uuid = coerce_uuid(template_id)
-    existing_tasks = (
-        db.query(ProjectTemplateTask)
-        .filter(ProjectTemplateTask.template_id == template_uuid)
-        .all()
-    )
+    existing_tasks = db.query(ProjectTemplateTask).filter(ProjectTemplateTask.template_id == template_uuid).all()
     existing_map = {str(task.id): task for task in existing_tasks}
     client_id_to_task_id: dict[str, str] = {}
     kept_task_ids: set[str] = set()
@@ -1013,11 +1018,13 @@ async def project_template_tasks_editor_update(
         client_id = task_data["client_id"]
         title = task_data["title"]
         description = task_data["description"]
+        effort_hours = task_data.get("effort_hours")
         if client_id in existing_map:
             task = existing_map[client_id]
             task.title = title
             task.description = description or None
             task.sort_order = index
+            task.effort_hours = effort_hours
             task.is_active = True
             kept_task_ids.add(str(task.id))
             client_id_to_task_id[client_id] = str(task.id)
@@ -1027,6 +1034,7 @@ async def project_template_tasks_editor_update(
                 title=title,
                 description=description or None,
                 sort_order=index,
+                effort_hours=effort_hours,
                 is_active=True,
             )
             db.add(new_task)
@@ -1072,9 +1080,7 @@ async def project_template_tasks_editor_update(
             )
 
     db.commit()
-    return RedirectResponse(
-        f"/admin/projects/templates/{template_id}", status_code=303
-    )
+    return RedirectResponse(f"/admin/projects/templates/{template_id}", status_code=303)
 
 
 @router.get("/templates/{template_id}/edit", response_class=HTMLResponse)
@@ -1082,7 +1088,8 @@ def project_template_edit(request: Request, template_id: str, db: Session = Depe
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
     except Exception:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         context = {
             "request": request,
             "message": "Project template not found",
@@ -1098,9 +1105,7 @@ def project_template_edit(request: Request, template_id: str, db: Session = Depe
         "description": template.description or "",
         "is_active": bool(template.is_active),
     }
-    context = _template_form_context(
-        request, db, template_data, f"/admin/projects/templates/{template_id}/edit"
-    )
+    context = _template_form_context(request, db, template_data, f"/admin/projects/templates/{template_id}/edit")
     return templates.TemplateResponse("admin/projects/project_template_form.html", context)
 
 
@@ -1176,6 +1181,7 @@ async def project_template_task_create(request: Request, template_id: str, db: S
         "title": _form_str(form.get("title")).strip(),
         "description": _form_str(form.get("description")).strip(),
         "sort_order": _form_str(form.get("sort_order")).strip(),
+        "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
     if not task["title"]:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
@@ -1193,6 +1199,20 @@ async def project_template_task_create(request: Request, template_id: str, db: S
         "title": task["title"],
         "description": task["description"] or None,
     }
+    if task["effort_hours"]:
+        try:
+            payload_data["effort_hours"] = int(task["effort_hours"])
+        except ValueError:
+            template = projects_service.project_templates.get(db=db, template_id=template_id)
+            context = _template_task_form_context(
+                request,
+                db,
+                {"id": str(template.id), "name": template.name},
+                task,
+                f"/admin/projects/templates/{template_id}/tasks",
+                "Effort hours must be a number.",
+            )
+            return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
     if task["sort_order"]:
         try:
             payload_data["sort_order"] = int(task["sort_order"])
@@ -1206,9 +1226,7 @@ async def project_template_task_create(request: Request, template_id: str, db: S
                 f"/admin/projects/templates/{template_id}/tasks",
                 "Sort order must be a number.",
             )
-            return templates.TemplateResponse(
-                "admin/projects/project_template_task_form.html", context
-            )
+            return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
     try:
         payload = ProjectTemplateTaskCreate.model_validate(payload_data)
         projects_service.project_template_tasks.create(db=db, payload=payload)
@@ -1228,16 +1246,15 @@ async def project_template_task_create(request: Request, template_id: str, db: S
 
 
 @router.get("/templates/{template_id}/tasks/{task_id}/edit", response_class=HTMLResponse)
-def project_template_task_edit(
-    request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)
-):
+def project_template_task_edit(request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)):
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
         task = projects_service.project_template_tasks.get(db=db, task_id=task_id)
         if str(task.template_id) != template_id:
             raise ValueError("Template mismatch")
     except Exception:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         context = {
             "request": request,
             "message": "Project template task not found",
@@ -1251,6 +1268,7 @@ def project_template_task_edit(
         "title": task.title or "",
         "description": task.description or "",
         "sort_order": task.sort_order if task.sort_order is not None else "",
+        "effort_hours": task.effort_hours if task.effort_hours is not None else "",
     }
     context = _template_task_form_context(
         request,
@@ -1263,16 +1281,15 @@ def project_template_task_edit(
 
 
 @router.post("/templates/{template_id}/tasks/{task_id}/edit", response_class=HTMLResponse)
-async def project_template_task_update(
-    request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)
-):
+async def project_template_task_update(request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)):
     form = await request.form()
     try:
         existing_task = projects_service.project_template_tasks.get(db=db, task_id=task_id)
         if str(existing_task.template_id) != template_id:
             raise ValueError("Template mismatch")
     except Exception:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         context = {
             "request": request,
             "message": "Project template task not found",
@@ -1284,6 +1301,7 @@ async def project_template_task_update(
         "title": _form_str(form.get("title")).strip(),
         "description": _form_str(form.get("description")).strip(),
         "sort_order": _form_str(form.get("sort_order")).strip(),
+        "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
     if not task["title"]:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
@@ -1300,6 +1318,20 @@ async def project_template_task_update(
         "title": task["title"],
         "description": task["description"] or None,
     }
+    if task["effort_hours"]:
+        try:
+            payload_data["effort_hours"] = int(task["effort_hours"])
+        except ValueError:
+            template = projects_service.project_templates.get(db=db, template_id=template_id)
+            context = _template_task_form_context(
+                request,
+                db,
+                {"id": str(template.id), "name": template.name},
+                task,
+                f"/admin/projects/templates/{template_id}/tasks/{task_id}/edit",
+                "Effort hours must be a number.",
+            )
+            return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
     if task["sort_order"]:
         try:
             payload_data["sort_order"] = int(task["sort_order"])
@@ -1313,9 +1345,7 @@ async def project_template_task_update(
                 f"/admin/projects/templates/{template_id}/tasks/{task_id}/edit",
                 "Sort order must be a number.",
             )
-            return templates.TemplateResponse(
-                "admin/projects/project_template_task_form.html", context
-            )
+            return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
     try:
         payload = ProjectTemplateTaskUpdate.model_validate(payload_data)
         projects_service.project_template_tasks.update(db=db, task_id=task_id, payload=payload)
@@ -1335,15 +1365,14 @@ async def project_template_task_update(
 
 
 @router.post("/templates/{template_id}/tasks/{task_id}/delete", response_class=HTMLResponse)
-def project_template_task_delete(
-    request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)
-):
+def project_template_task_delete(request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)):
     try:
         existing_task = projects_service.project_template_tasks.get(db=db, task_id=task_id)
         if str(existing_task.template_id) != template_id:
             raise ValueError("Template mismatch")
     except Exception:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         context = {
             "request": request,
             "message": "Project template task not found",
@@ -1357,7 +1386,8 @@ def project_template_task_delete(
 
 @router.get("/{project_id}", response_class=HTMLResponse)
 def project_detail(request: Request, project_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     try:
         project = projects_service.projects.get(db=db, project_id=project_id)
     except Exception:
@@ -1410,11 +1440,7 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
     customer_name = None
     if project.lead and project.lead.person:
         person = project.lead.person
-        customer_name = (
-            person.display_name
-            or f"{person.first_name} {person.last_name}".strip()
-            or person.email
-        )
+        customer_name = person.display_name or f"{person.first_name} {person.last_name}".strip() or person.email
     elif project.subscriber:
         customer_name = project.subscriber.display_name
     customer_address = project.customer_address or (project.lead.address if project.lead else None)
@@ -1443,6 +1469,7 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
     expense_totals = None
     try:
         from app.services.dotmac_erp.cache import get_cached_expense_totals
+
         expense_totals = get_cached_expense_totals(db, "project", str(project.id))
     except Exception:
         pass  # ERP sync not configured or failed
@@ -1466,10 +1493,9 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
 
 
 @router.post("/{project_id}/comments", response_class=HTMLResponse)
-async def project_comment_create(
-    request: Request, project_id: str, db: Session = Depends(get_db)
-):
+async def project_comment_create(request: Request, project_id: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
+
     form = await request.form()
     body = _form_str(form.get("body")).strip()
     attachments = form.getlist("attachments")
@@ -1514,9 +1540,7 @@ async def project_comment_create(
 
 
 @router.post("/{project_id}/comments/{comment_id}/edit", response_class=HTMLResponse)
-async def project_comment_edit(
-    request: Request, project_id: str, comment_id: str, db: Session = Depends(get_db)
-):
+async def project_comment_edit(request: Request, project_id: str, comment_id: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     context = {
@@ -1603,7 +1627,8 @@ def project_edit(request: Request, project_id: str, db: Session = Depends(get_db
     try:
         project = projects_service.projects.get(db=db, project_id=project_id)
     except Exception:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         context = {
             "request": request,
             "message": "Project not found",
@@ -1626,8 +1651,12 @@ def project_edit(request: Request, project_id: str, db: Session = Depends(get_db
         "subscriber_id": str(project.subscriber_id) if project.subscriber_id else "",
         "owner_person_id": str(project.owner_person_id) if project.owner_person_id else "",
         "manager_person_id": str(project.manager_person_id) if project.manager_person_id else "",
-        "project_manager_person_id": str(project.project_manager_person_id) if project.project_manager_person_id else "",
-        "assistant_manager_person_id": str(project.assistant_manager_person_id) if project.assistant_manager_person_id else "",
+        "project_manager_person_id": str(project.project_manager_person_id)
+        if project.project_manager_person_id
+        else "",
+        "assistant_manager_person_id": str(project.assistant_manager_person_id)
+        if project.assistant_manager_person_id
+        else "",
         "start_at": _fmt_dt(project.start_at),
         "due_at": _fmt_dt(project.due_at),
         "completed_at": _fmt_dt(project.completed_at),
@@ -1652,9 +1681,7 @@ def project_edit(request: Request, project_id: str, db: Session = Depends(get_db
         project_data["assigned_vendor_id"] = assigned_vendor_id
 
     labels = _get_project_labels(db, project, assigned_vendor_id)
-    context = _project_form_context(
-        request, db, project_data, f"/admin/projects/{project_id}/edit", labels=labels
-    )
+    context = _project_form_context(request, db, project_data, f"/admin/projects/{project_id}/edit", labels=labels)
     return templates.TemplateResponse("admin/projects/project_form.html", context)
 
 
@@ -1663,6 +1690,7 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
     form = await request.form()
     attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     from app.web.admin import get_current_user
+
     current_user = get_current_user(request)
     project = {
         "id": project_id,
@@ -1686,9 +1714,7 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
         "is_active": form.get("is_active") == "true",
     }
     if not project["name"]:
-        context = _project_form_context(
-            request, db, project, f"/admin/projects/{project_id}/edit", "Name is required."
-        )
+        context = _project_form_context(request, db, project, f"/admin/projects/{project_id}/edit", "Name is required.")
         return templates.TemplateResponse("admin/projects/project_form.html", context)
 
     payload_data = {
@@ -1732,13 +1758,9 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
             prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
             saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
             if saved_attachments:
-                existing_metadata = (
-                    dict(before.metadata_) if isinstance(before.metadata_, dict) else {}
-                )
+                existing_metadata = dict(before.metadata_) if isinstance(before.metadata_, dict) else {}
                 existing_attachments = existing_metadata.get("attachments")
-                attachment_list = (
-                    list(existing_attachments) if isinstance(existing_attachments, list) else []
-                )
+                attachment_list = list(existing_attachments) if isinstance(existing_attachments, list) else []
                 attachment_list.extend(saved_attachments)
                 existing_metadata["attachments"] = attachment_list
                 payload_data["metadata_"] = existing_metadata
@@ -1757,10 +1779,7 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
         )
         # Auto-create/update InstallationProject for installation types or if vendor assigned
         installation_types = {"fiber_optics_installation", "air_fiber_installation"}
-        should_have_installation = (
-            project["assigned_vendor_id"]
-            or project["project_type"] in installation_types
-        )
+        should_have_installation = project["assigned_vendor_id"] or project["project_type"] in installation_types
         if should_have_installation:
             install_projects = vendor_service.installation_projects.list(
                 db=db,
@@ -1816,7 +1835,8 @@ def project_delete(request: Request, project_id: str, db: Session = Depends(get_
 
 @router.get("/tasks/{task_id}", response_class=HTMLResponse)
 def project_task_detail(request: Request, task_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     try:
         task = projects_service.project_tasks.get(db=db, task_id=task_id)
         project = projects_service.projects.get(db=db, project_id=str(task.project_id))
@@ -1871,6 +1891,7 @@ def project_task_detail(request: Request, task_id: str, db: Session = Depends(ge
 @router.post("/tasks/{task_id}/comments", response_class=HTMLResponse)
 async def project_task_comment_create(request: Request, task_id: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
+
     form = await request.form()
     body = _form_str(form.get("body")).strip()
     attachments = form.getlist("attachments")
@@ -1919,7 +1940,8 @@ def project_task_edit(request: Request, task_id: str, db: Session = Depends(get_
     try:
         task = projects_service.project_tasks.get(db=db, task_id=task_id)
     except Exception:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         context = {
             "request": request,
             "message": "Project task not found",
@@ -1941,9 +1963,7 @@ def project_task_edit(request: Request, task_id: str, db: Session = Depends(get_
         "due_at": _fmt_dt(task.due_at),
         "effort_hours": str(task.effort_hours) if task.effort_hours is not None else "",
     }
-    context = _task_form_context(
-        request, db, task_data, f"/admin/projects/tasks/{task_id}/edit"
-    )
+    context = _task_form_context(request, db, task_data, f"/admin/projects/tasks/{task_id}/edit")
     return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
 
@@ -1952,6 +1972,7 @@ async def project_task_update(request: Request, task_id: str, db: Session = Depe
     form = await request.form()
     attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     from app.web.admin import get_current_user
+
     current_user = get_current_user(request)
     task = {
         "id": task_id,
@@ -1967,14 +1988,10 @@ async def project_task_update(request: Request, task_id: str, db: Session = Depe
         "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
     if not task["project_id"]:
-        context = _task_form_context(
-            request, db, task, f"/admin/projects/tasks/{task_id}/edit", "Project is required."
-        )
+        context = _task_form_context(request, db, task, f"/admin/projects/tasks/{task_id}/edit", "Project is required.")
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
     if not task["title"]:
-        context = _task_form_context(
-            request, db, task, f"/admin/projects/tasks/{task_id}/edit", "Title is required."
-        )
+        context = _task_form_context(request, db, task, f"/admin/projects/tasks/{task_id}/edit", "Title is required.")
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
     payload_data = {
@@ -2005,13 +2022,9 @@ async def project_task_update(request: Request, task_id: str, db: Session = Depe
             prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
             saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
             if saved_attachments:
-                existing_metadata = (
-                    dict(before.metadata_) if isinstance(before.metadata_, dict) else {}
-                )
+                existing_metadata = dict(before.metadata_) if isinstance(before.metadata_, dict) else {}
                 existing_attachments = existing_metadata.get("attachments")
-                attachment_list = (
-                    list(existing_attachments) if isinstance(existing_attachments, list) else []
-                )
+                attachment_list = list(existing_attachments) if isinstance(existing_attachments, list) else []
                 attachment_list.extend(saved_attachments)
                 existing_metadata["attachments"] = attachment_list
                 payload_data["metadata_"] = existing_metadata
