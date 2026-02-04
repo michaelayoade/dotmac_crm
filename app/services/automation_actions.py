@@ -20,6 +20,15 @@ from app.services.events.types import Event
 
 logger = logging.getLogger(__name__)
 
+
+class CreationRejectedError(Exception):
+    """Raised by reject_creation action to signal that entity creation should be blocked."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
 _MAX_AUTOMATION_DEPTH = 3
 
 # Whitelisted fields per entity type to prevent arbitrary attribute mutation
@@ -89,6 +98,8 @@ def _dispatch_action(
         _execute_create_work_order(db, params, event)
     elif action_type == "emit_event":
         _execute_emit_event(db, params, event, triggered_by_automation)
+    elif action_type == "reject_creation":
+        _execute_reject_creation(params, event)
     else:
         raise ValueError(f"Unknown action type: {action_type}")
 
@@ -127,6 +138,7 @@ def _execute_assign_conversation(db: Session, params: dict, event: Event) -> Non
         except Exception as exc:
             raise ValueError("assigned_by_id must be a valid UUID") from exc
     from app.services.crm.conversations.service import assign_conversation
+
     assign_conversation(
         db,
         conversation_id=str(conversation.id),
@@ -270,3 +282,9 @@ def _execute_emit_event(db: Session, params: dict, event: Event, triggered_by_au
         project_id=event.project_id,
         work_order_id=event.work_order_id,
     )
+
+
+def _execute_reject_creation(params: dict, event: Event) -> None:
+    """Reject entity creation by raising CreationRejectedError."""
+    message = params.get("message", "Creation blocked by automation rule")
+    raise CreationRejectedError(message)

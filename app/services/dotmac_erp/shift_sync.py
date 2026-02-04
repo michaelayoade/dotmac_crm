@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.models.dispatch import AvailabilityBlock, Shift, TechnicianProfile
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
-from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPError
 from app.services import settings_spec
+from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPError
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +20,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ShiftSyncResult:
     """Result of a shift sync operation."""
+
     shifts_created: int = 0
     shifts_updated: int = 0
     time_off_created: int = 0
@@ -61,18 +61,12 @@ class DotMacERPShiftSync:
             return self._client
 
         # Check if shift sync is enabled
-        enabled = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_shift_sync_enabled"
-        )
+        enabled = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_shift_sync_enabled")
         if not enabled:
             return None
 
-        base_url_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_base_url"
-        )
-        token_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_token"
-        )
+        base_url_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_base_url")
+        token_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_token")
 
         base_url = str(base_url_value) if base_url_value else None
         token = str(token_value) if token_value else None
@@ -81,9 +75,7 @@ class DotMacERPShiftSync:
             logger.warning("DotMac ERP sync enabled but not configured (missing URL or token)")
             return None
 
-        timeout_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds"
-        )
+        timeout_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds")
         if isinstance(timeout_value, (int, str)):
             timeout = int(timeout_value)
         else:
@@ -168,7 +160,7 @@ class DotMacERPShiftSync:
                 value = value[:-1] + "+00:00"
             parsed = datetime.fromisoformat(value)
             if parsed.tzinfo is None:
-                return parsed.replace(tzinfo=timezone.utc)
+                return parsed.replace(tzinfo=UTC)
             return parsed
         except ValueError:
             logger.warning(f"Failed to parse datetime: {value}")
@@ -177,8 +169,8 @@ class DotMacERPShiftSync:
     def _date_range_bounds(self, from_date: str, to_date: str) -> tuple[datetime, datetime]:
         start_date = datetime.fromisoformat(from_date).date()
         end_date = datetime.fromisoformat(to_date).date()
-        start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-        end_dt = (datetime.combine(end_date, datetime.min.time()) + timedelta(days=1)).replace(tzinfo=timezone.utc)
+        start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=UTC)
+        end_dt = (datetime.combine(end_date, datetime.min.time()) + timedelta(days=1)).replace(tzinfo=UTC)
         return start_dt, end_dt
 
     def _upsert_shift(self, erp_shift: dict, technician: TechnicianProfile) -> str:
@@ -199,11 +191,7 @@ class DotMacERPShiftSync:
             return "skipped"
 
         # Check if shift exists
-        existing = (
-            self.db.query(Shift)
-            .filter(Shift.erp_id == str(erp_id))
-            .first()
-        )
+        existing = self.db.query(Shift).filter(Shift.erp_id == str(erp_id)).first()
 
         if existing:
             # Update existing shift
@@ -251,11 +239,7 @@ class DotMacERPShiftSync:
             return "skipped"
 
         # Check if availability block exists
-        existing = (
-            self.db.query(AvailabilityBlock)
-            .filter(AvailabilityBlock.erp_id == str(erp_id))
-            .first()
-        )
+        existing = self.db.query(AvailabilityBlock).filter(AvailabilityBlock.erp_id == str(erp_id)).first()
 
         reason = erp_time_off.get("reason") or erp_time_off.get("leave_type")
 
@@ -301,7 +285,7 @@ class DotMacERPShiftSync:
         Returns:
             ShiftSyncResult with counts and any errors
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         result = ShiftSyncResult()
 
         client = self._get_client()
@@ -310,7 +294,7 @@ class DotMacERPShiftSync:
             return result
 
         # Default date range
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         if not from_date:
             from_date = today.isoformat()
         if not to_date:
@@ -351,9 +335,9 @@ class DotMacERPShiftSync:
                         emp_id = shift_data.get("employee_id") or shift_data.get("employee_email")
                         if emp_id:
                             skipped_employees.add(str(emp_id))
-                    continue
+                        continue
 
-                matched_techs.add(str(technician.id))
+                    matched_techs.add(str(technician.id))
 
                     action = self._upsert_shift(shift_data, technician)
                     if action == "created":
@@ -394,7 +378,7 @@ class DotMacERPShiftSync:
             result.errors.append({"type": "api", "error": str(e)})
             self.db.rollback()
 
-        result.duration_seconds = (datetime.now(timezone.utc) - start_time).total_seconds()
+        result.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
         return result
 
     def sync_time_off(
@@ -414,7 +398,7 @@ class DotMacERPShiftSync:
         Returns:
             ShiftSyncResult with counts and any errors
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         result = ShiftSyncResult()
 
         client = self._get_client()
@@ -423,7 +407,7 @@ class DotMacERPShiftSync:
             return result
 
         # Default date range (longer for time-off to catch upcoming leave)
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         if not from_date:
             from_date = today.isoformat()
         if not to_date:
@@ -464,9 +448,9 @@ class DotMacERPShiftSync:
                         emp_id = time_off_data.get("employee_id") or time_off_data.get("employee_email")
                         if emp_id:
                             skipped_employees.add(str(emp_id))
-                    continue
+                        continue
 
-                matched_techs.add(str(technician.id))
+                    matched_techs.add(str(technician.id))
 
                     action = self._upsert_time_off(time_off_data, technician)
                     if action == "created":
@@ -501,7 +485,7 @@ class DotMacERPShiftSync:
             result.errors.append({"type": "api", "error": str(e)})
             self.db.rollback()
 
-        result.duration_seconds = (datetime.now(timezone.utc) - start_time).total_seconds()
+        result.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
         return result
 
     def sync_all(
@@ -519,7 +503,7 @@ class DotMacERPShiftSync:
         Returns:
             Combined ShiftSyncResult
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         combined_result = ShiftSyncResult()
 
         # Sync shifts
@@ -535,14 +519,12 @@ class DotMacERPShiftSync:
         combined_result.matched_technician_ids = (
             shift_result.matched_technician_ids | time_off_result.matched_technician_ids
         )
-        combined_result.skipped_employee_ids = (
-            shift_result.skipped_employee_ids | time_off_result.skipped_employee_ids
-        )
+        combined_result.skipped_employee_ids = shift_result.skipped_employee_ids | time_off_result.skipped_employee_ids
         combined_result.technicians_matched = len(combined_result.matched_technician_ids)
         combined_result.technicians_skipped = len(combined_result.skipped_employee_ids)
         combined_result.errors.extend(time_off_result.errors)
 
-        combined_result.duration_seconds = (datetime.now(timezone.utc) - start_time).total_seconds()
+        combined_result.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
 
         logger.info(
             f"Shift sync complete: {combined_result.shifts_created} shifts created, "

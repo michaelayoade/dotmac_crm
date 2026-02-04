@@ -69,6 +69,7 @@
         client_id: task.client_id || task.id || createClientId(),
         title: task.title || "",
         description: task.description || "",
+        effort_hours: task.effort_hours ?? "",
         dependencies: Array.isArray(task.dependencies) ? task.dependencies.slice() : [],
     }));
 
@@ -194,6 +195,22 @@
             });
             descWrap.append(descLabel, descInput);
 
+            const effortWrap = document.createElement("div");
+            const effortLabel = document.createElement("label");
+            effortLabel.className = "block text-xs font-semibold text-slate-500 dark:text-slate-400";
+            effortLabel.textContent = "Effort (hours)";
+            const effortInput = document.createElement("input");
+            effortInput.type = "number";
+            effortInput.min = "0";
+            effortInput.placeholder = "e.g. 24";
+            effortInput.className = "mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white";
+            effortInput.value = task.effort_hours;
+            effortInput.addEventListener("input", (event) => {
+                task.effort_hours = event.target.value;
+                syncJson();
+            });
+            effortWrap.append(effortLabel, effortInput);
+
             const depWrap = document.createElement("div");
             depWrap.className = "md:col-span-2";
             const depLabel = document.createElement("label");
@@ -225,7 +242,7 @@
 
             depWrap.append(depLabel, depSelect);
 
-            grid.append(titleWrap, descWrap, depWrap);
+            grid.append(titleWrap, descWrap, effortWrap, depWrap);
             card.append(header, grid);
             tasksList.appendChild(card);
         });
@@ -238,6 +255,7 @@
             client_id: createClientId(),
             title: "",
             description: "",
+            effort_hours: "",
             dependencies: [],
         });
         render();

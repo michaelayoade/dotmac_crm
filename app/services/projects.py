@@ -1,12 +1,13 @@
-from datetime import date, datetime, time, timezone, timedelta
 import html
 import logging
+from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.crm.sales import Lead
+from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.projects import (
     Project,
@@ -26,13 +27,12 @@ from app.models.projects import (
 from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket
 from app.models.workforce import WorkOrder
-from app.models.domain_settings import SettingDomain
 from app.schemas.projects import (
     ProjectCommentCreate,
     ProjectCommentUpdate,
     ProjectCreate,
-    ProjectTaskCreate,
     ProjectTaskCommentCreate,
+    ProjectTaskCreate,
     ProjectTaskUpdate,
     ProjectTemplateCreate,
     ProjectTemplateTaskCreate,
@@ -40,6 +40,7 @@ from app.schemas.projects import (
     ProjectTemplateUpdate,
     ProjectUpdate,
 )
+from app.services import settings_spec
 from app.services.common import (
     apply_ordering,
     apply_pagination,
@@ -47,10 +48,9 @@ from app.services.common import (
     ensure_exists,
     validate_enum,
 )
-from app.services.response import ListResponseMixin
-from app.services import settings_spec
 from app.services.events import emit_event
 from app.services.events.types import EventType
+from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
 
@@ -126,16 +126,14 @@ def _notify_project_task_assigned(
         priority_label = html.escape(task.priority.value) if task.priority else "normal"
         description_block = ""
         if task.description:
-            description_block = (
-                f"<p><strong>Description:</strong><br>{html.escape(task.description)}</p>"
-            )
+            description_block = f"<p><strong>Description:</strong><br>{html.escape(task.description)}</p>"
 
         list_url = task_url or "https://crm.dotmac.io/admin/projects/tasks"
         link_block = (
-            "<div style=\"text-align: center; margin: 20px 0;\">"
-            f"<a href=\"{list_url}\" "
-            "style=\"background-color: #16a34a; color: #fff; text-decoration: none; "
-            "padding: 12px 20px; border-radius: 6px; display: inline-block; font-weight: 600;\">"
+            '<div style="text-align: center; margin: 20px 0;">'
+            f'<a href="{list_url}" '
+            'style="background-color: #16a34a; color: #fff; text-decoration: none; '
+            'padding: 12px 20px; border-radius: 6px; display: inline-block; font-weight: 600;">'
             "View Project Task"
             "</a>"
             "</div>"
@@ -144,49 +142,49 @@ def _notify_project_task_assigned(
         body = (
             "<div style=\"font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.8; "
             "color: #333; background-color: #f4f4f9; padding: 25px; border: 1px solid #ccc; "
-            "border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); position: relative;\">"
-            "<div style=\"position: absolute; top: 15px; right: 15px;\">"
-            "<img src=\"https://erp.dotmac.ng/files/dotmac%20no%20bg.png\" "
-            "alt=\"Dotmac Logo\" style=\"max-width: 150px; height: auto;\">"
+            'border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); position: relative;">'
+            '<div style="position: absolute; top: 15px; right: 15px;">'
+            '<img src="https://erp.dotmac.ng/files/dotmac%20no%20bg.png" '
+            'alt="Dotmac Logo" style="max-width: 150px; height: auto;">'
             "</div>"
-            "<div style=\"text-align: center; margin-bottom: 20px;\">"
-            "<h1 style=\"color: green; font-size: 24px; margin: 0;\">Task Assigned</h1>"
+            '<div style="text-align: center; margin-bottom: 20px;">'
+            '<h1 style="color: green; font-size: 24px; margin: 0;">Task Assigned</h1>'
             "</div>"
-            f"<p style=\"font-size: 16px; color: green; margin-top: 20px;\">Dear {assignee_name},</p>"
-            "<p style=\"font-size: 15px; color: #555; margin: 15px 0;\">"
+            f'<p style="font-size: 16px; color: green; margin-top: 20px;">Dear {assignee_name},</p>'
+            '<p style="font-size: 15px; color: #555; margin: 15px 0;">'
             "You have been assigned a new project task. Please find the details below:"
             "</p>"
-            "<div style=\"background-color: #fff; border: 2px solid #e2e2e2; border-radius: 8px; "
-            "padding: 20px; margin-bottom: 20px;\">"
-            f"<p style=\"font-size: 15px; margin: 0; line-height: 1.5;\">"
-            f"<strong style=\"color: red;\">Task:</strong> <span style=\"color: #555;\">{safe_title}</span><br>"
-            f"<strong style=\"color: red;\">Project:</strong> <span style=\"color: #555;\">{safe_project}</span><br>"
-            f"<strong style=\"color: red;\">Status:</strong> "
-            f"<span style=\"color: #555;\">{status_label}</span><br>"
-            f"<strong style=\"color: red;\">Task ID:</strong> <span style=\"color: #555;\">{task.id}</span><br>"
-            f"<strong style=\"color: red;\">Start:</strong> <span style=\"color: #555;\">{start_label or 'N/A'}</span><br>"
-            f"<strong style=\"color: red;\">Due:</strong> <span style=\"color: #555;\">{due_label or 'N/A'}</span><br>"
-            f"<strong style=\"color: red;\">Priority:</strong> "
-            f"<span style=\"color: #555;\">{priority_label}</span>"
+            '<div style="background-color: #fff; border: 2px solid #e2e2e2; border-radius: 8px; '
+            'padding: 20px; margin-bottom: 20px;">'
+            f'<p style="font-size: 15px; margin: 0; line-height: 1.5;">'
+            f'<strong style="color: red;">Task:</strong> <span style="color: #555;">{safe_title}</span><br>'
+            f'<strong style="color: red;">Project:</strong> <span style="color: #555;">{safe_project}</span><br>'
+            f'<strong style="color: red;">Status:</strong> '
+            f'<span style="color: #555;">{status_label}</span><br>'
+            f'<strong style="color: red;">Task ID:</strong> <span style="color: #555;">{task.id}</span><br>'
+            f'<strong style="color: red;">Start:</strong> <span style="color: #555;">{start_label or "N/A"}</span><br>'
+            f'<strong style="color: red;">Due:</strong> <span style="color: #555;">{due_label or "N/A"}</span><br>'
+            f'<strong style="color: red;">Priority:</strong> '
+            f'<span style="color: #555;">{priority_label}</span>'
             f"</p>"
             "</div>"
             f"{description_block}"
-            "<p style=\"font-size: 15px; color: #555; margin: 15px 0;\">"
+            '<p style="font-size: 15px; color: #555; margin: 15px 0;">'
             "We will keep you updated with further progress."
             "</p>"
             f"{link_block}"
-            "<p style=\"font-size: 15px; color: #555; margin: 15px 0;\">"
+            '<p style="font-size: 15px; color: #555; margin: 15px 0;">'
             "For further inquiries, contact us at "
-            "<a href=\"mailto:support@dotmac.ng\" style=\"color: green; text-decoration: none;\">support@dotmac.ng</a> "
+            '<a href="mailto:support@dotmac.ng" style="color: green; text-decoration: none;">support@dotmac.ng</a> '
             "or send us a WhatsApp message at "
-            "<a href=\"https://wa.me/08121179536\" style=\"color: green; text-decoration: none;\">08121179536</a>."
+            '<a href="https://wa.me/08121179536" style="color: green; text-decoration: none;">08121179536</a>.'
             "</p>"
-            "<p style=\"font-size: 15px; color: green; text-align: left; font-style: italic;\">"
-            "Thank you for choosing <strong style=\"color: red;\">DOTMAC</strong>."
+            '<p style="font-size: 15px; color: green; text-align: left; font-style: italic;">'
+            'Thank you for choosing <strong style="color: red;">DOTMAC</strong>.'
             "</p>"
-            "<p style=\"font-size: 15px; color: green; text-align: right; font-style: italic;\">"
+            '<p style="font-size: 15px; color: green; text-align: right; font-style: italic;">'
             "Best regards,<br>"
-            "<span style=\"color: red; font-weight: bold;\">Dotmac Support Team</span>"
+            '<span style="color: red; font-weight: bold;">Dotmac Support Team</span>'
             "</p>"
             "</div>"
         )
@@ -219,15 +217,11 @@ class Projects(ListResponseMixin):
         return Projects.PROJECT_TYPE_DURATIONS.get(project_type)
 
     @staticmethod
-    def _get_region_pm_assignments(
-        db: Session, region: str | None
-    ) -> tuple[str | None, str | None]:
+    def _get_region_pm_assignments(db: Session, region: str | None) -> tuple[str | None, str | None]:
         """Look up PM + assistant person_id for the given region from settings."""
         if not region:
             return None, None
-        region_pm_map = settings_spec.resolve_value(
-            db, SettingDomain.projects, "region_pm_assignments"
-        )
+        region_pm_map = settings_spec.resolve_value(db, SettingDomain.projects, "region_pm_assignments")
         if not region_pm_map or not isinstance(region_pm_map, dict):
             return None, None
         entry = region_pm_map.get(region)
@@ -283,9 +277,7 @@ class Projects(ListResponseMixin):
         data = payload.model_dump()
         # Auto-assign PM based on region if not already specified
         if data.get("region"):
-            auto_pm, auto_assistant = Projects._get_region_pm_assignments(
-                db, data["region"]
-            )
+            auto_pm, auto_assistant = Projects._get_region_pm_assignments(db, data["region"])
             if auto_pm:
                 if not data.get("project_manager_person_id"):
                     data["project_manager_person_id"] = coerce_uuid(auto_pm)
@@ -295,25 +287,17 @@ class Projects(ListResponseMixin):
                 data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
-            default_status = settings_spec.resolve_value(
-                db, SettingDomain.projects, "default_project_status"
-            )
+            default_status = settings_spec.resolve_value(db, SettingDomain.projects, "default_project_status")
             if default_status:
-                data["status"] = validate_enum(
-                    default_status, ProjectStatus, "status"
-                )
+                data["status"] = validate_enum(default_status, ProjectStatus, "status")
         if "priority" not in fields_set:
-            default_priority = settings_spec.resolve_value(
-                db, SettingDomain.projects, "default_project_priority"
-            )
+            default_priority = settings_spec.resolve_value(db, SettingDomain.projects, "default_project_priority")
             if default_priority:
-                data["priority"] = validate_enum(
-                    default_priority, ProjectPriority, "priority"
-                )
+                data["priority"] = validate_enum(default_priority, ProjectPriority, "priority")
         if not data.get("start_at") or not data.get("due_at"):
             duration_days = Projects._duration_days_for_type(data.get("project_type"))
             if duration_days:
-                start_at = data.get("start_at") or datetime.now(timezone.utc)
+                start_at = data.get("start_at") or datetime.now(UTC)
                 data["start_at"] = start_at
                 if not data.get("due_at"):
                     data["due_at"] = start_at + timedelta(days=duration_days)
@@ -380,9 +364,7 @@ class Projects(ListResponseMixin):
         if status:
             query = query.filter(Project.status == validate_enum(status, ProjectStatus, "status"))
         if priority:
-            query = query.filter(
-                Project.priority == validate_enum(priority, ProjectPriority, "priority")
-            )
+            query = query.filter(Project.priority == validate_enum(priority, ProjectPriority, "priority"))
         if owner_person_id:
             query = query.filter(Project.owner_person_id == owner_person_id)
         if manager_person_id:
@@ -409,55 +391,43 @@ class Projects(ListResponseMixin):
             .all()
         )
         counts = {status.value: count for status, count in rows if status}
-        data = [
-            {"status": status.value, "count": counts.get(status.value, 0)}
-            for status in ProjectStatus
-        ]
+        data = [{"status": status.value, "count": counts.get(status.value, 0)} for status in ProjectStatus]
         return {"series": [{"label": "Projects", "data": data}]}
 
     @staticmethod
     def kanban_view(db: Session) -> dict:
         """Get kanban board columns and project records."""
-        columns = [
-            {"id": status.value, "title": status.value.replace("_", " ").title()}
-            for status in ProjectStatus
-        ]
-        projects_list = (
-            db.query(Project)
-            .filter(Project.is_active.is_(True))
-            .order_by(Project.updated_at.desc())
-            .all()
-        )
+        columns = [{"id": status.value, "title": status.value.replace("_", " ").title()} for status in ProjectStatus]
+        projects_list = db.query(Project).filter(Project.is_active.is_(True)).order_by(Project.updated_at.desc()).all()
         records = []
         for project in projects_list:
-            records.append({
-                "id": str(project.id),
-                "name": project.name,
-                "project_type": project.project_type.value if project.project_type else None,
-                "status": project.status.value if project.status else None,
-                "due_date": project.due_at.date().isoformat() if project.due_at else None,
-            })
+            records.append(
+                {
+                    "id": str(project.id),
+                    "name": project.name,
+                    "project_type": project.project_type.value if project.project_type else None,
+                    "status": project.status.value if project.status else None,
+                    "due_date": project.due_at.date().isoformat() if project.due_at else None,
+                }
+            )
         return {"columns": columns, "records": records}
 
     @staticmethod
     def gantt_view(db: Session) -> dict:
         """Get gantt chart items with dates."""
-        projects_list = (
-            db.query(Project)
-            .filter(Project.is_active.is_(True))
-            .order_by(Project.updated_at.desc())
-            .all()
-        )
+        projects_list = db.query(Project).filter(Project.is_active.is_(True)).order_by(Project.updated_at.desc()).all()
         items = []
         for project in projects_list:
             start_dt = project.start_at or project.created_at
             due_dt = project.due_at or start_dt
-            items.append({
-                "id": str(project.id),
-                "name": project.name,
-                "start_date": start_dt.date().isoformat() if start_dt else None,
-                "due_date": due_dt.date().isoformat() if due_dt else None,
-            })
+            items.append(
+                {
+                    "id": str(project.id),
+                    "name": project.name,
+                    "start_date": start_dt.date().isoformat() if start_dt else None,
+                    "due_date": due_dt.date().isoformat() if due_dt else None,
+                }
+            )
         return {"items": items}
 
     @staticmethod
@@ -483,7 +453,7 @@ class Projects(ListResponseMixin):
         setattr(
             project,
             field_map[field],
-            datetime.combine(target_day, time(23, 59, 59), tzinfo=timezone.utc),
+            datetime.combine(target_day, time(23, 59, 59), tzinfo=UTC),
         )
         db.commit()
         return {"status": "ok", "field": field, "value": target_day.isoformat()}
@@ -499,7 +469,7 @@ class Projects(ListResponseMixin):
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid status") from exc
         if project.status == ProjectStatus.completed and project.completed_at is None:
-            project.completed_at = datetime.now(timezone.utc)
+            project.completed_at = datetime.now(UTC)
         db.commit()
         return {"status": "ok"}
 
@@ -520,15 +490,15 @@ class Projects(ListResponseMixin):
         previous_status = project.status
         previous_template_id = str(project.project_template_id) if project.project_template_id else None
         data = payload.model_dump(exclude_unset=True)
-        if "created_by_person_id" in data and data["created_by_person_id"]:
+        if data.get("created_by_person_id"):
             _ensure_person(db, str(data["created_by_person_id"]))
-        if "owner_person_id" in data and data["owner_person_id"]:
+        if data.get("owner_person_id"):
             _ensure_person(db, str(data["owner_person_id"]))
-        if "manager_person_id" in data and data["manager_person_id"]:
+        if data.get("manager_person_id"):
             _ensure_person(db, str(data["manager_person_id"]))
-        if "project_template_id" in data and data["project_template_id"]:
+        if data.get("project_template_id"):
             _ensure_project_template(db, str(data["project_template_id"]))
-        if "lead_id" in data and data["lead_id"]:
+        if data.get("lead_id"):
             _ensure_lead(db, str(data["lead_id"]))
         # Auto-assign PM based on region if region changes and no PM is set
         new_region = data.get("region")
@@ -543,11 +513,8 @@ class Projects(ListResponseMixin):
                 data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
         for key, value in data.items():
             setattr(project, key, value)
-        if (
-            data.get("status") == ProjectStatus.completed
-            and project.completed_at is None
-        ):
-            project.completed_at = datetime.now(timezone.utc)
+        if data.get("status") == ProjectStatus.completed and project.completed_at is None:
+            project.completed_at = datetime.now(UTC)
         db.commit()
         db.refresh(project)
 
@@ -642,8 +609,7 @@ class ProjectTemplates(ListResponseMixin):
         query = db.query(ProjectTemplate)
         if project_type:
             query = query.filter(
-                ProjectTemplate.project_type
-                == validate_enum(project_type, ProjectType, "project_type")
+                ProjectTemplate.project_type == validate_enum(project_type, ProjectType, "project_type")
             )
         if is_active is None:
             query = query.filter(ProjectTemplate.is_active.is_(True))
@@ -766,16 +732,13 @@ class ProjectTemplateTasks(ListResponseMixin):
     @staticmethod
     def replace_project_tasks(db: Session, project_id: str, template_id: str | None):
         project_uuid = coerce_uuid(project_id)
-        template_task_ids_subquery = (
-            select(ProjectTask.id)
-            .where(
-                ProjectTask.project_id == project_uuid,
-                ProjectTask.template_task_id.isnot(None),
-            )
+        template_task_ids_subquery = select(ProjectTask.id).where(
+            ProjectTask.project_id == project_uuid,
+            ProjectTask.template_task_id.isnot(None),
         )
-        db.query(ProjectTaskDependency).filter(
-            ProjectTaskDependency.task_id.in_(template_task_ids_subquery)
-        ).delete(synchronize_session=False)
+        db.query(ProjectTaskDependency).filter(ProjectTaskDependency.task_id.in_(template_task_ids_subquery)).delete(
+            synchronize_session=False
+        )
         db.query(ProjectTaskDependency).filter(
             ProjectTaskDependency.depends_on_task_id.in_(template_task_ids_subquery)
         ).delete(synchronize_session=False)
@@ -794,8 +757,9 @@ class ProjectTemplateTasks(ListResponseMixin):
             .all()
         )
         task_id_map: dict[str, str] = {}
+        task_obj_map: dict[str, ProjectTask] = {}
         for template_task in template_tasks:
-            data = {
+            data: dict = {
                 "project_id": project_uuid,
                 "title": template_task.title,
                 "template_task_id": template_task.id,
@@ -806,12 +770,16 @@ class ProjectTemplateTasks(ListResponseMixin):
                 data["status"] = template_task.status
             if template_task.priority:
                 data["priority"] = template_task.priority
+            if template_task.effort_hours is not None:
+                data["effort_hours"] = template_task.effort_hours
             task = ProjectTask(**data)
             db.add(task)
             db.flush()
             task_id_map[str(template_task.id)] = str(task.id)
+            task_obj_map[str(task.id)] = task
 
         template_task_ids = [template_task.id for template_task in template_tasks]
+        dep_graph: dict[str, list[str]] = {}
         if template_task_ids:
             dependencies = (
                 db.query(ProjectTemplateTaskDependency)
@@ -823,6 +791,7 @@ class ProjectTemplateTasks(ListResponseMixin):
                 depends_on_id = task_id_map.get(str(dependency.depends_on_template_task_id))
                 if not task_id or not depends_on_id or task_id == depends_on_id:
                     continue
+                dep_graph.setdefault(task_id, []).append(depends_on_id)
                 db.add(
                     ProjectTaskDependency(
                         task_id=task_id,
@@ -831,7 +800,53 @@ class ProjectTemplateTasks(ListResponseMixin):
                         lag_days=dependency.lag_days,
                     )
                 )
+
+        # Auto-calculate start_at/due_at from effort_hours and dependencies
+        project = db.get(Project, project_uuid)
+        project_start = project.start_at if project and project.start_at else datetime.now(UTC)
+        _calculate_task_dates(task_obj_map, dep_graph, project_start)
+
         db.commit()
+
+
+def _calculate_task_dates(
+    task_obj_map: dict[str, ProjectTask],
+    dep_graph: dict[str, list[str]],
+    project_start: datetime,
+) -> None:
+    """Calculate start_at/due_at for tasks based on effort_hours and dependencies.
+
+    Tasks with no predecessors start at project_start.
+    Tasks with predecessors start at the latest predecessor due_at.
+    due_at = start_at + effort_hours (if effort_hours is set).
+    """
+    resolved: dict[str, datetime] = {}
+
+    def _resolve_due(task_id: str) -> datetime | None:
+        if task_id in resolved:
+            return resolved[task_id]
+        task = task_obj_map.get(task_id)
+        if not task:
+            return None
+
+        predecessors = dep_graph.get(task_id, [])
+        if predecessors:
+            pred_dues = [_resolve_due(pid) for pid in predecessors]
+            valid_dues = [d for d in pred_dues if d is not None]
+            start = max(valid_dues) if valid_dues else project_start
+        else:
+            start = project_start
+
+        task.start_at = start
+        if task.effort_hours:
+            task.due_at = start + timedelta(hours=task.effort_hours)
+            resolved[task_id] = task.due_at
+        else:
+            resolved[task_id] = start
+        return resolved[task_id]
+
+    for task_id in task_obj_map:
+        _resolve_due(task_id)
 
 
 class ProjectTasks(ListResponseMixin):
@@ -859,21 +874,13 @@ class ProjectTasks(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
-            default_status = settings_spec.resolve_value(
-                db, SettingDomain.projects, "default_task_status"
-            )
+            default_status = settings_spec.resolve_value(db, SettingDomain.projects, "default_task_status")
             if default_status:
-                data["status"] = validate_enum(
-                    default_status, TaskStatus, "status"
-                )
+                data["status"] = validate_enum(default_status, TaskStatus, "status")
         if "priority" not in fields_set:
-            default_priority = settings_spec.resolve_value(
-                db, SettingDomain.projects, "default_task_priority"
-            )
+            default_priority = settings_spec.resolve_value(db, SettingDomain.projects, "default_task_priority")
             if default_priority:
-                data["priority"] = validate_enum(
-                    default_priority, TaskPriority, "priority"
-                )
+                data["priority"] = validate_enum(default_priority, TaskPriority, "priority")
         task = ProjectTask(**data)
         db.add(task)
         db.commit()
@@ -920,9 +927,7 @@ class ProjectTasks(ListResponseMixin):
         if status:
             query = query.filter(ProjectTask.status == validate_enum(status, TaskStatus, "status"))
         if priority:
-            query = query.filter(
-                ProjectTask.priority == validate_enum(priority, TaskPriority, "priority")
-            )
+            query = query.filter(ProjectTask.priority == validate_enum(priority, TaskPriority, "priority"))
         if assigned_to_person_id:
             query = query.filter(ProjectTask.assigned_to_person_id == assigned_to_person_id)
         if parent_task_id:
@@ -953,19 +958,19 @@ class ProjectTasks(ListResponseMixin):
             project = db.get(Project, data["project_id"])
             if not project:
                 raise HTTPException(status_code=404, detail="Project not found")
-        if "parent_task_id" in data and data["parent_task_id"]:
+        if data.get("parent_task_id"):
             parent = db.get(ProjectTask, data["parent_task_id"])
             if not parent:
                 raise HTTPException(status_code=404, detail="Parent task not found")
-        if "assigned_to_person_id" in data and data["assigned_to_person_id"]:
+        if data.get("assigned_to_person_id"):
             _ensure_person(db, str(data["assigned_to_person_id"]))
-        if "created_by_person_id" in data and data["created_by_person_id"]:
+        if data.get("created_by_person_id"):
             _ensure_person(db, str(data["created_by_person_id"]))
-        if "ticket_id" in data and data["ticket_id"]:
+        if data.get("ticket_id"):
             ticket = db.get(Ticket, data["ticket_id"])
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
-        if "work_order_id" in data and data["work_order_id"]:
+        if data.get("work_order_id"):
             work_order = db.get(WorkOrder, data["work_order_id"])
             if not work_order:
                 raise HTTPException(status_code=404, detail="Work order not found")

@@ -69,7 +69,7 @@ class ProjectUpdate(BaseModel):
     is_active: bool | None = None
 
     @model_validator(mode="after")
-    def _validate_dates(self) -> "ProjectUpdate":
+    def _validate_dates(self) -> ProjectUpdate:
         if self.start_at and self.due_at:
             if self.start_at >= self.due_at:
                 raise ValueError("start_at must be before due_at")
@@ -119,6 +119,7 @@ class ProjectTemplateTaskBase(BaseModel):
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     sort_order: int = 0
+    effort_hours: int | None = None
     is_active: bool = True
 
 
@@ -132,6 +133,7 @@ class ProjectTemplateTaskUpdate(BaseModel):
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     sort_order: int | None = None
+    effort_hours: int | None = None
     is_active: bool | None = None
 
 

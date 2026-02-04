@@ -138,6 +138,7 @@
                             <option value="send_notification">Send Notification</option>
                             <option value="create_work_order">Create Work Order</option>
                             <option value="emit_event">Emit Event</option>
+                            <option value="reject_creation">Reject Creation</option>
                         </select>
                         <button type="button" @click="actions.splice(idx, 1)" class="text-red-500 hover:text-red-700">
                             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -194,6 +195,13 @@
                     <template x-if="action.action_type === 'emit_event'">
                         <div>
                             <input type="text" x-model="action.params.event_type" placeholder="Event type (e.g. ticket.updated)"
+                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                    </template>
+                    <!-- reject_creation params -->
+                    <template x-if="action.action_type === 'reject_creation'">
+                        <div>
+                            <input type="text" x-model="action.params.message" placeholder="Rejection message (e.g. A ticket of this type already exists)"
                                    class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                         </div>
                     </template>

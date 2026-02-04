@@ -1,40 +1,34 @@
-from typing import List
+import builtins
 
 from fastapi import HTTPException
-from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
 from app.models.crm.sales import Lead
 from app.models.person import Person
 from app.models.tickets import (
     Ticket,
-    TicketChannel,
     TicketComment,
     TicketPriority,
     TicketSlaEvent,
     TicketStatus,
 )
 from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
-from app.queries.tickets import TicketQuery, TicketCommentQuery, TicketSlaEventQuery
-from app.services.common import (
-    apply_ordering,
-    apply_pagination,
-    coerce_uuid,
-    ensure_exists,
-    validate_enum,
-)
-from app.services.response import ListResponseMixin
-from app.services.events import emit_event
-from app.services.events.types import EventType
+from app.queries.tickets import TicketCommentQuery, TicketQuery, TicketSlaEventQuery
 from app.schemas.tickets import (
+    TicketCommentBulkCreateRequest,
     TicketCommentCreate,
     TicketCommentUpdate,
-    TicketCommentBulkCreateRequest,
     TicketCreate,
     TicketSlaEventCreate,
     TicketSlaEventUpdate,
     TicketUpdate,
 )
+from app.services.common import (
+    coerce_uuid,
+)
+from app.services.events import emit_event
+from app.services.events.types import EventType
+from app.services.response import ListResponseMixin
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -63,10 +57,7 @@ def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder
     """
     # Check if work order already exists for this ticket
     existing = (
-        db.query(WorkOrder)
-        .filter(WorkOrder.ticket_id == ticket.id)
-        .filter(WorkOrder.is_active.is_(True))
-        .first()
+        db.query(WorkOrder).filter(WorkOrder.ticket_id == ticket.id).filter(WorkOrder.is_active.is_(True)).first()
     )
     if existing:
         return existing
@@ -135,9 +126,7 @@ def _resolve_technician_contact(db: Session, person_id) -> dict | None:
     if not technician:
         return None
     name = (
-        technician.display_name
-        or f"{technician.first_name or ''} {technician.last_name or ''}".strip()
-        or "Technician"
+        technician.display_name or f"{technician.first_name or ''} {technician.last_name or ''}".strip() or "Technician"
     )
     email = technician.email if isinstance(technician.email, str) else None
     email = email.strip() if email else None
@@ -158,6 +147,11 @@ class Tickets(ListResponseMixin):
             _ensure_lead(db, str(payload.lead_id))
         if payload.customer_person_id:
             _ensure_person(db, str(payload.customer_person_id))
+
+        from app.services.ticket_validation import validate_ticket_creation
+
+        validate_ticket_creation(db, payload)
+
         ticket = Ticket(**payload.model_dump())
         db.add(ticket)
         db.flush()  # Get ticket.id before creating work order
@@ -268,8 +262,7 @@ class Tickets(ListResponseMixin):
             query = query.active_only(False)
 
         return (
-            query
-            .with_relations()  # Eager load relationships to avoid N+1
+            query.with_relations()  # Eager load relationships to avoid N+1
             .order_by(order_by, order_dir)
             .paginate(limit, offset)
             .all()
@@ -279,6 +272,7 @@ class Tickets(ListResponseMixin):
     def status_stats(db: Session) -> dict:
         """Get ticket counts by status."""
         from sqlalchemy import func
+
         rows = (
             db.query(Ticket.status, func.count(Ticket.id))
             .filter(Ticket.is_active.is_(True))
@@ -306,13 +300,13 @@ class Tickets(ListResponseMixin):
         previous_priority = ticket.priority
         previous_assigned_to = ticket.assigned_to_person_id
         data = payload.model_dump(exclude_unset=True)
-        if "created_by_person_id" in data and data["created_by_person_id"]:
+        if data.get("created_by_person_id"):
             _ensure_person(db, str(data["created_by_person_id"]))
-        if "assigned_to_person_id" in data and data["assigned_to_person_id"]:
+        if data.get("assigned_to_person_id"):
             _ensure_person(db, str(data["assigned_to_person_id"]))
-        if "lead_id" in data and data["lead_id"]:
+        if data.get("lead_id"):
             _ensure_lead(db, str(data["lead_id"]))
-        if "customer_person_id" in data and data["customer_person_id"]:
+        if data.get("customer_person_id"):
             _ensure_person(db, str(data["customer_person_id"]))
 
         # Check if field_visit tag is being added
@@ -433,15 +427,15 @@ class Tickets(ListResponseMixin):
         return ticket
 
     @staticmethod
-    def bulk_update(db: Session, ticket_ids: List[str], payload: TicketUpdate) -> int:
+    def bulk_update(db: Session, ticket_ids: builtins.list[str], payload: TicketUpdate) -> int:
         if not ticket_ids:
             raise HTTPException(status_code=400, detail="ticket_ids required")
         data = payload.model_dump(exclude_unset=True)
         if not data:
             raise HTTPException(status_code=400, detail="Update payload required")
-        if "created_by_person_id" in data and data["created_by_person_id"]:
+        if data.get("created_by_person_id"):
             _ensure_person(db, str(data["created_by_person_id"]))
-        if "assigned_to_person_id" in data and data["assigned_to_person_id"]:
+        if data.get("assigned_to_person_id"):
             _ensure_person(db, str(data["assigned_to_person_id"]))
         ids = [coerce_uuid(ticket_id) for ticket_id in ticket_ids]
         tickets = db.query(Ticket).filter(Ticket.id.in_(ids)).all()
@@ -454,7 +448,7 @@ class Tickets(ListResponseMixin):
         return len(tickets)
 
     @staticmethod
-    def bulk_update_response(db: Session, ticket_ids: List[str], payload: TicketUpdate) -> dict:
+    def bulk_update_response(db: Session, ticket_ids: builtins.list[str], payload: TicketUpdate) -> dict:
         updated = Tickets.bulk_update(db, ticket_ids, payload)
         return {"updated": updated}
 

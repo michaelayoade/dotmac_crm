@@ -2,31 +2,28 @@
 
 import json
 import re
+from datetime import UTC
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session, selectinload
-from typing import Optional
-from uuid import UUID
 
 from app.db import SessionLocal
-from app.services import tickets as tickets_service
-from app.services.subscriber import subscriber as subscriber_service
-from app.services.common import coerce_uuid
-from app.services import audit as audit_service
-from app.services.audit_helpers import extract_changes, format_changes, log_audit_event, model_to_dict, diff_dicts
-from app.models.person import Person
-from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
 from app.models.crm.conversation import Conversation, Message
-from app.models.crm.enums import MessageDirection, ChannelType
+from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.domain_settings import SettingDomain
-from app.models.subscriber import Organization, Reseller, Subscriber
-
-
-from app.services.person import People as people_service
+from app.models.person import Person
+from app.models.subscriber import Subscriber
+from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
+from app.services import audit as audit_service
 from app.services import settings_spec
+from app.services import tickets as tickets_service
+from app.services.audit_helpers import diff_dicts, extract_changes, format_changes, log_audit_event, model_to_dict
+from app.services.common import coerce_uuid
+from app.services.subscriber import subscriber as subscriber_service
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/support", tags=["web-admin-support"])
@@ -97,6 +94,7 @@ def _coerce_uuid_optional(value: str | None, label: str) -> UUID | None:
     except Exception as exc:
         raise ValueError(f"Invalid {label}.") from exc
 
+
 def _log_activity(
     db: Session,
     request: Request,
@@ -147,10 +145,7 @@ def _build_activity_feed(db: Session, events: list) -> list[dict]:
     actor_ids = {str(event.actor_id) for event in events if getattr(event, "actor_id", None)}
     people = {}
     if actor_ids:
-        people = {
-            str(person.id): person
-            for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()
-        }
+        people = {str(person.id): person for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()}
     activities = []
     for event in events:
         actor = people.get(str(event.actor_id)) if getattr(event, "actor_id", None) else None
@@ -246,11 +241,7 @@ def _resolve_customer_person_id(
         db.refresh(person)
         return person.id
 
-    display_match = (
-        db.query(Person)
-        .filter(func.lower(Person.display_name) == value.lower())
-        .first()
-    )
+    display_match = db.query(Person).filter(func.lower(Person.display_name) == value.lower()).first()
     if display_match:
         return display_match.id
 
@@ -298,11 +289,11 @@ def get_db():
 @router.get("/tickets", response_class=HTMLResponse)
 def tickets_list(
     request: Request,
-    search: Optional[str] = None,
-    status: Optional[str] = None,
-    priority: Optional[str] = None,
-    channel: Optional[str] = None,
-    subscriber: Optional[str] = None,
+    search: str | None = None,
+    status: str | None = None,
+    priority: str | None = None,
+    channel: str | None = None,
+    subscriber: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
@@ -314,13 +305,9 @@ def tickets_list(
         if status:
             query = query.filter(Ticket.status == _validate_enum(status, TicketStatus, "status"))
         if priority:
-            query = query.filter(
-                Ticket.priority == _validate_enum(priority, TicketPriority, "priority")
-            )
+            query = query.filter(Ticket.priority == _validate_enum(priority, TicketPriority, "priority"))
         if channel:
-            query = query.filter(
-                Ticket.channel == _validate_enum(channel, TicketChannel, "channel")
-            )
+            query = query.filter(Ticket.channel == _validate_enum(channel, TicketChannel, "channel"))
         if search:
             like_term = f"%{search.strip()}%"
             if like_term != "%%":
@@ -380,7 +367,8 @@ def tickets_list(
     # Get stats by status
     stats = tickets_service.tickets.status_stats(db)
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
 
@@ -428,20 +416,20 @@ def tickets_list(
 def ticket_create(
     request: Request,
     db: Session = Depends(get_db),
-    conversation_id: Optional[str] = Query(None),
-    title: Optional[str] = Query(None),
-    description: Optional[str] = Query(None),
-    subscriber_id: Optional[str] = Query(None),
-    customer_person_id: Optional[str] = Query(None),
-    lead_id: Optional[str] = Query(None),
-    channel: Optional[str] = Query(None),
-    subscriber: Optional[str] = Query(None),
-    customer: Optional[str] = Query(None),
-    modal: Optional[bool] = Query(False),
+    conversation_id: str | None = Query(None),
+    title: str | None = Query(None),
+    description: str | None = Query(None),
+    subscriber_id: str | None = Query(None),
+    customer_person_id: str | None = Query(None),
+    lead_id: str | None = Query(None),
+    channel: str | None = Query(None),
+    subscriber: str | None = Query(None),
+    customer: str | None = Query(None),
+    modal: bool | None = Query(False),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     prefill = {
         "conversation_id": None,
@@ -494,9 +482,7 @@ def ticket_create(
                 subject = f"Support request from {contact_name}"
             prefill["conversation_id"] = str(conversation.id)
             prefill["title"] = subject
-            prefill["description"] = (
-                first_inbound.body.strip() if first_inbound and first_inbound.body else ""
-            )
+            prefill["description"] = first_inbound.body.strip() if first_inbound and first_inbound.body else ""
             prefill["customer_label"] = contact_name
             if contact and getattr(contact, "id", None):
                 prefill["customer_person_id"] = str(contact.id)
@@ -504,9 +490,7 @@ def ticket_create(
             if resolved_subscriber:
                 prefill["subscriber_id"] = str(resolved_subscriber.id)
                 prefill["subscriber_label"] = _build_subscriber_label(resolved_subscriber)
-            prefill["channel"] = _map_channel_to_ticket(
-                last_inbound.channel_type if last_inbound else None
-            )
+            prefill["channel"] = _map_channel_to_ticket(last_inbound.channel_type if last_inbound else None)
 
     if title:
         prefill["title"] = title
@@ -577,30 +561,32 @@ def ticket_create(
 def ticket_create_post(
     request: Request,
     title: str = Form(...),
-    description: Optional[str] = Form(None),
-    subscriber_id: Optional[str] = Form(None),
-    customer_person_id: Optional[str] = Form(None),
-    customer_search: Optional[str] = Form(None),
-    lead_id: Optional[str] = Form(None),
-    assigned_to_person_id: Optional[str] = Form(None),
-    ticket_type: Optional[str] = Form(None),
+    description: str | None = Form(None),
+    subscriber_id: str | None = Form(None),
+    customer_person_id: str | None = Form(None),
+    customer_search: str | None = Form(None),
+    lead_id: str | None = Form(None),
+    assigned_to_person_id: str | None = Form(None),
+    ticket_type: str | None = Form(None),
     priority: str = Form("normal"),
     channel: str = Form("web"),
     status: str = Form("new"),
-    due_at: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),
+    due_at: str | None = Form(None),
+    tags: str | None = Form(None),
     attachments: UploadFile | list[UploadFile] | None = File(None),
-    conversation_id: Optional[str] = Form(None),
+    conversation_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Create a new ticket."""
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from datetime import datetime
+
+    from app.models.tickets import TicketChannel, TicketPriority, TicketStatus
     from app.schemas.tickets import TicketCreate
-    from app.models.tickets import TicketPriority, TicketChannel, TicketStatus
+
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
-    from datetime import datetime
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
@@ -690,6 +676,10 @@ def ticket_create_post(
         return RedirectResponse(url=f"/admin/support/tickets/{ticket.id}", status_code=303)
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
+
+        error_msg = getattr(e, "detail", str(e)) if isinstance(e, HTTPException) else str(e)
+        error_status = e.status_code if isinstance(e, HTTPException) else 400
+
         # Re-fetch data for form
         accounts: list[dict[str, str]] = []  # subscriber_service removed
         technicians = dispatch_service.technicians.list(
@@ -721,12 +711,12 @@ def ticket_create_post(
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
                 "action_url": "/admin/support/tickets",
-                "error": str(e),
+                "error": error_msg,
                 "active_page": "tickets",
                 "current_user": get_current_user(request),
                 "sidebar_stats": get_sidebar_stats(db),
             },
-            status_code=400,
+            status_code=error_status,
         )
 
 
@@ -737,9 +727,9 @@ def ticket_edit(
     db: Session = Depends(get_db),
 ):
     """Edit support ticket form."""
-    from app.web.admin import get_sidebar_stats, get_current_user
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
         ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
@@ -796,28 +786,30 @@ def ticket_edit_post(
     request: Request,
     ticket_id: str,
     title: str = Form(...),
-    description: Optional[str] = Form(None),
-    subscriber_id: Optional[str] = Form(None),
-    customer_person_id: Optional[str] = Form(None),
-    customer_search: Optional[str] = Form(None),
-    assigned_to_person_id: Optional[str] = Form(None),
-    ticket_type: Optional[str] = Form(None),
+    description: str | None = Form(None),
+    subscriber_id: str | None = Form(None),
+    customer_person_id: str | None = Form(None),
+    customer_search: str | None = Form(None),
+    assigned_to_person_id: str | None = Form(None),
+    ticket_type: str | None = Form(None),
     priority: str = Form("normal"),
     channel: str = Form("web"),
     status: str = Form("new"),
-    due_at: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),
+    due_at: str | None = Form(None),
+    tags: str | None = Form(None),
     attachments: UploadFile | list[UploadFile] | None = File(None),
     db: Session = Depends(get_db),
 ):
     """Update a support ticket."""
+    from datetime import datetime
+
+    from app.models.tickets import TicketChannel, TicketPriority, TicketStatus
     from app.schemas.tickets import TicketUpdate
-    from app.models.tickets import TicketPriority, TicketChannel, TicketStatus
+
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
     from app.web.admin import get_current_user, get_sidebar_stats
-    from datetime import datetime, timezone
 
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
@@ -895,9 +887,7 @@ def ticket_edit_post(
             new_metadata = dict(existing_metadata)
             if saved_attachments:
                 existing_attachments = existing_metadata.get("attachments")
-                attachment_list = (
-                    list(existing_attachments) if isinstance(existing_attachments, list) else []
-                )
+                attachment_list = list(existing_attachments) if isinstance(existing_attachments, list) else []
                 attachment_list.extend(saved_attachments)
                 new_metadata["attachments"] = attachment_list
                 metadata_changed = True
@@ -926,9 +916,9 @@ def ticket_edit_post(
         }
 
         if new_status == TicketStatus.resolved and not ticket.resolved_at:
-            update_data["resolved_at"] = datetime.now(timezone.utc)
+            update_data["resolved_at"] = datetime.now(UTC)
         if new_status == TicketStatus.closed and not ticket.closed_at:
-            update_data["closed_at"] = datetime.now(timezone.utc)
+            update_data["closed_at"] = datetime.now(UTC)
 
         if metadata_changed:
             update_data["metadata_"] = metadata_update
@@ -1040,7 +1030,8 @@ def ticket_detail(
         offset=0,
     )
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
+
     audit_events = audit_service.audit_events.list(
         db=db,
         actor_id=None,
@@ -1065,6 +1056,7 @@ def ticket_detail(
     expense_totals = None
     try:
         from app.services.dotmac_erp.cache import get_cached_expense_totals
+
         expense_totals = get_cached_expense_totals(db, "ticket", str(ticket.id))
     except Exception:
         pass  # ERP sync not configured or failed
@@ -1127,10 +1119,11 @@ def update_ticket_status(
     db: Session = Depends(get_db),
 ):
     """Update ticket status."""
-    from app.schemas.tickets import TicketUpdate
+    from datetime import datetime
+
     from app.models.tickets import TicketStatus
+    from app.schemas.tickets import TicketUpdate
     from app.web.admin import get_current_user
-    from datetime import datetime, timezone
 
     try:
         status_map = {
@@ -1146,8 +1139,8 @@ def update_ticket_status(
         ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
         old_status = ticket.status.value if ticket.status else None
 
-        resolved_at = datetime.now(timezone.utc) if status == "resolved" else None
-        closed_at = datetime.now(timezone.utc) if status == "closed" else None
+        resolved_at = datetime.now(UTC) if status == "resolved" else None
+        closed_at = datetime.now(UTC) if status == "closed" else None
         payload = TicketUpdate(status=new_status, resolved_at=resolved_at, closed_at=closed_at)
         tickets_service.tickets.update(db=db, ticket_id=ticket_id, payload=payload)
         current_user = get_current_user(request)
@@ -1165,7 +1158,8 @@ def update_ticket_status(
             return HTMLResponse(content="", headers={"HX-Redirect": f"/admin/support/tickets/{ticket_id}"})
         return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
     except Exception as e:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)
         return templates.TemplateResponse(
@@ -1183,8 +1177,8 @@ def update_ticket_priority(
     db: Session = Depends(get_db),
 ):
     """Update ticket priority."""
-    from app.schemas.tickets import TicketUpdate
     from app.models.tickets import TicketPriority
+    from app.schemas.tickets import TicketUpdate
     from app.web.admin import get_current_user
 
     try:
@@ -1215,7 +1209,8 @@ def update_ticket_priority(
             return HTMLResponse(content="", headers={"HX-Redirect": f"/admin/support/tickets/{ticket_id}"})
         return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
     except Exception as e:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)
         return templates.TemplateResponse(
@@ -1230,15 +1225,16 @@ def add_ticket_comment(
     request: Request,
     ticket_id: str,
     body: str = Form(...),
-    is_internal: Optional[str] = Form(None),
+    is_internal: str | None = Form(None),
     attachments: UploadFile | list[UploadFile] | None = File(None),
     db: Session = Depends(get_db),
 ):
     """Add a comment to a ticket."""
-    from app.schemas.tickets import TicketCommentCreate
-    from app.web.admin import get_current_user
-    from app.services import ticket_attachments as ticket_attachment_service
     from uuid import UUID
+
+    from app.schemas.tickets import TicketCommentCreate
+    from app.services import ticket_attachments as ticket_attachment_service
+    from app.web.admin import get_current_user
 
     prepared_attachments: list[dict] = []
     try:
@@ -1267,7 +1263,8 @@ def add_ticket_comment(
         return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
+
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)
         return templates.TemplateResponse(
