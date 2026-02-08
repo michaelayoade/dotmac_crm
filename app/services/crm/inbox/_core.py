@@ -33,6 +33,7 @@ from app.services.crm import conversation as conversation_service
 from app.services.crm import email_polling
 from app.logging import get_logger
 from app.services.settings_spec import resolve_value
+from app.services.crm.inbox.status_flow import apply_status_transition
 
 _DEFAULT_WHATSAPP_TIMEOUT = 10  # fallback when settings unavailable
 
@@ -741,7 +742,7 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
         )
     elif not conversation.is_active:
         conversation.is_active = True
-        conversation.status = ConversationStatus.open
+        apply_status_transition(conversation, ConversationStatus.open)
         db.commit()
         db.refresh(conversation)
     message = conversation_service.Messages.create(
@@ -889,7 +890,7 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         )
     elif not conversation.is_active:
         conversation.is_active = True
-        conversation.status = ConversationStatus.open
+        apply_status_transition(conversation, ConversationStatus.open)
         db.commit()
         db.refresh(conversation)
     elif conversation.person_id != person_uuid:

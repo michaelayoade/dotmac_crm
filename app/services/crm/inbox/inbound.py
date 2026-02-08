@@ -3,6 +3,7 @@
 Handles receiving messages from webhooks (WhatsApp, email) and routing
 them to the appropriate conversation.
 """
+
 from __future__ import annotations
 
 import os
@@ -40,6 +41,7 @@ from app.services.crm.inbox_self_detection import (
     _is_self_whatsapp_message,
     _metadata_indicates_comment,
 )
+from app.services.crm.inbox.status_flow import apply_status_transition
 
 if TYPE_CHECKING:
     pass
@@ -181,7 +183,7 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
         )
     elif not conversation.is_active:
         conversation.is_active = True
-        conversation.status = ConversationStatus.open
+        apply_status_transition(conversation, ConversationStatus.open)
         db.commit()
         db.refresh(conversation)
     message = conversation_service.Messages.create(
@@ -200,16 +202,20 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
         ),
     )
     from app.websocket.broadcaster import broadcast_new_message
+
     broadcast_new_message(message, conversation)
     from app.services.crm.inbox import cache as inbox_cache
     from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+
     notify_assigned_agent_new_reply(db, conversation, message)
     from app.websocket.broadcaster import broadcast_conversation_summary
+
     broadcast_conversation_summary(
         str(conversation.id),
         _build_conversation_summary(db, conversation, message),
     )
     from app.websocket.broadcaster import broadcast_inbox_updated
+
     agent_ids = (
         db.query(CrmAgent.person_id)
         .filter(CrmAgent.is_active.is_(True))
@@ -344,15 +350,9 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
 
     in_reply_to = _get_metadata_value(metadata, "in_reply_to")
     references = _get_metadata_value(metadata, "references")
-    crm_header = _get_metadata_value(metadata, "x-crm-id") or _get_metadata_value(
-        metadata, "x-crm-conversation-id"
-    )
+    crm_header = _get_metadata_value(metadata, "x-crm-id") or _get_metadata_value(metadata, "x-crm-conversation-id")
     has_thread_headers = bool(
-        payload.message_id
-        or in_reply_to
-        or references
-        or crm_header
-        or _extract_conversation_tokens(payload.subject)
+        payload.message_id or in_reply_to or references or crm_header or _extract_conversation_tokens(payload.subject)
     )
 
     conversation = _resolve_conversation_from_email_metadata(
@@ -401,14 +401,15 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         )
     elif not conversation.is_active:
         conversation.is_active = True
-        conversation.status = ConversationStatus.open
+        apply_status_transition(conversation, ConversationStatus.open)
         db.commit()
         db.refresh(conversation)
     elif conversation.status != ConversationStatus.open:
         # Reopen conversations when a new inbound email arrives so they are visible in the inbox.
-        conversation.status = ConversationStatus.open
-        db.commit()
-        db.refresh(conversation)
+        check = apply_status_transition(conversation, ConversationStatus.open)
+        if check.allowed:
+            db.commit()
+            db.refresh(conversation)
     elif conversation.person_id != person_uuid:
         logger.warning(
             "email_reply_conversation_mismatch conversation_id=%s sender_person_id=%s conversation_person_id=%s",
@@ -433,15 +434,19 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         ),
     )
     from app.websocket.broadcaster import broadcast_new_message
+
     broadcast_new_message(message, conversation)
     from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+
     notify_assigned_agent_new_reply(db, conversation, message)
     from app.websocket.broadcaster import broadcast_conversation_summary
+
     broadcast_conversation_summary(
         str(conversation.id),
         _build_conversation_summary(db, conversation, message),
     )
     from app.websocket.broadcaster import broadcast_inbox_updated
+
     agent_ids = (
         db.query(CrmAgent.person_id)
         .filter(CrmAgent.is_active.is_(True))
@@ -462,6 +467,7 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
     for agent_id in agent_ids:
         broadcast_inbox_updated(str(agent_id[0]), inbox_payload)
     from app.services.crm.inbox import cache as inbox_cache
+
     inbox_cache.invalidate_inbox_list()
     return message
 
