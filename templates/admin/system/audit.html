@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% block title %}Audit Log - Admin{% endblock %}
 
 {% block content %}
@@ -24,9 +25,7 @@
                 <input type="text" name="entity_type" value="{{ entity_type | default('') }}" placeholder="invoice, user" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
             </div>
             <div>
-                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700">
-                    Apply Filters
-                </button>
+                {{ submit_button("Apply Filters", loading_label="Applying...") }}
             </div>
         </form>
     </div>

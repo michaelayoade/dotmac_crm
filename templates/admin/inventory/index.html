@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import danger_button, status_badge %}
 
 {% block title %}Inventory - Admin{% endblock %}
 
@@ -97,10 +97,7 @@
                             <td class="px-4 py-3 text-right">
                                 <div class="inline-flex items-center gap-3">
                                     <a href="/admin/inventory/items/{{ item.id }}/edit" class="text-sm text-primary-600 hover:text-primary-700">Edit</a>
-                                    <form method="post" action="/admin/inventory/items/{{ item.id }}/delete" class="inline" onsubmit="return confirm('Delete this item? This will deactivate it.');">
-                                        {% include "components/forms/csrf_input.html" %}
-                                        <button type="submit" class="text-sm text-red-600 hover:text-red-700">Delete</button>
-                                    </form>
+                                    {{ danger_button("Delete", "Confirm Delete", "Delete this item? This will deactivate it.", "/admin/inventory/items/" ~ item.id ~ "/delete", size="sm") }}
                                 </div>
                             </td>
                         </tr>

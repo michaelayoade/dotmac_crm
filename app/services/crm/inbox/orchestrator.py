@@ -22,7 +22,8 @@ from app.services.crm.inbox.inbound import (
     receive_email_message,
     receive_whatsapp_message,
 )
-from app.services.crm.inbox.outbound import send_message
+from app.services.crm.inbox.outbound import send_message, send_message_with_retry
+from app.services.crm.inbox.outbox import enqueue_outbound_message
 from app.services.crm.inbox.queries import (
     get_channel_stats,
     get_inbox_stats,
@@ -46,6 +47,8 @@ __all__ = [
     "receive_whatsapp_message",
     # Outbound message sending
     "send_message",
+    "send_message_with_retry",
+    "enqueue_outbound_message",
     # Queries and statistics
     "get_channel_stats",
     "get_inbox_stats",
@@ -73,6 +76,19 @@ class InboxOperations:
     @staticmethod
     def send_message(db, payload, author_id=None):
         return send_message(db, payload, author_id=author_id)
+
+    @staticmethod
+    def send_message_with_retry(db, payload, author_id=None):
+        return send_message_with_retry(db, payload, author_id=author_id)
+
+    @staticmethod
+    def enqueue_outbound_message(db, payload, author_id=None, idempotency_key=None):
+        return enqueue_outbound_message(
+            db,
+            payload=payload,
+            author_id=author_id,
+            idempotency_key=idempotency_key,
+        )
 
     @staticmethod
     def get_channel_stats(db):

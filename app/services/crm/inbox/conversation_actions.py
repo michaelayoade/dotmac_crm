@@ -13,6 +13,7 @@ from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services import person as person_service
+from app.services.crm.inbox.audit import log_conversation_action
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,13 @@ def assign_conversation(
         return AssignConversationResult(kind="error", conversation=conversation, error_detail=str(exc))
 
     contact = contact_service.get_person_with_relationships(db, str(conversation.contact_id))
+    log_conversation_action(
+        db,
+        action="assign_conversation",
+        conversation_id=str(conversation.id),
+        actor_id=assigned_by_value,
+        metadata={"agent_id": agent_value, "team_id": team_value},
+    )
     return AssignConversationResult(
         kind="success",
         conversation=conversation,
@@ -136,6 +144,16 @@ def resolve_conversation(
         return ResolveConversationResult(kind="error", conversation=conversation, error_detail=str(exc))
 
     contact = contact_service.get_person_with_relationships(db, str(conversation.person_id))
+    log_conversation_action(
+        db,
+        action="resolve_conversation",
+        conversation_id=str(conversation.id),
+        actor_id=merged_by_id,
+        metadata={
+            "channel_type": resolved_channel.value if resolved_channel else None,
+            "channel_address": (channel_address or "").strip() or None,
+        },
+    )
     return ResolveConversationResult(
         kind="success",
         conversation=conversation,

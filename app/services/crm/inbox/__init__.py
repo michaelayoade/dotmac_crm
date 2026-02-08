@@ -31,9 +31,11 @@ from app.services.crm.inbox.inbound import (
 # Outbound messaging
 from app.services.crm.inbox.outbound import (
     send_message,
+    send_message_with_retry,
     send_reply,
     send_outbound_message,
 )
+from app.services.crm.inbox.outbox import enqueue_outbound_message
 
 # Email polling
 from app.services.crm.inbox.email_polling import poll_email_inbox, EmailPoller
@@ -72,8 +74,10 @@ __all__ = [
     "receive_chat_message",
     # Outbound
     "send_message",
+    "send_message_with_retry",
     "send_reply",
     "send_outbound_message",
+    "enqueue_outbound_message",
     # Email polling
     "poll_email_inbox",
     "EmailPoller",

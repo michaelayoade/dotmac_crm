@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% block title %}Fiber Change Requests - Admin{% endblock %}
 
 {% block content %}
@@ -26,7 +27,7 @@
                     <input type="checkbox" name="force_apply" value="true" class="h-4 w-4 rounded border-slate-300">
                     Apply despite conflicts
                 </label>
-                <button type="submit" class="rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700">Bulk approve</button>
+                {{ submit_button("Bulk approve", color="emerald", size="sm") }}
             </div>
         </div>
         <table class="w-full text-sm">

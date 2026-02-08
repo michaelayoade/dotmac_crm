@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, submit_button %}
 
 {% block title %}{{ customer_name }} - Customer - Admin{% endblock %}
 
@@ -409,10 +409,7 @@
                 <form hx-post="/admin/customers/{{ customer_type }}/{{ customer.id }}/notes" hx-swap="afterbegin" hx-target="#notes-list">
                     <textarea name="content" rows="3" placeholder="Add a note..." class="block w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 transition-all focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-500/10 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
                     <div class="mt-3 flex justify-end">
-                        <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition">
-                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                            Add Note
-                        </button>
+                        {{ submit_button("Add Note", color="amber", icon="plus", loading_label="Adding...") }}
                     </div>
                 </form>
             </div>

@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import danger_button, submit_button %}
 {% block title %}{{ rule.name }} - Automation - Admin{% endblock %}
 
 {% block content %}
@@ -30,13 +31,10 @@
                 {% if rule.status.value == 'active' %}
                 <button type="submit" class="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-700 hover:bg-yellow-100 dark:border-yellow-600 dark:bg-yellow-500/10 dark:text-yellow-400">Pause</button>
                 {% else %}
-                <button type="submit" class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">Activate</button>
+                {{ submit_button("Activate", color="green") }}
                 {% endif %}
             </form>
-            <form method="post" action="/admin/system/automations/{{ rule.id }}/delete" class="inline" onsubmit="return confirm('Delete this automation rule?');">
-                {% include "components/forms/csrf_input.html" %}
-                <button type="submit" class="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-600 dark:bg-red-500/10 dark:text-red-400">Delete</button>
-            </form>
+            {{ danger_button("Delete", "Confirm Delete", "Delete this automation rule?", "/admin/system/automations/" ~ rule.id ~ "/delete", size="sm") }}
         </div>
     </div>
 

@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import danger_button %}
 {% block title %}Work Order - Field Service{% endblock %}
 
 {% block content %}
@@ -18,11 +19,7 @@
             <a href="/admin/operations/work-orders/{{ work_order.id }}/edit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 Edit
             </a>
-            <form method="post" action="/admin/operations/work-orders/{{ work_order.id }}/delete">
-                <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300" onclick="return confirm('Delete this work order?')">
-                    Delete
-                </button>
-            </form>
+            {{ danger_button("Delete", "Confirm Delete", "Delete this work order?", "/admin/operations/work-orders/" ~ work_order.id ~ "/delete", size="sm") }}
         </div>
     </div>
 

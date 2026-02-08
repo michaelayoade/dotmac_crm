@@ -6,18 +6,16 @@ them to the appropriate conversation.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.logging import get_logger
 from app.logic.crm_inbox_logic import (
-    ChannelType as LogicChannelType,
-    LogicService,
-    InboundSelfMessageContext,
     InboundDedupeContext,
+    InboundSelfMessageContext,
+    LogicService,
 )
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
@@ -52,7 +50,7 @@ _logic_service = LogicService()
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _build_conversation_summary(db: Session, conversation, message: Message) -> dict:
@@ -203,6 +201,7 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
     )
     from app.websocket.broadcaster import broadcast_new_message
     broadcast_new_message(message, conversation)
+    from app.services.crm.inbox import cache as inbox_cache
     from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
     notify_assigned_agent_new_reply(db, conversation, message)
     from app.websocket.broadcaster import broadcast_conversation_summary
@@ -230,6 +229,7 @@ def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
     }
     for agent_id in agent_ids:
         broadcast_inbox_updated(str(agent_id[0]), inbox_payload)
+    inbox_cache.invalidate_inbox_list()
     return message
 
 
@@ -461,6 +461,8 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
     }
     for agent_id in agent_ids:
         broadcast_inbox_updated(str(agent_id[0]), inbox_payload)
+    from app.services.crm.inbox import cache as inbox_cache
+    inbox_cache.invalidate_inbox_list()
     return message
 
 

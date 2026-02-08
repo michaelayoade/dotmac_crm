@@ -13,17 +13,13 @@ from sqlalchemy.orm import Session
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.team import CrmAgent, CrmAgentTeam
-from app.schemas.crm.conversation import (
-    ConversationCreate,
-    MessageAttachmentCreate,
-    MessageCreate,
-)
+from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import InboxSendRequest
 from app.services.common import coerce_uuid
 from app.services import crm as crm_service
 from app.services.crm import conversations as conversation_service
 from app.services.crm import contacts as contact_service
-from app.services.crm.conversations import message_attachments as message_attachments_service
+from app.services.crm.inbox.attachments_processing import apply_message_attachments
 
 
 @dataclass(frozen=True)
@@ -95,22 +91,7 @@ def _apply_message_attachments(
     message: Message,
     attachments: list[dict] | None,
 ) -> None:
-    if not attachments:
-        return
-    for item in attachments:
-        if not isinstance(item, dict):
-            continue
-        message_attachments_service.create(
-            db,
-            MessageAttachmentCreate(
-                message_id=message.id,
-                file_name=item.get("file_name"),
-                mime_type=item.get("mime_type"),
-                file_size=item.get("file_size"),
-                external_url=item.get("url"),
-                metadata_={"stored_name": item.get("stored_name")},
-            ),
-        )
+    apply_message_attachments(db, message, attachments)
 
 
 def send_conversation_message(
@@ -154,7 +135,7 @@ def send_conversation_message(
     channel_target_uuid = coerce_uuid(channel_target_id) if channel_target_id else None
     result_msg = None
     try:
-        result_msg = crm_service.inbox.send_message(
+        result_msg = crm_service.inbox.send_message_with_retry(
             db,
             InboxSendRequest(
                 conversation_id=conversation.id,
@@ -166,7 +147,7 @@ def send_conversation_message(
             ),
             author_id=author_id,
         )
-    except Exception:
+    except Exception as exc:
         result_msg = conversation_service.Messages.create(
             db,
             MessageCreate(
@@ -178,6 +159,16 @@ def send_conversation_message(
                 reply_to_message_id=reply_to_uuid,
                 sent_at=datetime.now(timezone.utc),
             ),
+        )
+        if hasattr(exc, "detail"):
+            error_detail = getattr(exc, "detail")
+        else:
+            error_detail = "Failed to send message"
+        return SendConversationMessageResult(
+            kind="send_failed",
+            conversation=conversation,
+            message=result_msg,
+            error_detail=error_detail,
         )
 
     if result_msg:
@@ -282,7 +273,7 @@ def start_new_conversation(
         db.commit()
 
     try:
-        result_msg = crm_service.inbox.send_message(
+        result_msg = crm_service.inbox.send_message_with_retry(
             db,
             InboxSendRequest(
                 conversation_id=conversation.id,
@@ -300,9 +291,10 @@ def start_new_conversation(
                 error_detail="Message failed to send",
             )
     except Exception as exc:
+        detail = getattr(exc, "detail", None) or str(exc) or "Failed to send message"
         return StartConversationResult(
             kind="error",
-            error_detail=str(exc) or "Failed to send message",
+            error_detail=detail,
         )
 
     if author_person_id:

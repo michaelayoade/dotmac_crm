@@ -21,7 +21,12 @@ from app.tasks.campaigns import (
     process_nurture_steps,
     process_scheduled_campaigns,
 )
-from app.tasks.crm_inbox import send_reply_reminders_task
+from app.tasks.crm_inbox import (
+    send_reply_reminders_task,
+    send_outbound_message_task,
+    send_outbox_item_task,
+    process_outbox_queue_task,
+)
 from app.tasks.surveys import distribute_survey, process_survey_triggers
 from app.tasks.subscribers import (
     sync_subscribers_from_splynx,
@@ -49,6 +54,9 @@ __all__ = [
     "process_scheduled_campaigns",
     "process_nurture_steps",
     "send_reply_reminders_task",
+    "send_outbound_message_task",
+    "send_outbox_item_task",
+    "process_outbox_queue_task",
     "sync_subscribers_from_splynx",
     "sync_subscribers_from_ucrm",
     "sync_subscribers_generic",

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.schemas.crm.conversation import MessageAttachmentCreate
 from app.services.crm import private_notes as private_notes_service
 from app.services.crm import conversation as conversation_service
-from app.services.crm.conversations import message_attachments as message_attachments_service
+from app.services.crm.inbox.attachments_processing import apply_message_attachments
+from app.services.crm.inbox.audit import log_note_action
 
 
 def create_private_note(
@@ -44,21 +44,15 @@ def create_private_note_with_attachments(
         body=body,
         requested_visibility=requested_visibility,
     )
+    log_note_action(
+        db,
+        action="create_private_note",
+        note_id=str(note.id),
+        actor_id=author_id,
+        metadata={"conversation_id": conversation_id},
+    )
     if attachments:
-        for item in attachments:
-            if not isinstance(item, dict):
-                continue
-            message_attachments_service.create(
-                db,
-                MessageAttachmentCreate(
-                    message_id=note.id,
-                    file_name=item.get("file_name"),
-                    mime_type=item.get("mime_type"),
-                    file_size=item.get("file_size"),
-                    external_url=item.get("url"),
-                    metadata_={"stored_name": item.get("stored_name")},
-                ),
-            )
+        apply_message_attachments(db, note, attachments)
     return note
 
 
@@ -74,4 +68,11 @@ def delete_private_note(
         conversation_id=conversation_id,
         note_id=note_id,
         actor_id=actor_id,
+    )
+    log_note_action(
+        db,
+        action="delete_private_note",
+        note_id=note_id,
+        actor_id=actor_id,
+        metadata={"conversation_id": conversation_id},
     )

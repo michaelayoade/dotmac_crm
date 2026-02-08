@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% block title %}Inbox - Admin{% endblock %}
 
 {% block head %}
@@ -464,10 +465,7 @@
                             class="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
                         Cancel
                     </button>
-                    <button type="submit"
-                            class="rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5">
-                        Start conversation
-                    </button>
+                    {{ submit_button("Start conversation", color="amber", loading_label="Starting...") }}
                 </div>
             </form>
         </div>

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -10,17 +10,48 @@ from app.schemas.crm.inbox import (
     InboxSendResponse,
     WhatsAppWebhookPayload,
 )
+from pydantic import BaseModel
 from app.schemas.integration import IntegrationTargetRead
 from app.schemas.integration import IntegrationJobRead
 from app.services import crm as crm_service
+from app.services.crm.inbox.errors import InboxError
+from app.services.crm.inbox.outbox import enqueue_outbound_message
 
 router = APIRouter(prefix="/crm/inbox", tags=["crm-inbox"])
 
 
+class InboxSendAsyncResponse(BaseModel):
+    outbox_id: str
+    status: str
+
+
 @router.post("/send", response_model=InboxSendResponse, status_code=status.HTTP_201_CREATED)
 def send_message(payload: InboxSendRequest, db: Session = Depends(get_db)):
-    message = crm_service.inbox.send_message(db, payload)
-    return InboxSendResponse(message_id=message.id, status=message.status.value)
+    try:
+        message = crm_service.inbox.send_message(db, payload)
+        return InboxSendResponse(message_id=message.id, status=message.status.value)
+    except InboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.post(
+    "/send-async",
+    response_model=InboxSendAsyncResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def send_message_async(
+    payload: InboxSendRequest,
+    db: Session = Depends(get_db),
+    idempotency_key: str | None = None,
+):
+    outbox = enqueue_outbound_message(
+        db,
+        payload=payload,
+        author_id=None,
+        idempotency_key=idempotency_key,
+        dispatch=True,
+    )
+    return InboxSendAsyncResponse(outbox_id=str(outbox.id), status=outbox.status)
 
 
 @router.post(

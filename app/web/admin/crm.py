@@ -2,10 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-import html
 import json
 import uuid
-from html.parser import HTMLParser
 from html import escape as html_escape
 import re
 from urllib.parse import quote, urlparse, urlencode
@@ -143,6 +141,14 @@ from app.services.audit_helpers import (
     log_audit_event,
     recent_activity_for_paths,
 )
+from app.services.crm.inbox.formatting import (
+    filter_messages_for_user,
+    format_contact_for_template,
+    format_conversation_for_template,
+    format_message_for_template,
+)
+from app.services.crm.inbox.agents import get_current_agent_id
+from app.services.crm.inbox.page_context import build_inbox_page_context
 from app.services.crm.inbox.settings_admin import (
     create_agent,
     create_agent_team,
@@ -236,16 +242,6 @@ def get_db():
 
 
 router = APIRouter(prefix="/crm", tags=["web-admin-crm"])
-
-
-def _get_initials(name: str | None) -> str:
-    """Generate initials from a name."""
-    if not name:
-        return "?"
-    parts = name.strip().split()
-    if len(parts) >= 2:
-        return (parts[0][0] + parts[-1][0]).upper()
-    return name[0:2].upper() if len(name) >= 2 else name[0].upper()
 
 
 def _as_bool(value: str | None) -> bool:
@@ -575,82 +571,6 @@ def _load_crm_agent_team_options(db: Session) -> dict:
     return crm_service.get_agent_team_options(db)
 
 
-class _MessageHTMLSanitizer(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self._parts: list[str] = []
-        self._allowed_tags = {
-            "p",
-            "br",
-            "strong",
-            "b",
-            "em",
-            "i",
-            "u",
-            "ul",
-            "ol",
-            "li",
-            "table",
-            "thead",
-            "tbody",
-            "tr",
-            "td",
-            "th",
-            "span",
-            "div",
-            "a",
-        }
-        self._self_closing = {"br"}
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag not in self._allowed_tags:
-            return
-        safe_attrs: list[str] = []
-        if tag == "a":
-            href = None
-            target = None
-            for key, value in attrs:
-                if key == "href" and value:
-                    href = value
-                if key == "target" and value:
-                    target = value
-            if href and _is_safe_url(href):
-                safe_attrs.append(f'href="{html.escape(href, quote=True)}"')
-            if target:
-                safe_attrs.append(f'target="{html.escape(target, quote=True)}"')
-            safe_attrs.append('rel="noreferrer noopener"')
-        elif tag in {"td", "th"}:
-            for key, value in attrs:
-                if key in {"colspan", "rowspan"} and value:
-                    safe_attrs.append(f'{key}="{html.escape(value, quote=True)}"')
-        attr_text = f" {' '.join(safe_attrs)}" if safe_attrs else ""
-        if tag in self._self_closing:
-            self._parts.append(f"<{tag}{attr_text} />")
-        else:
-            self._parts.append(f"<{tag}{attr_text}>")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in self._allowed_tags and tag not in self._self_closing:
-            self._parts.append(f"</{tag}>")
-
-    def handle_data(self, data: str) -> None:
-        if not data:
-            return
-        escaped = html.escape(data)
-        if "\n" in escaped:
-            escaped = "<br />".join(escaped.splitlines())
-        self._parts.append(escaped)
-
-    def handle_entityref(self, name: str) -> None:
-        self._parts.append(html.unescape(f"&{name};"))
-
-    def handle_charref(self, name: str) -> None:
-        self._parts.append(html.unescape(f"&#{name};"))
-
-    def get_html(self) -> str:
-        return "".join(self._parts).strip()
-
-
 def _is_safe_url(url: str) -> bool:
     try:
         parsed = urlparse(url)
@@ -659,513 +579,6 @@ def _is_safe_url(url: str) -> bool:
     if parsed.scheme in {"http", "https", "mailto", "tel"}:
         return True
     return parsed.scheme == ""
-
-
-def _sanitize_message_html(value: str) -> str:
-    if not value:
-        return ""
-    sanitizer = _MessageHTMLSanitizer()
-    sanitizer.feed(value)
-    sanitizer.close()
-    return sanitizer.get_html()
-
-
-def _normalize_cid(value: str | None) -> str | None:
-    if not value:
-        return None
-    cid = value.strip()
-    if cid.startswith("cid:"):
-        cid = cid[4:]
-    if cid.startswith("<") and cid.endswith(">"):
-        cid = cid[1:-1]
-    return cid.strip().lower() or None
-
-
-def _replace_cid_images(html_body: str, attachments: list[dict]) -> str:
-    if not html_body:
-        return html_body
-    cid_map: dict[str, str] = {}
-    for att in attachments:
-        cid = _normalize_cid(att.get("content_id"))
-        url = att.get("url")
-        if not cid or not url:
-            continue
-        mime_type = att.get("mime_type") or ""
-        if not str(mime_type).startswith("image/"):
-            continue
-        cid_map[cid] = url
-    if not cid_map:
-        return html_body
-
-    def _swap(match: re.Match) -> str:
-        raw = match.group(1) or ""
-        key = _normalize_cid(raw)
-        if not key or key not in cid_map:
-            return match.group(0)
-        return cid_map[key]
-
-    return re.sub(r"cid:([^\"'\\s>]+)", _swap, html_body, flags=re.IGNORECASE)
-
-
-def _coerce_metadata(value) -> dict:
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
-
-
-def _safe_log_json(payload: dict) -> str:
-    return json.dumps(payload, ensure_ascii=True, default=str, sort_keys=True)
-
-
-def _format_conversation_for_template(
-    conv: Conversation,
-    db: Session,
-    latest_message: dict | Message | None = None,
-    unread_count: int | None = None,
-    include_inbox_label: bool = False,
-) -> dict:
-    """Transform a Conversation model into template-friendly dict."""
-    contact = conv.contact
-
-    if latest_message is None:
-        from app.services.crm.conversation import get_latest_message
-        latest_message = get_latest_message(db, str(conv.id))
-
-    if unread_count is None:
-        from app.services.crm.conversation import get_unread_count
-        unread_count = get_unread_count(db, str(conv.id))
-
-    channel = "email"
-    channel_target_id = None
-    if latest_message:
-        channel_type = (
-            latest_message.get("channel_type")
-            if isinstance(latest_message, dict)
-            else latest_message.channel_type
-        )
-        if channel_type:
-            channel = channel_type.value
-        if isinstance(latest_message, dict):
-            channel_target_id = latest_message.get("channel_target_id")
-        else:
-            channel_target_id = getattr(latest_message, "channel_target_id", None)
-    elif contact and contact.channels:
-        channel = contact.channels[0].channel_type.value
-
-    assigned_to = None
-    assigned_team = None
-    assigned_agent_id = None
-    assigned_agent_name = None
-    if conv.assignments:
-        active_assignment = next((a for a in conv.assignments if a.is_active), None)
-        if active_assignment:
-            if active_assignment.agent_id:
-                assigned_agent_id = str(active_assignment.agent_id)
-                assigned_agent_name = "another agent"
-            if active_assignment.agent:
-                agent = active_assignment.agent
-                if agent.person_id:
-                    person = db.get(Person, agent.person_id)
-                    if person:
-                        full_name = person.display_name or " ".join(
-                            part for part in [person.first_name, person.last_name] if part
-                        ).strip()
-                        assigned_to = {
-                            "name": full_name or "Agent",
-                            "initials": _get_initials(full_name or "Agent"),
-                        }
-                        assigned_agent_id = str(agent.id)
-                        assigned_agent_name = full_name or "Agent"
-            if not assigned_to and active_assignment.team:
-                team = active_assignment.team
-                team_name = team.name or "Team"
-                assigned_team = {
-                    "name": team_name,
-                    "initials": _get_initials(team_name),
-                }
-
-    company = None
-    if contact and contact.organization_id:
-        org = db.get(Organization, contact.organization_id)
-        if org:
-            company = org.name
-
-    preview = "No messages yet"
-    if latest_message:
-        if isinstance(latest_message, dict):
-            body = latest_message.get("body")
-            metadata = latest_message.get("metadata")
-            message_type = latest_message.get("message_type")
-            has_attachments = bool(latest_message.get("has_attachments"))
-        else:
-            body = latest_message.body
-            metadata = latest_message.metadata_ if isinstance(latest_message.metadata_, dict) else None
-            message_type = metadata.get("type") if metadata else None
-            has_attachments = bool(getattr(latest_message, "attachments", None))
-
-        body_text = body.strip() if isinstance(body, str) else ""
-        if body_text in {"[reaction message]", "[location message]"}:
-            body_text = ""
-        message_type_value = message_type.lower() if isinstance(message_type, str) else None
-
-        if message_type_value == "location":
-            location_label = None
-            if isinstance(metadata, dict):
-                for key in ("address", "name", "label"):
-                    value = metadata.get(key)
-                    if isinstance(value, str) and value.strip():
-                        location_label = value.strip()
-                        break
-                if not location_label:
-                    loc = metadata.get("location")
-                    if not loc:
-                        raw = metadata.get("raw")
-                        if isinstance(raw, dict):
-                            raw_messages = raw.get("messages")
-                            if isinstance(raw_messages, list) and raw_messages:
-                                first_msg = raw_messages[0]
-                                if isinstance(first_msg, dict):
-                                    loc = first_msg.get("location")
-                    if isinstance(loc, dict):
-                        for key in ("address", "name", "label"):
-                            value = loc.get(key)
-                            if isinstance(value, str) and value.strip():
-                                location_label = value.strip()
-                                break
-                if not location_label:
-                    lat = metadata.get("latitude") or metadata.get("lat")
-                    lng = metadata.get("longitude") or metadata.get("lng") or metadata.get("lon")
-                    if lat is not None and lng is not None:
-                        location_label = f"({lat}, {lng})"
-                if not location_label and isinstance(loc, dict):
-                    lat = loc.get("latitude") or loc.get("lat")
-                    lng = loc.get("longitude") or loc.get("lng") or loc.get("lon")
-                    if lat is not None and lng is not None:
-                        location_label = f"({lat}, {lng})"
-            if location_label:
-                preview = f"📍 Location: {location_label}"
-            else:
-                preview = "📍 Location shared"
-            if len(preview) > 100:
-                preview = preview[:97] + "..."
-        elif message_type_value == "reaction":
-            reaction_emoji = None
-            if isinstance(metadata, dict):
-                reaction_emoji = metadata.get("emoji")
-                if not reaction_emoji:
-                    raw = metadata.get("raw")
-                    if isinstance(raw, dict):
-                        raw_messages = raw.get("messages")
-                        if isinstance(raw_messages, list) and raw_messages:
-                            first_msg = raw_messages[0]
-                            if isinstance(first_msg, dict):
-                                reaction = first_msg.get("reaction")
-                                if isinstance(reaction, dict):
-                                    reaction_emoji = reaction.get("emoji")
-            if isinstance(reaction_emoji, str) and reaction_emoji.strip():
-                preview = f"Reaction {reaction_emoji.strip()}"
-            else:
-                preview = "Reaction received"
-        elif has_attachments:
-            preview = "Attachment (Image/File)"
-        elif body_text:
-            preview = body_text[:100] + "..." if len(body_text) > 100 else body_text
-        else:
-            preview = "New message received"
-    latest_message_at = None
-    if isinstance(latest_message, dict):
-        latest_message_at = latest_message.get("last_message_at")
-    elif latest_message:
-        latest_message_at = (
-            latest_message.received_at
-            or latest_message.sent_at
-            or latest_message.created_at
-        )
-
-    inbox_label = None
-    if include_inbox_label and channel_target_id:
-        if isinstance(latest_message, dict):
-            inbox_label = latest_message.get("channel_target_name")
-        if not inbox_label:
-            try:
-                target = db.get(IntegrationTarget, coerce_uuid(channel_target_id))
-            except Exception:
-                target = None
-            if target and target.connector_config:
-                inbox_label = target.name or target.connector_config.name
-    if include_inbox_label and not inbox_label:
-        channel_labels = {
-            "email": "Email Inbox",
-            "whatsapp": "WhatsApp Inbox",
-            "facebook_messenger": "Facebook Inbox",
-            "instagram_dm": "Instagram Inbox",
-            "sms": "SMS Inbox",
-            "telegram": "Telegram Inbox",
-            "webchat": "Webchat Inbox",
-            "phone": "Phone Inbox",
-        }
-        inbox_label = channel_labels.get(channel, "Inbox")
-
-    # For WhatsApp/phone channels, prefer phone number over email as fallback
-    if contact:
-        phone_value = contact.phone
-        if phone_value and channel in ("whatsapp", "sms", "phone") and not phone_value.startswith("+"):
-            phone_value = f"+{phone_value}"
-        if channel in ("whatsapp", "sms", "phone"):
-            contact_name = contact.display_name or phone_value or contact.email or "Unknown"
-        else:
-            contact_name = contact.display_name or contact.email or phone_value or "Unknown"
-        contact_initials = _get_initials(contact_name)
-    else:
-        contact_name = "Unknown"
-        contact_initials = "?"
-
-    # Get splynx_id from contact metadata if available
-    splynx_id = None
-    if contact and contact.metadata_:
-        splynx_id = contact.metadata_.get("splynx_id")
-
-    return {
-        "id": str(conv.id),
-        "contact": {
-            "id": str(contact.id) if contact else "",
-            "name": contact_name,
-            "email": contact.email if contact else "",
-            "phone": phone_value if contact else "",
-            "avatar_initials": contact_initials,
-            "company": company,
-            "splynx_id": splynx_id,
-        },
-        "channel": channel,
-        "status": conv.status.value if conv.status else "open",
-        "subject": conv.subject,
-        "preview": preview,
-        "unread_count": unread_count or 0,
-        "last_message_at": conv.last_message_at or latest_message_at or conv.updated_at,
-        "assigned_to": assigned_to,
-        "assigned_team": assigned_team,
-        "assigned_agent_id": assigned_agent_id,
-        "assigned_agent_name": assigned_agent_name,
-        "inbox": {
-            "id": str(channel_target_id) if channel_target_id else None,
-            "label": inbox_label,
-        },
-    }
-
-
-def _format_message_for_template(msg: Message, db: Session) -> dict:
-    """Transform a Message model into template-friendly dict."""
-    sender_name = "Unknown"
-    sender_initials = "?"
-
-    if msg.direction == MessageDirection.internal:
-        if msg.author_id:
-            person = db.get(Person, msg.author_id)
-            if person:
-                full_name = person.display_name or " ".join(
-                    part for part in [person.first_name, person.last_name] if part
-                ).strip()
-                sender_name = full_name or "Internal Note"
-                sender_initials = _get_initials(sender_name)
-            else:
-                sender_name = "Internal Note"
-                sender_initials = "IN"
-        else:
-            sender_name = "Internal Note"
-            sender_initials = "IN"
-    elif msg.direction == MessageDirection.outbound:
-        if msg.author_id:
-            person = db.get(Person, msg.author_id)
-            if person:
-                full_name = person.display_name or " ".join(
-                    part for part in [person.first_name, person.last_name] if part
-                ).strip()
-                sender_name = full_name or "Agent"
-                sender_initials = _get_initials(sender_name)
-        else:
-            sender_name = "Agent"
-            sender_initials = "AG"
-    else:
-        conv = msg.conversation
-        if conv and conv.contact:
-            sender_name = conv.contact.display_name or conv.contact.email or "Contact"
-            sender_initials = _get_initials(sender_name)
-
-    attachments = []
-    for attachment in msg.attachments or []:
-        metadata = attachment.metadata_ or {}
-        content_base64 = metadata.get("content_base64")
-        content_id = metadata.get("content_id")
-        url = attachment.external_url
-        if not url and content_base64 and attachment.mime_type:
-            url = f"data:{attachment.mime_type};base64,{content_base64}"
-        attachments.append(
-            {
-                "id": str(attachment.id),
-                "file_name": attachment.file_name or "attachment",
-                "mime_type": attachment.mime_type or "",
-                "file_size": attachment.file_size,
-                "url": url,
-                "content_id": content_id,
-                "is_image": bool(
-                    attachment.mime_type and attachment.mime_type.startswith("image/")
-                ),
-            }
-        )
-
-    metadata = msg.metadata_ or {}
-    meta_attachments = metadata.get("attachments") if isinstance(metadata, dict) else None
-    attachment_caption = None
-    if isinstance(meta_attachments, list):
-        for idx, meta_attachment in enumerate(meta_attachments):
-            if not isinstance(meta_attachment, dict):
-                continue
-            payload_value = meta_attachment.get("payload")
-            payload: dict = payload_value if isinstance(payload_value, dict) else {}
-            if attachment_caption is None:
-                caption = payload.get("caption")
-                if isinstance(caption, str) and caption.strip():
-                    attachment_caption = caption.strip()
-            attachment_id = (
-                payload.get("attachment_id")
-                or payload.get("id")
-                or meta_attachment.get("id")
-            )
-            url = payload.get("url") or meta_attachment.get("url")
-            attachment_type = (
-                meta_attachment.get("type")
-                or payload.get("content_type")
-                or payload.get("mime_type")
-                or ""
-            )
-            is_image = attachment_type == "image" or str(attachment_type).startswith("image/")
-            if not url and attachment_id:
-                url = f"/admin/crm/inbox/attachment/{msg.id}/{idx}"
-            file_name = meta_attachment.get("file_name") or f"attachment-{idx + 1}"
-            attachments.append(
-                {
-                    "id": f"meta-{idx + 1}",
-                    "file_name": file_name,
-                    "mime_type": attachment_type,
-                    "file_size": None,
-                    "url": url,
-                    "content_id": None,
-                    "attachment_id": attachment_id,
-                    "is_image": is_image,
-                }
-            )
-
-    content = msg.body or ""
-    if content.startswith("[Attachment:") and (attachments or meta_attachments):
-        content = ""
-    if (
-        msg.channel_type == ChannelType.whatsapp
-        and (attachments or meta_attachments)
-        and content.strip().startswith("[")
-        and content.strip().endswith("message]")
-    ):
-        content = attachment_caption or ""
-    if content.strip() in {"[reaction message]", "[location message]"}:
-        content = ""
-
-    if not content.strip() and isinstance(metadata, dict):
-        meta_type = metadata.get("type")
-        if isinstance(meta_type, str):
-            meta_type_value = meta_type.lower()
-        else:
-            meta_type_value = None
-
-        if meta_type_value == "reaction":
-            emoji = metadata.get("emoji")
-            if isinstance(emoji, str) and emoji.strip():
-                content = f"Reaction {emoji.strip()}"
-            else:
-                content = "Reaction received"
-        elif meta_type_value == "location":
-            loc_label = (
-                metadata.get("label")
-                or metadata.get("name")
-                or metadata.get("address")
-            )
-            if not loc_label:
-                loc = metadata.get("location")
-                if isinstance(loc, dict):
-                    loc_label = (
-                        loc.get("label")
-                        or loc.get("name")
-                        or loc.get("address")
-                    )
-            if loc_label:
-                content = f"📍 {loc_label}"
-            else:
-                lat = metadata.get("latitude")
-                lng = metadata.get("longitude")
-                if lat is not None and lng is not None:
-                    content = f"📍 https://maps.google.com/?q={lat},{lng}"
-                else:
-                    content = "📍 Location shared"
-
-    if msg.channel_type == ChannelType.instagram_dm:
-        meta_count = len(meta_attachments) if isinstance(meta_attachments, list) else 0
-        first_url = attachments[0].get("url") if attachments else None
-        logger.info(
-            "crm_inbox_ig_attachments message_id=%s meta_count=%s rendered_count=%s first_url=%s",
-            msg.id,
-            meta_count,
-            len(attachments),
-            first_url,
-        )
-
-    visibility = metadata.get("visibility") if isinstance(metadata, dict) else None
-    note_type = metadata.get("type") if isinstance(metadata, dict) else None
-    is_private_note = (
-        msg.direction == MessageDirection.internal
-        or msg.channel_type == ChannelType.note
-        or note_type == "private_note"
-    )
-
-    html_body = metadata.get("html_body") if isinstance(metadata, dict) else None
-    if html_body:
-        html_body = _replace_cid_images(html_body, attachments)
-    html_source = html_body or content
-    if not html_body and "&lt;" in content and "&gt;" in content:
-        html_source = html.unescape(content)
-
-    return {
-        "id": str(msg.id),
-        "conversation_id": str(msg.conversation_id),
-        "direction": msg.direction.value,
-        "content": content,
-        "content_html": _sanitize_message_html(html_source),
-        "html_body": html_body,
-        "timestamp": msg.received_at or msg.sent_at or msg.created_at,
-        "status": msg.status.value if msg.status else "received",
-        "attachments": attachments,
-        "sender": {
-            "name": sender_name,
-            "initials": sender_initials,
-        },
-        "channel_type": msg.channel_type.value if msg.channel_type else "email",
-        "visibility": visibility,
-        "is_private_note": is_private_note,
-        "author_id": str(msg.author_id) if msg.author_id else None,
-        "reply_to": metadata.get("reply_to") if isinstance(metadata, dict) else None,
-        "reply_to_message_id": str(msg.reply_to_message_id) if msg.reply_to_message_id else None,
-    }
-
-
-def _extract_meta_attachment(meta_attachment: dict) -> tuple[str | None, str | None]:
-    payload_value = meta_attachment.get("payload")
-    payload: dict = payload_value if isinstance(payload_value, dict) else {}
-    attachment_id = payload.get("attachment_id") or payload.get("id") or meta_attachment.get("id")
-    url = payload.get("url") or meta_attachment.get("url")
-    return attachment_id, url
 
 
 def _get_current_roles(request: Request) -> list[str]:
@@ -1177,22 +590,6 @@ def _get_current_roles(request: Request) -> list[str]:
     return []
 
 
-def _get_current_agent_id(db: Session, current_user: dict | None) -> str | None:
-    person_id = (current_user or {}).get("person_id")
-    if not person_id:
-        return None
-    try:
-        person_uuid = coerce_uuid(person_id)
-    except Exception:
-        return None
-    agent = (
-        db.query(CrmAgent)
-        .filter(CrmAgent.person_id == person_uuid, CrmAgent.is_active.is_(True))
-        .first()
-    )
-    return str(agent.id) if agent else None
-
-
 @router.post("/agents/presence", response_class=JSONResponse)
 async def update_current_agent_presence(
     request: Request,
@@ -1202,7 +599,7 @@ async def update_current_agent_presence(
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
-    agent_id = _get_current_agent_id(db, current_user)
+    agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
     if not agent_id:
         return Response(status_code=204)
 
@@ -1216,163 +613,6 @@ async def update_current_agent_presence(
 
     crm_service.agent_presence.upsert(db, agent_id, status=status)
     return JSONResponse({"ok": True})
-
-
-def _filter_messages_for_user(
-    messages: list[dict],
-    current_user_id: str | None,
-    current_roles: list[str] | None,
-) -> list[dict]:
-    if not messages:
-        return []
-    user_id = current_user_id or ""
-    roles = set(current_roles or [])
-    filtered: list[dict] = []
-    for msg in messages:
-        if not msg.get("is_private_note"):
-            filtered.append(msg)
-            continue
-        visibility = msg.get("visibility") or "team"
-        if visibility == "author" and msg.get("author_id") != user_id:
-            continue
-        if visibility == "admins" and "admin" not in roles:
-            continue
-        filtered.append(msg)
-    return filtered
-
-
-def _format_contact_for_template(contact: Person, db: Session) -> dict:
-    """Transform a Contact model into detailed template-friendly dict."""
-    channels = []
-    for ch in contact.channels or []:
-        channels.append({
-            "type": ch.channel_type.value,
-            "address": ch.address,
-            "verified": ch.is_verified,
-        })
-
-    company = None
-    if contact.organization:
-        company = contact.organization.name
-
-    resolved_person_id = str(contact.id)
-
-    # Get tags efficiently using service method (single query instead of N+1)
-    tags = contact_service.get_contact_tags(db, resolved_person_id)
-
-    # Use service layer methods for data retrieval
-    recent_tickets = contact_service.get_contact_recent_tickets(
-        db, resolved_person_id, subscriber_ids=None, limit=3
-    )
-    recent_projects = contact_service.get_contact_recent_projects(
-        db, resolved_person_id, subscriber_ids=None, limit=3
-    )
-    recent_tasks = contact_service.get_contact_recent_tasks(
-        db, resolved_person_id, subscriber_ids=None, limit=3
-    )
-    conversations_summary = contact_service.get_contact_conversations_summary(
-        db, resolved_person_id, limit=5
-    )
-
-    # Build recent conversations list using service method
-    recent_conversations = []
-    recent_convs = contact_service.get_contact_recent_conversations(db, resolved_person_id, limit=5)
-    for conv in recent_convs:
-        conv_payload = _format_conversation_for_template(conv, db)
-        last_message_at = conv_payload.get("last_message_at")
-        if isinstance(last_message_at, str):
-            try:
-                last_message_at = datetime.fromisoformat(last_message_at)
-            except ValueError:
-                last_message_at = None
-        recent_conversations.append({
-            "id": str(conv.id),
-            "subject": conv_payload.get("subject") or f"Conversation {str(conv.id)[:8]}",
-            "status": conv_payload.get("status") or (conv.status.value if conv.status else "open"),
-            "updated_at": last_message_at.strftime("%Y-%m-%d %H:%M") if last_message_at else "N/A",
-            "preview": conv_payload.get("preview") or "No messages yet",
-            "channel": conv_payload.get("channel"),
-            "sort_at": last_message_at or conv.updated_at,
-            "href": f"/admin/crm/inbox?conversation_id={conv.id}",
-        })
-
-    from app.services.crm.inbox.comments_summary import (
-        merge_recent_conversations_with_comments,
-    )
-    recent_conversations = merge_recent_conversations_with_comments(
-        db,
-        resolved_person_id,
-        recent_conversations,
-        limit=5,
-    )
-
-    # Get resolved conversations via service method
-    resolved_data = contact_service.get_contact_resolved_conversations(db, resolved_person_id)
-    resolved_conversations = []
-    for conv_data in resolved_data:
-        last_message_at = conv_data.get("last_message_at") or conv_data.get("updated_at")
-        resolved_conversations.append({
-            "id": conv_data["id"],
-            "subject": conv_data["subject"],
-            "status": conv_data["status"],
-            "updated_at": last_message_at.strftime("%Y-%m-%d %H:%M") if last_message_at else "N/A",
-            "preview": "No messages yet",
-            "channel": None,
-            "sort_at": last_message_at,
-            "href": f"/admin/crm/inbox?conversation_id={conv_data['id']}",
-        })
-
-    total_conversations = len(contact.conversations) if contact.conversations else 0
-
-    # Get splynx_id from contact metadata
-    splynx_id = None
-    if contact.metadata_:
-        splynx_id = contact.metadata_.get("splynx_id")
-
-    address_parts = [
-        contact.address_line1,
-        contact.address_line2,
-        contact.city,
-        contact.region,
-        contact.postal_code,
-        contact.country_code,
-    ]
-    address_text = ", ".join([part for part in address_parts if part])
-    phone_display = contact.phone or ""
-    if phone_display and not phone_display.startswith("+"):
-        phone_display = f"+{phone_display}"
-
-    return {
-        "id": str(contact.id),
-        "name": contact.display_name or phone_display or contact.email or "Unknown",
-        "email": contact.email,
-        "phone": phone_display,
-        "company": company,
-        "is_active": contact.is_active,
-        "avatar_initials": _get_initials(contact.display_name or contact.email),
-        "channels": channels,
-        "tags": list(tags)[:5],
-        "subscriber": None,  # Subscriber info removed
-        "splynx_id": splynx_id,
-        "recent_tickets": recent_tickets,
-        "recent_projects": recent_projects,
-        "recent_tasks": recent_tasks,
-        "notes": contact.notes,
-        "address": {
-            "line1": contact.address_line1,
-            "line2": contact.address_line2,
-            "city": contact.city,
-            "region": contact.region,
-            "postal_code": contact.postal_code,
-            "country_code": contact.country_code,
-            "text": address_text,
-        },
-        "total_conversations": total_conversations,
-        "conversations": conversations_summary,
-        "recent_conversations": recent_conversations,
-        "resolved_conversations": resolved_conversations,
-        "avg_response_time": "N/A",
-    }
 
 
 @router.get("/inbox", response_class=HTMLResponse)
@@ -1391,160 +631,25 @@ async def inbox(
     from app.web.admin import get_current_user, get_sidebar_stats
     current_user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
-    assigned_person_id = current_user.get("person_id")
-    current_agent_id = _get_current_agent_id(db, current_user)
-
-    comments_mode = channel == "comments"
-    comments: list[dict] = []
-    selected_comment = None
-    comment_replies: list[dict] = []
-    conversations: list[dict] = []
-    selected_conversation = None
-    messages: list[dict] = []
-    contact_details = None
-
-    if comments_mode:
-        from app.services.crm.inbox.comments_context import load_comments_context
-        context = await load_comments_context(
-            db,
-            search=search,
-            comment_id=comment_id,
-            fetch=False,
-            target_id=target_id,
-        )
-        comments = context.grouped_comments
-        selected_comment = context.selected_comment
-        comment_replies = context.comment_replies
-        if conversation_id:
-            try:
-                conv = conversation_service.Conversations.get(db, conversation_id)
-                selected_conversation = _format_conversation_for_template(
-                    conv, db, include_inbox_label=True
-                )
-                if conv.contact:
-                    contact_details = _format_contact_for_template(conv.contact, db)
-            except Exception:
-                pass
-
-    # Use service layer methods for inbox queries
-    if not comments_mode:
-        from app.services.crm.inbox.listing import load_inbox_list
-        listing = await load_inbox_list(
-            db,
-            channel=channel,
-            status=status,
-            search=search,
-            assignment=assignment,
-            assigned_person_id=assigned_person_id,
-            target_id=target_id,
-            include_thread=False,
-            fetch_comments=False,
-        )
-        conversations = [
-            _format_conversation_for_template(
-                conv,
-                db,
-                latest_message=latest_message,
-                unread_count=unread_count,
-                include_inbox_label=True,
-            )
-            for conv, latest_message, unread_count in listing.conversations_raw
-        ]
-        if listing.comment_items:
-            conversations = conversations + listing.comment_items
-            conversations.sort(
-                key=lambda item: item.get("last_message_at")
-                or datetime.min.replace(tzinfo=timezone.utc),
-                reverse=True,
-            )
-            conversations = conversations[:50]
-
-        target_conv_id = conversation_id
-        if not target_conv_id and conversations:
-            first_conv = next(
-                (entry for entry in conversations if entry.get("kind") != "comment"),
-                None,
-            )
-            if first_conv:
-                target_conv_id = first_conv["id"]
-
-        if target_conv_id:
-            try:
-                conv = conversation_service.Conversations.get(db, target_conv_id)
-                selected_conversation = _format_conversation_for_template(
-                    conv, db, include_inbox_label=True
-                )
-            except Exception:
-                pass
-
-    from app.services.crm.inbox.dashboard import load_inbox_stats
-    stats, channel_stats = load_inbox_stats(db)
-
-    from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel_targets
-    email_channel = get_email_channel_state(db)
-    email_inboxes = list_channel_targets(db, ConnectorType.email)
-    whatsapp_inboxes = list_channel_targets(db, ConnectorType.whatsapp)
-    facebook_inboxes = list_channel_targets(db, ConnectorType.facebook)
-    instagram_inboxes = list_channel_targets(db, ConnectorType.instagram)
-    from app.services.crm.inbox.comments_context import list_comment_inboxes
-    facebook_comment_inboxes, instagram_comment_inboxes = list_comment_inboxes(db)
-    email_setup = request.query_params.get("email_setup")
-    email_error = request.query_params.get("email_error")
-    email_error_detail = request.query_params.get("email_error_detail")
-    new_error = request.query_params.get("new_error")
-    new_error_detail = request.query_params.get("new_error_detail")
-    reply_error = request.query_params.get("reply_error")
-    reply_error_detail = request.query_params.get("reply_error_detail")
-
-    assignment_options = _load_crm_agent_team_options(db)
-    from app.logic import private_note_logic
-    notification_auto_dismiss_seconds = resolve_value(
-        db, SettingDomain.notification, "crm_inbox_notification_auto_dismiss_seconds"
+    context = await build_inbox_page_context(
+        db,
+        current_user=current_user,
+        sidebar_stats=sidebar_stats,
+        csrf_token=get_csrf_token(request),
+        query_params=request.query_params,
+        channel=channel,
+        status=status,
+        search=search,
+        assignment=assignment,
+        target_id=target_id,
+        conversation_id=conversation_id,
+        comment_id=comment_id,
     )
-
     return templates.TemplateResponse(
         "admin/crm/inbox.html",
         {
             "request": request,
-            "current_user": current_user,
-            "current_agent_id": current_agent_id,
-            "sidebar_stats": sidebar_stats,
-            "active_page": "inbox",
-            "csrf_token": get_csrf_token(request),
-            "conversations": conversations,
-            "selected_conversation": selected_conversation,
-            "messages": messages,
-            "contact_details": contact_details,
-            "comments": comments,
-            "selected_comment": selected_comment,
-            "selected_comment_id": str(selected_comment.id) if selected_comment else None,
-            "comment_replies": comment_replies,
-            "stats": stats,
-            "channel_stats": channel_stats,
-            "current_channel": channel,
-            "current_status": status,
-            "current_assignment": assignment,
-            "current_target_id": target_id,
-            "search": search,
-            "email_channel": email_channel,
-            "email_inboxes": email_inboxes,
-            "whatsapp_inboxes": whatsapp_inboxes,
-            "facebook_inboxes": facebook_inboxes,
-            "instagram_inboxes": instagram_inboxes,
-            "facebook_comment_inboxes": facebook_comment_inboxes,
-            "instagram_comment_inboxes": instagram_comment_inboxes,
-            "email_setup": email_setup,
-            "email_error": email_error,
-            "email_error_detail": email_error_detail,
-            "new_error": new_error,
-            "new_error_detail": new_error_detail,
-            "reply_error": reply_error,
-            "reply_error_detail": reply_error_detail,
-            "agents": assignment_options["agents"],
-            "teams": assignment_options["teams"],
-            "agent_labels": assignment_options["agent_labels"],
-            "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
-            "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
+            **context,
         },
     )
 
@@ -1745,7 +850,7 @@ async def inbox_conversations_partial(
         fetch_comments=False,
     )
     conversations = [
-        _format_conversation_for_template(
+        format_conversation_for_template(
             conv,
             db,
             latest_message=latest_message,
@@ -1798,13 +903,13 @@ async def inbox_conversation_detail(
             "<div class='p-8 text-center text-slate-500'>Conversation not found</div>"
         )
 
-    conversation = _format_conversation_for_template(
+    conversation = format_conversation_for_template(
         thread.conversation, db, include_inbox_label=True
     )
-    messages = [_format_message_for_template(m, db) for m in (thread.messages or [])]
+    messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
     current_roles = _get_current_roles(request)
-    current_agent_id = _get_current_agent_id(db, current_user)
-    messages = _filter_messages_for_user(
+    current_agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
+    messages = filter_messages_for_user(
         messages,
         current_user.get("person_id"),
         current_roles,
@@ -1866,7 +971,7 @@ async def inbox_contact_detail(
             "<div class='p-8 text-center text-slate-500'>Contact not found</div>"
         )
 
-    contact_details = _format_contact_for_template(contact, db)
+    contact_details = format_contact_for_template(contact, db)
     private_notes = []
     notes_query = (
         db.query(Message)
@@ -1884,7 +989,7 @@ async def inbox_contact_detail(
         .all()
     )
     for note in notes_query:
-        payload = _format_message_for_template(note, db)
+        payload = format_message_for_template(note, db)
         if payload.get("is_private_note"):
             private_notes.append(payload)
         if len(private_notes) >= 5:
@@ -1945,7 +1050,7 @@ def inbox_conversation_assignment(
                 else None
             )
             if contact:
-                contact_details = _format_contact_for_template(contact, db)
+                contact_details = format_contact_for_template(contact, db)
                 assignment_options = _load_crm_agent_team_options(db)
                 from app.logic import private_note_logic
                 return templates.TemplateResponse(
@@ -1977,7 +1082,7 @@ def inbox_conversation_assignment(
             status_code=303,
         )
 
-    contact_details = _format_contact_for_template(contact, db)
+    contact_details = format_contact_for_template(contact, db)
     assignment_options = _load_crm_agent_team_options(db)
     if request.headers.get("HX-Request"):
         from app.logic import private_note_logic
@@ -2043,7 +1148,7 @@ def inbox_conversation_resolve(
             status_code=404,
         )
 
-    contact_details = _format_contact_for_template(contact, db)
+    contact_details = format_contact_for_template(contact, db)
     assignment_options = _load_crm_agent_team_options(db)
     from app.logic import private_note_logic
     return templates.TemplateResponse(
@@ -2102,7 +1207,7 @@ async def send_message(
         return RedirectResponse(url=url, status_code=303)
 
     try:
-        conversation = _format_conversation_for_template(
+        conversation = format_conversation_for_template(
             result.conversation, db, include_inbox_label=True
         )
         # Fetch latest 100 messages then reverse for chronological display.
@@ -2118,9 +1223,9 @@ async def send_message(
             offset=0,
         )
         messages_raw = list(reversed(messages_raw))
-        messages = [_format_message_for_template(m, db) for m in messages_raw]
+        messages = [format_message_for_template(m, db) for m in messages_raw]
         current_roles = _get_current_roles(request)
-        messages = _filter_messages_for_user(
+        messages = filter_messages_for_user(
             messages,
             author_id,
             current_roles,
@@ -2249,9 +1354,9 @@ def create_private_note_api(
     except HTTPException as exc:
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
-    message = _format_message_for_template(note, db)
+    message = format_message_for_template(note, db)
     current_roles = _get_current_roles(request)
-    visible = _filter_messages_for_user([message], author_id, current_roles)
+    visible = filter_messages_for_user([message], author_id, current_roles)
     if not visible:
         return JSONResponse({"detail": "Forbidden"}, status_code=403)
     message = visible[0]
@@ -2345,12 +1450,18 @@ async def update_conversation_status(
 ):
     """Update conversation status."""
     from app.services.crm.inbox.conversation_status import update_conversation_status
-    _ = update_conversation_status(db, conversation_id=conversation_id, new_status=new_status)
+    from app.web.admin import get_current_user
+    current_user = get_current_user(request)
+    actor_id = (current_user or {}).get("person_id")
+    _ = update_conversation_status(
+        db,
+        conversation_id=conversation_id,
+        new_status=new_status,
+        actor_id=actor_id,
+    )
 
     if request.headers.get("HX-Target") == "message-thread":
-        from app.web.admin import get_current_user
         from app.services.crm.inbox.thread import load_conversation_thread
-        current_user = get_current_user(request)
         thread = load_conversation_thread(
             db,
             conversation_id,
@@ -2362,12 +1473,12 @@ async def update_conversation_status(
                 "<div class='p-8 text-center text-slate-500'>Conversation not found</div>"
             )
 
-        conversation = _format_conversation_for_template(
+        conversation = format_conversation_for_template(
             thread.conversation, db, include_inbox_label=True
         )
-        messages = [_format_message_for_template(m, db) for m in (thread.messages or [])]
+        messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
         current_roles = _get_current_roles(request)
-        messages = _filter_messages_for_user(
+        messages = filter_messages_for_user(
             messages,
             current_user.get("person_id"),
             current_roles,
@@ -2713,7 +1824,15 @@ async def reply_to_social_comment(
         next_url = "/admin/crm/inbox"
 
     from app.services.crm.inbox.comment_replies import reply_to_social_comment
-    result = await reply_to_social_comment(db, comment_id=comment_id, message=message)
+    from app.web.admin import get_current_user
+    current_user = get_current_user(request)
+    actor_id = (current_user or {}).get("person_id")
+    result = await reply_to_social_comment(
+        db,
+        comment_id=comment_id,
+        message=message,
+        actor_id=actor_id,
+    )
     if result.kind == "not_found":
         return RedirectResponse(
             url=f"{next_url}?channel=comments&comment_id={comment_id}&reply_error=1",
@@ -3176,7 +2295,7 @@ async def contact_detail_page(
             status_code=404,
         )
 
-    contact_details = _format_contact_for_template(contact, db)
+    contact_details = format_contact_for_template(contact, db)
     back_url = "/admin/crm/inbox"
     if next and _is_safe_url(next):
         back_url = next

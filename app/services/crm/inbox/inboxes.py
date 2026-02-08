@@ -7,9 +7,8 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.integration import (
-    ConnectorConfig,
-    ConnectorType,
     IntegrationJob,
     IntegrationJobType,
     IntegrationTarget,

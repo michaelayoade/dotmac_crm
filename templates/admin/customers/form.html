@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% block title %}{{ 'Edit' if customer else 'New' }} {{ customer_type | title }} - Admin{% endblock %}
 
 {% block content %}
@@ -542,10 +543,7 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
                 Cancel
             </a>
-            <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition hover:from-amber-600 hover:to-amber-700 hover:shadow-amber-500/40">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                {{ 'Update' if customer else 'Create' }} <span x-text="customerType === 'person' ? 'Person' : 'Organization'">{{ customer_type | title }}</span>
-            </button>
+            {{ submit_button(('Update' if customer else 'Create') ~ " " ~ (customer_type | title), color="amber", loading_label="Creating...") }}
         </div>
     </form>
 </div>

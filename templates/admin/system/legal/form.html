@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% block title %}{{ 'Edit' if document else 'New' }} Legal Document - Admin{% endblock %}
 
 {% block content %}
@@ -104,9 +105,7 @@
 
             <div class="border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-slate-700 dark:bg-slate-800/50 flex items-center justify-end gap-3">
                 <a href="/admin/system/legal" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Cancel</a>
-                <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                    {{ 'Update Document' if document else 'Create Document' }}
-                </button>
+                {{ submit_button(('Update Document' if document else 'Create Document'), loading_label="Creating...") }}
             </div>
         </div>
     </form>

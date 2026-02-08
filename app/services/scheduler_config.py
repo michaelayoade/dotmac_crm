@@ -436,6 +436,16 @@ def build_beat_schedule() -> dict:
             interval_seconds=reminder_interval_seconds,
         )
 
+        # CRM inbox outbox queue runner
+        outbox_interval_seconds = 30
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_outbox_queue",
+            task_name="app.tasks.crm_inbox.process_outbox_queue",
+            enabled=True,
+            interval_seconds=outbox_interval_seconds,
+        )
+
         # Event retry - retries failed event handlers
         event_retry_enabled = _effective_bool(
             session,

@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType
 from app.services.crm.inbox_normalizers import (
-    _normalize_external_id,
     _normalize_email_message_id,
+    _normalize_external_id,
 )
 
 
@@ -118,8 +118,8 @@ def _find_conversation_by_token(db: Session, token: str) -> Conversation | None:
 
     Attempts to find a conversation using various matching strategies:
     - Full UUID (32 hex chars or 36 with dashes)
-    - UUID prefix match (8+ hex chars)
-    - Numeric ID in subject (4+ digits)
+    - Numeric ID in subject (4+ digits, checked before hex to avoid confusion)
+    - UUID prefix match (8+ hex chars containing a-f)
 
     Args:
         db: Database session.
@@ -132,6 +132,8 @@ def _find_conversation_by_token(db: Session, token: str) -> Conversation | None:
     if not cleaned:
         return None
     lowered = cleaned.lower()
+
+    # 1. Full UUID match (32 hex chars or 36 with dashes)
     try:
         if len(lowered) == 32:
             return db.get(Conversation, uuid.UUID(hex=lowered))
@@ -139,13 +141,9 @@ def _find_conversation_by_token(db: Session, token: str) -> Conversation | None:
             return db.get(Conversation, uuid.UUID(lowered))
     except (ValueError, AttributeError):
         return None
-    if len(lowered) >= 8 and len(lowered) < 32 and re.fullmatch(r"[0-9a-f]+", lowered):
-        return (
-            db.query(Conversation)
-            .filter(func.lower(cast(Conversation.id, String)).like(f"{lowered}%"))
-            .order_by(Conversation.created_at.desc())
-            .first()
-        )
+
+    # 2. Purely numeric token -> search in subject (must check BEFORE hex pattern)
+    # This handles ticket numbers like "98765432" that would otherwise match hex
     if re.fullmatch(r"[0-9]+", lowered) and len(lowered) >= 4:
         return (
             db.query(Conversation)
@@ -153,6 +151,17 @@ def _find_conversation_by_token(db: Session, token: str) -> Conversation | None:
             .order_by(Conversation.updated_at.desc())
             .first()
         )
+
+    # 3. Hex prefix match (must contain at least one a-f to distinguish from numeric)
+    # Use replace() to strip dashes from UUID string for prefix matching
+    if len(lowered) >= 8 and len(lowered) < 32 and re.fullmatch(r"[0-9a-f]+", lowered):
+        return (
+            db.query(Conversation)
+            .filter(func.replace(func.lower(cast(Conversation.id, String)), "-", "").like(f"{lowered}%"))
+            .order_by(Conversation.created_at.desc())
+            .first()
+        )
+
     return None
 
 

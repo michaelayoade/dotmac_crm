@@ -4,8 +4,6 @@ Tests cover email header parsing, conversation token extraction,
 and conversation resolution from email metadata.
 """
 
-import pytest
-
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.services.crm.inbox.parsing import (
@@ -253,13 +251,8 @@ class TestFindConversationByToken:
         assert result is not None
         assert result.id == conv.id
 
-    @pytest.mark.xfail(reason="UUID prefix matching has a bug: PostgreSQL UUID->String cast includes dashes")
     def test_finds_by_uuid_prefix(self, db_session, crm_contact):
-        """Test finding conversation by UUID prefix (8+ hex chars).
-
-        Note: This test is expected to fail because the current implementation
-        casts UUID to String which includes dashes in PostgreSQL.
-        """
+        """Test finding conversation by UUID prefix (8+ hex chars)."""
         conv = Conversation(
             person_id=crm_contact.id,
             subject="Test Conversation",
@@ -342,7 +335,6 @@ class TestResolveConversationFromEmailMetadata:
         assert result is not None
         assert result.id == conv.id
 
-    @pytest.mark.xfail(reason="UUID prefix matching has a bug in _find_conversation_by_token")
     def test_resolves_by_subject_token_prefix(self, db_session, crm_contact):
         """Test resolution via conversation token prefix in subject."""
         conv = Conversation(
@@ -374,7 +366,6 @@ class TestResolveConversationFromEmailMetadata:
         assert result is not None
         assert result.id == conv.id
 
-    @pytest.mark.skip(reason="Requires crm_messages.reply_to_message_id column - run migrations first")
     def test_resolves_by_in_reply_to_header(self, db_session, crm_contact):
         """Test resolution via In-Reply-To header matching existing message."""
         conv = Conversation(
@@ -402,7 +393,6 @@ class TestResolveConversationFromEmailMetadata:
         assert result is not None
         assert result.id == conv.id
 
-    @pytest.mark.skip(reason="Requires crm_messages.reply_to_message_id column - run migrations first")
     def test_resolves_by_references_header(self, db_session, crm_contact):
         """Test resolution via References header."""
         conv = Conversation(
@@ -467,7 +457,6 @@ class TestResolveConversationFromEmailMetadata:
 class TestIntegrationScenarios:
     """Integration tests for real-world email threading scenarios."""
 
-    @pytest.mark.skip(reason="Requires crm_messages.reply_to_message_id column - run migrations first")
     def test_gmail_thread_resolution(self, db_session, crm_contact):
         """Test resolving Gmail-style email threads."""
         # Create initial conversation
@@ -498,7 +487,6 @@ class TestIntegrationScenarios:
         assert result is not None
         assert result.id == conv.id
 
-    @pytest.mark.skip(reason="Requires crm_messages.reply_to_message_id column - run migrations first")
     def test_outlook_thread_resolution(self, db_session, crm_contact):
         """Test resolving Outlook-style email threads."""
         conv = Conversation(
@@ -519,24 +507,16 @@ class TestIntegrationScenarios:
         db_session.add(outbound)
         db_session.commit()
 
+        # Use underscores in metadata key (matching how emails are typically processed)
         metadata = {
-            "headers": {
-                "In-Reply-To": "<AM6PR07MB1234.prod.outlook.com>",
-            },
+            "in_reply_to": "<AM6PR07MB1234.prod.outlook.com>",
         }
         result = _resolve_conversation_from_email_metadata(db_session, "RE: Project Update", metadata)
         assert result is not None
         assert result.id == conv.id
 
-    @pytest.mark.xfail(reason="Numeric ticket refs that are also hex (0-9) incorrectly go to UUID prefix matching")
     def test_support_ticket_reference(self, db_session, crm_contact):
-        """Test resolving via ticket reference in subject.
-
-        Note: This test exposes a bug in _find_conversation_by_token where
-        purely numeric tokens (like "98765432") that also happen to be valid
-        hex chars get routed to UUID prefix matching instead of the subject
-        numeric search path.
-        """
+        """Test resolving via ticket reference in subject."""
         # Ticket number must be 8+ chars to match the regex pattern
         conv = Conversation(
             person_id=crm_contact.id,

@@ -25,6 +25,7 @@ from app.models.crm.campaign import Campaign, CampaignRecipient, CampaignStep
 from app.models.crm.campaign_sender import CampaignSender
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
 from app.models.crm.chat_widget import ChatWidgetConfig, WidgetVisitorSession
+from app.models.crm.outbox import OutboxMessage
 
 __all__ = [
     "CampaignRecipientStatus",
@@ -63,4 +64,5 @@ __all__ = [
     "SocialCommentReply",
     "ChatWidgetConfig",
     "WidgetVisitorSession",
+    "OutboxMessage",
 ]
