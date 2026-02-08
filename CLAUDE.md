@@ -461,7 +461,7 @@ The DotMac platform follows an **Industrial Modern** aesthetic: clean, functiona
     status_badge, action_button, card, filter_bar, search_input, filter_select,
     info_row, detail_header, tabs, icon_badge, avatar, type_badge,
     submit_button, danger_button, warning_button, loading_button, spinner,
-    info_banner, validated_input %}
+    info_banner, validated_input, typeahead_input %}
 ```
 
 **Macro parameter conventions:**
@@ -637,19 +637,100 @@ Each portal has separate auth:
 - Sidebar sections: Customers, Network, Operations, Reports, System
 - Add new pages: update `section_for_page` mapping + add `can_<feature>` permission check
 
+## Branding & White-Labeling
+
+### Branding Infrastructure
+The platform supports per-deployment branding via the `DomainSetting` table. Branding is loaded once by middleware and cached for 5 minutes.
+
+**Branding settings** (defined in `app/services/settings_spec.py`, domain `comms`):
+| Setting | Key | Type | Description |
+|---------|-----|------|-------------|
+| Company Name | `company_name` | string | Organization display name |
+| Brand Logo URL | `brand_logo_url` | string | Logo image (header, emails) |
+| Brand Favicon URL | `brand_favicon_url` | string | Browser tab icon |
+| Brand Color | `brand_color` | color | Primary brand hex color |
+| Support Email | `support_email` | string | Support contact email |
+| Support Phone | `support_phone` | string | Support contact phone |
+
+**Middleware pipeline** (`app/main.py`):
+1. `BrandingMiddleware` runs on every request
+2. Queries `DomainSetting` for branding keys, caches 5 min in-memory
+3. Attaches result to `request.state.branding` dict with keys: `company_name`, `logo_url`, `favicon_url`, `brand_color`, `support_email`, `support_phone`, `current_year`
+4. Templates access via `{{ request.state.branding.company_name }}`
+
+**Python service helper** (`app/services/branding.py`):
+- `get_branding(db)` — returns same dict shape as middleware, for Celery tasks and services without request context
+- Uses `resolve_values_atomic()` for single-query DB lookup
+
+**Logo upload**: `app/services/branding_assets.py` handles logo/favicon upload with size limits (`BRAND_LOGO_MAX_SIZE`, `BRAND_FAVICON_MAX_SIZE` in `app/config.py`).
+
+### White-Label Coverage
+
+All layouts, auth pages, public pages, email services, and Python services use dynamic branding from `request.state.branding` (templates) or `get_branding(db)` (services). The template pattern is:
+
+```jinja2
+{% set brand_name = request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" %}
+{% set brand_logo = request.state.branding.logo_url if request.state.branding is defined else "" %}
+{% set brand_year = request.state.branding.current_year if request.state.branding is defined else "2026" %}
+```
+
+| Location | Status |
+|----------|--------|
+| All 5 layout templates (admin, auth, customer, customer_auth, reseller, vendor) | Branded |
+| `base.html` | Branded (title, favicon) |
+| All 8 auth pages (login, register, forgot-password, mfa, etc.) | Branded |
+| `index.html` (home page) | Branded |
+| `public/legal/document.html` | Branded |
+| `admin/dashboard/index.html` | Branded |
+| Email services (`app/services/email.py`) | Branded (subjects, from_name, body) |
+| Project task emails (`app/services/projects.py`) | Branded (logo, contact info, company name) |
+| Notification queue (`app/tasks/notifications.py`) | Branded (from_name fallback) |
+| CRM inbox (`app/web/admin/crm.py`) | Branded (support_email) |
+| Home route (`app/web_home.py`) | Branded (page title) |
+
+### Personalization Capabilities
+
+**Dark mode** (fully implemented):
+- Toggle: Alpine.js store `darkMode` in `base.html`, persisted to `localStorage`
+- Respects `prefers-color-scheme: dark` on first visit
+- Class-based: `<html class="dark">` triggers all `dark:` Tailwind variants
+- Toggle button in admin top bar (sun/moon icon)
+
+**User locale/timezone** (model-level only):
+- `Person` model has `locale` (string) and `timezone` (string) fields
+- Not yet exposed in any settings UI
+- Not yet used for date/number formatting in templates
+
+**Domain settings system** (`app/models/domain_settings.py`):
+- 100+ configurable settings across 16+ domains (comms, crm, tickets, projects, etc.)
+- Managed via `/admin/system/settings` with domain pill filters
+- `SettingSpec` definitions in `app/services/settings_spec.py` (type, default, description, choices)
+- Settings cached and accessed via `app/services/domain_settings.py`
+
+**Not yet implemented**:
+- Per-user theme color picker
+- Per-user font size / layout density preferences
+- Module switcher between portals (admin/customer/reseller/vendor are fully independent)
+- Locale-aware date/number formatting in templates
+
 ## Key Files
 
-- `app/main.py` - FastAPI app setup and route registration
-- `app/config.py` - Environment configuration (Settings class)
+- `app/main.py` - FastAPI app setup, route registration, and branding middleware
+- `app/config.py` - Environment configuration (Settings class, branding upload limits)
 - `app/db.py` - Database session management (SessionLocal, Base)
 - `app/errors.py` - Exception handlers
 - `app/container.py` - Dependency injection container
 - `app/services/common.py` - Shared utilities (coerce_uuid, apply_ordering, apply_pagination, validate_enum)
 - `app/services/response.py` - ListResponseMixin for paginated queries
 - `app/services/scheduler_config.py` - Celery beat schedule registration
+- `app/services/settings_spec.py` - All domain setting definitions (100+ settings incl. branding)
+- `app/services/domain_settings.py` - Setting read/write service with caching
+- `app/services/branding.py` - Branding helper for services/tasks without request context
+- `app/services/branding_assets.py` - Logo/favicon upload service
 - `app/celery_app.py` - Celery app setup with autodiscovery
-- `templates/layouts/*.html` - Base layouts for each portal
-- `templates/components/` - Reusable UI components (navigation, macros)
+- `templates/layouts/*.html` - Base layouts per portal (admin, customer, auth, reseller, vendor)
+- `templates/components/ui/macros.html` - Reusable UI component macros (design system)
+- `templates/components/navigation/admin_sidebar.html` - Admin sidebar navigation (428 lines, permission-gated)
 - `mypy.ini` - Mypy configuration with SQLAlchemy plugin
 - `alembic.ini` - Alembic migration configuration
 - `tailwind.config.js` - Tailwind CSS theme and safelist

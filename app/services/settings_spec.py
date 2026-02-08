@@ -3,8 +3,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.models.domain_settings import SettingDomain
-from app.models.domain_settings import SettingValueType
+from app.models.domain_settings import SettingDomain, SettingValueType
 from app.services import domain_settings as settings_service
 from app.services.response import ListResponseMixin
 from app.services.settings_cache import SettingsCache
@@ -450,7 +449,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="PREPAID_WARNING_BODY",
         value_type=SettingValueType.string,
         default="Your prepaid balance is below the minimum threshold ({threshold}). "
-                "Current balance: {balance}. Please top up to avoid suspension.",
+        "Current balance: {balance}. Please top up to avoid suspension.",
     ),
     SettingSpec(
         domain=SettingDomain.collections,
@@ -465,7 +464,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="PREPAID_DEACTIVATION_BODY",
         value_type=SettingValueType.string,
         default="Your prepaid balance has been exhausted and service has been deactivated. "
-                "Please contact support to restore service.",
+        "Please contact support to restore service.",
     ),
     SettingSpec(
         domain=SettingDomain.catalog,
@@ -1722,6 +1721,22 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.comms,
+        key="support_email",
+        env_var="SUPPORT_EMAIL",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Support Email",
+    ),
+    SettingSpec(
+        domain=SettingDomain.comms,
+        key="support_phone",
+        env_var="SUPPORT_PHONE",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Support Phone Number",
+    ),
+    SettingSpec(
+        domain=SettingDomain.comms,
         key="ticket_types",
         env_var=None,
         value_type=SettingValueType.json,
@@ -2222,7 +2237,7 @@ def resolve_value(
     if spec.value_type == SettingValueType.integer and value is not None:
         parsed: int | None
         try:
-            if not isinstance(value, (int, str)):
+            if not isinstance(value, int | str):
                 raise TypeError("Value must be int or str")
             parsed = int(value)
         except (TypeError, ValueError):
@@ -2240,9 +2255,7 @@ def resolve_value(
     return value
 
 
-def resolve_values_atomic(
-    db, domain: SettingDomain, keys: list[str]
-) -> dict[str, Any]:
+def resolve_values_atomic(db, domain: SettingDomain, keys: list[str]) -> dict[str, Any]:
     """Read multiple settings atomically to prevent race conditions.
 
     This function retrieves multiple settings in a single database query,
@@ -2275,10 +2288,7 @@ def resolve_values_atomic(
     from app.models.domain_settings import DomainSetting
 
     settings = (
-        db.query(DomainSetting)
-        .filter(DomainSetting.domain == domain)
-        .filter(DomainSetting.key.in_(missing_keys))
-        .all()
+        db.query(DomainSetting).filter(DomainSetting.domain == domain).filter(DomainSetting.key.in_(missing_keys)).all()
     )
 
     settings_by_key = {s.key: s for s in settings}
@@ -2301,7 +2311,7 @@ def resolve_values_atomic(
         if spec.value_type == SettingValueType.integer and value is not None:
             parsed: int | None
             try:
-                if not isinstance(value, (int, str)):
+                if not isinstance(value, int | str):
                     raise TypeError("Value must be int or str")
                 parsed = int(value)
             except (TypeError, ValueError):
@@ -2367,7 +2377,7 @@ def normalize_for_db(spec: SettingSpec, value: object) -> tuple[str | None, obje
         bool_value = bool(value)
         return ("true" if bool_value else "false"), None
     if spec.value_type == SettingValueType.integer:
-        if isinstance(value, (int, str, bool)):
+        if isinstance(value, int | str | bool):
             return str(int(value)), None
         return str(int(str(value))), None
     if spec.value_type == SettingValueType.string:

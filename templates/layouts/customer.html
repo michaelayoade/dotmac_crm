@@ -2,6 +2,9 @@
 
 {% block body %}
 {% set current_user = current_user if current_user is defined else (customer.current_user if customer and customer.current_user is defined else None) %}
+{% set brand_name = request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" %}
+{% set brand_logo = request.state.branding.logo_url if request.state.branding is defined and request.state.branding.logo_url else "" %}
+{% set brand_year = request.state.branding.current_year if request.state.branding is defined and request.state.branding.current_year else "2026" %}
 <div class="min-h-screen flex flex-col font-body">
     {% if customer and customer.username and customer.username.startswith('impersonate:') %}
     <div class="bg-gradient-to-r from-amber-500 to-orange-500 text-white">
@@ -29,12 +32,16 @@
             <div class="flex h-16 items-center justify-between">
                 <!-- Logo with brand gradient -->
                 <a href="/portal" class="flex items-center gap-3 group">
+                    {% if brand_logo %}
+                    <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="h-10 w-10 rounded-xl border border-stone-200 dark:border-stone-700 object-contain shadow-lg transition-transform group-hover:scale-105">
+                    {% else %}
                     <div class="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-600)] shadow-lg shadow-[var(--color-brand-500)]/20 transition-transform group-hover:scale-105">
                         <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                         </svg>
                     </div>
-                    <span class="text-xl font-display font-bold text-stone-900 dark:text-white">Dotmac CRM</span>
+                    {% endif %}
+                    <span class="text-xl font-display font-bold text-stone-900 dark:text-white">{{ brand_name }}</span>
                 </a>
 
                 <!-- Desktop Navigation - Grouped and styled -->
@@ -243,7 +250,7 @@
                     <a href="/legal/privacy" class="text-sm text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 transition-colors">Privacy Policy</a>
                     <a href="/legal/terms" class="text-sm text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200 transition-colors">Terms of Service</a>
                 </div>
-                <p class="text-sm text-stone-400 dark:text-stone-500">&copy; 2025 Dotmac CRM. All rights reserved.</p>
+                <p class="text-sm text-stone-400 dark:text-stone-500">&copy; {{ brand_year }} {{ brand_name }}. All rights reserved.</p>
             </div>
         </div>
     </footer>

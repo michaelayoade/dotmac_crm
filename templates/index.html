@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% set brand_name = request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" %}
+{% set brand_logo = request.state.branding.logo_url if request.state.branding is defined and request.state.branding.logo_url else "" %}
+{% set brand_year = request.state.branding.current_year if request.state.branding is defined and request.state.branding.current_year else "2026" %}
 
 {% block content %}
 <!-- Navigation -->
@@ -7,12 +10,16 @@
         <div class="flex h-16 items-center justify-between">
             <!-- Logo -->
             <a href="/" class="flex items-center gap-3">
+                {% if brand_logo %}
+                <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-700 object-contain shadow-lg">
+                {% else %}
                 <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/25">
                     <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                     </svg>
                 </div>
-                <span class="text-xl font-bold text-slate-900 dark:text-white font-display">Dotmac CRM</span>
+                {% endif %}
+                <span class="text-xl font-bold text-slate-900 dark:text-white font-display">{{ brand_name }}</span>
             </a>
 
             <!-- Nav Links -->
@@ -265,14 +272,18 @@
         <div class="mx-auto max-w-7xl px-6">
             <div class="flex flex-col md:flex-row items-center justify-between gap-6">
                 <div class="flex items-center gap-3">
+                    {% if brand_logo %}
+                    <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="h-10 w-10 rounded-xl border border-slate-700 object-contain">
+                    {% else %}
                     <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600">
                         <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                         </svg>
                     </div>
-                    <span class="text-xl font-bold text-white font-display">Dotmac CRM</span>
+                    {% endif %}
+                    <span class="text-xl font-bold text-white font-display">{{ brand_name }}</span>
                 </div>
-                <p class="text-sm text-slate-400">&copy; 2026 Dotmac CRM Field Service Platform. All rights reserved.</p>
+                <p class="text-sm text-slate-400">&copy; {{ brand_year }} {{ brand_name }}. All rights reserved.</p>
                 <div class="flex items-center gap-6">
                     <a href="/public/legal/privacy" class="text-sm text-slate-400 hover:text-white transition">Privacy</a>
                     <a href="/public/legal/terms" class="text-sm text-slate-400 hover:text-white transition">Terms</a>

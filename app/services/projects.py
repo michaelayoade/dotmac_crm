@@ -1,6 +1,7 @@
 import html
 import logging
 from datetime import UTC, date, datetime, time, timedelta
+from typing import ClassVar
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -40,8 +41,8 @@ from app.schemas.projects import (
     ProjectTemplateUpdate,
     ProjectUpdate,
 )
-from app.services.numbering import generate_number
 from app.services import settings_spec
+from app.services.branding import get_branding
 from app.services.common import (
     apply_ordering,
     apply_pagination,
@@ -51,6 +52,7 @@ from app.services.common import (
 )
 from app.services.events import emit_event
 from app.services.events.types import EventType
+from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
@@ -113,12 +115,18 @@ def _notify_project_task_assigned(
             return
 
         assignee_name = html.escape(_person_label(assigned_to))
-        creator_name = html.escape(_person_label(created_by)) if created_by else None
+        html.escape(_person_label(created_by)) if created_by else None
         due_label = _format_dt(task.due_at)
         start_label = _format_dt(task.start_at)
 
         app_url = email_service._get_app_url(db).rstrip("/")
         task_url = f"{app_url}/admin/projects/tasks/{task.id}" if app_url else None
+
+        branding = get_branding(db)
+        company = html.escape(branding["company_name"])
+        support_email = branding.get("support_email")
+        support_phone = branding.get("support_phone")
+        logo_url = branding.get("logo_url")
 
         subject = f"New project task assigned: {task.title or 'Task'}"
         safe_title = html.escape(task.title or "Task")
@@ -129,7 +137,7 @@ def _notify_project_task_assigned(
         if task.description:
             description_block = f"<p><strong>Description:</strong><br>{html.escape(task.description)}</p>"
 
-        list_url = task_url or "https://crm.dotmac.io/admin/projects/tasks"
+        list_url = task_url or f"{app_url}/admin/projects/tasks"
         link_block = (
             '<div style="text-align: center; margin: 20px 0;">'
             f'<a href="{list_url}" '
@@ -140,14 +148,38 @@ def _notify_project_task_assigned(
             "</div>"
         )
 
+        logo_block = ""
+        if logo_url:
+            logo_block = (
+                '<div style="position: absolute; top: 15px; right: 15px;">'
+                f'<img src="{html.escape(logo_url)}" '
+                f'alt="{company}" style="max-width: 150px; height: auto;">'
+                "</div>"
+            )
+
+        contact_block = ""
+        contact_parts: list[str] = []
+        if support_email:
+            safe_email = html.escape(support_email)
+            contact_parts.append(
+                f'<a href="mailto:{safe_email}" style="color: green; text-decoration: none;">{safe_email}</a>'
+            )
+        if support_phone:
+            safe_phone = html.escape(support_phone)
+            contact_parts.append(
+                f'<a href="tel:{safe_phone}" style="color: green; text-decoration: none;">{safe_phone}</a>'
+            )
+        if contact_parts:
+            contact_block = (
+                '<p style="font-size: 15px; color: #555; margin: 15px 0;">'
+                "For further inquiries, contact us at " + " or ".join(contact_parts) + ".</p>"
+            )
+
         body = (
             "<div style=\"font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.8; "
             "color: #333; background-color: #f4f4f9; padding: 25px; border: 1px solid #ccc; "
             'border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); position: relative;">'
-            '<div style="position: absolute; top: 15px; right: 15px;">'
-            '<img src="https://erp.dotmac.ng/files/dotmac%20no%20bg.png" '
-            'alt="Dotmac Logo" style="max-width: 150px; height: auto;">'
-            "</div>"
+            f"{logo_block}"
             '<div style="text-align: center; margin-bottom: 20px;">'
             '<h1 style="color: green; font-size: 24px; margin: 0;">Task Assigned</h1>'
             "</div>"
@@ -174,18 +206,13 @@ def _notify_project_task_assigned(
             "We will keep you updated with further progress."
             "</p>"
             f"{link_block}"
-            '<p style="font-size: 15px; color: #555; margin: 15px 0;">'
-            "For further inquiries, contact us at "
-            '<a href="mailto:support@dotmac.ng" style="color: green; text-decoration: none;">support@dotmac.ng</a> '
-            "or send us a WhatsApp message at "
-            '<a href="https://wa.me/08121179536" style="color: green; text-decoration: none;">08121179536</a>.'
-            "</p>"
+            f"{contact_block}"
             '<p style="font-size: 15px; color: green; text-align: left; font-style: italic;">'
-            'Thank you for choosing <strong style="color: red;">DOTMAC</strong>.'
+            f'Thank you for choosing <strong style="color: red;">{company}</strong>.'
             "</p>"
             '<p style="font-size: 15px; color: green; text-align: right; font-style: italic;">'
             "Best regards,<br>"
-            '<span style="color: red; font-weight: bold;">Dotmac Support Team</span>'
+            f'<span style="color: red; font-weight: bold;">{company} Support Team</span>'
             "</p>"
             "</div>"
         )
@@ -203,7 +230,7 @@ def _notify_project_task_assigned(
 
 
 class Projects(ListResponseMixin):
-    PROJECT_TYPE_DURATIONS = {
+    PROJECT_TYPE_DURATIONS: ClassVar[dict[ProjectType, int]] = {
         ProjectType.air_fiber_installation: 3,
         ProjectType.air_fiber_relocation: 3,
         ProjectType.fiber_optics_installation: 14,

@@ -1,6 +1,7 @@
 {% extends "layouts/auth.html" %}
+{% set brand_name = request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" %}
 
-{% block title %}Set Up Two-Factor Authentication - Dotmac{% endblock %}
+{% block title %}Set Up Two-Factor Authentication - {{ brand_name }}{% endblock %}
 
 {% block content %}
 <div class="rounded-2xl bg-white p-8 shadow-xl dark:bg-slate-800 max-w-lg mx-auto">
