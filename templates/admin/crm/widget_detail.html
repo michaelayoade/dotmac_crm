@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, submit_button %}
 
 {% block title %}{{ widget.name if widget else 'New Widget' }} - Chat Widgets - Admin{% endblock %}
 
@@ -234,10 +234,7 @@
                            class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
                             Cancel
                         </a>
-                        <button type="submit"
-                                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-                            {{ 'Save Changes' if widget else 'Create Widget' }}
-                        </button>
+                        {{ submit_button(('Save Changes' if widget else 'Create Widget'), color="blue", loading_label="Creating...") }}
                     </div>
                 </div>
             </form>

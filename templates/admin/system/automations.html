@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import danger_button %}
 {% block title %}Automations - Admin{% endblock %}
 
 {% block content %}
@@ -107,10 +108,7 @@
                                     {{ 'Pause' if rule.status.value == 'active' else 'Activate' }}
                                 </button>
                             </form>
-                            <form method="post" action="/admin/system/automations/{{ rule.id }}/delete" class="inline ml-3" onsubmit="return confirm('Delete this automation rule?');">
-                                {% include "components/forms/csrf_input.html" %}
-                                <button type="submit" class="text-red-600 hover:text-red-700">Delete</button>
-                            </form>
+                            {{ danger_button("Delete", "Confirm Delete", "Delete this automation rule?", "/admin/system/automations/" ~ rule.id ~ "/delete", size="sm") }}
                         </td>
                     </tr>
                     {% endfor %}

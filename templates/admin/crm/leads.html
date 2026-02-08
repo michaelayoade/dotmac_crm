@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import danger_button %}
 {% block title %}Leads - Admin{% endblock %}
 
 {% block content %}
@@ -114,9 +115,7 @@
                         <td class="px-6 py-4 text-right text-sm">
                             <a href="/admin/crm/leads/{{ lead.id }}" class="text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white">View</a>
                             <a href="/admin/crm/leads/{{ lead.id }}/edit" class="ml-3 text-primary-600 hover:text-primary-700">Edit</a>
-                            <form method="post" action="/admin/crm/leads/{{ lead.id }}/delete" class="inline" onsubmit="return confirm('Delete this lead?');">
-                                <button type="submit" class="ml-3 text-red-600 hover:text-red-700">Delete</button>
-                            </form>
+                            {{ danger_button("Delete", "Confirm Delete", "Delete this lead?", "/admin/crm/leads/" ~ lead.id ~ "/delete", size="sm") }}
                         </td>
                     </tr>
                     {% endfor %}

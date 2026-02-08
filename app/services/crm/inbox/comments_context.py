@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
-from typing import Any
+from datetime import datetime, timezone
 
 from urllib.parse import quote
 from sqlalchemy.orm import Session
@@ -14,48 +13,15 @@ from app.schemas.settings import DomainSettingUpdate
 from app.services import domain_settings as domain_settings_service
 from app.services import meta_pages as meta_pages_service
 from app.services import settings_spec
+from app.services.crm.inbox import cache as inbox_cache
+from app.services.crm.inbox.search import normalize_search
 from app.logging import get_logger
 from app.models.domain_settings import SettingValueType
 from app.services.crm import comments as comments_service
 
 
-def _comment_cache_key(prefix: str, value: str | None) -> str:
-    return f"{prefix}:{value or ''}"
-
-
-def _cache_get(cache: dict, key: str):
-    entry = cache.get(key)
-    if not entry:
-        return None
-    if entry["expires_at"] < datetime.now(timezone.utc):
-        cache.pop(key, None)
-        return None
-    return entry["value"]
-
-
-def _cache_set(cache: dict, key: str, value: Any):
-    cache[key] = {
-        "value": value,
-        "expires_at": datetime.now(timezone.utc) + timedelta(seconds=_COMMENT_CACHE_TTL_SECONDS),
-    }
-    if len(cache) <= _COMMENT_CACHE_MAX_ITEMS:
-        return
-    oldest_key = None
-    oldest_expiry = None
-    for cache_key, entry in cache.items():
-        if oldest_expiry is None or entry["expires_at"] < oldest_expiry:
-            oldest_key = cache_key
-            oldest_expiry = entry["expires_at"]
-    if oldest_key:
-        cache.pop(oldest_key, None)
-
-
-_COMMENT_CACHE_TTL_SECONDS = 300
-_COMMENT_CACHE_MAX_ITEMS = 64
 logger = get_logger(__name__)
 
-_comment_list_cache: dict[str, dict] = {}
-_comment_thread_cache: dict[str, dict] = {}
 
 
 def _group_comment_authors(comments: list) -> list[dict]:
@@ -227,16 +193,16 @@ async def load_comments_context(
             except Exception as exc:
                 logger.info("crm_inbox_comments_fetch_failed %s", exc)
     if did_sync:
-        _comment_list_cache.clear()
-        _comment_thread_cache.clear()
+        inbox_cache.invalidate_comments()
 
-    list_cache_key = _comment_cache_key("comments_list", search)
-    cached_comments = _cache_get(_comment_list_cache, list_cache_key)
+    normalized_search = normalize_search(search)
+    list_cache_key = inbox_cache.build_comments_list_key(normalized_search)
+    cached_comments = inbox_cache.get(list_cache_key)
     if cached_comments is not None:
         comments = cached_comments
     else:
-        comments = comments_service.list_social_comments(db, search=search, limit=50)
-        _cache_set(_comment_list_cache, list_cache_key, comments)
+        comments = comments_service.list_social_comments(db, search=normalized_search, limit=50)
+        inbox_cache.set(list_cache_key, comments, inbox_cache.COMMENTS_LIST_TTL_SECONDS)
 
     target_filter = None
     target_prefix = (target_id or "").strip()
@@ -276,15 +242,19 @@ async def load_comments_context(
     if not selected_comment and comments:
         selected_comment = comments[0]
     if selected_comment and include_thread:
-        thread_cache_key = _comment_cache_key("comment_thread", str(selected_comment.id))
-        cached_replies = _cache_get(_comment_thread_cache, thread_cache_key)
+        thread_cache_key = inbox_cache.build_comment_thread_key(str(selected_comment.id))
+        cached_replies = inbox_cache.get(thread_cache_key)
         if cached_replies is not None:
             comment_replies = cached_replies
         else:
             comment_replies = comments_service.list_social_comment_replies(
                 db, str(selected_comment.id)
             )
-            _cache_set(_comment_thread_cache, thread_cache_key, comment_replies)
+            inbox_cache.set(
+                thread_cache_key,
+                comment_replies,
+                inbox_cache.COMMENTS_THREAD_TTL_SECONDS,
+            )
 
     return CommentsContext(
         grouped_comments=grouped_comments,

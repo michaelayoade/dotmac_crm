@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% block title %}Ticket #{{ ticket.number or (ticket.id|string)[:8] }} - Admin{% endblock %}
 
 {% set status_val = ticket.status.value if ticket.status is not string else ticket.status %}
@@ -180,10 +181,7 @@
                                                   required
                                                   class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">{{ comment.body }}</textarea>
                                         <div class="flex items-center gap-2">
-                                            <button type="submit"
-                                                    class="inline-flex items-center rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600">
-                                                Save
-                                            </button>
+                                            {{ submit_button("Save", color="amber", size="sm") }}
                                             <button type="button"
                                                     onclick="this.closest('details').removeAttribute('open')"
                                                     class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
@@ -237,10 +235,7 @@
                                 <input type="checkbox" name="is_internal" value="true" class="h-4 w-4 rounded border-slate-300 text-amber-600 transition-colors focus:ring-amber-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700" />
                                 <span class="text-sm text-slate-600 group-hover:text-slate-900 dark:text-slate-400 dark:group-hover:text-slate-200 transition-colors">Internal note (not visible to customer)</span>
                             </label>
-                            <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5">
-                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
-                                Post Comment
-                            </button>
+                            {{ submit_button("Post Comment", color="amber", loading_label="Posting...") }}
                         </div>
                     </form>
                 </div>
@@ -402,9 +397,7 @@
                             <option value="closed" {% if status_val == 'closed' %}selected{% endif %}>Closed</option>
                             <option value="canceled" {% if status_val == 'canceled' %}selected{% endif %}>Canceled</option>
                         </select>
-                        <button type="submit" class="w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:shadow-amber-500/30">
-                            Update Status
-                        </button>
+                        {{ submit_button("Update Status", color="amber", full_width=True, loading_label="Updating...") }}
                     </form>
                 </div>
             </div>

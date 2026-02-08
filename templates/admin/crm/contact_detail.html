@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% block title %}Contact - Admin{% endblock %}
 
 {% block breadcrumbs %}
@@ -78,9 +79,7 @@
                 <button type="button" @click="convertOpen = false" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
                     Cancel
                 </button>
-                <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-                    Convert & Create Account
-                </button>
+                {{ submit_button("Convert & Create Account", color="emerald", loading_label="Creating...") }}
             </div>
         </form>
     </div>

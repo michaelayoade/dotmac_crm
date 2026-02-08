@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import danger_button, submit_button %}
 {% block title %}System Settings - Admin{% endblock %}
 
 {% block content %}
@@ -91,10 +92,7 @@
                 </label>
             </div>
             <div class="sm:col-span-1 flex items-end justify-end">
-                <button type="submit"
-                        class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
-                    Add Sender
-                </button>
+                {{ submit_button("Add Sender", loading_label="Adding...") }}
             </div>
         </form>
 
@@ -142,10 +140,7 @@
                                 {% include "components/forms/csrf_input.html" %}
                                 <button type="submit" class="text-primary-600 hover:text-primary-700">Save</button>
                             </form>
-                            <form method="POST" action="/admin/system/settings/campaign-senders/{{ sender.id }}/delete" class="inline" onsubmit="return confirm('Deactivate this sender?');">
-                                {% include "components/forms/csrf_input.html" %}
-                                <button type="submit" class="ml-3 text-red-600 hover:text-red-700">Deactivate</button>
-                            </form>
+                            {{ danger_button("Deactivate", "Confirm Deactivate", "Deactivate this sender?", "/admin/system/settings/campaign-senders/" ~ sender.id ~ "/delete", size="sm") }}
                         </td>
                     </tr>
                     {% endfor %}
@@ -215,9 +210,7 @@
                 </label>
             </div>
             <div class="sm:col-span-6 flex items-center justify-end">
-                <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
-                    Add SMTP Profile
-                </button>
+                {{ submit_button("Add SMTP Profile", loading_label="Adding...") }}
             </div>
         </form>
 
@@ -285,10 +278,7 @@
                                 {% include "components/forms/csrf_input.html" %}
                                 <button type="submit" class="text-primary-600 hover:text-primary-700">Save</button>
                             </form>
-                            <form method="POST" action="/admin/system/settings/campaign-smtp/{{ smtp.id }}/delete" class="inline" onsubmit="return confirm('Deactivate this SMTP profile?');">
-                                {% include "components/forms/csrf_input.html" %}
-                                <button type="submit" class="ml-3 text-red-600 hover:text-red-700">Deactivate</button>
-                            </form>
+                            {{ danger_button("Deactivate", "Confirm Deactivate", "Deactivate this SMTP profile?", "/admin/system/settings/campaign-smtp/" ~ smtp.id ~ "/delete", size="sm") }}
                         </td>
                     </tr>
                     {% endfor %}
@@ -500,7 +490,7 @@
 
         <div class="flex items-center justify-end gap-3">
             <a href="/admin/system/settings?domain={{ domain }}" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Cancel</a>
-            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Save Changes</button>
+            {{ submit_button("Save Changes") }}
         </div>
     </form>
 
@@ -597,9 +587,7 @@
                     {% endif %}
                 </div>
             </div>
-            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                Upload branding
-            </button>
+            {{ submit_button("Upload branding", loading_label="Uploading...") }}
         </form>
     </div>
     {% endif %}

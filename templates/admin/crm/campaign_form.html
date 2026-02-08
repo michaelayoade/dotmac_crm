@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% block title %}{{ 'Edit' if campaign else 'New' }} Campaign - Admin{% endblock %}
 
 {% block content %}
@@ -184,10 +185,7 @@
         <div class="flex items-center justify-end gap-3">
             <a href="{{ '/admin/crm/campaigns/' ~ campaign.id if campaign else '/admin/crm/campaigns' }}"
                class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Cancel</a>
-            <button type="submit"
-                    class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
-                {{ 'Update Campaign' if campaign else 'Create Campaign' }}
-            </button>
+            {{ submit_button(('Update Campaign' if campaign else 'Create Campaign'), loading_label="Creating...") }}
         </div>
     </form>
 </div>

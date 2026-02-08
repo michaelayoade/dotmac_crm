@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import danger_button, status_badge %}
 
 {% block title %}API Keys - Admin{% endblock %}
 
@@ -83,9 +83,7 @@
                         {{ status_badge("Active", "active", size="sm") }}
                         {% endif %}
                         {% if key.is_active and not key.revoked_at %}
-                        <form method="POST" action="/admin/system/api-keys/{{ key.id }}/revoke" onsubmit="return confirm('Are you sure you want to revoke this API key? This action cannot be undone.')">
-                            <button type="submit" class="text-sm text-red-600 hover:text-red-700">Revoke</button>
-                        </form>
+                        {{ danger_button("Revoke", "Confirm Revoke", "Are you sure you want to revoke this API key? This action cannot be undone.", "/admin/system/api-keys/" ~ key.id ~ "/revoke", icon="x") }}
                         {% endif %}
                     </div>
                 </div>

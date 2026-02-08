@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.enums import ChannelType, ConversationStatus
 from app.services.crm.inbox.queries import list_inbox_conversations
+from app.services.crm.inbox import cache as inbox_cache
+from app.services.crm.inbox.search import normalize_search
 from app.services.crm.inbox.comments_context import (
     build_comment_list_items,
     load_comments_context,
@@ -37,6 +39,22 @@ async def load_inbox_list(
     include_thread: bool = False,
     fetch_comments: bool = False,
 ) -> InboxListResult:
+    normalized_search = normalize_search(search)
+    cache_params = {
+        "channel": channel,
+        "status": status,
+        "search": normalized_search,
+        "assignment": assignment,
+        "assigned_person_id": assigned_person_id,
+        "target_id": target_id,
+        "include_thread": include_thread,
+        "fetch_comments": fetch_comments,
+    }
+    cache_key = inbox_cache.build_inbox_list_key(cache_params)
+    cached = inbox_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     channel_enum = None
     status_enum = None
     if channel:
@@ -66,7 +84,7 @@ async def load_inbox_list(
             db,
             channel=channel_enum,
             status=status_enum,
-            search=search,
+            search=normalized_search,
             assignment=assignment,
             assigned_person_id=assigned_person_id,
             channel_target_id=target_id,
@@ -78,7 +96,7 @@ async def load_inbox_list(
     if include_comments:
         context = await load_comments_context(
             db,
-            search=search,
+            search=normalized_search,
             comment_id=None,
             fetch=fetch_comments,
             target_id=target_id,
@@ -86,12 +104,12 @@ async def load_inbox_list(
         )
         comment_items = build_comment_list_items(
             grouped_comments=context.grouped_comments,
-            search=search,
+            search=normalized_search,
             target_id=target_id,
             include_inbox_label=True,
         )
 
-    return InboxListResult(
+    result = InboxListResult(
         conversations_raw=conversations_raw,
         comment_items=comment_items,
         channel_enum=channel_enum,
@@ -99,3 +117,5 @@ async def load_inbox_list(
         include_comments=include_comments,
         target_is_comment=target_is_comment,
     )
+    inbox_cache.set(cache_key, result, inbox_cache.INBOX_LIST_TTL_SECONDS)
+    return result

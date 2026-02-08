@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation
 from app.services.common import coerce_uuid
-from app.services.crm.conversations import message_attachments as message_attachment_service
+from app.services.crm.inbox.attachments_processing import (
+    prepare_uploads_async,
+    save_uploads,
+)
 
 
 async def save_conversation_attachments(
@@ -22,7 +25,7 @@ async def save_conversation_attachments(
     conversation = db.get(Conversation, conversation_uuid)
     if not conversation:
         raise ValueError("Conversation not found")
-    prepared = await message_attachment_service.prepare(files)
+    prepared = await prepare_uploads_async(files)
     if not prepared:
         raise ValueError("No attachments provided")
-    return message_attachment_service.save(prepared)
+    return save_uploads(prepared)

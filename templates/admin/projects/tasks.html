@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import danger_button %}
 {% block title %}Project Tasks - Admin{% endblock %}
 
 {% block content %}
@@ -126,9 +127,7 @@
                             <span class="px-1.5 text-slate-300">|</span>
                             <a href="/admin/projects/tasks/{{ task.number or task.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
                             <span class="px-1.5 text-slate-300">|</span>
-                            <form method="POST" action="/admin/projects/tasks/{{ task.number or task.id }}/delete" class="inline" onsubmit="return confirm('Delete this task?');">
-                                <button type="submit" class="text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400">Delete</button>
-                            </form>
+                            {{ danger_button("Delete", "Confirm Delete", "Delete this task?", "/admin/projects/tasks/" ~ (task.number or task.id) ~ "/delete", size="sm") }}
                         </td>
                     </tr>
                     {% endfor %}

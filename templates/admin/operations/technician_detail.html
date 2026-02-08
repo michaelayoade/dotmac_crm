@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, submit_button %}
 
 {% block title %}Technician Profile - Operations{% endblock %}
 
@@ -87,9 +87,7 @@
                             Active
                         </label>
                         <div class="sm:col-span-2 flex justify-end">
-                            <button type="submit" class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                                Save Changes
-                            </button>
+                            {{ submit_button("Save Changes") }}
                         </div>
                     </form>
                 </div>

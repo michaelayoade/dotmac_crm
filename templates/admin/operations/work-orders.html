@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import danger_button, submit_button %}
 {% block title %}Work Orders - Field Service{% endblock %}
 
 {% block content %}
@@ -59,10 +60,7 @@
                 </select>
             </div>
             <div class="flex items-center gap-2">
-                <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:-translate-y-0.5">
-                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
-                    Apply
-                </button>
+                {{ submit_button("Apply", color="amber", loading_label="Applying...") }}
                 {% if status or priority %}
                 <a href="/admin/operations/work-orders" class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -195,16 +193,7 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                                         </svg>
                                     </a>
-                                    <form method="post" action="/admin/operations/work-orders/{{ order.id }}/delete" class="inline">
-                                        <button type="submit"
-                                                class="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                                                title="Delete"
-                                                onclick="return confirm('Delete this work order?')">
-                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                            </svg>
-                                        </button>
-                                    </form>
+                                    {{ danger_button("Delete", "Confirm Delete", "Delete this work order?", "/admin/operations/work-orders/" ~ order.id ~ "/delete", size="sm") }}
                                 </div>
                                 <!-- Status update form -->
                                 <form method="post" action="/admin/operations/work-orders/{{ order.id }}/status" class="flex items-center gap-1.5">
@@ -235,7 +224,7 @@
                                             <option value="" disabled>No technicians</option>
                                         {% endif %}
                                     </select>
-                                    <button type="submit" class="rounded-lg bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 transition-colors">Assign</button>
+                                    {{ submit_button("Assign", color="amber", size="sm") }}
                                 </form>
                                 {% if not technicians %}
                                 <a href="/admin/operations/technicians" class="text-xs font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 transition-colors">+ Add technician</a>

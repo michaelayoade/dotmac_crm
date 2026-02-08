@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button %}
 {% set is_new = is_new if is_new is defined else false %}
 {% block title %}{{ 'New' if is_new else 'Edit' }} Work Order - Field Service{% endblock %}
 
@@ -123,7 +124,7 @@
 
         <div class="border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-slate-700 dark:bg-slate-800/50 flex items-center justify-end gap-3">
             <a href="{{ cancel_url if cancel_url is defined else ('/admin/operations/work-orders/' ~ work_order.id) }}" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Cancel</a>
-            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">{{ 'Create' if is_new else 'Save' }}</button>
+            {{ submit_button(('Create' if is_new else 'Save'), loading_label="Creating...") }}
         </div>
     </form>
 </div>

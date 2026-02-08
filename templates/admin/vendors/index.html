@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import danger_button %}
 {% block title %}Vendors - Admin{% endblock %}
 
 {% block content %}
@@ -43,9 +44,7 @@
                         <div class="flex items-center justify-end gap-3">
                             <a href="/admin/vendors/{{ vendor.id }}/edit" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
                             {% if not vendor.is_active %}
-                            <form method="post" action="/admin/vendors/{{ vendor.id }}/delete" onsubmit="return confirm('Delete this vendor? This will deactivate it.');">
-                                <button type="submit" class="text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400">Delete</button>
-                            </form>
+                            {{ danger_button("Delete", "Confirm Delete", "Delete this vendor? This will deactivate it.", "/admin/vendors/" ~ vendor.id ~ "/delete") }}
                             {% endif %}
                         </div>
                     </td>
