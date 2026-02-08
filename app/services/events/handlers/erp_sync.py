@@ -6,11 +6,12 @@ newly created work items without waiting for scheduled sync.
 """
 
 import logging
+
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
-from app.services.events.types import Event, EventType
 from app.services import settings_spec
+from app.services.events.types import Event, EventType
 from app.services.settings_cache import get_settings_redis
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,10 @@ class ERPSyncHandler:
 
         # Check if ERP sync is enabled
         enabled = settings_spec.resolve_value(
-            db, SettingDomain.integration, "dotmac_erp_sync_enabled"
+            db,
+            SettingDomain.integration,
+            "dotmac_erp_sync_enabled",
+            use_cache=False,
         )
         if not enabled:
             logger.debug("ERP sync disabled, skipping event %s", event.event_type.value)
@@ -153,11 +157,20 @@ class ERPSyncHandler:
         """
         # Check for duplicate within dedup window
         if self._is_duplicate(entity_type, entity_id):
-            logger.debug(
-                "Skipping duplicate ERP sync for %s %s (already queued)",
-                entity_type,
-                entity_id,
-            )
+            scheduled = self._schedule_debounced_sync(entity_type, entity_id, event_type)
+            if scheduled:
+                logger.info(
+                    "Debounced ERP sync scheduled for %s %s (triggered by %s)",
+                    entity_type,
+                    entity_id,
+                    event_type.value,
+                )
+            else:
+                logger.info(
+                    "Skipping duplicate ERP sync for %s %s (already queued)",
+                    entity_type,
+                    entity_id,
+                )
             return
 
         from app.tasks.integrations import sync_dotmac_erp_entity
@@ -175,3 +188,37 @@ class ERPSyncHandler:
             countdown=2,  # Small delay to allow transaction to commit
             priority=5,
         )
+
+    def _schedule_debounced_sync(
+        self, entity_type: str, entity_id: str, event_type: EventType
+    ) -> bool:
+        """Schedule a follow-up sync when a duplicate is detected.
+
+        Coalesces rapid successive updates into a single delayed sync,
+        preventing drops while still avoiding a task storm.
+        """
+        try:
+            redis = get_settings_redis()
+            debounce_key = f"erp_sync_debounce:{entity_type}:{entity_id}"
+            scheduled = redis.set(debounce_key, "1", nx=True, ex=DEDUP_WINDOW_SECONDS)
+            if not scheduled:
+                return False
+        except Exception as exc:
+            logger.warning("ERP sync debounce check failed: %s", exc)
+            # If Redis fails, fall back to immediate queue to avoid missing a sync.
+            from app.tasks.integrations import sync_dotmac_erp_entity
+            sync_dotmac_erp_entity.apply_async(
+                args=[entity_type, entity_id],
+                countdown=2,
+                priority=5,
+            )
+            return True
+
+        from app.tasks.integrations import sync_dotmac_erp_entity
+
+        sync_dotmac_erp_entity.apply_async(
+            args=[entity_type, entity_id],
+            countdown=DEDUP_WINDOW_SECONDS,
+            priority=5,
+        )
+        return True

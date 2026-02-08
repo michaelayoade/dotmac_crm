@@ -656,6 +656,26 @@ def seed_comms_settings(db: Session) -> None:
     )
     comms_settings.ensure_by_key(
         db,
+        key="whatsapp_app_id",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("WHATSAPP_APP_ID", ""),
+    )
+    comms_settings.ensure_by_key(
+        db,
+        key="whatsapp_app_secret",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("WHATSAPP_APP_SECRET", ""),
+        is_secret=True,
+    )
+    comms_settings.ensure_by_key(
+        db,
+        key="whatsapp_webhook_verify_token",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", ""),
+        is_secret=True,
+    )
+    comms_settings.ensure_by_key(
+        db,
         key="meta_graph_api_version",
         value_type=SettingValueType.string,
         value_text=os.getenv("META_GRAPH_API_VERSION", "v19.0"),

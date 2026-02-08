@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
+from typing import Any
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
@@ -31,6 +32,15 @@ def _message_preview(message: Message, limit: int = 140) -> str | None:
     if len(text) > limit:
         return text[: limit - 3].rstrip() + "..."
     return text
+
+
+def _coerce_int(value: Any) -> int:
+    if isinstance(value, (int, str, bytes, bytearray)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+    return 0
 
 
 def _active_agent_person_id(db: Session, conversation_id: str) -> str | None:
@@ -122,16 +132,13 @@ def send_reply_reminders(db: Session) -> int:
         "crm_inbox_reply_reminder_repeat_interval_seconds",
     )
 
-    try:
-        delay_seconds = int(delay_seconds) if delay_seconds is not None else 0
-    except (TypeError, ValueError):
-        delay_seconds = 0
+    delay_seconds = _coerce_int(delay_seconds)
     if delay_seconds <= 0:
         return 0
 
     now = datetime.now(timezone.utc)
     threshold = now - timedelta(seconds=delay_seconds)
-    repeat_interval_seconds = int(repeat_interval_seconds or 0)
+    repeat_interval_seconds = _coerce_int(repeat_interval_seconds)
 
     last_message_ts = func.coalesce(
         Message.received_at,

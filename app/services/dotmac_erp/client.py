@@ -39,6 +39,10 @@ class DotMacERPRateLimitError(DotMacERPError):
         self.retry_after = retry_after
 
 
+class DotMacERPTransientError(DotMacERPError):
+    """Retryable/transient ERP error (e.g., 5xx, timeouts, network issues)."""
+
+
 class DotMacERPClient:
     """
     HTTP client for DotMac ERP REST API.

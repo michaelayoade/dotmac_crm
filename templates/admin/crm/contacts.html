@@ -81,7 +81,13 @@
                             <div class="font-medium text-slate-900 dark:text-white">{{ contact.display_name or 'Contact ' ~ contact.id|string|truncate(8, True, '') }}</div>
                             <div class="text-xs text-slate-500 dark:text-slate-400">{{ contact.id | string | truncate(12, True, '') }}</div>
                         </td>
-                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ contact.email or '—' }}</td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
+                            {% if contact.email and not contact.email.endswith('@example.invalid') %}
+                                {{ contact.email }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
                         <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ contact.phone or '—' }}</td>
                         <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
                             {% if person %}

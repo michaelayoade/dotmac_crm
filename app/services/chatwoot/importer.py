@@ -136,8 +136,18 @@ def _parse_name(full_name: str | None, default_first: str = "Contact") -> tuple[
     name = full_name.strip()
     parts = name.split(" ", 1)
     first_name = _truncate(parts[0], 80) or default_first
-    last_name = _truncate(parts[1], 80) if len(parts) > 1 else ""
+    if len(parts) > 1:
+        last_name = _truncate(parts[1], 80) or ""
+    else:
+        last_name = ""
     return first_name, last_name
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class ChatwootImporter:
@@ -225,10 +235,13 @@ class ChatwootImporter:
 
         for team_data in teams:
             try:
-                cw_id = team_data.get("id")
+                cw_id = _coerce_int(team_data.get("id"))
                 name = team_data.get("name", "").strip()
 
-                if not name:
+                if not name or cw_id is None:
+                    if cw_id is None:
+                        result.error_details.append("Team missing id")
+                        result.teams.errors += 1
                     result.teams.skipped += 1
                     continue
 
@@ -266,11 +279,14 @@ class ChatwootImporter:
 
         for agent_data in agents:
             try:
-                cw_id = agent_data.get("id")
+                cw_id = _coerce_int(agent_data.get("id"))
                 email = agent_data.get("email", "").strip().lower()
                 name = agent_data.get("name", "").strip()
 
-                if not email:
+                if not email or cw_id is None:
+                    if cw_id is None:
+                        result.error_details.append("Agent missing id")
+                        result.agents.errors += 1
                     result.agents.skipped += 1
                     continue
 
@@ -337,10 +353,15 @@ class ChatwootImporter:
 
         for contact_data in contacts:
             try:
-                cw_id = contact_data.get("id")
+                cw_id = _coerce_int(contact_data.get("id"))
                 email = (contact_data.get("email") or "").strip().lower()
                 phone = _truncate(contact_data.get("phone_number", ""), 40)
                 name = contact_data.get("name", "").strip()
+
+                if cw_id is None:
+                    result.contacts.errors += 1
+                    result.error_details.append("Contact missing id")
+                    continue
 
                 # Skip if no email and no phone
                 if not email and not phone:
@@ -414,28 +435,37 @@ class ChatwootImporter:
 
         for conv_data in conversations:
             try:
-                cw_id = conv_data.get("id")
+                cw_id = _coerce_int(conv_data.get("id"))
+                if cw_id is None:
+                    result.conversations.errors += 1
+                    result.error_details.append("Conversation missing id")
+                    continue
 
                 # Get contact from conversation
                 meta = conv_data.get("meta", {})
                 sender = meta.get("sender", {})
-                contact_id = sender.get("id")
+                contact_id = _coerce_int(sender.get("id"))
 
-                if not contact_id or contact_id not in self._contact_map:
+                person: Person | None = None
+                if contact_id is not None and contact_id in self._contact_map:
+                    person = self._contact_map[contact_id]
+                else:
                     # Try to find by contact email
                     email = (sender.get("email") or "").strip().lower()
                     if email:
                         person = db.query(Person).filter(Person.email == email).first()
                         if person:
-                            self._contact_map[contact_id] = person
+                            if contact_id is not None:
+                                self._contact_map[contact_id] = person
                         else:
                             result.conversations.skipped += 1
                             continue
                     else:
                         result.conversations.skipped += 1
                         continue
-
-                person = self._contact_map[contact_id]
+                if person is None:
+                    result.conversations.skipped += 1
+                    continue
 
                 # Check if conversation exists by chatwoot_id in metadata
                 existing = (
@@ -497,12 +527,6 @@ class ChatwootImporter:
                 )
                 if has_active_assignment:
                     continue
-
-                def _coerce_int(value: Any) -> int | None:
-                    try:
-                        return int(value)
-                    except (TypeError, ValueError):
-                        return None
 
                 assignee_id = _coerce_int(conv_data.get("assignee_id"))
                 team_id = _coerce_int(conv_data.get("team_id"))

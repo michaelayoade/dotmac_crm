@@ -15,6 +15,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
 from app.services.events.types import Event, EventType
 
 logger = logging.getLogger(__name__)
@@ -51,31 +52,35 @@ class EventDispatcher:
             f"Dispatching event {event.event_type.value} (id={event.event_id})"
         )
 
-        # 1. Persist event before processing
-        event_record: EventStore | None = EventStore(
-            event_id=event.event_id,
-            event_type=event.event_type.value,
-            payload=event.payload,
-            status=EventStatus.processing,
-            actor=event.actor,
-            subscriber_id=event.subscriber_id,
-            account_id=event.account_id,
-            subscription_id=event.subscription_id,
-            invoice_id=event.invoice_id,
-            ticket_id=event.ticket_id,
-            project_id=event.project_id,
-            work_order_id=event.work_order_id,
-        )
-        db.add(event_record)
+        # 1. Persist event before processing using an isolated session
+        event_record_id = None
+        persist_session = SessionLocal()
         try:
-            db.commit()
+            event_record: EventStore = EventStore(
+                event_id=event.event_id,
+                event_type=event.event_type.value,
+                payload=event.payload,
+                status=EventStatus.processing,
+                actor=event.actor,
+                subscriber_id=event.subscriber_id,
+                account_id=event.account_id,
+                subscription_id=event.subscription_id,
+                invoice_id=event.invoice_id,
+                ticket_id=event.ticket_id,
+                project_id=event.project_id,
+                work_order_id=event.work_order_id,
+            )
+            persist_session.add(event_record)
+            persist_session.commit()
+            event_record_id = event_record.id
         except Exception as persist_exc:
             # If we can't persist, still try to process but log the error
             logger.warning(
                 f"Failed to persist event {event.event_id} to event_store: {persist_exc}"
             )
-            db.rollback()
-            event_record = None
+            persist_session.rollback()
+        finally:
+            persist_session.close()
 
         # 2. Process all handlers, tracking failures
         failed_handlers: list[dict] = []
@@ -94,8 +99,12 @@ class EventDispatcher:
                 })
 
         # 3. Update event status
-        if event_record:
+        if event_record_id:
+            update_session = SessionLocal()
             try:
+                event_record = update_session.get(EventStore, event_record_id)
+                if not event_record:
+                    raise ValueError(f"EventStore record not found: {event_record_id}")
                 if failed_handlers:
                     event_record.status = EventStatus.failed
                     event_record.failed_handlers = {"handlers": failed_handlers}
@@ -103,12 +112,14 @@ class EventDispatcher:
                 else:
                     event_record.status = EventStatus.completed
                 event_record.processed_at = datetime.now(UTC)
-                db.commit()
+                update_session.commit()
             except Exception as update_exc:
                 logger.warning(
                     f"Failed to update event_store status for {event.event_id}: {update_exc}"
                 )
-                db.rollback()
+                update_session.rollback()
+            finally:
+                update_session.close()
 
     def retry_event(self, db: Session, event_record: Any) -> bool:
         """Retry processing a failed event.

@@ -94,7 +94,9 @@ def _normalize_phone_address(value: str | None) -> str | None:
     if not value:
         return None
     digits = "".join(ch for ch in value if ch.isdigit())
-    return digits or None
+    if not digits:
+        return None
+    return f"+{digits}"
 
 
 def _fetch_profile_name(
@@ -163,6 +165,41 @@ def _extract_identity_metadata(*values: object) -> dict:
             if candidate:
                 identity[key] = candidate
     return identity
+
+
+def _extract_location_from_attachments(attachments: object) -> dict | None:
+    if not isinstance(attachments, list):
+        return None
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        if attachment.get("type") != "location":
+            continue
+        payload = attachment.get("payload") or {}
+        if not isinstance(payload, dict):
+            payload = {}
+        coords = payload.get("coordinates") or {}
+        if not isinstance(coords, dict):
+            coords = {}
+        latitude = coords.get("lat") or coords.get("latitude")
+        longitude = (
+            coords.get("long")
+            or coords.get("lng")
+            or coords.get("longitude")
+        )
+        name = payload.get("title") or payload.get("name") or attachment.get("title")
+        address = payload.get("address") or payload.get("label")
+        label = name or address
+        return {
+            "type": "location",
+            "latitude": latitude,
+            "longitude": longitude,
+            "address": address,
+            "name": name,
+            "label": label,
+            "location": payload,
+        }
+    return None
 
 
 def _find_person_by_email_or_phone(db: Session, metadata: dict | None) -> Person | None:
@@ -469,7 +506,22 @@ def process_messenger_webhook(
             # Get message text
             text = message.get("text")
             if not text:
-                if attachments:
+                location_metadata = _extract_location_from_attachments(attachments)
+                if location_metadata:
+                    loc_label = (
+                        location_metadata.get("label")
+                        or location_metadata.get("name")
+                        or location_metadata.get("address")
+                    )
+                    lat = location_metadata.get("latitude")
+                    lng = location_metadata.get("longitude")
+                    if loc_label:
+                        text = f"📍 {loc_label}"
+                    elif lat is not None and lng is not None:
+                        text = f"📍 https://maps.google.com/?q={lat},{lng}"
+                    else:
+                        text = "📍 Location shared"
+                elif attachments:
                     text = "(attachment)"
                 else:
                     continue
@@ -487,6 +539,9 @@ def process_messenger_webhook(
                 "attachments": message.get("attachments"),
                 "reply_to": message.get("reply_to"),
             }
+            location_metadata = _extract_location_from_attachments(attachments)
+            if location_metadata:
+                metadata.update(location_metadata)
             identity_metadata = _extract_identity_metadata(
                 message.get("metadata"),
                 message.get("referral"),
@@ -640,7 +695,22 @@ def process_instagram_webhook(
             text = message.get("text")
             is_story_mention = _attachments_have_story_mention(attachments)
             if not text:
-                if attachments and not is_story_mention:
+                location_metadata = _extract_location_from_attachments(attachments)
+                if location_metadata and not is_story_mention:
+                    loc_label = (
+                        location_metadata.get("label")
+                        or location_metadata.get("name")
+                        or location_metadata.get("address")
+                    )
+                    lat = location_metadata.get("latitude")
+                    lng = location_metadata.get("longitude")
+                    if loc_label:
+                        text = f"📍 {loc_label}"
+                    elif lat is not None and lng is not None:
+                        text = f"📍 https://maps.google.com/?q={lat},{lng}"
+                    else:
+                        text = "📍 Location shared"
+                elif attachments and not is_story_mention:
                     text = "(attachment)"
                 elif not is_story_mention:
                     continue
@@ -656,6 +726,9 @@ def process_instagram_webhook(
             metadata = {
                 "attachments": message.get("attachments"),
             }
+            location_metadata = _extract_location_from_attachments(attachments)
+            if location_metadata:
+                metadata.update(location_metadata)
             identity_metadata = _extract_identity_metadata(
                 message.get("metadata"),
                 message.get("referral"),

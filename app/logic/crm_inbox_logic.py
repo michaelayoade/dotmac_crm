@@ -187,7 +187,9 @@ class LogicService:
         if not value:
             return None
         digits = "".join(ch for ch in value if ch.isdigit())
-        return digits or None
+        if not digits:
+            return None
+        return f"+{digits}"
 
     @staticmethod
     def _normalize_external_id(raw_id: str | None) -> str | None:

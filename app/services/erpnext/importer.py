@@ -461,6 +461,8 @@ class ERPNextImporter:
         """Import ERPNext Tasks as ProjectTasks."""
         from app.models.projects import ProjectTask, TaskPriority, TaskStatus
         from app.models.external import ExternalEntityType
+        from app.models.domain_settings import SettingDomain
+        from app.services.numbering import generate_number
 
         stats = ImportStats()
 
@@ -505,6 +507,15 @@ class ERPNextImporter:
                 task: ProjectTask | None = None
 
                 if is_new:
+                    number = generate_number(
+                        db=db,
+                        domain=SettingDomain.numbering,
+                        sequence_key="project_task_number",
+                        enabled_key="project_task_number_enabled",
+                        prefix_key="project_task_number_prefix",
+                        padding_key="project_task_number_padding",
+                        start_key="project_task_number_start",
+                    )
                     task = ProjectTask(
                         project_id=project_id,
                         title=data["name"],  # ERPNext 'name' maps to 'title'
@@ -513,6 +524,7 @@ class ERPNextImporter:
                         priority=task_priority,
                         due_at=data.get("due_date"),  # ERPNext 'due_date' maps to 'due_at'
                         is_active=data.get("is_active", True),
+                        number=number,
                     )
                     db.add(task)
                     db.flush()

@@ -14,10 +14,20 @@ class InboxSendRequest(BaseModel):
     channel_type: ChannelType
     channel_target_id: UUID | None = None
     person_channel_id: UUID | None = None
+    reply_to_message_id: UUID | None = None
     subject: str | None = Field(default=None, max_length=200)
-    body: str = Field(min_length=1)
+    body: str | None = None
     personalization: dict | None = None
     attachments: list[dict] | None = None
+
+    @model_validator(mode="after")
+    def _require_body_or_attachments(self):
+        body_text = (self.body or "").strip()
+        has_attachments = bool(self.attachments)
+        if not body_text and not has_attachments:
+            raise ValueError("Message body is required when no attachments are provided.")
+        self.body = body_text
+        return self
 
 
 class InboxSendResponse(BaseModel):

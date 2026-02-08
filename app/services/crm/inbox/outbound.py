@@ -63,6 +63,88 @@ def _render_personalization(body: str, personalization: dict | None) -> str:
     return rendered
 
 
+def _merge_reply_metadata(reply_context: dict | None) -> dict | None:
+    if not reply_context:
+        return None
+    metadata = {}
+    reply_payload = reply_context.get("metadata") if isinstance(reply_context, dict) else None
+    if isinstance(reply_payload, dict):
+        metadata["reply_to"] = reply_payload
+    return metadata or None
+
+
+def _resolve_reply_author(db: Session, conversation: "Conversation", message: Message) -> str:
+    if message.direction == MessageDirection.inbound:
+        contact = conversation.contact
+        if contact:
+            return contact.display_name or contact.email or contact.phone or "Contact"
+        return "Contact"
+    if message.direction == MessageDirection.internal:
+        return "Internal Note"
+    if message.author_id:
+        from app.models.person import Person
+
+        person = db.get(Person, message.author_id)
+        if person:
+            full_name = person.display_name or " ".join(
+                part for part in [person.first_name, person.last_name] if part
+            ).strip()
+            return full_name or "Agent"
+    return "Agent"
+
+
+def _build_reply_context(
+    db: Session,
+    conversation: "Conversation",
+    reply_to_message_id,
+) -> dict | None:
+    if not reply_to_message_id:
+        return None
+    reply_msg = db.get(Message, reply_to_message_id)
+    if not reply_msg or reply_msg.conversation_id != conversation.id:
+        return None
+
+    timestamp = reply_msg.sent_at or reply_msg.received_at or reply_msg.created_at
+    excerpt = (reply_msg.body or "").strip()
+    if len(excerpt) > 240:
+        excerpt = excerpt[:237].rstrip() + "..."
+
+    reply_metadata = {
+        "id": str(reply_msg.id),
+        "author": _resolve_reply_author(db, conversation, reply_msg),
+        "excerpt": excerpt,
+        "sent_at": timestamp.isoformat() if timestamp else None,
+        "direction": reply_msg.direction.value,
+        "channel_type": reply_msg.channel_type.value if reply_msg.channel_type else None,
+    }
+
+    email_in_reply_to = None
+    email_references = None
+    if reply_msg.channel_type == ChannelType.email and reply_msg.external_id:
+        email_in_reply_to = reply_msg.external_id
+        existing_refs = None
+        if isinstance(reply_msg.metadata_, dict):
+            existing_refs = reply_msg.metadata_.get("references")
+        if existing_refs:
+            existing_refs = str(existing_refs)
+            if email_in_reply_to not in existing_refs:
+                email_references = f"{existing_refs} {email_in_reply_to}"
+            else:
+                email_references = existing_refs
+        else:
+            email_references = email_in_reply_to
+
+    return {
+        "reply_to_message_id": reply_msg.id,
+        "metadata": reply_metadata,
+        "email_in_reply_to": email_in_reply_to,
+        "email_references": email_references,
+        "whatsapp_reply_message_id": reply_msg.external_id
+        if reply_msg.channel_type == ChannelType.whatsapp
+        else None,
+    }
+
+
 def _prepare_email_attachments(attachments: list[dict] | None) -> list[dict] | None:
     if not attachments:
         return None
@@ -164,6 +246,7 @@ def _send_email_message(
     payload: InboxSendRequest,
     rendered_body: str,
     author_id: str | None,
+    reply_context: dict | None,
 ) -> Message:
     """Send a message via email channel."""
     if not person_channel.address:
@@ -175,41 +258,52 @@ def _send_email_message(
             conversation_id=conversation.id,
             person_channel_id=person_channel.id,
             channel_target_id=target.id if target else None,
+            reply_to_message_id=reply_context["reply_to_message_id"] if reply_context else None,
             channel_type=payload.channel_type,
             direction=MessageDirection.outbound,
             status=MessageStatus.queued,
             subject=payload.subject,
             body=rendered_body,
+            metadata_=_merge_reply_metadata(reply_context),
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
     )
 
     sent = False
+    smtp_debug: dict | None = None
     email_attachments = _prepare_email_attachments(payload.attachments)
     if config:
         smtp_config = _smtp_config_from_connector(config)
         if smtp_config:
-            sent = email_service.send_email_with_config(
+            sent, smtp_debug = email_service.send_email_with_config(
                 smtp_config,
                 person_channel.address,
                 payload.subject or "Message",
                 rendered_body,
                 rendered_body,
+                in_reply_to=reply_context.get("email_in_reply_to") if reply_context else None,
+                references=reply_context.get("email_references") if reply_context else None,
                 attachments=email_attachments,
             )
 
     if not sent:
-        sent = email_service.send_email(
+        sent, smtp_debug = email_service.send_email(
             db,
             person_channel.address,
             payload.subject or "Message",
             rendered_body,
             rendered_body,
+            in_reply_to=reply_context.get("email_in_reply_to") if reply_context else None,
+            references=reply_context.get("email_references") if reply_context else None,
             attachments=email_attachments,
         )
 
     message.status = MessageStatus.sent if sent else MessageStatus.failed
+    if smtp_debug:
+        metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
+        metadata["smtp_debug"] = smtp_debug
+        message.metadata_ = metadata
     db.commit()
     db.refresh(message)
 
@@ -231,6 +325,7 @@ def _send_whatsapp_message(
     payload: InboxSendRequest,
     rendered_body: str,
     author_id: str | None,
+    reply_context: dict | None,
 ) -> Message:
     """Send a message via WhatsApp channel."""
     if not config:
@@ -256,23 +351,70 @@ def _send_whatsapp_message(
             conversation_id=conversation.id,
             person_channel_id=person_channel.id,
             channel_target_id=target.id if target else None,
+            reply_to_message_id=reply_context["reply_to_message_id"] if reply_context else None,
             channel_type=payload.channel_type,
             direction=MessageDirection.outbound,
             status=MessageStatus.queued,
             subject=payload.subject,
             body=rendered_body,
+            metadata_=_merge_reply_metadata(reply_context),
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
     )
 
+    attachments = payload.attachments or []
+    media_payload = None
+    if attachments:
+        first_attachment = attachments[0] if isinstance(attachments, list) else None
+        if isinstance(first_attachment, dict):
+            attachment_url = first_attachment.get("url") or ""
+            if attachment_url and not attachment_url.startswith(("http://", "https://")):
+                app_url = email_service._get_app_url(db).rstrip("/")
+                if app_url:
+                    attachment_url = f"{app_url}{attachment_url}"
+            mime_type = (first_attachment.get("mime_type") or "").lower()
+            if attachment_url:
+                if mime_type.startswith("image/"):
+                    media_payload = {
+                        "type": "image",
+                        "image": {
+                            "link": attachment_url,
+                            **({"caption": rendered_body} if rendered_body else {}),
+                        },
+                    }
+                else:
+                    media_payload = {
+                        "type": "document",
+                        "document": {
+                            "link": attachment_url,
+                            **(
+                                {"filename": first_attachment.get("file_name")}
+                                if first_attachment.get("file_name")
+                                else {}
+                            ),
+                            **({"caption": rendered_body} if rendered_body else {}),
+                        },
+                    }
+
     base_url = config.base_url or "https://graph.facebook.com/v19.0"
-    payload_data = {
-        "messaging_product": "whatsapp",
-        "to": person_channel.address,
-        "type": "text",
-        "text": {"body": rendered_body},
-    }
+    if media_payload:
+        payload_data = {
+            "messaging_product": "whatsapp",
+            "to": person_channel.address,
+            **media_payload,
+        }
+    else:
+        payload_data = {
+            "messaging_product": "whatsapp",
+            "to": person_channel.address,
+            "type": "text",
+            "text": {"body": rendered_body},
+        }
+    if reply_context and reply_context.get("whatsapp_reply_message_id"):
+        payload_data["context"] = {
+            "message_id": reply_context["whatsapp_reply_message_id"]
+        }
     headers = {"Authorization": f"Bearer {token}"}
     if config.headers:
         headers.update(config.headers)
@@ -340,6 +482,7 @@ def _send_facebook_message(
     payload: InboxSendRequest,
     rendered_body: str,
     author_id: str | None,
+    reply_context: dict | None,
 ) -> Message:
     """Send a message via Facebook Messenger channel."""
     from app.services import meta_messaging
@@ -358,10 +501,12 @@ def _send_facebook_message(
             conversation_id=conversation.id,
             person_channel_id=person_channel.id,
             channel_target_id=target.id if target else None,
+            reply_to_message_id=reply_context["reply_to_message_id"] if reply_context else None,
             channel_type=payload.channel_type,
             direction=MessageDirection.outbound,
             status=MessageStatus.queued,
             body=rendered_body,
+            metadata_=_merge_reply_metadata(reply_context),
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
@@ -407,6 +552,7 @@ def _send_instagram_message(
     payload: InboxSendRequest,
     rendered_body: str,
     author_id: str | None,
+    reply_context: dict | None,
 ) -> Message:
     """Send a message via Instagram DM channel."""
     from app.services import meta_messaging
@@ -425,10 +571,12 @@ def _send_instagram_message(
             conversation_id=conversation.id,
             person_channel_id=person_channel.id,
             channel_target_id=target.id if target else None,
+            reply_to_message_id=reply_context["reply_to_message_id"] if reply_context else None,
             channel_type=payload.channel_type,
             direction=MessageDirection.outbound,
             status=MessageStatus.queued,
             body=rendered_body,
+            metadata_=_merge_reply_metadata(reply_context),
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
@@ -473,6 +621,7 @@ def _send_chat_widget_message(
     payload: InboxSendRequest,
     rendered_body: str,
     author_id: str | None,
+    reply_context: dict | None,
 ) -> Message:
     """Send a message via chat widget channel.
 
@@ -484,10 +633,12 @@ def _send_chat_widget_message(
             conversation_id=conversation.id,
             person_channel_id=person_channel.id,
             channel_target_id=target.id if target else None,
+            reply_to_message_id=reply_context["reply_to_message_id"] if reply_context else None,
             channel_type=payload.channel_type,
             direction=MessageDirection.outbound,
             status=MessageStatus.sent,
             body=rendered_body,
+            metadata_=_merge_reply_metadata(reply_context),
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
@@ -672,6 +823,11 @@ def send_message(
     )
 
     rendered_body = _render_personalization(payload.body, payload.personalization)
+    reply_context = _build_reply_context(
+        db,
+        conversation,
+        payload.reply_to_message_id,
+    )
 
     # Handle each channel type
     if payload.channel_type == ChannelType.email:
@@ -684,6 +840,7 @@ def send_message(
             payload,
             rendered_body,
             author_id,
+            reply_context,
         )
 
     if payload.channel_type == ChannelType.whatsapp:
@@ -696,6 +853,7 @@ def send_message(
             payload,
             rendered_body,
             author_id,
+            reply_context,
         )
 
     if payload.channel_type == ChannelType.facebook_messenger:
@@ -708,6 +866,7 @@ def send_message(
             payload,
             rendered_body,
             author_id,
+            reply_context,
         )
 
     if payload.channel_type == ChannelType.instagram_dm:
@@ -720,6 +879,7 @@ def send_message(
             payload,
             rendered_body,
             author_id,
+            reply_context,
         )
 
     if payload.channel_type == ChannelType.chat_widget:
@@ -731,6 +891,7 @@ def send_message(
             payload,
             rendered_body,
             author_id,
+            reply_context,
         )
 
     raise HTTPException(status_code=400, detail="Unsupported channel type")

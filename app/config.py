@@ -53,7 +53,7 @@ class Settings:
     )
     message_attachment_allowed_types: str = os.getenv(
         "MESSAGE_ATTACHMENT_ALLOWED_TYPES",
-        "image/jpeg,image/png,image/gif,image/webp,application/pdf",
+        "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,image/heic-sequence,image/heif-sequence,application/pdf",
     )
 
     # Branding assets (logo & favicon)

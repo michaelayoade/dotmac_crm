@@ -27,6 +27,9 @@
             <a href="/admin/crm/quotes/{{ quote.id }}/edit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 Edit
             </a>
+            <a href="/admin/crm/quotes/{{ quote.id }}/preview" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Preview PDF
+            </a>
             <form method="post" action="/admin/crm/quotes/{{ quote.id }}/delete"
                   onsubmit="return confirm('Delete this quote? This will deactivate it.');">
                 <button type="submit"

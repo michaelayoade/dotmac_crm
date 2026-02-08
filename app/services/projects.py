@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.sales import Lead
 from app.models.domain_settings import SettingDomain
@@ -40,6 +40,7 @@ from app.schemas.projects import (
     ProjectTemplateUpdate,
     ProjectUpdate,
 )
+from app.services.numbering import generate_number
 from app.services import settings_spec
 from app.services.common import (
     apply_ordering,
@@ -275,6 +276,17 @@ class Projects(ListResponseMixin):
         if payload.project_template_id:
             _ensure_project_template(db, str(payload.project_template_id))
         data = payload.model_dump()
+        number = generate_number(
+            db=db,
+            domain=SettingDomain.numbering,
+            sequence_key="project_number",
+            enabled_key="project_number_enabled",
+            prefix_key="project_number_prefix",
+            padding_key="project_number_padding",
+            start_key="project_number_start",
+        )
+        if number:
+            data["number"] = number
         # Auto-assign PM based on region if not already specified
         if data.get("region"):
             auto_pm, auto_assistant = Projects._get_region_pm_assignments(db, data["region"])
@@ -340,6 +352,15 @@ class Projects(ListResponseMixin):
     @staticmethod
     def get(db: Session, project_id: str):
         project = db.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return project
+
+    @staticmethod
+    def get_by_number(db: Session, number: str):
+        if not number:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project = db.query(Project).filter(Project.number == number).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         return project
@@ -764,6 +785,17 @@ class ProjectTemplateTasks(ListResponseMixin):
                 "title": template_task.title,
                 "template_task_id": template_task.id,
             }
+            number = generate_number(
+                db=db,
+                domain=SettingDomain.numbering,
+                sequence_key="project_task_number",
+                enabled_key="project_task_number_enabled",
+                prefix_key="project_task_number_prefix",
+                padding_key="project_task_number_padding",
+                start_key="project_task_number_start",
+            )
+            if number:
+                data["number"] = number
             if template_task.description:
                 data["description"] = template_task.description
             if template_task.status:
@@ -872,6 +904,17 @@ class ProjectTasks(ListResponseMixin):
             if not work_order:
                 raise HTTPException(status_code=404, detail="Work order not found")
         data = payload.model_dump()
+        number = generate_number(
+            db=db,
+            domain=SettingDomain.numbering,
+            sequence_key="project_task_number",
+            enabled_key="project_task_number_enabled",
+            prefix_key="project_task_number_prefix",
+            padding_key="project_task_number_padding",
+            start_key="project_task_number_start",
+        )
+        if number:
+            data["number"] = number
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
             default_status = settings_spec.resolve_value(db, SettingDomain.projects, "default_task_status")
@@ -908,6 +951,15 @@ class ProjectTasks(ListResponseMixin):
         return task
 
     @staticmethod
+    def get_by_number(db: Session, number: str):
+        if not number:
+            raise HTTPException(status_code=404, detail="Project task not found")
+        task = db.query(ProjectTask).filter(ProjectTask.number == number).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="Project task not found")
+        return task
+
+    @staticmethod
     def list(
         db: Session,
         project_id: str | None,
@@ -920,8 +972,11 @@ class ProjectTasks(ListResponseMixin):
         order_dir: str,
         limit: int,
         offset: int,
+        include_assigned: bool = False,
     ):
         query = db.query(ProjectTask)
+        if include_assigned:
+            query = query.options(selectinload(ProjectTask.assigned_to))
         if project_id:
             query = query.filter(ProjectTask.project_id == project_id)
         if status:

@@ -398,6 +398,231 @@ Available E2E fixtures: `admin_page`, `agent_page`, `user_page`, `customer_page`
 - Sidebar collapse state persisted in `localStorage`
 - Section expand/collapse via `x-show` + `x-collapse`
 
+## UI/UX Design Guide
+
+**Full visual reference:** `docs/design-guide.html` (open in browser for interactive component demos)
+
+### Design System - "Industrial Modern"
+The DotMac platform follows an **Industrial Modern** aesthetic: clean, functional, with subtle gradients, noise textures, and color-tinted shadows. This is NOT a generic admin template.
+
+### Color System
+
+**Primary palette:** Teal/Cyan (`primary-500: #06b6d4`) — used for active states, primary CTAs, focus rings, navigation highlights.
+
+**Accent palette:** Warm Orange (`accent-500: #f97316`) — used for secondary highlights, gradient endpoints, CRM inbox decoration.
+
+**Domain color assignments** (must be used consistently per section):
+| Domain | Colors | Tailwind |
+|--------|--------|----------|
+| Customers / Subscribers | amber + orange | `color="amber" color2="orange"` |
+| Network / IP Management | cyan + blue | `color="cyan" color2="blue"` |
+| Fiber / OLTs | violet + purple | `color="violet" color2="purple"` |
+| POP Sites / Assignments | teal + emerald | `color="teal" color2="emerald"` |
+| System / IP Pools | indigo + violet | `color="indigo" color2="violet"` |
+| Billing / Invoices | rose + pink | `color="rose" color2="pink"` |
+| Success / Active | green + emerald | `color="green" color2="emerald"` |
+
+**CRM channel colors** (defined in `main.css` as CSS custom properties):
+- Email: violet | WhatsApp: green | SMS: orange | Telegram: sky
+- Webchat: amber | Facebook Messenger: blue | Instagram: pink
+
+### Typography
+
+| Usage | Font | Weight | CSS Class |
+|-------|------|--------|-----------|
+| Display headings (h1-h3) | Outfit | 600-800 | `.font-display` or `<h1-h3>` (auto) |
+| Body text | Plus Jakarta Sans | 400-700 | `.font-body` (default) |
+| Metric values | Outfit | 700 | `.font-display text-3xl font-bold` |
+| Labels/captions | Plus Jakarta Sans | 600, uppercase | `text-xs font-semibold uppercase tracking-wide` |
+
+**Font files:** Self-hosted in `static/fonts/` (no external CDN requests in production).
+
+### Spacing & Border Radius
+
+**Standard spacing tokens:**
+- `gap-3` / `gap-4`: Icon-to-text gaps, component spacing
+- `px-6 py-4`: Card header padding
+- `p-6`: Standard card body padding
+- `p-5`: Compact card padding
+
+**Border radius scale:**
+- `rounded-lg` (8px): Small elements, badges, table header icons
+- `rounded-xl` (12px): **Buttons**, **inputs**, tabs, icon badges
+- `rounded-2xl` (16px): **Cards**, table wrappers, filter bars
+- `rounded-full`: Avatars, notification dots
+
+### Component Usage (Jinja2 Macros)
+
+**Always import from `components/ui/macros.html`** — never write raw HTML for these patterns:
+
+```html
+{% from "components/ui/macros.html" import page_header, stats_card, data_table,
+    table_head, table_row, row_actions, row_action, empty_state, pagination,
+    status_badge, action_button, card, filter_bar, search_input, filter_select,
+    info_row, detail_header, tabs, icon_badge, avatar, type_badge,
+    submit_button, danger_button, warning_button, loading_button, spinner,
+    info_banner, validated_input %}
+```
+
+**Macro parameter conventions:**
+1. `variant` (string enum) — For semantic meaning: `status_badge(variant="success")`
+2. `color` + `color2` (Tailwind colors) — For decorative gradients: `page_header(color="amber", color2="orange")`
+
+### Dark Mode Rules
+
+Every UI element **must** have light + dark variants:
+
+| Element | Light | Dark |
+|---------|-------|------|
+| Page background | `bg-slate-100` | `dark:bg-slate-900` |
+| Card surface | `bg-white` | `dark:bg-slate-800` |
+| Card border | `border-slate-200/60` | `dark:border-slate-700/60` |
+| Primary text | `text-slate-900` | `dark:text-white` |
+| Secondary text | `text-slate-500` | `dark:text-slate-400` |
+| Input bg | `bg-slate-50/50` | `dark:bg-slate-700/50` |
+| Input border | `border-slate-200` | `dark:border-slate-600` |
+| Subtle badge bg | `bg-{color}-500/10` | `dark:bg-{color}-500/20` |
+| Subtle badge text | `text-{color}-700` | `dark:text-{color}-400` |
+
+**Never** use inline `style="color: #xxx"` without a dark mode equivalent.
+
+### Animation & Motion
+
+**Entry animations** (applied to cards/sections on load):
+- `animate-fade-in-up`: Standard card entrance (0.5s)
+- `stagger-children`: Parent class for sequential child reveals (50ms delays)
+- `stagger-in`: Individual stagger class
+
+**Hover effects** (defined in `main.css`):
+- `.btn-hover`: translateY(-1px) + brand shadow
+- `.card-hover`: translateY(-2px) + deeper shadow
+- `.list-item-hover`: translateX(2px) + tint background
+- `.icon-btn-hover`: scale(1.05)
+
+**Loading states:**
+- Use `spinner` macro (sm/md/lg sizes)
+- Submit buttons: use `submit_button()` or `loading_button()` macros
+- HTMX indicators: `.htmx-indicator` class with opacity transition
+
+**All animations must respect `@media (prefers-reduced-motion: reduce)`** — this is already handled in `main.css`.
+
+### Accessibility Requirements (WCAG 2.1 AA)
+
+- Status badges use **icon + color** (not color alone) — the `status_badge` macro handles this
+- All icon-only buttons need `aria-label`
+- Dropdowns/collapsibles need `aria-expanded` and `aria-controls`
+- Toast container uses `aria-live="polite"`
+- Form inputs need `aria-invalid` + `aria-describedby` for error states
+- Decorative SVGs use `aria-hidden="true"`
+- Table headers use `<th scope="col">`
+- Global `#aria-live-region` exists in `base.html` for dynamic screen reader announcements
+- Keyboard navigation: all interactive elements must be focusable + operable via keyboard
+- Focus rings: `focus:ring-2 focus:ring-{color}-500/20 focus:outline-none`
+
+### Responsive Patterns
+
+- **Sidebar**: Fixed desktop (`lg:` breakpoint), overlay mobile with backdrop
+- **Content max-width**: `max-w-7xl` (80rem)
+- **Grid layouts**: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` (or lg:grid-cols-4 for stats cards)
+- **Page headers**: `flex-col gap-4 sm:flex-row sm:items-center sm:justify-between`
+- **Tables**: Always wrap in `overflow-x-auto`
+- **Touch targets**: Minimum 40px (`h-10 w-10`) for mobile buttons
+
+### Layout & Structural Patterns
+
+**App Shell** (defined in `layouts/admin.html`):
+- Root: `flex h-screen overflow-hidden` with sidebar + main column
+- Sidebar: `w-64` expanded / `w-20` collapsed, Alpine.js state in localStorage
+- Top bar: `h-16` with breadcrumbs (left), search + dark mode + notifications + user (right)
+- Main content: `flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-900 bg-noise bg-mesh`
+- Content wrapper: `max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6`
+
+**Page layout patterns** (choose the correct one for each page type):
+
+| Layout | Grid | Use Case | Example |
+|--------|------|----------|---------|
+| List page | Vertical stack | Index pages with tables | Tickets, Contacts |
+| Detail page | `grid gap-6 lg:grid-cols-3` (2/3 + 1/3) | View/detail pages | Ticket detail, Project detail |
+| 3-panel inbox | `flex h-[calc(100vh-4rem)]` (sidebar + thread + contact) | Real-time messaging | CRM Inbox |
+| Settings page | Pill filters + grouped form cards | Configuration pages | System Settings |
+| Hub/dashboard | `grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4` | Navigation hubs | Admin Hub |
+
+**Sidebar navigation** (`templates/components/navigation/admin_sidebar.html`):
+- Sections: Dashboard → Customers → Network → Operations → Reports → System
+- Active state: `bg-primary-100 text-primary-700 border-l-2 border-primary-600`
+- Dark active: `dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400`
+- Section headers: `text-xs font-semibold uppercase tracking-wider text-slate-400`
+- Badge counts: unread conversations (primary), open tickets (red), dispatch jobs (green)
+- Permission gating: `{% if can_feature %}` per nav item
+- Mobile: overlay with `bg-slate-900/50 backdrop-blur-sm` backdrop
+
+**Breadcrumbs** (in top bar):
+- Pattern: `nav.flex.items-center.gap-2.text-sm.text-slate-500`
+- Chevron separator SVGs between items
+- Last item: `font-semibold text-slate-900 dark:text-white` (current page)
+
+**Global search**: Cmd+K / Ctrl+K modal overlay, `globalSearch()` Alpine.js component, `/api/search/typeahead` endpoint
+
+**Confirmation modal** (`templates/components/modals/confirm_modal.html`):
+- Triggered via `$dispatch('confirm-action', { title, message, actionUrl, method, variant })`
+- Or use macros: `danger_button()`, `warning_button()`
+- Variants: danger (red icon), warning (amber), info (blue)
+- Backdrop: `bg-slate-900/60 backdrop-blur-sm`
+
+**Toast notifications** (`toastStore()` Alpine.js):
+- Position: fixed bottom-right, auto-dismiss 5s
+- Python trigger: `headers["HX-Trigger"] = json.dumps({"showToast": {"message": "...", "type": "success"}})`
+- JS trigger: `Alpine.store('toast').show('message', 'success')`
+- Types: success, error, warning, info
+
+**Alert banners** (inline, for form feedback):
+- Success: `rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400`
+- Error: `rounded-lg border bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400`
+
+### UI/UX Review Checklist
+
+When creating or modifying any template, verify:
+
+**Visual Consistency:**
+- [ ] Correct domain color scheme (amber/orange for customers, cyan/blue for network, etc.)
+- [ ] Headings use Outfit font (automatic via h1-h3 CSS rule)
+- [ ] Buttons: `rounded-xl` | Cards: `rounded-2xl` | Badges: `rounded-lg`
+- [ ] Page header uses `page_header()` macro with gradient icon badge
+- [ ] Uses shared macros from `components/ui/macros.html` (no duplicate patterns)
+
+**Dark Mode:**
+- [ ] Every color class has a `dark:` variant
+- [ ] No hardcoded hex colors in inline styles
+- [ ] Borders use opacity variants (e.g., `border-slate-200/60 dark:border-slate-700/60`)
+- [ ] Visually tested in both light and dark modes
+
+**Interactions:**
+- [ ] Cards/sections use `animate-fade-in-up` on initial load
+- [ ] Submit buttons show loading state via `submit_button()` macro
+- [ ] Destructive actions use `danger_button()` with confirmation modal
+- [ ] HTMX requests show loading indicators
+- [ ] Toast notifications for user feedback (success/error)
+
+**Accessibility:**
+- [ ] Icon-only buttons have `aria-label`
+- [ ] Dropdowns use `aria-expanded` + `aria-controls`
+- [ ] Status badges include icon differentiation (not just color)
+- [ ] Form inputs have visible labels and error states with `aria-invalid`
+- [ ] Proper heading hierarchy (h1 > h2 > h3, no skipped levels)
+- [ ] Decorative icons use `aria-hidden="true"`
+
+**Responsive:**
+- [ ] Mobile layout works below 640px
+- [ ] Touch targets are minimum 40px
+- [ ] Tables wrapped in `overflow-x-auto`
+- [ ] Grids collapse from multi-column to single-column
+
+**HTMX & Alpine.js:**
+- [ ] HTMX requests include CSRF token (automatic via `base.html` config)
+- [ ] `x-cloak` on initially hidden Alpine.js elements (prevents FOUC)
+- [ ] HTMX partials prefixed with `_` (e.g., `_ticket_table.html`)
+- [ ] POST mutations use `status_code=303` redirect (PRG pattern)
+
 ## Multi-Portal Authentication
 
 Each portal has separate auth:

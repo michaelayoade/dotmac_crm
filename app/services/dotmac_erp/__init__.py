@@ -6,6 +6,7 @@ from app.services.dotmac_erp.client import (
     DotMacERPAuthError,
     DotMacERPNotFoundError,
     DotMacERPRateLimitError,
+    DotMacERPTransientError,
 )
 from app.services.dotmac_erp.sync import DotMacERPSync, SyncResult, dotmac_erp_sync
 from app.services.dotmac_erp.inventory_sync import (
@@ -37,6 +38,7 @@ __all__ = [
     "DotMacERPAuthError",
     "DotMacERPNotFoundError",
     "DotMacERPRateLimitError",
+    "DotMacERPTransientError",
     "DotMacERPSync",
     "SyncResult",
     "dotmac_erp_sync",

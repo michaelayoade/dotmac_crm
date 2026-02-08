@@ -13,6 +13,9 @@ class TicketStatus(enum.Enum):
     new = "new"
     open = "open"
     pending = "pending"
+    waiting_on_customer = "waiting_on_customer"
+    lastmile_rerun = "lastmile_rerun"
+    site_under_construction = "site_under_construction"
     on_hold = "on_hold"
     resolved = "resolved"
     closed = "closed"
@@ -20,7 +23,9 @@ class TicketStatus(enum.Enum):
 
 
 class TicketPriority(enum.Enum):
+    lower = "lower"
     low = "low"
+    medium = "medium"
     normal = "normal"
     high = "high"
     urgent = "urgent"
@@ -61,9 +66,10 @@ class Ticket(Base):
         Enum(TicketStatus), default=TicketStatus.new
     )
     priority: Mapped[TicketPriority] = mapped_column(
-        Enum(TicketPriority), default=TicketPriority.normal
+        Enum(TicketPriority), default=TicketPriority.medium
     )
     ticket_type: Mapped[str | None] = mapped_column(String(120))
+    number: Mapped[str | None] = mapped_column(String(40))
     channel: Mapped[TicketChannel] = mapped_column(
         Enum(TicketChannel), default=TicketChannel.web
     )

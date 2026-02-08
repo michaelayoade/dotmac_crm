@@ -146,7 +146,7 @@
                         {% for ticket in tickets %}
                         <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                             <td class="px-6 py-4 text-sm font-medium text-slate-900 dark:text-white">
-                                <a href="/admin/support/tickets/{{ ticket.id }}" class="hover:text-primary-600 dark:hover:text-primary-400">
+                                <a href="/admin/support/tickets/{{ ticket.number or ticket.id }}" class="hover:text-primary-600 dark:hover:text-primary-400">
                                     {{ ticket.title }}
                                 </a>
                             </td>

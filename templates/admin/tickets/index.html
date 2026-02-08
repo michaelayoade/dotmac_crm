@@ -49,13 +49,14 @@
     {# Status Filter Cards #}
     {% set base_url = '/admin/support/tickets' %}
     {% set sub_param = '&subscriber=' ~ subscriber if subscriber else '' %}
+    {% set assigned_param = '&assigned=' ~ assigned if assigned else '' %}
     <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6 animate-fade-in-up" style="animation-delay: 100ms;">
-        {{ status_filter_card("New", stats.new, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>', base_url ~ '?status=new' ~ sub_param, "blue", "indigo", status == 'new') }}
-        {{ status_filter_card("Open", stats.open, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>', base_url ~ '?status=open' ~ sub_param, "emerald", "green", status == 'open') }}
-        {{ status_filter_card("Pending", stats.pending, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=pending' ~ sub_param, "amber", "yellow", status == 'pending') }}
-        {{ status_filter_card("On Hold", stats.on_hold, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=on_hold' ~ sub_param, "orange", "red", status == 'on_hold') }}
-        {{ status_filter_card("Resolved", stats.resolved, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=resolved' ~ sub_param, "teal", "cyan", status == 'resolved') }}
-        {{ status_filter_card("Closed", stats.closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>', base_url ~ '?status=closed' ~ sub_param, "slate", "slate", status == 'closed') }}
+        {{ status_filter_card("New", stats.new, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>', base_url ~ '?status=new' ~ sub_param ~ assigned_param, "blue", "indigo", status == 'new') }}
+        {{ status_filter_card("Open", stats.open, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>', base_url ~ '?status=open' ~ sub_param ~ assigned_param, "emerald", "green", status == 'open') }}
+        {{ status_filter_card("Pending", stats.pending, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=pending' ~ sub_param ~ assigned_param, "amber", "yellow", status == 'pending') }}
+        {{ status_filter_card("On Hold", stats.on_hold, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=on_hold' ~ sub_param ~ assigned_param, "orange", "red", status == 'on_hold') }}
+        {{ status_filter_card("Resolved", stats.resolved, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=resolved' ~ sub_param ~ assigned_param, "teal", "cyan", status == 'resolved') }}
+        {{ status_filter_card("Closed", stats.closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>', base_url ~ '?status=closed' ~ sub_param ~ assigned_param, "slate", "slate", status == 'closed') }}
     </div>
 
     {# Filters #}
@@ -78,6 +79,12 @@
             ], priority or '', "Priority", "amber") }}
         </div>
         <div class="w-full lg:w-44">
+            {{ filter_select("assigned", [
+                {"value": "", "label": "All Assignees"},
+                {"value": "me", "label": "Assigned to Me"}
+            ], assigned or '', "Assigned", "amber") }}
+        </div>
+        <div class="w-full lg:w-44">
             {{ filter_select("channel", [
                 {"value": "", "label": "All Channels"},
                 {"value": "web", "label": "Web Portal"},
@@ -87,7 +94,7 @@
                 {"value": "api", "label": "API"}
             ], channel or '', "Channel", "amber") }}
         </div>
-        {% if status or priority or channel %}
+        {% if status or priority or channel or assigned %}
         {{ action_button("Clear Filters", "/admin/support/tickets" ~ ("?subscriber=" ~ subscriber if subscriber else ""), '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate") }}
         {% endif %}
     </form>

@@ -69,6 +69,9 @@ from app.services.crm.teams import (
 from app.services.crm.teams import service as team
 from app.services.crm.teams.service import get_agent_labels, get_agent_team_options
 
+# Presence submodule
+from app.services.crm.presence import AgentPresenceManager, agent_presence
+
 # Sales submodule
 from app.services.crm.sales import (
     Pipelines,
@@ -159,6 +162,9 @@ __all__ = [
     "routing_rules",
     "get_agent_labels",
     "get_agent_team_options",
+    # Presence
+    "AgentPresenceManager",
+    "agent_presence",
     # Sales
     "Pipelines",
     "PipelineStages",

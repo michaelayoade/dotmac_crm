@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 from pydantic import ValidationError
 
@@ -303,7 +303,7 @@ SETTINGS_DOMAIN_GROUPS = {
     "Notifications": ["notification", "comms", "campaigns"],
     "Services": ["provisioning"],
     "Network": ["network", "network_monitoring", "bandwidth", "gis", "geocoding"],
-    "Operations": ["workflow", "projects", "scheduler", "inventory"],
+    "Operations": ["workflow", "projects", "scheduler", "inventory", "numbering"],
     "Integrations": ["integration"],
     "Security & System": ["auth", "audit", "imports"],
 }
@@ -546,10 +546,10 @@ def _normalize_ticket_types(raw: object) -> list[dict]:
     if not isinstance(raw, list):
         return []
     priority_map = {
+        "lower": "lower",
         "low": "low",
-        "lower": "low",
         "normal": "normal",
-        "medium": "normal",
+        "medium": "medium",
         "high": "high",
         "urgent": "urgent",
     }
@@ -573,10 +573,10 @@ def _normalize_ticket_types(raw: object) -> list[dict]:
 def _extract_ticket_types_from_form(form) -> list[dict]:
     items: list[dict] = []
     priority_map = {
+        "lower": "lower",
         "low": "low",
-        "lower": "low",
         "normal": "normal",
-        "medium": "normal",
+        "medium": "medium",
         "high": "high",
         "urgent": "urgent",
     }
@@ -2803,6 +2803,37 @@ def settings_overview(
     )
 
 
+@router.get(
+    "/settings/domain-numbering",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:read"))],
+)
+def settings_numbering(request: Request, db: Session = Depends(get_db)):
+    from app.csrf import get_csrf_token
+    from app.web.admin import get_sidebar_stats, get_current_user
+
+    settings_context = _build_settings_context(db, "numbering")
+    base_url = str(request.base_url).rstrip("/")
+    crm_meta_callback_url = base_url + "/webhooks/crm/meta"
+    crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
+    saved = _form_bool(request.query_params.get("saved"))
+    return templates.TemplateResponse(
+        "admin/system/settings.html",
+        {
+            "request": request,
+            **settings_context,
+            "crm_meta_callback_url": crm_meta_callback_url,
+            "crm_meta_oauth_redirect_url": crm_meta_oauth_redirect_url,
+            "active_page": "settings",
+            "active_menu": "system",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "saved": saved,
+            "csrf_token": get_csrf_token(request),
+        },
+    )
+
+
 @router.post("/settings", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:write"))])
 async def settings_update(
     request: Request,
@@ -2986,6 +3017,9 @@ async def settings_update(
                 service.upsert_by_key(db, spec.key, payload)
 
         settings_context = _build_settings_context(db, selected_domain.value)
+        if not errors and selected_domain == SettingDomain.numbering:
+            from app.services.numbering import backfill_number_prefixes
+            backfill_number_prefixes(db)
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
     crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
@@ -3208,7 +3242,7 @@ async def campaign_smtp_update(
         password_value = password.strip() if password else ""
         password_provided = bool(password_value)
         username_value = username.strip() if username else ""
-        update_data: dict[str, object] = {
+        update_data: dict[str, Any] = {
             "name": name.strip(),
             "host": host.strip(),
             "port": port,

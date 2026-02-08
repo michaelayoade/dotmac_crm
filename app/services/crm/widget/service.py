@@ -18,7 +18,7 @@ from app.models.crm.chat_widget import ChatWidgetConfig, WidgetVisitorSession
 from app.models.crm.sales import Lead
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
-from app.models.person import Person, PersonChannel
+from app.models.person import PartyStatus, Person, PersonChannel
 from app.models.person import ChannelType as PersonChannelType
 from app.schemas.crm.chat_widget import (
     BusinessHours,
@@ -426,8 +426,12 @@ class WidgetVisitorManager:
                 from app.schemas.crm.sales import LeadCreate
                 from app.services.crm import leads as leads_service
                 leads_service.create(db=db, payload=LeadCreate(person_id=person.id, title="Website chat"))
-        elif phone and not person.phone:
-            person.phone = phone
+                # Keep new widget visitors as leads; leads_service upgrades to contact by default.
+                person.party_status = PartyStatus.lead
+                db.commit()
+        else:
+            if phone and not person.phone:
+                person.phone = phone
 
         # Ensure person has chat_widget channel
         existing_channel = (

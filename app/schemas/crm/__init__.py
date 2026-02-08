@@ -36,6 +36,10 @@ from app.schemas.crm.team import (
     RoutingRuleRead,
     RoutingRuleUpdate,
 )
+from app.schemas.crm.presence import (
+    AgentPresenceRead,
+    AgentPresenceUpdate,
+)
 from app.schemas.crm.inbox import (
     InboxSendRequest,
     InboxSendResponse,
@@ -103,6 +107,8 @@ __all__ = [
     "RoutingRuleCreate",
     "RoutingRuleRead",
     "RoutingRuleUpdate",
+    "AgentPresenceRead",
+    "AgentPresenceUpdate",
     "InboxSendRequest",
     "InboxSendResponse",
     "WhatsAppWebhookPayload",

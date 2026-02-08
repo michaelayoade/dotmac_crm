@@ -15,6 +15,8 @@ from app.models.projects import (
     ProjectComment,
     ProjectPriority,
     ProjectStatus,
+    Project,
+    ProjectTask,
     ProjectTemplateTask,
     ProjectTemplateTaskDependency,
     ProjectType,
@@ -89,6 +91,30 @@ def _log_activity(
         actor_id=actor_id,
         metadata=metadata,
     )
+
+
+def _resolve_project_reference(db: Session, project_ref: str):
+    if not project_ref:
+        raise ValueError("Project not found")
+    project = db.query(Project).filter(Project.number == project_ref).first()
+    if project:
+        return project, False
+    project_uuid = coerce_uuid(project_ref)
+    project = projects_service.projects.get(db=db, project_id=str(project_uuid))
+    should_redirect = bool(project.number)
+    return project, should_redirect
+
+
+def _resolve_project_task_reference(db: Session, task_ref: str):
+    if not task_ref:
+        raise ValueError("Project task not found")
+    task = db.query(ProjectTask).filter(ProjectTask.number == task_ref).first()
+    if task:
+        return task, False
+    task_uuid = coerce_uuid(task_ref)
+    task = projects_service.project_tasks.get(db=db, task_id=str(task_uuid))
+    should_redirect = bool(task.number)
+    return task, should_redirect
 
 
 def _format_activity(event, label: str) -> str:
@@ -504,6 +530,7 @@ def project_tasks_list(
     project_id: str | None = None,
     status: str | None = None,
     priority: str | None = None,
+    assigned: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
@@ -511,18 +538,27 @@ def project_tasks_list(
     """List project tasks across all projects."""
     offset = (page - 1) * per_page
 
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    sidebar_stats = get_sidebar_stats(db)
+    current_user = get_current_user(request)
+    assigned_to_person_id = None
+    if assigned == "me" and current_user and current_user.get("person_id"):
+        assigned_to_person_id = str(current_user.get("person_id"))
+
     tasks = projects_service.project_tasks.list(
         db=db,
         project_id=project_id if project_id else None,
         status=status if status else None,
         priority=priority if priority else None,
-        assigned_to_person_id=None,
+        assigned_to_person_id=assigned_to_person_id,
         parent_task_id=None,
         is_active=None,
         order_by="created_at",
         order_dir="desc",
         limit=per_page,
         offset=offset,
+        include_assigned=True,
     )
 
     all_tasks = projects_service.project_tasks.list(
@@ -530,7 +566,7 @@ def project_tasks_list(
         project_id=project_id if project_id else None,
         status=status if status else None,
         priority=priority if priority else None,
-        assigned_to_person_id=None,
+        assigned_to_person_id=assigned_to_person_id,
         parent_task_id=None,
         is_active=None,
         order_by="created_at",
@@ -554,12 +590,12 @@ def project_tasks_list(
         limit=1000,
         offset=0,
     )
-    project_map = {str(project.id): project for project in projects}
-
-    from app.web.admin import get_current_user, get_sidebar_stats
-
-    sidebar_stats = get_sidebar_stats(db)
-    current_user = get_current_user(request)
+    project_ids = {task.project_id for task in tasks if task.project_id}
+    if project_ids:
+        project_rows = db.query(Project).filter(Project.id.in_(project_ids)).all()
+    else:
+        project_rows = []
+    project_map = {str(project.id): project for project in project_rows}
 
     return templates.TemplateResponse(
         "admin/projects/tasks.html",
@@ -571,6 +607,7 @@ def project_tasks_list(
             "project_id": project_id,
             "status": status,
             "priority": priority,
+            "assigned": assigned,
             "page": page,
             "per_page": per_page,
             "total": total,
@@ -1384,12 +1421,14 @@ def project_template_task_delete(request: Request, template_id: str, task_id: st
     return RedirectResponse(f"/admin/projects/templates/{template_id}", status_code=303)
 
 
-@router.get("/{project_id}", response_class=HTMLResponse)
-def project_detail(request: Request, project_id: str, db: Session = Depends(get_db)):
+@router.get("/{project_ref}", response_class=HTMLResponse)
+def project_detail(request: Request, project_ref: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
-        project = projects_service.projects.get(db=db, project_id=project_id)
+        project, should_redirect = _resolve_project_reference(db, project_ref)
+        if should_redirect:
+            return RedirectResponse(url=f"/admin/projects/{project.number}", status_code=302)
     except Exception:
         context = {
             "request": request,
@@ -1401,7 +1440,7 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
 
     tasks = projects_service.project_tasks.list(
         db=db,
-        project_id=project_id,
+        project_id=str(project.id),
         status=None,
         priority=None,
         assigned_to_person_id=None,
@@ -1418,7 +1457,7 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
         actor_type=None,
         action=None,
         entity_type="project",
-        entity_id=str(project_id),
+        entity_id=str(project.id),
         request_id=None,
         is_success=None,
         status_code=None,
@@ -1431,7 +1470,7 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
     activities = _build_activity_feed(db, audit_events, "project")
     comments = projects_service.project_comments.list(
         db=db,
-        project_id=project_id,
+        project_id=str(project.id),
         order_by="created_at",
         order_dir="desc",
         limit=200,
@@ -1449,7 +1488,7 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
         status=None,
         vendor_id=None,
         subscriber_id=None,
-        project_id=project_id,
+        project_id=str(project.id),
         is_active=None,
         order_by="created_at",
         order_dir="desc",
@@ -1492,15 +1531,15 @@ def project_detail(request: Request, project_id: str, db: Session = Depends(get_
     )
 
 
-@router.post("/{project_id}/comments", response_class=HTMLResponse)
-async def project_comment_create(request: Request, project_id: str, db: Session = Depends(get_db)):
+@router.post("/{project_ref}/comments", response_class=HTMLResponse)
+async def project_comment_create(request: Request, project_ref: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
-    attachments = form.getlist("attachments")
+    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     if not body:
-        return RedirectResponse(f"/admin/projects/{project_id}", status_code=303)
+        return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
     prepared_attachments: list[dict] = []
     try:
         from app.services import ticket_attachments as ticket_attachment_service
@@ -1508,9 +1547,10 @@ async def project_comment_create(request: Request, project_id: str, db: Session 
         prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
         current_user = get_current_user(request)
+        project, _should_redirect = _resolve_project_reference(db, project_ref)
         payload = ProjectCommentCreate.model_validate(
             {
-                "project_id": project_id,
+                "project_id": str(project.id),
                 "author_person_id": current_user.get("person_id") or None,
                 "body": body,
                 "attachments": saved_attachments or None,
@@ -1522,10 +1562,10 @@ async def project_comment_create(request: Request, project_id: str, db: Session 
             request=request,
             action="comment",
             entity_type="project",
-            entity_id=str(project_id),
+            entity_id=str(project.id),
             actor_id=str(current_user.get("person_id")) if current_user else None,
         )
-        return RedirectResponse(f"/admin/projects/{project_id}", status_code=303)
+        return RedirectResponse(f"/admin/projects/{project.number or project.id}", status_code=303)
     except Exception:
         from app.services import ticket_attachments as ticket_attachment_service
 
@@ -1539,8 +1579,8 @@ async def project_comment_create(request: Request, project_id: str, db: Session 
         return templates.TemplateResponse("admin/errors/500.html", context, status_code=500)
 
 
-@router.post("/{project_id}/comments/{comment_id}/edit", response_class=HTMLResponse)
-async def project_comment_edit(request: Request, project_id: str, comment_id: str, db: Session = Depends(get_db)):
+@router.post("/{project_ref}/comments/{comment_id}/edit", response_class=HTMLResponse)
+async def project_comment_edit(request: Request, project_ref: str, comment_id: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     context = {
@@ -1550,38 +1590,6 @@ async def project_comment_edit(request: Request, project_id: str, comment_id: st
         "sidebar_stats": get_sidebar_stats(db),
     }
     return templates.TemplateResponse("admin/errors/403.html", context, status_code=403)
-
-    try:
-        comment = db.get(ProjectComment, comment_id)
-        if not comment or str(comment.project_id) != str(project_id):
-            context = {
-                "request": request,
-                "message": "Comment not found",
-                "current_user": get_current_user(request),
-                "sidebar_stats": get_sidebar_stats(db),
-            }
-            return templates.TemplateResponse("admin/errors/404.html", context, status_code=404)
-
-        payload = ProjectCommentUpdate.model_validate({"body": body})
-        projects_service.project_comments.update(db=db, comment_id=comment_id, payload=payload)
-        current_user = get_current_user(request)
-        _log_activity(
-            db=db,
-            request=request,
-            action="comment_edit",
-            entity_type="project",
-            entity_id=str(project_id),
-            actor_id=str(current_user.get("person_id")) if current_user else None,
-        )
-        return RedirectResponse(f"/admin/projects/{project_id}", status_code=303)
-    except Exception:
-        context = {
-            "request": request,
-            "message": "Unable to edit comment",
-            "current_user": get_current_user(request),
-            "sidebar_stats": get_sidebar_stats(db),
-        }
-        return templates.TemplateResponse("admin/errors/500.html", context, status_code=500)
 
 
 def _get_project_labels(db: Session, project, assigned_vendor_id: str | None = None) -> dict:
@@ -1622,10 +1630,12 @@ def _get_project_labels(db: Session, project, assigned_vendor_id: str | None = N
     return labels
 
 
-@router.get("/{project_id}/edit", response_class=HTMLResponse)
-def project_edit(request: Request, project_id: str, db: Session = Depends(get_db)):
+@router.get("/{project_ref}/edit", response_class=HTMLResponse)
+def project_edit(request: Request, project_ref: str, db: Session = Depends(get_db)):
     try:
-        project = projects_service.projects.get(db=db, project_id=project_id)
+        project, should_redirect = _resolve_project_reference(db, project_ref)
+        if should_redirect:
+            return RedirectResponse(url=f"/admin/projects/{project.number}/edit", status_code=302)
     except Exception:
         from app.web.admin import get_current_user, get_sidebar_stats
 
@@ -1668,7 +1678,7 @@ def project_edit(request: Request, project_id: str, db: Session = Depends(get_db
         status=None,
         vendor_id=None,
         subscriber_id=None,
-        project_id=project_id,
+        project_id=str(project.id),
         is_active=None,
         order_by="created_at",
         order_dir="desc",
@@ -1681,17 +1691,25 @@ def project_edit(request: Request, project_id: str, db: Session = Depends(get_db
         project_data["assigned_vendor_id"] = assigned_vendor_id
 
     labels = _get_project_labels(db, project, assigned_vendor_id)
-    context = _project_form_context(request, db, project_data, f"/admin/projects/{project_id}/edit", labels=labels)
+    context = _project_form_context(
+        request,
+        db,
+        project_data,
+        f"/admin/projects/{project.number or project.id}/edit",
+        labels=labels,
+    )
     return templates.TemplateResponse("admin/projects/project_form.html", context)
 
 
-@router.post("/{project_id}/edit", response_class=HTMLResponse)
-async def project_update(request: Request, project_id: str, db: Session = Depends(get_db)):
+@router.post("/{project_ref}/edit", response_class=HTMLResponse)
+async def project_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
+    project_record, _should_redirect = _resolve_project_reference(db, project_ref)
+    project_id = str(project_record.id)
     project = {
         "id": project_id,
         "name": _form_str(form.get("name")).strip(),
@@ -1714,7 +1732,13 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
         "is_active": form.get("is_active") == "true",
     }
     if not project["name"]:
-        context = _project_form_context(request, db, project, f"/admin/projects/{project_id}/edit", "Name is required.")
+        context = _project_form_context(
+            request,
+            db,
+            project,
+            f"/admin/projects/{project_record.number or project_id}/edit",
+            "Name is required.",
+        )
         return templates.TemplateResponse("admin/projects/project_form.html", context)
 
     payload_data = {
@@ -1810,7 +1834,7 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
                     }
                 )
                 vendor_service.installation_projects.create(db=db, payload=install_payload)
-        return RedirectResponse(f"/admin/projects/{project_id}", status_code=303)
+        return RedirectResponse(f"/admin/projects/{project_record.number or project_id}", status_code=303)
     except Exception as exc:
         if prepared_attachments:
             from app.services import ticket_attachments as ticket_attachment_service
@@ -1821,28 +1845,31 @@ async def project_update(request: Request, project_id: str, db: Session = Depend
             request,
             db,
             project,
-            f"/admin/projects/{project_id}/edit",
+            f"/admin/projects/{project_record.number or project_id}/edit",
             error or "Please correct the highlighted fields.",
         )
         return templates.TemplateResponse("admin/projects/project_form.html", context)
 
 
-@router.post("/{project_id}/delete", response_class=HTMLResponse)
-def project_delete(request: Request, project_id: str, db: Session = Depends(get_db)):
-    projects_service.projects.delete(db=db, project_id=project_id)
+@router.post("/{project_ref}/delete", response_class=HTMLResponse)
+def project_delete(request: Request, project_ref: str, db: Session = Depends(get_db)):
+    project, _should_redirect = _resolve_project_reference(db, project_ref)
+    projects_service.projects.delete(db=db, project_id=str(project.id))
     return RedirectResponse("/admin/projects", status_code=303)
 
 
-@router.get("/tasks/{task_id}", response_class=HTMLResponse)
-def project_task_detail(request: Request, task_id: str, db: Session = Depends(get_db)):
+@router.get("/tasks/{task_ref}", response_class=HTMLResponse)
+def project_task_detail(request: Request, task_ref: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
-        task = projects_service.project_tasks.get(db=db, task_id=task_id)
+        task, should_redirect = _resolve_project_task_reference(db, task_ref)
+        if should_redirect:
+            return RedirectResponse(url=f"/admin/projects/tasks/{task.number}", status_code=302)
         project = projects_service.projects.get(db=db, project_id=str(task.project_id))
         comments = projects_service.project_task_comments.list(
             db=db,
-            task_id=task_id,
+            task_id=str(task.id),
             order_by="created_at",
             order_dir="desc",
             limit=200,
@@ -1854,7 +1881,7 @@ def project_task_detail(request: Request, task_id: str, db: Session = Depends(ge
             actor_type=None,
             action=None,
             entity_type="project_task",
-            entity_id=str(task_id),
+            entity_id=str(task.id),
             request_id=None,
             is_success=None,
             status_code=None,
@@ -1888,15 +1915,15 @@ def project_task_detail(request: Request, task_id: str, db: Session = Depends(ge
     )
 
 
-@router.post("/tasks/{task_id}/comments", response_class=HTMLResponse)
-async def project_task_comment_create(request: Request, task_id: str, db: Session = Depends(get_db)):
+@router.post("/tasks/{task_ref}/comments", response_class=HTMLResponse)
+async def project_task_comment_create(request: Request, task_ref: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
-    attachments = form.getlist("attachments")
+    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     if not body:
-        return RedirectResponse(f"/admin/projects/tasks/{task_id}", status_code=303)
+        return RedirectResponse(f"/admin/projects/tasks/{task_ref}", status_code=303)
     prepared_attachments: list[dict] = []
     try:
         from app.services import ticket_attachments as ticket_attachment_service
@@ -1904,9 +1931,10 @@ async def project_task_comment_create(request: Request, task_id: str, db: Sessio
         prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
         current_user = get_current_user(request)
+        task, _should_redirect = _resolve_project_task_reference(db, task_ref)
         payload = ProjectTaskCommentCreate.model_validate(
             {
-                "task_id": task_id,
+                "task_id": str(task.id),
                 "author_person_id": current_user.get("person_id") or None,
                 "body": body,
                 "attachments": saved_attachments or None,
@@ -1918,10 +1946,10 @@ async def project_task_comment_create(request: Request, task_id: str, db: Sessio
             request=request,
             action="comment",
             entity_type="project_task",
-            entity_id=str(task_id),
+            entity_id=str(task.id),
             actor_id=str(current_user.get("person_id")) if current_user else None,
         )
-        return RedirectResponse(f"/admin/projects/tasks/{task_id}", status_code=303)
+        return RedirectResponse(f"/admin/projects/tasks/{task.number or task.id}", status_code=303)
     except Exception:
         from app.services import ticket_attachments as ticket_attachment_service
 
@@ -1935,10 +1963,12 @@ async def project_task_comment_create(request: Request, task_id: str, db: Sessio
         return templates.TemplateResponse("admin/errors/500.html", context, status_code=500)
 
 
-@router.get("/tasks/{task_id}/edit", response_class=HTMLResponse)
-def project_task_edit(request: Request, task_id: str, db: Session = Depends(get_db)):
+@router.get("/tasks/{task_ref}/edit", response_class=HTMLResponse)
+def project_task_edit(request: Request, task_ref: str, db: Session = Depends(get_db)):
     try:
-        task = projects_service.project_tasks.get(db=db, task_id=task_id)
+        task, should_redirect = _resolve_project_task_reference(db, task_ref)
+        if should_redirect:
+            return RedirectResponse(url=f"/admin/projects/tasks/{task.number}/edit", status_code=302)
     except Exception:
         from app.web.admin import get_current_user, get_sidebar_stats
 
@@ -1963,17 +1993,24 @@ def project_task_edit(request: Request, task_id: str, db: Session = Depends(get_
         "due_at": _fmt_dt(task.due_at),
         "effort_hours": str(task.effort_hours) if task.effort_hours is not None else "",
     }
-    context = _task_form_context(request, db, task_data, f"/admin/projects/tasks/{task_id}/edit")
+    context = _task_form_context(
+        request,
+        db,
+        task_data,
+        f"/admin/projects/tasks/{task.number or task.id}/edit",
+    )
     return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
 
-@router.post("/tasks/{task_id}/edit", response_class=HTMLResponse)
-async def project_task_update(request: Request, task_id: str, db: Session = Depends(get_db)):
+@router.post("/tasks/{task_ref}/edit", response_class=HTMLResponse)
+async def project_task_update(request: Request, task_ref: str, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
+    task_record, _should_redirect = _resolve_project_task_reference(db, task_ref)
+    task_id = str(task_record.id)
     task = {
         "id": task_id,
         "project_id": _form_str(form.get("project_id")).strip(),
@@ -1988,13 +2025,25 @@ async def project_task_update(request: Request, task_id: str, db: Session = Depe
         "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
     if not task["project_id"]:
-        context = _task_form_context(request, db, task, f"/admin/projects/tasks/{task_id}/edit", "Project is required.")
+        context = _task_form_context(
+            request,
+            db,
+            task,
+            f"/admin/projects/tasks/{task_record.number or task_id}/edit",
+            "Project is required.",
+        )
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
     if not task["title"]:
-        context = _task_form_context(request, db, task, f"/admin/projects/tasks/{task_id}/edit", "Title is required.")
+        context = _task_form_context(
+            request,
+            db,
+            task,
+            f"/admin/projects/tasks/{task_record.number or task_id}/edit",
+            "Title is required.",
+        )
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
-    payload_data = {
+    payload_data: dict[str, object] = {
         "project_id": task["project_id"],
         "title": task["title"],
         "status": task["status"] or TaskStatus.todo.value,
@@ -2041,7 +2090,7 @@ async def project_task_update(request: Request, task_id: str, db: Session = Depe
             actor_id=str(current_user.get("person_id")) if current_user else None,
             metadata=metadata_payload,
         )
-        return RedirectResponse(f"/admin/projects/tasks/{task_id}", status_code=303)
+        return RedirectResponse(f"/admin/projects/tasks/{task_record.number or task_id}", status_code=303)
     except Exception as exc:
         if prepared_attachments:
             from app.services import ticket_attachments as ticket_attachment_service
@@ -2052,13 +2101,14 @@ async def project_task_update(request: Request, task_id: str, db: Session = Depe
             request,
             db,
             task,
-            f"/admin/projects/tasks/{task_id}/edit",
+            f"/admin/projects/tasks/{task_record.number or task_id}/edit",
             error or "Please correct the highlighted fields.",
         )
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
 
-@router.post("/tasks/{task_id}/delete", response_class=HTMLResponse)
-def project_task_delete(request: Request, task_id: str, db: Session = Depends(get_db)):
-    projects_service.project_tasks.delete(db=db, task_id=task_id)
+@router.post("/tasks/{task_ref}/delete", response_class=HTMLResponse)
+def project_task_delete(request: Request, task_ref: str, db: Session = Depends(get_db)):
+    task, _should_redirect = _resolve_project_task_reference(db, task_ref)
+    projects_service.project_tasks.delete(db=db, task_id=str(task.id))
     return RedirectResponse("/admin/projects/tasks", status_code=303)

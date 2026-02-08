@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 
 from app.models.sequence import DocumentSequence
 from app.models.domain_settings import SettingDomain
+from app.models.projects import Project, ProjectTask
+from app.models.tickets import Ticket
 from app.services import settings_spec
 
 
@@ -55,3 +57,34 @@ def generate_number(
         start_value_int = 1
     value = _next_sequence_value(db, sequence_key, start_value_int)
     return _format_number(prefix, padding, value)
+
+
+def backfill_number_prefixes(db: Session) -> dict[str, int]:
+    """Prefix existing numbers if missing (no padding changes)."""
+    prefix_map = {
+        "tickets": _resolve_setting(db, SettingDomain.numbering, "ticket_number_prefix") or "",
+        "projects": _resolve_setting(db, SettingDomain.numbering, "project_number_prefix") or "",
+        "project_tasks": _resolve_setting(db, SettingDomain.numbering, "project_task_number_prefix") or "",
+    }
+    updated = {"tickets": 0, "projects": 0, "project_tasks": 0}
+
+    def _apply_prefix(model, label: str, prefix: str):
+        if not prefix:
+            return
+        rows = (
+            db.query(model)
+            .filter(model.number.isnot(None))
+            .filter(~model.number.startswith(prefix))
+            .all()
+        )
+        for row in rows:
+            row.number = f"{prefix}{row.number}"
+        updated[label] = len(rows)
+
+    _apply_prefix(Ticket, "tickets", prefix_map["tickets"])
+    _apply_prefix(Project, "projects", prefix_map["projects"])
+    _apply_prefix(ProjectTask, "project_tasks", prefix_map["project_tasks"])
+
+    if any(updated.values()):
+        db.commit()
+    return updated

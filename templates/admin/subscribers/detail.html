@@ -278,7 +278,7 @@
                                     <span class="font-medium text-slate-900 dark:text-white">{{ ticket.subject }}</span>
                                     {{ status_badge(ticket.status.value|title, 'emerald' if ticket.status.value == 'resolved' else 'amber' if ticket.status.value == 'open' else 'slate') }}
                                 </div>
-                                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">#{{ ticket.ticket_number }} - {{ ticket.created_at.strftime('%b %d, %Y') if ticket.created_at else '' }}</p>
+                                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">#{{ ticket.number or (ticket.id|string)[:8] }} - {{ ticket.created_at.strftime('%b %d, %Y') if ticket.created_at else '' }}</p>
                             </a>
                             {% endfor %}
                             {% if subscriber.tickets|length > 5 %}
@@ -329,7 +329,7 @@
                         {% if subscriber.projects %}
                         <div class="space-y-3">
                             {% for project in subscriber.projects[:5] %}
-                            <a href="/admin/projects/{{ project.id }}" class="block rounded-lg border border-slate-200 p-3 transition hover:border-amber-300 hover:bg-amber-50/50 dark:border-slate-700 dark:hover:border-amber-700 dark:hover:bg-amber-900/10">
+                            <a href="/admin/projects/{{ project.number or project.id }}" class="block rounded-lg border border-slate-200 p-3 transition hover:border-amber-300 hover:bg-amber-50/50 dark:border-slate-700 dark:hover:border-amber-700 dark:hover:bg-amber-900/10">
                                 <div class="flex items-center justify-between">
                                     <span class="font-medium text-slate-900 dark:text-white">{{ project.name }}</span>
                                     {{ status_badge(project.status.value|title, 'emerald' if project.status.value == 'completed' else 'blue' if project.status.value == 'active' else 'slate') }}

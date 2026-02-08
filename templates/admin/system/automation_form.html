@@ -135,6 +135,7 @@
                             <option value="set_field">Set Field</option>
                             <option value="add_tag">Add Tag</option>
                             <option value="assign_conversation">Assign Conversation</option>
+                            <option value="assign_conversation_auto">Auto-Assign Conversation</option>
                             <option value="send_notification">Send Notification</option>
                             <option value="create_work_order">Create Work Order</option>
                             <option value="emit_event">Emit Event</option>
@@ -169,6 +170,21 @@
                         <div>
                             <input type="text" x-model="action.params.agent_id" placeholder="Agent ID (UUID)"
                                    class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                    </template>
+                    <!-- assign_conversation_auto params -->
+                    <template x-if="action.action_type === 'assign_conversation_auto'">
+                        <div class="grid grid-cols-2 gap-3">
+                            <input type="text" x-model="action.params.team_id" placeholder="Team ID (optional)"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="number" min="1" x-model="action.params.online_window_minutes" placeholder="Online window (minutes, default 60)"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="text" x-model="action.params.eligible_statuses" placeholder="Eligible statuses (comma list, default online,away)"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="text" x-model="action.params.load_statuses" placeholder="Load statuses (comma list, default open,pending,snoozed)"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <input type="number" min="0" x-model="action.params.max_assigned" placeholder="Max assigned per agent (optional)"
+                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                         </div>
                     </template>
                     <!-- send_notification params -->

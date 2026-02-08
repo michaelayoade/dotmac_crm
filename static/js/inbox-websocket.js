@@ -80,6 +80,7 @@ class InboxWebSocket {
             }
             if (event.code === 1012) {
                 console.warn('[InboxWS] Service restart detected (1012), will refresh on reconnect');
+                // Prefer a quiet background reconnect over a full page reload.
                 this.needsFullRefresh = true;
             }
 
@@ -100,6 +101,10 @@ class InboxWebSocket {
             const message = JSON.parse(data);
             const eventType = message.event;
             const eventData = message.data || {};
+            const hasConversationId =
+                eventData &&
+                (typeof eventData.conversation_id === 'string' ||
+                    typeof eventData.conversation_id === 'number');
 
             switch (eventType) {
                 case 'message_new':
@@ -118,9 +123,17 @@ class InboxWebSocket {
                     this._emitEvent('inbox-user-typing', eventData);
                     break;
                 case 'agent_notification':
+                    if (!hasConversationId) {
+                        console.warn('[InboxWS] agent_notification missing conversation_id', eventData);
+                        break;
+                    }
                     this._emitEvent('inbox-agent-notification', eventData);
                     break;
                 case 'inbox_updated':
+                    if (!hasConversationId) {
+                        console.warn('[InboxWS] inbox_updated missing conversation_id', eventData);
+                        break;
+                    }
                     this._emitEvent('inbox-list-refresh', eventData);
                     break;
                 case 'connection_ack':

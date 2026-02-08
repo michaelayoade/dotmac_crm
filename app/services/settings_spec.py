@@ -1160,6 +1160,108 @@ SETTINGS_SPECS: list[SettingSpec] = [
         allowed={"low", "normal", "high", "urgent"},
     ),
     SettingSpec(
+        domain=SettingDomain.numbering,
+        key="ticket_number_enabled",
+        env_var="NUMBERING_TICKET_NUMBER_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+        label="Enable Ticket Numbers",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="ticket_number_prefix",
+        env_var="NUMBERING_TICKET_NUMBER_PREFIX",
+        value_type=SettingValueType.string,
+        default="",
+        label="Ticket Number Prefix",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="ticket_number_padding",
+        env_var="NUMBERING_TICKET_NUMBER_PADDING",
+        value_type=SettingValueType.integer,
+        default=0,
+        min_value=0,
+        label="Ticket Number Padding",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="ticket_number_start",
+        env_var="NUMBERING_TICKET_NUMBER_START",
+        value_type=SettingValueType.integer,
+        default=1,
+        min_value=1,
+        label="Ticket Number Start",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="project_number_enabled",
+        env_var="NUMBERING_PROJECT_NUMBER_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+        label="Enable Project Numbers",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="project_number_prefix",
+        env_var="NUMBERING_PROJECT_NUMBER_PREFIX",
+        value_type=SettingValueType.string,
+        default="",
+        label="Project Number Prefix",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="project_number_padding",
+        env_var="NUMBERING_PROJECT_NUMBER_PADDING",
+        value_type=SettingValueType.integer,
+        default=0,
+        min_value=0,
+        label="Project Number Padding",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="project_number_start",
+        env_var="NUMBERING_PROJECT_NUMBER_START",
+        value_type=SettingValueType.integer,
+        default=1,
+        min_value=1,
+        label="Project Number Start",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="project_task_number_enabled",
+        env_var="NUMBERING_PROJECT_TASK_NUMBER_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+        label="Enable Project Task Numbers",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="project_task_number_prefix",
+        env_var="NUMBERING_PROJECT_TASK_NUMBER_PREFIX",
+        value_type=SettingValueType.string,
+        default="",
+        label="Project Task Number Prefix",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="project_task_number_padding",
+        env_var="NUMBERING_PROJECT_TASK_NUMBER_PADDING",
+        value_type=SettingValueType.integer,
+        default=0,
+        min_value=0,
+        label="Project Task Number Padding",
+    ),
+    SettingSpec(
+        domain=SettingDomain.numbering,
+        key="project_task_number_start",
+        env_var="NUMBERING_PROJECT_TASK_NUMBER_START",
+        value_type=SettingValueType.integer,
+        default=1,
+        min_value=1,
+        label="Project Task Number Start",
+    ),
+    SettingSpec(
         domain=SettingDomain.projects,
         key="chart_config",
         env_var="PROJECTS_CHART_CONFIG",
@@ -1548,6 +1650,29 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.comms,
+        key="whatsapp_app_id",
+        env_var="WHATSAPP_APP_ID",
+        value_type=SettingValueType.string,
+        default=None,
+    ),
+    SettingSpec(
+        domain=SettingDomain.comms,
+        key="whatsapp_app_secret",
+        env_var="WHATSAPP_APP_SECRET",
+        value_type=SettingValueType.string,
+        default=None,
+        is_secret=True,
+    ),
+    SettingSpec(
+        domain=SettingDomain.comms,
+        key="whatsapp_webhook_verify_token",
+        env_var="WHATSAPP_WEBHOOK_VERIFY_TOKEN",
+        value_type=SettingValueType.string,
+        default=None,
+        is_secret=True,
+    ),
+    SettingSpec(
+        domain=SettingDomain.comms,
         key="meta_graph_api_version",
         env_var="META_GRAPH_API_VERSION",
         value_type=SettingValueType.string,
@@ -1589,22 +1714,30 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.comms,
+        key="brand_color",
+        env_var=None,
+        value_type=SettingValueType.string,
+        default="#0f172a",
+        label="Brand Color",
+    ),
+    SettingSpec(
+        domain=SettingDomain.comms,
         key="ticket_types",
         env_var=None,
         value_type=SettingValueType.json,
         default=[
             {"name": "BTS Core Link Trace", "priority": "high", "is_active": True},
-            {"name": "PressOne Failure", "priority": "normal", "is_active": True},
+            {"name": "PressOne Failure", "priority": "medium", "is_active": True},
             {"name": "Backup/Restore Failure", "priority": "high", "is_active": True},
             {"name": "DNS/Domain Issue", "priority": "high", "is_active": True},
             {"name": "Mailcow Mail Service Down", "priority": "high", "is_active": True},
             {"name": "Dell Server Down", "priority": "high", "is_active": True},
             {"name": "Splynx Server Issue", "priority": "high", "is_active": True},
-            {"name": "Proxmox Node Failure", "priority": "normal", "is_active": True},
+            {"name": "Proxmox Node Failure", "priority": "medium", "is_active": True},
             {"name": "Nextcloud Service Down", "priority": "high", "is_active": True},
             {"name": "ERPNext Outage", "priority": None, "is_active": True},
             {"name": "Chatwoot Downtime", "priority": "high", "is_active": True},
-            {"name": "Multiple Customer Link Disconnection", "priority": "normal", "is_active": True},
+            {"name": "Multiple Customer Link Disconnection", "priority": "medium", "is_active": True},
             {"name": "GPON/OLT Timeout", "priority": "urgent", "is_active": True},
             {"name": "Angola Cable", "priority": None, "is_active": True},
             {"name": "Cedar View", "priority": None, "is_active": True},
@@ -1614,24 +1747,24 @@ SETTINGS_SPECS: list[SettingSpec] = [
             {"name": "Smart OLT", "priority": None, "is_active": True},
             {"name": "Router Configuration", "priority": "high", "is_active": True},
             {"name": "Bandwidth Complaint", "priority": "urgent", "is_active": True},
-            {"name": "Cabinet Migration", "priority": "normal", "is_active": True},
+            {"name": "Cabinet Migration", "priority": "medium", "is_active": True},
             {"name": "Multiple Cabinet Disconnection", "priority": "urgent", "is_active": True},
             {"name": "Core Link Disconnection", "priority": "high", "is_active": True},
-            {"name": "Billing Issues", "priority": "low", "is_active": True},
+            {"name": "Billing Issues", "priority": "lower", "is_active": True},
             {"name": "BTS Intermittent Connectivity", "priority": "high", "is_active": True},
             {"name": "Power Optimization", "priority": "low", "is_active": True},
-            {"name": "PPPOE Authentication", "priority": "low", "is_active": True},
-            {"name": "IP Authentication", "priority": "low", "is_active": True},
+            {"name": "PPPOE Authentication", "priority": "lower", "is_active": True},
+            {"name": "IP Authentication", "priority": "lower", "is_active": True},
             {"name": "AP/Air Fiber Realignment", "priority": "high", "is_active": True},
             {"name": "AP/Air Fiber Outage", "priority": "high", "is_active": True},
             {"name": "BTS Outage", "priority": "high", "is_active": True},
             {"name": "Cabinet Disconnection", "priority": "urgent", "is_active": True},
-            {"name": "Customer Link Disconection", "priority": "normal", "is_active": True},
+            {"name": "Customer Link Disconnection", "priority": "medium", "is_active": True},
             {"name": "Call Down Support", "priority": "low", "is_active": True},
-            {"name": "Slow Browsing/Intermittent Connectivity", "priority": "low", "is_active": True},
-            {"name": "Router Troubleshooting", "priority": "normal", "is_active": True},
-            {"name": "Customer Realignment", "priority": "normal", "is_active": True},
-            {"name": "LAN Troubleshooting", "priority": "normal", "is_active": True},
+            {"name": "Slow Browsing/Intermittent Connectivity", "priority": "lower", "is_active": True},
+            {"name": "Router Troubleshooting", "priority": "medium", "is_active": True},
+            {"name": "Customer Realignment", "priority": "medium", "is_active": True},
+            {"name": "LAN Troubleshooting", "priority": "medium", "is_active": True},
         ],
         label="Ticket Type Settings",
     ),
@@ -2033,6 +2166,7 @@ DOMAIN_SETTINGS_SERVICE = {
     SettingDomain.gis: settings_service.gis_settings,
     SettingDomain.scheduler: settings_service.scheduler_settings,
     SettingDomain.integration: settings_service.integration_settings,
+    SettingDomain.numbering: settings_service.numbering_settings,
 }
 
 
@@ -2047,19 +2181,27 @@ def list_specs(domain: SettingDomain) -> list[SettingSpec]:
     return [spec for spec in SETTINGS_SPECS if spec.domain == domain]
 
 
-def resolve_value(db, domain: SettingDomain, key: str) -> object | None:
+def resolve_value(
+    db,
+    domain: SettingDomain,
+    key: str,
+    *,
+    use_cache: bool = True,
+) -> object | None:
     """Resolve a setting value with Redis caching.
 
-    Checks Redis cache first, falls back to database query, then caches result.
+    Checks Redis cache first (unless use_cache=False), falls back to database query,
+    then caches result.
     """
     spec = get_spec(domain, key)
     if not spec:
         return None
 
     # 1. Check cache first
-    cached = SettingsCache.get(domain.value, key)
-    if cached is not None:
-        return cached
+    if use_cache:
+        cached = SettingsCache.get(domain.value, key)
+        if cached is not None:
+            return cached
 
     # 2. Query database
     service = DOMAIN_SETTINGS_SERVICE.get(domain)

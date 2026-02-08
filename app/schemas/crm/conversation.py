@@ -89,6 +89,7 @@ class MessageBase(BaseModel):
     conversation_id: UUID
     person_channel_id: UUID | None = None
     channel_target_id: UUID | None = None
+    reply_to_message_id: UUID | None = None
     channel_type: ChannelType
     direction: MessageDirection
     status: MessageStatus = MessageStatus.received
@@ -113,6 +114,7 @@ class MessageUpdate(BaseModel):
     sent_at: datetime | None = None
     received_at: datetime | None = None
     read_at: datetime | None = None
+    reply_to_message_id: UUID | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 

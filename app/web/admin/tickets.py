@@ -2,13 +2,14 @@
 
 import json
 import re
+from math import ceil
 from datetime import UTC
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
@@ -18,12 +19,16 @@ from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
+from app.queries.tickets import TicketQuery
 from app.services import audit as audit_service
 from app.services import settings_spec
 from app.services import tickets as tickets_service
 from app.services.audit_helpers import diff_dicts, extract_changes, format_changes, log_audit_event, model_to_dict
 from app.services.common import coerce_uuid
 from app.services.subscriber import subscriber as subscriber_service
+from app.logging import get_logger
+
+logger = get_logger(__name__)
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/support", tags=["web-admin-support"])
@@ -62,11 +67,11 @@ def _load_ticket_types(db: Session) -> tuple[list[dict], dict[str, str]]:
     priority_map: dict[str, str] = {}
     priority_normalizer = {
         "high": "high",
-        "medium": "normal",
+        "medium": "medium",
         "normal": "normal",
         "urgent": "urgent",
         "low": "low",
-        "lower": "low",
+        "lower": "lower",
     }
     for item in raw:
         if not isinstance(item, dict):
@@ -93,6 +98,21 @@ def _coerce_uuid_optional(value: str | None, label: str) -> UUID | None:
         return coerce_uuid(value)
     except Exception as exc:
         raise ValueError(f"Invalid {label}.") from exc
+
+
+def _resolve_ticket_reference(db: Session, ticket_ref: str) -> tuple[Ticket, bool]:
+    if not ticket_ref:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = db.query(Ticket).filter(Ticket.number == ticket_ref).first()
+    if ticket:
+        return ticket, False
+    try:
+        ticket_uuid = coerce_uuid(ticket_ref)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Ticket not found") from exc
+    ticket = tickets_service.tickets.get(db=db, ticket_id=str(ticket_uuid))
+    should_redirect = bool(ticket.number)
+    return ticket, should_redirect
 
 
 def _log_activity(
@@ -293,6 +313,7 @@ def tickets_list(
     status: str | None = None,
     priority: str | None = None,
     channel: str | None = None,
+    assigned: str | None = None,
     subscriber: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
@@ -301,39 +322,19 @@ def tickets_list(
     """List all tickets with filters."""
     offset = (page - 1) * per_page
 
-    def _filter_tickets(query):
-        if status:
-            query = query.filter(Ticket.status == _validate_enum(status, TicketStatus, "status"))
-        if priority:
-            query = query.filter(Ticket.priority == _validate_enum(priority, TicketPriority, "priority"))
-        if channel:
-            query = query.filter(Ticket.channel == _validate_enum(channel, TicketChannel, "channel"))
-        if search:
-            like_term = f"%{search.strip()}%"
-            if like_term != "%%":
-                search_filters = [
-                    Ticket.title.ilike(like_term),
-                    Ticket.description.ilike(like_term),
-                    cast(Ticket.id, String).ilike(like_term),
-                ]
-                ticket_number_attr = getattr(Ticket, "ticket_number", None)
-                if ticket_number_attr is not None:
-                    search_filters.append(ticket_number_attr.ilike(like_term))
-                query = query.filter(or_(*search_filters))
-        query = query.filter(Ticket.is_active.is_(True))
-        return query.order_by(Ticket.created_at.desc())
-
-    def _validate_enum(value, enum_cls, label):
-        if value is None:
-            return None
-        try:
-            return enum_cls(value)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid {label}") from exc
-
     subscriber_display = None
     subscriber_url = None
 
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    sidebar_stats = get_sidebar_stats(db)
+    current_user = get_current_user(request)
+    assigned_to_person_id = None
+    if assigned == "me":
+        assigned_to_person_id = current_user.get("person_id") if current_user else None
+
+    subscriber_id = None
+    subscriber_missing = False
     if subscriber:
         try:
             subscriber_id = coerce_uuid(subscriber)
@@ -343,34 +344,36 @@ def tickets_list(
         if subscriber_obj:
             subscriber_display = subscriber_obj.display_name or "Subscriber"
             subscriber_url = f"/admin/subscribers/{subscriber_obj.id}"
-            base_query = db.query(Ticket).filter(Ticket.subscriber_id == subscriber_obj.id)
-            tickets = _filter_tickets(base_query).limit(per_page).offset(offset).all()
         else:
-            tickets = []
+            subscriber_missing = True
+
+    if subscriber_missing:
+        tickets = []
+        total = 0
+        total_pages = 1
     else:
-        tickets = tickets_service.tickets.list(
-            db=db,
-            subscriber_id=None,
-            status=status if status else None,
-            priority=priority if priority else None,
-            channel=channel if channel else None,
-            search=search if search else None,
-            created_by_person_id=None,
-            assigned_to_person_id=None,
-            is_active=None,
-            order_by="created_at",
-            order_dir="desc",
-            limit=per_page,
-            offset=offset,
+        base_query = (
+            TicketQuery(db)
+            .by_subscriber(subscriber_id)
+            .by_status(status if status else None)
+            .by_priority(priority if priority else None)
+            .by_channel(channel if channel else None)
+            .search(search if search else None)
+            .by_assigned_to(assigned_to_person_id)
+            .active_only()
+        )
+        total = base_query.count()
+        total_pages = max(1, ceil(total / per_page)) if per_page else 1
+
+        tickets = (
+            base_query.with_relations()
+            .order_by("created_at", "desc")
+            .paginate(per_page, offset)
+            .all()
         )
 
     # Get stats by status
     stats = tickets_service.tickets.status_stats(db)
-
-    from app.web.admin import get_current_user, get_sidebar_stats
-
-    sidebar_stats = get_sidebar_stats(db)
-    current_user = get_current_user(request)
 
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
@@ -382,11 +385,14 @@ def tickets_list(
                 "status": status,
                 "priority": priority,
                 "channel": channel,
+                "assigned": assigned,
                 "subscriber": subscriber,
                 "subscriber_display": subscriber_display,
                 "subscriber_url": subscriber_url,
                 "page": page,
                 "per_page": per_page,
+                "total": total,
+                "total_pages": total_pages,
             },
         )
 
@@ -400,11 +406,14 @@ def tickets_list(
             "status": status,
             "priority": priority,
             "channel": channel,
+            "assigned": assigned,
             "subscriber": subscriber,
             "subscriber_display": subscriber_display,
             "subscriber_url": subscriber_url,
             "page": page,
             "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
             "current_user": current_user,
             "sidebar_stats": sidebar_stats,
             "active_page": "tickets",
@@ -557,8 +566,78 @@ def ticket_create(
     )
 
 
+@router.get("/tickets/lookup", response_class=JSONResponse)
+def ticket_customer_lookup(
+    request: Request,
+    db: Session = Depends(get_db),
+    customer_person_id: str | None = Query(default=None),
+    subscriber_id: str | None = Query(default=None),
+):
+    _ = request
+
+    def _format_person_address(person: Person | None) -> str | None:
+        if not person:
+            return None
+        parts = [
+            person.address_line1,
+            person.address_line2,
+            person.city,
+            person.region,
+            person.postal_code,
+            person.country_code,
+        ]
+        return ", ".join([p for p in parts if p]) or None
+
+    customer = None
+    subscriber = None
+
+    person = None
+    if customer_person_id:
+        try:
+            person = db.get(Person, coerce_uuid(customer_person_id))
+        except Exception:
+            person = None
+
+    if subscriber_id:
+        try:
+            subscriber = db.get(Subscriber, coerce_uuid(subscriber_id))
+        except Exception:
+            subscriber = None
+        if subscriber and not person and subscriber.person_id:
+            person = db.get(Person, subscriber.person_id)
+
+    if person:
+        name = person.display_name or f"{person.first_name} {person.last_name}".strip()
+        customer = {
+            "id": str(person.id),
+            "name": name or person.email,
+            "email": person.email,
+            "phone": person.phone,
+            "address": _format_person_address(person),
+            "organization": person.organization.name if person.organization else None,
+        }
+
+    if subscriber:
+        subscriber = {
+            "id": str(subscriber.id),
+            "subscriber_number": subscriber.subscriber_number,
+            "account_number": subscriber.account_number,
+            "status": subscriber.status.value if subscriber.status else None,
+            "service_plan": subscriber.service_plan,
+            "service_speed": subscriber.service_speed,
+            "service_address": subscriber.service_address,
+        }
+
+    return JSONResponse(
+        {
+            "customer": customer,
+            "subscriber": subscriber,
+        }
+    )
+
+
 @router.post("/tickets", response_class=HTMLResponse)
-def ticket_create_post(
+async def ticket_create_post(
     request: Request,
     title: str = Form(...),
     description: str | None = Form(None),
@@ -591,12 +670,37 @@ def ticket_create_post(
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
     try:
-        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
+        upload_list: list[UploadFile] = []
+        if attachments:
+            upload_list = attachments if isinstance(attachments, list) else [attachments]
+        else:
+            try:
+                form = await request.form()
+                upload_list = [
+                    item for item in form.getlist("attachments") if isinstance(item, UploadFile)
+                ]
+            except Exception:
+                upload_list = []
+        if upload_list:
+            try:
+                upload_names = []
+                for item in upload_list:
+                    name = getattr(item, "filename", None)
+                    ctype = getattr(item, "content_type", None)
+                    if name:
+                        upload_names.append(f"{name} ({ctype})")
+                logger.info("ticket_create_uploads count=%s files=%s", len(upload_names), upload_names)
+            except Exception:
+                logger.info("ticket_create_uploads parse_error")
+        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
+        logger.info("ticket_create_saved_attachments count=%s", len(saved_attachments))
 
         # Parse enums
         priority_map = {
+            "lower": TicketPriority.lower,
             "low": TicketPriority.low,
+            "medium": TicketPriority.medium,
             "normal": TicketPriority.normal,
             "high": TicketPriority.high,
             "urgent": TicketPriority.urgent,
@@ -612,6 +716,9 @@ def ticket_create_post(
             "new": TicketStatus.new,
             "open": TicketStatus.open,
             "pending": TicketStatus.pending,
+            "waiting_on_customer": TicketStatus.waiting_on_customer,
+            "lastmile_rerun": TicketStatus.lastmile_rerun,
+            "site_under_construction": TicketStatus.site_under_construction,
             "on_hold": TicketStatus.on_hold,
             "resolved": TicketStatus.resolved,
             "closed": TicketStatus.closed,
@@ -646,7 +753,7 @@ def ticket_create_post(
             customer_person_id=resolved_customer_person_id,
             assigned_to_person_id=_coerce_uuid_optional(assigned_to_person_id, "technician"),
             created_by_person_id=_coerce_uuid_optional(current_user.get("person_id") if current_user else None, "user"),
-            priority=priority_map.get(priority, TicketPriority.normal),
+            priority=priority_map.get(priority, TicketPriority.medium),
             ticket_type=ticket_type.strip() if ticket_type else None,
             channel=channel_map.get(channel, TicketChannel.web),
             status=status_map.get(status, TicketStatus.new),
@@ -720,10 +827,10 @@ def ticket_create_post(
         )
 
 
-@router.get("/tickets/{ticket_id}/edit", response_class=HTMLResponse)
+@router.get("/tickets/{ticket_ref}/edit", response_class=HTMLResponse)
 def ticket_edit(
     request: Request,
-    ticket_id: str,
+    ticket_ref: str,
     db: Session = Depends(get_db),
 ):
     """Edit support ticket form."""
@@ -732,7 +839,12 @@ def ticket_edit(
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
-        ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
+        ticket, should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        if should_redirect:
+            return RedirectResponse(
+                url=f"/admin/support/tickets/{ticket.number}/edit",
+                status_code=302,
+            )
     except Exception:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -773,7 +885,7 @@ def ticket_edit(
             "technicians": technicians,
             "ticket_types": ticket_types,
             "ticket_type_priority_map": ticket_type_priority_map,
-            "action_url": f"/admin/support/tickets/{ticket_id}/edit",
+            "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
             "active_page": "tickets",
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
@@ -781,10 +893,10 @@ def ticket_edit(
     )
 
 
-@router.post("/tickets/{ticket_id}/edit", response_class=HTMLResponse)
-def ticket_edit_post(
+@router.post("/tickets/{ticket_ref}/edit", response_class=HTMLResponse)
+async def ticket_edit_post(
     request: Request,
-    ticket_id: str,
+    ticket_ref: str,
     title: str = Form(...),
     description: str | None = Form(None),
     subscriber_id: str | None = Form(None),
@@ -814,7 +926,7 @@ def ticket_edit_post(
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
     try:
-        ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
+        ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
     except Exception:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -844,11 +956,25 @@ def ticket_edit_post(
             },
         )
 
-        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
+        upload_list: list[UploadFile] = []
+        if attachments:
+            upload_list = attachments if isinstance(attachments, list) else [attachments]
+        else:
+            try:
+                form = await request.form()
+                upload_list = [
+                    item for item in form.getlist("attachments") if isinstance(item, UploadFile)
+                ]
+            except Exception:
+                upload_list = []
+
+        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
 
         priority_map = {
+            "lower": TicketPriority.lower,
             "low": TicketPriority.low,
+            "medium": TicketPriority.medium,
             "normal": TicketPriority.normal,
             "high": TicketPriority.high,
             "urgent": TicketPriority.urgent,
@@ -864,6 +990,9 @@ def ticket_edit_post(
             "new": TicketStatus.new,
             "open": TicketStatus.open,
             "pending": TicketStatus.pending,
+            "waiting_on_customer": TicketStatus.waiting_on_customer,
+            "lastmile_rerun": TicketStatus.lastmile_rerun,
+            "site_under_construction": TicketStatus.site_under_construction,
             "on_hold": TicketStatus.on_hold,
             "resolved": TicketStatus.resolved,
             "closed": TicketStatus.closed,
@@ -924,8 +1053,8 @@ def ticket_edit_post(
             update_data["metadata_"] = metadata_update
 
         payload = TicketUpdate(**update_data)
-        tickets_service.tickets.update(db=db, ticket_id=ticket_id, payload=payload)
-        updated_ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
+        tickets_service.tickets.update(db=db, ticket_id=str(ticket.id), payload=payload)
+        updated_ticket = tickets_service.tickets.get(db=db, ticket_id=str(ticket.id))
         after_state = model_to_dict(
             updated_ticket,
             include={
@@ -954,11 +1083,11 @@ def ticket_edit_post(
             request=request,
             action="update",
             entity_type="ticket",
-            entity_id=str(ticket_id),
+            entity_id=str(ticket.id),
             actor_id=str(current_user.get("person_id")) if current_user else None,
             metadata=metadata_payload,
         )
-        return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
         accounts: list[dict[str, str]] = []  # subscriber_service removed
@@ -993,25 +1122,30 @@ def ticket_edit_post(
                 "technicians": technicians,
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
-                "action_url": f"/admin/support/tickets/{ticket_id}/edit",
-                "error": str(e),
-                "active_page": "tickets",
-                "current_user": get_current_user(request),
-                "sidebar_stats": get_sidebar_stats(db),
+            "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
+            "error": str(e),
+            "active_page": "tickets",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
             },
             status_code=400,
         )
 
 
-@router.get("/tickets/{ticket_id}", response_class=HTMLResponse)
+@router.get("/tickets/{ticket_ref}", response_class=HTMLResponse)
 def ticket_detail(
     request: Request,
-    ticket_id: str,
+    ticket_ref: str,
     db: Session = Depends(get_db),
 ):
     """View ticket details."""
     try:
-        ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
+        ticket, should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        if should_redirect:
+            return RedirectResponse(
+                url=f"/admin/support/tickets/{ticket.number}",
+                status_code=302,
+            )
     except Exception:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -1022,7 +1156,7 @@ def ticket_detail(
     # Get comments for this ticket
     comments = tickets_service.ticket_comments.list(
         db=db,
-        ticket_id=ticket_id,
+        ticket_id=str(ticket.id),
         is_internal=None,  # Show both internal and external comments
         order_by="created_at",
         order_dir="asc",
@@ -1038,7 +1172,7 @@ def ticket_detail(
         actor_type=None,
         action=None,
         entity_type="ticket",
-        entity_id=str(ticket_id),
+        entity_id=str(ticket.id),
         request_id=None,
         is_success=None,
         status_code=None,
@@ -1061,6 +1195,64 @@ def ticket_detail(
     except Exception:
         pass  # ERP sync not configured or failed
 
+    ticket_attachments = []
+    try:
+        metadata = ticket.metadata_ if isinstance(ticket.metadata_, dict) else {}
+        attachments = metadata.get("attachments")
+        if isinstance(attachments, list):
+            ticket_attachments = attachments
+    except Exception:
+        ticket_attachments = []
+
+    def _format_person_address(person: Person | None) -> str | None:
+        if not person:
+            return None
+        parts = [
+            person.address_line1,
+            person.address_line2,
+            person.city,
+            person.region,
+            person.postal_code,
+            person.country_code,
+        ]
+        return ", ".join([p for p in parts if p]) or None
+
+    customer_details = None
+    subscriber_details = None
+    try:
+        person = ticket.customer if getattr(ticket, "customer", None) else None
+        if not person and ticket.customer_person_id:
+            person = db.get(Person, ticket.customer_person_id)
+        if person:
+            name = person.display_name or f"{person.first_name} {person.last_name}".strip()
+            customer_details = {
+                "id": str(person.id),
+                "name": name or person.email,
+                "email": person.email,
+                "phone": person.phone,
+                "address": _format_person_address(person),
+                "organization": person.organization.name if person.organization else None,
+            }
+    except Exception:
+        customer_details = None
+
+    try:
+        subscriber = ticket.subscriber if getattr(ticket, "subscriber", None) else None
+        if not subscriber and ticket.subscriber_id:
+            subscriber = db.get(Subscriber, ticket.subscriber_id)
+        if subscriber:
+            subscriber_details = {
+                "id": str(subscriber.id),
+                "subscriber_number": subscriber.subscriber_number,
+                "account_number": subscriber.account_number,
+                "status": subscriber.status.value if subscriber.status else None,
+                "service_plan": subscriber.service_plan,
+                "service_speed": subscriber.service_speed,
+                "service_address": subscriber.service_address,
+            }
+    except Exception:
+        subscriber_details = None
+
     return templates.TemplateResponse(
         "admin/tickets/detail.html",
         {
@@ -1069,6 +1261,9 @@ def ticket_detail(
             "comments": comments,
             "activities": activities,
             "expense_totals": expense_totals,
+            "ticket_attachments": ticket_attachments,
+            "customer_details": customer_details,
+            "subscriber_details": subscriber_details,
             "current_user": current_user,
             "sidebar_stats": sidebar_stats,
             "active_page": "tickets",
@@ -1076,17 +1271,17 @@ def ticket_detail(
     )
 
 
-@router.post("/tickets/{ticket_id}/delete", response_class=HTMLResponse)
+@router.post("/tickets/{ticket_ref}/delete", response_class=HTMLResponse)
 def ticket_delete(
     request: Request,
-    ticket_id: str,
+    ticket_ref: str,
     db: Session = Depends(get_db),
 ):
     """Soft-delete a ticket (is_active = False)."""
     from app.web.admin import get_current_user
 
     try:
-        ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
+        ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
     except Exception:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -1094,14 +1289,14 @@ def ticket_delete(
             status_code=404,
         )
 
-    tickets_service.tickets.delete(db=db, ticket_id=ticket_id)
+    tickets_service.tickets.delete(db=db, ticket_id=str(ticket.id))
     current_user = get_current_user(request)
     _log_activity(
         db=db,
         request=request,
         action="delete",
         entity_type="ticket",
-        entity_id=str(ticket_id),
+        entity_id=str(ticket.id),
         actor_id=str(current_user.get("person_id")) if current_user else None,
         metadata={"title": ticket.title},
     )
@@ -1111,10 +1306,10 @@ def ticket_delete(
     return RedirectResponse(url="/admin/support/tickets", status_code=303)
 
 
-@router.post("/tickets/{ticket_id}/status", response_class=HTMLResponse)
+@router.post("/tickets/{ticket_ref}/status", response_class=HTMLResponse)
 def update_ticket_status(
     request: Request,
-    ticket_id: str,
+    ticket_ref: str,
     status: str = Form(...),
     db: Session = Depends(get_db),
 ):
@@ -1130,33 +1325,39 @@ def update_ticket_status(
             "new": TicketStatus.new,
             "open": TicketStatus.open,
             "pending": TicketStatus.pending,
+            "waiting_on_customer": TicketStatus.waiting_on_customer,
+            "lastmile_rerun": TicketStatus.lastmile_rerun,
+            "site_under_construction": TicketStatus.site_under_construction,
             "on_hold": TicketStatus.on_hold,
             "resolved": TicketStatus.resolved,
             "closed": TicketStatus.closed,
             "canceled": TicketStatus.canceled,
         }
         new_status = status_map.get(status, TicketStatus.open)
-        ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
+        ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
         old_status = ticket.status.value if ticket.status else None
 
         resolved_at = datetime.now(UTC) if status == "resolved" else None
         closed_at = datetime.now(UTC) if status == "closed" else None
         payload = TicketUpdate(status=new_status, resolved_at=resolved_at, closed_at=closed_at)
-        tickets_service.tickets.update(db=db, ticket_id=ticket_id, payload=payload)
+        tickets_service.tickets.update(db=db, ticket_id=str(ticket.id), payload=payload)
         current_user = get_current_user(request)
         _log_activity(
             db=db,
             request=request,
             action="status_change",
             entity_type="ticket",
-            entity_id=str(ticket_id),
+            entity_id=str(ticket.id),
             actor_id=str(current_user.get("person_id")) if current_user else None,
             metadata={"from": old_status, "to": new_status.value if new_status else None},
         )
 
         if request.headers.get("HX-Request"):
-            return HTMLResponse(content="", headers={"HX-Redirect": f"/admin/support/tickets/{ticket_id}"})
-        return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
+            return HTMLResponse(
+                content="",
+                headers={"HX-Redirect": f"/admin/support/tickets/{ticket.number or ticket.id}"},
+            )
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
     except Exception as e:
         from app.web.admin import get_current_user, get_sidebar_stats
 
@@ -1169,10 +1370,10 @@ def update_ticket_status(
         )
 
 
-@router.post("/tickets/{ticket_id}/priority", response_class=HTMLResponse)
+@router.post("/tickets/{ticket_ref}/priority", response_class=HTMLResponse)
 def update_ticket_priority(
     request: Request,
-    ticket_id: str,
+    ticket_ref: str,
     priority: str = Form(...),
     db: Session = Depends(get_db),
 ):
@@ -1183,31 +1384,36 @@ def update_ticket_priority(
 
     try:
         priority_map = {
+            "lower": TicketPriority.lower,
             "low": TicketPriority.low,
+            "medium": TicketPriority.medium,
             "normal": TicketPriority.normal,
             "high": TicketPriority.high,
             "urgent": TicketPriority.urgent,
         }
-        new_priority = priority_map.get(priority, TicketPriority.normal)
-        ticket = tickets_service.tickets.get(db=db, ticket_id=ticket_id)
+        new_priority = priority_map.get(priority, TicketPriority.medium)
+        ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
         old_priority = ticket.priority.value if ticket.priority else None
 
         payload = TicketUpdate(priority=new_priority)
-        tickets_service.tickets.update(db=db, ticket_id=ticket_id, payload=payload)
+        tickets_service.tickets.update(db=db, ticket_id=str(ticket.id), payload=payload)
         current_user = get_current_user(request)
         _log_activity(
             db=db,
             request=request,
             action="priority_change",
             entity_type="ticket",
-            entity_id=str(ticket_id),
+            entity_id=str(ticket.id),
             actor_id=str(current_user.get("person_id")) if current_user else None,
             metadata={"from": old_priority, "to": new_priority.value if new_priority else None},
         )
 
         if request.headers.get("HX-Request"):
-            return HTMLResponse(content="", headers={"HX-Redirect": f"/admin/support/tickets/{ticket_id}"})
-        return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
+            return HTMLResponse(
+                content="",
+                headers={"HX-Redirect": f"/admin/support/tickets/{ticket.number or ticket.id}"},
+            )
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
     except Exception as e:
         from app.web.admin import get_current_user, get_sidebar_stats
 
@@ -1220,10 +1426,10 @@ def update_ticket_priority(
         )
 
 
-@router.post("/tickets/{ticket_id}/comments", response_class=HTMLResponse)
-def add_ticket_comment(
+@router.post("/tickets/{ticket_ref}/comments", response_class=HTMLResponse)
+async def add_ticket_comment(
     request: Request,
-    ticket_id: str,
+    ticket_ref: str,
     body: str = Form(...),
     is_internal: str | None = Form(None),
     attachments: UploadFile | list[UploadFile] | None = File(None),
@@ -1238,10 +1444,23 @@ def add_ticket_comment(
 
     prepared_attachments: list[dict] = []
     try:
-        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
+        upload_list: list[UploadFile] = []
+        if attachments:
+            upload_list = attachments if isinstance(attachments, list) else [attachments]
+        else:
+            try:
+                form = await request.form()
+                upload_list = [
+                    item for item in form.getlist("attachments") if isinstance(item, UploadFile)
+                ]
+            except Exception:
+                upload_list = []
+
+        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
+        ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
         payload = TicketCommentCreate(
-            ticket_id=UUID(ticket_id),
+            ticket_id=UUID(str(ticket.id)),
             body=body,
             is_internal=is_internal == "true",
             attachments=saved_attachments or None,
@@ -1253,14 +1472,17 @@ def add_ticket_comment(
             request=request,
             action="comment",
             entity_type="ticket",
-            entity_id=str(ticket_id),
+            entity_id=str(ticket.id),
             actor_id=str(current_user.get("person_id")) if current_user else None,
             metadata={"internal": is_internal == "true"},
         )
 
         if request.headers.get("HX-Request"):
-            return HTMLResponse(content="", headers={"HX-Redirect": f"/admin/support/tickets/{ticket_id}"})
-        return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
+            return HTMLResponse(
+                content="",
+                headers={"HX-Redirect": f"/admin/support/tickets/{ticket.number or ticket.id}"},
+            )
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
         from app.web.admin import get_current_user, get_sidebar_stats
@@ -1274,10 +1496,10 @@ def add_ticket_comment(
         )
 
 
-@router.post("/tickets/{ticket_id}/comments/{comment_id}/edit", response_class=HTMLResponse)
+@router.post("/tickets/{ticket_ref}/comments/{comment_id}/edit", response_class=HTMLResponse)
 def edit_ticket_comment(
     request: Request,
-    ticket_id: str,
+    ticket_ref: str,
     comment_id: str,
     body: str = Form(...),
     db: Session = Depends(get_db),
@@ -1288,11 +1510,12 @@ def edit_ticket_comment(
 
     body_clean = (body or "").strip()
     if not body_clean:
-        return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket_ref}", status_code=303)
 
     try:
+        ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
         comment = tickets_service.ticket_comments.get(db=db, comment_id=comment_id)
-        if str(comment.ticket_id) != str(ticket_id):
+        if str(comment.ticket_id) != str(ticket.id):
             return templates.TemplateResponse(
                 "admin/errors/404.html",
                 {"request": request, "message": "Comment not found"},
@@ -1307,13 +1530,16 @@ def edit_ticket_comment(
             request=request,
             action="comment_edit",
             entity_type="ticket",
-            entity_id=str(ticket_id),
+            entity_id=str(ticket.id),
             actor_id=str(current_user.get("person_id")) if current_user else None,
         )
 
         if request.headers.get("HX-Request"):
-            return HTMLResponse(content="", headers={"HX-Redirect": f"/admin/support/tickets/{ticket_id}"})
-        return RedirectResponse(url=f"/admin/support/tickets/{ticket_id}", status_code=303)
+            return HTMLResponse(
+                content="",
+                headers={"HX-Redirect": f"/admin/support/tickets/{ticket.number or ticket.id}"},
+            )
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
     except Exception as e:
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)

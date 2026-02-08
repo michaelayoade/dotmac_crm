@@ -14,6 +14,12 @@ class ContactBase(BaseModel):
     display_name: str | None = Field(default=None, max_length=160)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=40)
+    address_line1: str | None = Field(default=None, max_length=120)
+    address_line2: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=80)
+    region: str | None = Field(default=None, max_length=80)
+    postal_code: str | None = Field(default=None, max_length=20)
+    country_code: str | None = Field(default=None, max_length=2)
     organization_id: UUID | None = None
     party_status: PartyStatusEnum = PartyStatusEnum.contact
     is_active: bool = True
@@ -31,6 +37,12 @@ class ContactUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=160)
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=40)
+    address_line1: str | None = Field(default=None, max_length=120)
+    address_line2: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=80)
+    region: str | None = Field(default=None, max_length=80)
+    postal_code: str | None = Field(default=None, max_length=20)
+    country_code: str | None = Field(default=None, max_length=2)
     organization_id: UUID | None = None
     party_status: PartyStatusEnum | None = None
     is_active: bool | None = None

@@ -57,7 +57,13 @@ def prepare_ticket_attachments(files: UploadFile | list[UploadFile] | None) -> l
     for file in uploads:
         if not file.filename:
             continue
+        try:
+            file.file.seek(0)
+        except Exception:
+            pass
         content = file.file.read()
+        if content is None:
+            content = b""
         _validate_attachment(file, content)
         stored_name = f"{uuid.uuid4().hex}{Path(file.filename).suffix}"
         prepared.append(

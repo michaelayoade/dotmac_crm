@@ -138,7 +138,15 @@ class Organization(Base):
     )
 
     # Relationships
-    parent = relationship("Organization", remote_side=[id], backref="children")
+    parent: Mapped["Organization | None"] = relationship(
+        "Organization",
+        remote_side=[id],
+        back_populates="children",
+    )
+    children: Mapped[list["Organization"]] = relationship(
+        "Organization",
+        back_populates="parent",
+    )
     primary_contact = relationship("Person", foreign_keys=[primary_contact_id])
     owner = relationship("Person", foreign_keys=[owner_id])
     people = relationship("Person", back_populates="organization", foreign_keys="Person.organization_id")

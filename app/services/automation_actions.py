@@ -4,13 +4,19 @@ Executes configured actions against entities resolved from event context.
 Each action is wrapped in try/except for partial failure semantics.
 """
 
+import json
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.crm.conversation import Conversation, ConversationTag
+from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag
+from app.models.crm.enums import AgentPresenceStatus, ConversationStatus
+from app.models.crm.presence import AgentPresence
+from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.projects import Project
 from app.models.tickets import Ticket
@@ -88,6 +94,8 @@ def _dispatch_action(
     """Route to the appropriate action handler."""
     if action_type == "assign_conversation":
         _execute_assign_conversation(db, params, event)
+    elif action_type == "assign_conversation_auto":
+        _execute_assign_conversation_auto(db, params, event)
     elif action_type == "set_field":
         _execute_set_field(db, params, event)
     elif action_type == "add_tag":
@@ -143,6 +151,165 @@ def _execute_assign_conversation(db: Session, params: dict, event: Event) -> Non
         db,
         conversation_id=str(conversation.id),
         agent_id=str(agent_id),
+        team_id=str(team_id) if team_id else None,
+        assigned_by_id=str(assigned_by_id) if assigned_by_id else None,
+    )
+
+
+def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -> None:
+    """Assign a conversation to the best available online agent."""
+    conversation = _resolve_entity(db, "conversation", event)
+    if not conversation:
+        raise ValueError("Cannot resolve conversation from event context")
+
+    existing_assignment = (
+        db.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    if existing_assignment:
+        return
+
+    online_window_minutes = params.get("online_window_minutes", 60)
+    try:
+        online_window_minutes = int(online_window_minutes)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("online_window_minutes must be an integer") from exc
+    if online_window_minutes <= 0:
+        raise ValueError("online_window_minutes must be greater than 0")
+
+    max_assigned = params.get("max_assigned")
+    if max_assigned not in (None, "", "null"):
+        try:
+            max_assigned = int(max_assigned)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("max_assigned must be an integer") from exc
+        if max_assigned < 0:
+            raise ValueError("max_assigned must be 0 or greater")
+    else:
+        max_assigned = None
+
+    team_id = params.get("team_id")
+    if team_id:
+        try:
+            team_id = coerce_uuid(str(team_id))
+        except Exception as exc:
+            raise ValueError("team_id must be a valid UUID") from exc
+
+    assigned_by_id = params.get("assigned_by_id")
+    if assigned_by_id:
+        try:
+            assigned_by_id = coerce_uuid(str(assigned_by_id))
+        except Exception as exc:
+            raise ValueError("assigned_by_id must be a valid UUID") from exc
+
+    def _parse_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return []
+            if raw.startswith("[") and raw.endswith("]"):
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except Exception:
+                    pass
+            return [item.strip() for item in raw.split(",") if item.strip()]
+        return [str(value).strip()]
+
+    eligible_statuses_raw = _parse_list(params.get("eligible_statuses"))
+    if not eligible_statuses_raw:
+        eligible_statuses = [AgentPresenceStatus.online, AgentPresenceStatus.away]
+    else:
+        eligible_statuses = []
+        for status in eligible_statuses_raw:
+            if status not in {s.value for s in AgentPresenceStatus}:
+                raise ValueError(
+                    f"eligible_statuses contains invalid value '{status}'. "
+                    f"Allowed: {[s.value for s in AgentPresenceStatus]}"
+                )
+            eligible_statuses.append(AgentPresenceStatus(status))
+
+    load_statuses_raw = _parse_list(params.get("load_statuses"))
+    if not load_statuses_raw:
+        load_statuses = [
+            ConversationStatus.open,
+            ConversationStatus.pending,
+            ConversationStatus.snoozed,
+        ]
+    else:
+        load_statuses = []
+        for status in load_statuses_raw:
+            if status not in {s.value for s in ConversationStatus}:
+                raise ValueError(
+                    f"load_statuses contains invalid value '{status}'. "
+                    f"Allowed: {[s.value for s in ConversationStatus]}"
+                )
+            load_statuses.append(ConversationStatus(status))
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=online_window_minutes)
+
+    candidate_query = (
+        db.query(CrmAgent.id, CrmAgent.created_at)
+        .join(AgentPresence, AgentPresence.agent_id == CrmAgent.id)
+        .filter(CrmAgent.is_active.is_(True))
+        .filter(AgentPresence.status.in_(eligible_statuses))
+        .filter(AgentPresence.last_seen_at.isnot(None))
+        .filter(AgentPresence.last_seen_at >= cutoff)
+    )
+    if team_id:
+        candidate_query = candidate_query.join(
+            CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id
+        ).filter(
+            CrmAgentTeam.team_id == team_id,
+            CrmAgentTeam.is_active.is_(True),
+        )
+
+    candidates = candidate_query.all()
+    if not candidates:
+        return
+
+    candidate_ids = [row.id for row in candidates]
+    counts = dict(
+        db.query(
+            ConversationAssignment.agent_id,
+            func.count(ConversationAssignment.id),
+        )
+        .join(Conversation, ConversationAssignment.conversation_id == Conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .filter(ConversationAssignment.agent_id.in_(candidate_ids))
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.status.in_(load_statuses))
+        .group_by(ConversationAssignment.agent_id)
+        .all()
+    )
+
+    if max_assigned is not None:
+        candidates = [row for row in candidates if counts.get(row.id, 0) <= max_assigned]
+        if not candidates:
+            return
+
+    selected = min(
+        candidates,
+        key=lambda row: (
+            counts.get(row.id, 0),
+            row.created_at,
+            str(row.id),
+        ),
+    )
+
+    from app.services.crm.conversations.service import assign_conversation
+
+    assign_conversation(
+        db,
+        conversation_id=str(conversation.id),
+        agent_id=str(selected.id),
         team_id=str(team_id) if team_id else None,
         assigned_by_id=str(assigned_by_id) if assigned_by_id else None,
     )
@@ -244,7 +411,7 @@ def _execute_create_work_order(db: Session, params: dict, event: Event) -> None:
     if event.project_id:
         work_order.project_id = event.project_id
     if params.get("assigned_technician_id"):
-        work_order.assigned_technician_id = coerce_uuid(params["assigned_technician_id"])
+        work_order.assigned_to_person_id = coerce_uuid(params["assigned_technician_id"])
 
     db.add(work_order)
     db.flush()

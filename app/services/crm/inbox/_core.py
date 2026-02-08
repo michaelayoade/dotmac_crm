@@ -337,7 +337,9 @@ def _normalize_phone_address(value: str | None) -> str | None:
     if not value:
         return None
     digits = "".join(ch for ch in value if ch.isdigit())
-    return digits or None
+    if not digits:
+        return None
+    return f"+{digits}"
 
 
 def _normalize_channel_address(channel_type: ChannelType, address: str | None) -> str | None:
@@ -558,6 +560,11 @@ def _resolve_person_for_inbound(
             channel_type,
             normalized_address or address,
         )
+        if channel_type == ChannelType.whatsapp and normalized_address:
+            if not person.phone or not person.phone.startswith("+"):
+                person.phone = normalized_address
+                db.commit()
+                db.refresh(person)
         if channel_type == ChannelType.email and normalized_address:
             if not person.email or person.email.endswith("@example.invalid"):
                 person.email = normalized_address

@@ -69,3 +69,9 @@ class CampaignRecipientStatus(enum.Enum):
     failed = "failed"
     bounced = "bounced"
     unsubscribed = "unsubscribed"
+
+
+class AgentPresenceStatus(enum.Enum):
+    online = "online"
+    away = "away"
+    offline = "offline"

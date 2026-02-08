@@ -54,7 +54,19 @@ def _build_stats_context(db: Session) -> dict:
     customers_count = db.query(func.count(Person.id)).scalar() or 0
     open_tickets_count = (
         db.query(func.count(Ticket.id))
-        .filter(Ticket.status.in_([TicketStatus.new, TicketStatus.open, TicketStatus.pending]))
+        .filter(
+            Ticket.status.in_(
+                [
+                    TicketStatus.new,
+                    TicketStatus.open,
+                    TicketStatus.pending,
+                    TicketStatus.waiting_on_customer,
+                    TicketStatus.lastmile_rerun,
+                    TicketStatus.site_under_construction,
+                    TicketStatus.on_hold,
+                ]
+            )
+        )
         .scalar()
         or 0
     )

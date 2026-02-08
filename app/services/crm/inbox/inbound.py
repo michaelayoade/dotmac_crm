@@ -404,6 +404,11 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
         conversation.status = ConversationStatus.open
         db.commit()
         db.refresh(conversation)
+    elif conversation.status != ConversationStatus.open:
+        # Reopen conversations when a new inbound email arrives so they are visible in the inbox.
+        conversation.status = ConversationStatus.open
+        db.commit()
+        db.refresh(conversation)
     elif conversation.person_id != person_uuid:
         logger.warning(
             "email_reply_conversation_mismatch conversation_id=%s sender_person_id=%s conversation_person_id=%s",

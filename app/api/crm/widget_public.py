@@ -86,7 +86,7 @@ def _set_cors_headers(response: Response, origin: str | None) -> None:
 
 def _normalize_phone(value: str) -> str:
     digits = "".join(ch for ch in value if ch.isdigit())
-    return digits
+    return f"+{digits}" if digits else ""
 
 
 def _validate_prechat_payload(config: ChatWidgetConfig, fields: dict) -> dict:

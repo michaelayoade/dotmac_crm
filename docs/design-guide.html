@@ -1,0 +1,1823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DotMac CRM - UI/UX Design Guide</title>
+    <script>
+        if (localStorage.getItem('dg-dark') === 'true' ||
+            (!localStorage.getItem('dg-dark') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        }
+    </script>
+    <style>
+        /* ── Reset & Base ── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        @font-face { font-family: 'Outfit'; font-weight: 400 800; font-display: swap;
+            src: url('/static/fonts/outfit/outfit-700.woff2') format('woff2'); }
+        @font-face { font-family: 'Plus Jakarta Sans'; font-weight: 400 700; font-display: swap;
+            src: url('/static/fonts/plus-jakarta-sans/plus-jakarta-sans-500.woff2') format('woff2'); }
+
+        :root {
+            --font-display: 'Outfit', system-ui, -apple-system, sans-serif;
+            --font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+
+            /* Primary - Teal/Cyan */
+            --primary-50: #ecfeff; --primary-100: #cffafe; --primary-200: #a5f3fc;
+            --primary-300: #67e8f9; --primary-400: #22d3ee; --primary-500: #06b6d4;
+            --primary-600: #0891b2; --primary-700: #0e7490; --primary-800: #155e75;
+            --primary-900: #164e63; --primary-950: #083344;
+
+            /* Accent - Warm Orange */
+            --accent-50: #fff7ed; --accent-100: #ffedd5; --accent-200: #fed7aa;
+            --accent-300: #fdba74; --accent-400: #fb923c; --accent-500: #f97316;
+            --accent-600: #ea580c; --accent-700: #c2410c; --accent-800: #9a3412;
+            --accent-900: #7c2d12; --accent-950: #431407;
+
+            /* Surfaces */
+            --surface-bg: #f8fafc; --surface-card: #ffffff; --surface-border: #e2e8f0;
+            --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+        }
+
+        .dark {
+            --surface-bg: #0f172a; --surface-card: #1e293b; --surface-border: #334155;
+            --text-primary: #f1f5f9; --text-secondary: #94a3b8; --text-muted: #64748b;
+        }
+
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: var(--font-body);
+            background: var(--surface-bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── Layout ── */
+        .dg-container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+        .dg-hero {
+            padding: 4rem 2rem;
+            text-align: center;
+            background:
+                radial-gradient(ellipse at 30% 20%, rgba(6, 182, 212, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 80%, rgba(249, 115, 22, 0.08) 0%, transparent 50%),
+                var(--surface-bg);
+            border-bottom: 1px solid var(--surface-border);
+        }
+
+        .dg-hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, var(--primary-500), var(--accent-500));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .dg-hero p {
+            margin-top: 0.75rem;
+            font-size: 1.125rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin-left: auto; margin-right: auto;
+        }
+
+        /* ── Navigation ── */
+        .dg-nav {
+            position: sticky; top: 0; z-index: 50;
+            background: var(--surface-card);
+            border-bottom: 1px solid var(--surface-border);
+            padding: 0.75rem 1.5rem;
+            display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;
+            backdrop-filter: blur(12px);
+        }
+
+        .dg-nav a {
+            font-size: 0.8125rem; font-weight: 600;
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 0.375rem 0.75rem;
+            border-radius: 0.5rem;
+            transition: all 0.15s;
+        }
+        .dg-nav a:hover { background: var(--primary-50); color: var(--primary-700); }
+        .dark .dg-nav a:hover { background: rgba(6, 182, 212, 0.1); color: var(--primary-400); }
+
+        .dg-nav .dg-toggle {
+            margin-left: auto;
+            cursor: pointer;
+            background: var(--surface-bg);
+            border: 1px solid var(--surface-border);
+            border-radius: 0.5rem;
+            padding: 0.375rem 0.75rem;
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+        }
+
+        /* ── Sections ── */
+        .dg-section {
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--surface-border);
+        }
+
+        .dg-section h2 {
+            font-family: var(--font-display);
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+        }
+
+        .dg-section h3 {
+            font-family: var(--font-display);
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .dg-section p, .dg-section li {
+            color: var(--text-secondary);
+            font-size: 0.9375rem;
+        }
+
+        .dg-section ul { list-style: disc; padding-left: 1.25rem; margin-top: 0.5rem; }
+        .dg-section li { margin-bottom: 0.25rem; }
+
+        /* ── Cards ── */
+        .dg-card {
+            background: var(--surface-card);
+            border: 1px solid var(--surface-border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .dg-card-label {
+            font-size: 0.6875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+        }
+
+        /* ── Color Swatches ── */
+        .dg-palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 0.5rem; }
+
+        .dg-swatch {
+            text-align: center;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            border: 1px solid var(--surface-border);
+        }
+
+        .dg-swatch-color { height: 56px; }
+        .dg-swatch-label {
+            padding: 0.375rem 0.25rem;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            background: var(--surface-card);
+        }
+        .dg-swatch-hex {
+            font-size: 0.625rem;
+            font-family: 'Courier New', monospace;
+            color: var(--text-muted);
+        }
+
+        /* ── Component Demos ── */
+        .dg-demo {
+            background: var(--surface-bg);
+            border: 1px solid var(--surface-border);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-top: 0.75rem;
+            display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+        }
+
+        .dg-demo-col {
+            display: flex; flex-direction: column; gap: 0.75rem; width: 100%;
+        }
+
+        /* Demo Components */
+        .demo-btn {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.625rem 1rem;
+            font-size: 0.875rem; font-weight: 600;
+            border-radius: 0.75rem;
+            border: none; cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .demo-btn-primary {
+            background: linear-gradient(to right, var(--primary-500), var(--primary-600));
+            color: white;
+            box-shadow: 0 4px 12px -2px rgba(6, 182, 212, 0.3);
+        }
+        .demo-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px -2px rgba(6, 182, 212, 0.35); }
+
+        .demo-btn-secondary {
+            background: var(--surface-card);
+            color: var(--text-primary);
+            border: 1px solid var(--surface-border);
+        }
+        .demo-btn-secondary:hover { border-color: var(--primary-300); color: var(--primary-700); }
+
+        .demo-btn-ghost {
+            background: transparent;
+            color: var(--primary-600);
+        }
+        .demo-btn-ghost:hover { background: var(--primary-50); }
+
+        .demo-btn-danger {
+            background: linear-gradient(to right, #ef4444, #e11d48);
+            color: white;
+            box-shadow: 0 4px 12px -2px rgba(239, 68, 68, 0.3);
+        }
+
+        .demo-btn-accent {
+            background: linear-gradient(to right, var(--accent-500), var(--accent-600));
+            color: white;
+            box-shadow: 0 4px 12px -2px rgba(249, 115, 22, 0.3);
+        }
+
+        .demo-btn-sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
+        .demo-btn-lg { padding: 0.75rem 1.25rem; font-size: 1rem; }
+
+        /* Badges */
+        .demo-badge {
+            display: inline-flex; align-items: center; gap: 0.375rem;
+            padding: 0.25rem 0.625rem;
+            font-size: 0.75rem; font-weight: 600;
+            border-radius: 0.5rem;
+        }
+
+        .demo-badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+        .demo-badge-success { background: rgba(16, 185, 129, 0.12); color: #059669; }
+        .demo-badge-success .demo-badge-dot { background: #059669; }
+        .demo-badge-warning { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+        .demo-badge-warning .demo-badge-dot { background: #d97706; }
+        .demo-badge-error { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+        .demo-badge-error .demo-badge-dot { background: #dc2626; }
+        .demo-badge-info { background: rgba(59, 130, 246, 0.12); color: #2563eb; }
+        .demo-badge-info .demo-badge-dot { background: #2563eb; }
+        .demo-badge-active { background: linear-gradient(to right, var(--primary-500), #3b82f6); color: white; }
+        .demo-badge-pending { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+        .demo-badge-draft { background: rgba(100, 116, 139, 0.12); color: #475569; }
+
+        /* Cards */
+        .demo-stats-card {
+            background: var(--surface-card);
+            border: 1px solid var(--surface-border);
+            border-radius: 1rem;
+            padding: 1.25rem;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.2s;
+            min-width: 200px; flex: 1;
+        }
+        .demo-stats-card:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -8px rgba(0,0,0,0.1); }
+
+        .demo-stats-card .glow {
+            position: absolute; right: -1rem; top: -1rem;
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            filter: blur(30px);
+            opacity: 0.15;
+        }
+
+        .demo-stats-label { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+        .demo-stats-value { font-family: var(--font-display); font-size: 1.875rem; font-weight: 700; margin-top: 0.25rem; }
+        .demo-stats-icon {
+            width: 48px; height: 48px;
+            border-radius: 0.75rem;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* Inputs */
+        .demo-input {
+            width: 100%; max-width: 320px;
+            padding: 0.625rem 0.75rem 0.625rem 2.25rem;
+            border: 1px solid var(--surface-border);
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+            background: var(--surface-bg);
+            color: var(--text-primary);
+            transition: all 0.15s;
+            outline: none;
+        }
+        .demo-input:focus { border-color: var(--primary-500); box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.15); }
+        .demo-input-wrap { position: relative; display: inline-block; width: 100%; max-width: 320px; }
+        .demo-input-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+
+        /* Table */
+        .demo-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        .demo-table th {
+            text-align: left; padding: 0.75rem 1rem;
+            font-size: 0.6875rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--surface-border);
+        }
+        .demo-table td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--surface-border); }
+        .demo-table tr:hover td { background: rgba(6, 182, 212, 0.04); }
+
+        /* Code blocks */
+        .dg-code {
+            background: #1e293b; color: #e2e8f0;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8125rem;
+            line-height: 1.7;
+            overflow-x: auto;
+            margin-top: 0.75rem;
+        }
+        .dg-code .kw { color: #c084fc; }
+        .dg-code .str { color: #86efac; }
+        .dg-code .cmt { color: #64748b; }
+        .dg-code .fn { color: #67e8f9; }
+        .dg-code .tag { color: #f472b6; }
+        .dg-code .attr { color: #fdba74; }
+
+        /* Typography samples */
+        .dg-type-sample { margin-bottom: 0.75rem; }
+        .dg-type-sample .label {
+            font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.25rem;
+        }
+
+        /* Grid */
+        .dg-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .dg-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+        .dg-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+
+        @media (max-width: 768px) {
+            .dg-grid-2, .dg-grid-3, .dg-grid-4 { grid-template-columns: 1fr; }
+        }
+
+        /* Spacing demo */
+        .dg-space-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+        .dg-space-box { height: 24px; background: var(--primary-200); border-radius: 4px; }
+        .dark .dg-space-box { background: var(--primary-800); }
+        .dg-space-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); min-width: 60px; }
+        .dg-space-val { font-size: 0.75rem; font-family: monospace; color: var(--text-secondary); min-width: 60px; }
+
+        /* Animation demos */
+        @keyframes fadeInUp { 0% { opacity: 0; transform: translateY(16px); } 100% { opacity: 1; transform: translateY(0); } }
+        @keyframes scaleIn { 0% { opacity: 0; transform: scale(0.95); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes counterPop { 0% { transform: scale(0.8); opacity: 0; } 50% { transform: scale(1.05); } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+
+        .anim-box {
+            width: 60px; height: 60px;
+            border-radius: 0.75rem;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.6875rem; font-weight: 700; color: white;
+            cursor: pointer; text-align: center;
+            line-height: 1.2;
+        }
+
+        .anim-box[data-anim="fadeInUp"]:hover { animation: fadeInUp 0.5s ease-out; }
+        .anim-box[data-anim="scaleIn"]:hover { animation: scaleIn 0.3s ease-out; }
+        .anim-box[data-anim="counterPop"]:hover { animation: counterPop 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        .anim-box[data-anim="float"] { animation: float 3s ease-in-out infinite; }
+
+        .demo-spinner {
+            display: inline-block;
+            border: 2px solid var(--primary-300);
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.75s linear infinite;
+        }
+        .demo-spinner-sm { width: 14px; height: 14px; }
+        .demo-spinner-md { width: 20px; height: 20px; }
+        .demo-spinner-lg { width: 28px; height: 28px; border-width: 3px; }
+
+        /* Domain color row */
+        .dg-domain-row {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--surface-border);
+        }
+        .dg-domain-row:last-child { border-bottom: none; }
+        .dg-domain-swatch { width: 32px; height: 32px; border-radius: 0.5rem; }
+        .dg-domain-name { font-size: 0.875rem; font-weight: 600; flex: 1; }
+        .dg-domain-desc { font-size: 0.8125rem; color: var(--text-muted); }
+
+        /* Channel indicators */
+        .dg-channel {
+            display: inline-flex; align-items: center; gap: 0.375rem;
+            padding: 0.375rem 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.75rem; font-weight: 600;
+        }
+        .dg-channel-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        /* Responsive table */
+        .dg-table-wrap { overflow-x: auto; border-radius: 0.75rem; border: 1px solid var(--surface-border); }
+
+        /* Accessibility checklist */
+        .dg-check { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .dg-check-icon {
+            width: 20px; height: 20px; min-width: 20px;
+            background: rgba(16, 185, 129, 0.15);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin-top: 2px;
+        }
+        .dg-check-icon svg { width: 12px; height: 12px; color: #059669; }
+
+        /* Radius demos */
+        .dg-radius-box {
+            width: 80px; height: 56px;
+            background: var(--primary-100);
+            border: 2px solid var(--primary-300);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.6875rem; font-weight: 600; color: var(--primary-700);
+        }
+        .dark .dg-radius-box { background: var(--primary-900); border-color: var(--primary-700); color: var(--primary-300); }
+
+        /* Shadow demo */
+        .dg-shadow-box {
+            width: 120px; height: 80px;
+            background: var(--surface-card);
+            border-radius: 0.75rem;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.75rem; font-weight: 600; color: var(--text-muted);
+        }
+
+        /* Do / Don't */
+        .dg-do-dont { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.75rem; }
+        @media (max-width: 640px) { .dg-do-dont { grid-template-columns: 1fr; } }
+
+        .dg-do, .dg-dont {
+            padding: 1rem;
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+        }
+        .dg-do { background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .dg-dont { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); }
+        .dg-do-label { font-weight: 700; color: #059669; margin-bottom: 0.5rem; }
+        .dg-dont-label { font-weight: 700; color: #dc2626; margin-bottom: 0.5rem; }
+        .dg-do code, .dg-dont code {
+            display: block; margin-top: 0.25rem;
+            font-family: monospace; font-size: 0.8125rem;
+            color: var(--text-secondary);
+        }
+
+        /* Layout diagrams */
+        .dg-layout-diagram {
+            background: var(--surface-bg);
+            border: 1px solid var(--surface-border);
+            border-radius: 0.75rem;
+            overflow: hidden;
+            margin-top: 0.75rem;
+        }
+
+        .dg-layout-box {
+            border: 2px dashed var(--surface-border);
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            min-height: 48px;
+        }
+
+        .dg-layout-box-primary {
+            background: rgba(6, 182, 212, 0.08);
+            border-color: var(--primary-300);
+            color: var(--primary-700);
+        }
+        .dark .dg-layout-box-primary {
+            background: rgba(6, 182, 212, 0.12);
+            border-color: var(--primary-700);
+            color: var(--primary-400);
+        }
+
+        .dg-layout-box-accent {
+            background: rgba(249, 115, 22, 0.08);
+            border-color: var(--accent-300);
+            color: var(--accent-700);
+        }
+        .dark .dg-layout-box-accent {
+            background: rgba(249, 115, 22, 0.12);
+            border-color: var(--accent-700);
+            color: var(--accent-400);
+        }
+
+        .dg-layout-box-muted {
+            background: rgba(100, 116, 139, 0.06);
+            border-color: rgba(100, 116, 139, 0.2);
+        }
+
+        .dg-layout-box-violet {
+            background: rgba(139, 92, 246, 0.08);
+            border-color: rgba(139, 92, 246, 0.3);
+            color: #7c3aed;
+        }
+        .dark .dg-layout-box-violet {
+            background: rgba(139, 92, 246, 0.12);
+            color: #a78bfa;
+        }
+
+        .dg-layout-box-green {
+            background: rgba(16, 185, 129, 0.08);
+            border-color: rgba(16, 185, 129, 0.3);
+            color: #059669;
+        }
+        .dark .dg-layout-box-green {
+            background: rgba(16, 185, 129, 0.12);
+            color: #34d399;
+        }
+
+        .dg-layout-label {
+            font-size: 0.6875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+
+        .dg-layout-measure {
+            font-size: 0.625rem;
+            font-family: 'Courier New', monospace;
+            color: var(--text-muted);
+            margin-top: 0.125rem;
+        }
+
+        /* Print styles */
+        @media print {
+            .dg-nav { position: static; }
+            .dg-section { break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     HERO
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="dg-hero">
+    <h1>DotMac CRM Design Guide</h1>
+    <p>The definitive UI/UX reference for the DotMac omni-channel field service and CRM platform. Industrial Modern aesthetic.</p>
+    <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+        <span class="demo-badge demo-badge-info"><span class="demo-badge-dot"></span>Tailwind CSS v4</span>
+        <span class="demo-badge demo-badge-success"><span class="demo-badge-dot"></span>HTMX + Alpine.js</span>
+        <span class="demo-badge demo-badge-warning"><span class="demo-badge-dot"></span>Jinja2 Templates</span>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     NAV
+     ═══════════════════════════════════════════════════════════════ -->
+<nav class="dg-nav">
+    <a href="#colors">Colors</a>
+    <a href="#typography">Typography</a>
+    <a href="#spacing">Spacing</a>
+    <a href="#components">Components</a>
+    <a href="#tables">Tables</a>
+    <a href="#forms">Forms</a>
+    <a href="#badges">Badges</a>
+    <a href="#cards">Cards</a>
+    <a href="#animations">Motion</a>
+    <a href="#dark-mode">Dark Mode</a>
+    <a href="#responsive">Responsive</a>
+    <a href="#accessibility">A11y</a>
+    <a href="#app-shell">App Shell</a>
+    <a href="#page-layouts">Page Layouts</a>
+    <a href="#navigation">Navigation</a>
+    <a href="#overlays">Overlays</a>
+    <a href="#patterns">Patterns</a>
+    <a href="#review">Review Checklist</a>
+    <button class="dg-toggle" onclick="document.documentElement.classList.toggle('dark'); localStorage.setItem('dg-dark', document.documentElement.classList.contains('dark'))">
+        Toggle Dark Mode
+    </button>
+</nav>
+
+<div class="dg-container">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     1. COLOR PALETTE
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="colors" class="dg-section">
+    <h2>1. Color Palette</h2>
+    <p>Our palette is built around a <strong>cool teal-cyan primary</strong> with a <strong>warm orange accent</strong>, creating visual tension and energy. Slate grays form the neutral base.</p>
+
+    <h3>Primary - Teal/Cyan</h3>
+    <p>Used for active states, primary CTAs, focus rings, navigation highlights, and brand identity elements.</p>
+    <div class="dg-palette" style="margin-top: 0.75rem;">
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #ecfeff"></div><div class="dg-swatch-label">50<div class="dg-swatch-hex">#ecfeff</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #cffafe"></div><div class="dg-swatch-label">100<div class="dg-swatch-hex">#cffafe</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #a5f3fc"></div><div class="dg-swatch-label">200<div class="dg-swatch-hex">#a5f3fc</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #67e8f9"></div><div class="dg-swatch-label">300<div class="dg-swatch-hex">#67e8f9</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #22d3ee"></div><div class="dg-swatch-label">400<div class="dg-swatch-hex">#22d3ee</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #06b6d4"></div><div class="dg-swatch-label">500<div class="dg-swatch-hex">#06b6d4</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #0891b2"></div><div class="dg-swatch-label">600<div class="dg-swatch-hex">#0891b2</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #0e7490"></div><div class="dg-swatch-label">700<div class="dg-swatch-hex">#0e7490</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #155e75"></div><div class="dg-swatch-label">800<div class="dg-swatch-hex">#155e75</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #164e63"></div><div class="dg-swatch-label">900<div class="dg-swatch-hex">#164e63</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #083344"></div><div class="dg-swatch-label">950<div class="dg-swatch-hex">#083344</div></div></div>
+    </div>
+
+    <h3>Accent - Warm Orange</h3>
+    <p>Used for secondary highlights, gradient endpoints, CRM inbox decorative elements, and warm contrast.</p>
+    <div class="dg-palette" style="margin-top: 0.75rem;">
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #fff7ed"></div><div class="dg-swatch-label">50<div class="dg-swatch-hex">#fff7ed</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #ffedd5"></div><div class="dg-swatch-label">100<div class="dg-swatch-hex">#ffedd5</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #fed7aa"></div><div class="dg-swatch-label">200<div class="dg-swatch-hex">#fed7aa</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #fdba74"></div><div class="dg-swatch-label">300<div class="dg-swatch-hex">#fdba74</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #fb923c"></div><div class="dg-swatch-label">400<div class="dg-swatch-hex">#fb923c</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #f97316"></div><div class="dg-swatch-label">500<div class="dg-swatch-hex">#f97316</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #ea580c"></div><div class="dg-swatch-label">600<div class="dg-swatch-hex">#ea580c</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #c2410c"></div><div class="dg-swatch-label">700<div class="dg-swatch-hex">#c2410c</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #9a3412"></div><div class="dg-swatch-label">800<div class="dg-swatch-hex">#9a3412</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #7c2d12"></div><div class="dg-swatch-label">900<div class="dg-swatch-hex">#7c2d12</div></div></div>
+        <div class="dg-swatch"><div class="dg-swatch-color" style="background: #431407"></div><div class="dg-swatch-label">950<div class="dg-swatch-hex">#431407</div></div></div>
+    </div>
+
+    <h3>Domain Color Assignments</h3>
+    <p>Each functional domain uses a consistent color pair. Always use these assignments:</p>
+    <div class="dg-card" style="margin-top: 0.75rem;">
+        <div class="dg-domain-row"><div class="dg-domain-swatch" style="background: linear-gradient(135deg, #f59e0b, #f97316)"></div><div class="dg-domain-name">Amber / Orange</div><div class="dg-domain-desc">Subscribers, Customers, Default</div></div>
+        <div class="dg-domain-row"><div class="dg-domain-swatch" style="background: linear-gradient(135deg, #06b6d4, #3b82f6)"></div><div class="dg-domain-name">Cyan / Blue</div><div class="dg-domain-desc">Network devices, IP management</div></div>
+        <div class="dg-domain-row"><div class="dg-domain-swatch" style="background: linear-gradient(135deg, #8b5cf6, #a855f7)"></div><div class="dg-domain-name">Violet / Purple</div><div class="dg-domain-desc">OLTs, Fiber infrastructure</div></div>
+        <div class="dg-domain-row"><div class="dg-domain-swatch" style="background: linear-gradient(135deg, #14b8a6, #10b981)"></div><div class="dg-domain-name">Teal / Emerald</div><div class="dg-domain-desc">POP sites, Assignments</div></div>
+        <div class="dg-domain-row"><div class="dg-domain-swatch" style="background: linear-gradient(135deg, #6366f1, #8b5cf6)"></div><div class="dg-domain-name">Indigo / Violet</div><div class="dg-domain-desc">IP pools, System</div></div>
+        <div class="dg-domain-row"><div class="dg-domain-swatch" style="background: linear-gradient(135deg, #f43f5e, #ec4899)"></div><div class="dg-domain-name">Rose / Pink</div><div class="dg-domain-desc">Billing, Invoices</div></div>
+        <div class="dg-domain-row"><div class="dg-domain-swatch" style="background: linear-gradient(135deg, #22c55e, #10b981)"></div><div class="dg-domain-name">Green / Emerald</div><div class="dg-domain-desc">Success states, Active items</div></div>
+    </div>
+
+    <h3>Channel Colors (CRM Inbox)</h3>
+    <div class="dg-demo" style="gap: 0.5rem;">
+        <span class="dg-channel" style="background: rgba(139,92,246,0.15); color: rgb(139,92,246); border: 1px solid rgba(139,92,246,0.3);"><span class="dg-channel-dot" style="background: rgb(139,92,246)"></span>Email</span>
+        <span class="dg-channel" style="background: rgba(34,197,94,0.15); color: rgb(34,197,94); border: 1px solid rgba(34,197,94,0.3);"><span class="dg-channel-dot" style="background: rgb(34,197,94)"></span>WhatsApp</span>
+        <span class="dg-channel" style="background: rgba(249,115,22,0.15); color: rgb(249,115,22); border: 1px solid rgba(249,115,22,0.3);"><span class="dg-channel-dot" style="background: rgb(249,115,22)"></span>SMS</span>
+        <span class="dg-channel" style="background: rgba(14,165,233,0.15); color: rgb(14,165,233); border: 1px solid rgba(14,165,233,0.3);"><span class="dg-channel-dot" style="background: rgb(14,165,233)"></span>Telegram</span>
+        <span class="dg-channel" style="background: rgba(245,158,11,0.15); color: rgb(245,158,11); border: 1px solid rgba(245,158,11,0.3);"><span class="dg-channel-dot" style="background: rgb(245,158,11)"></span>Webchat</span>
+        <span class="dg-channel" style="background: rgba(24,119,242,0.15); color: rgb(24,119,242); border: 1px solid rgba(24,119,242,0.3);"><span class="dg-channel-dot" style="background: rgb(24,119,242)"></span>Messenger</span>
+        <span class="dg-channel" style="background: rgba(236,72,153,0.15); color: rgb(236,72,153); border: 1px solid rgba(236,72,153,0.3);"><span class="dg-channel-dot" style="background: rgb(236,72,153)"></span>Instagram</span>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     2. TYPOGRAPHY
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="typography" class="dg-section">
+    <h2>2. Typography</h2>
+    <p>Two-font system: <strong>Outfit</strong> for display headings, <strong>Plus Jakarta Sans</strong> for body text.</p>
+
+    <div class="dg-card">
+        <div class="dg-type-sample">
+            <div class="label">Display / H1 - Outfit 800, -0.02em</div>
+            <div style="font-family: var(--font-display); font-size: 2rem; font-weight: 800; letter-spacing: -0.02em;">Page Header Title</div>
+        </div>
+        <div class="dg-type-sample">
+            <div class="label">H2 - Outfit 700</div>
+            <div style="font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em;">Section Header</div>
+        </div>
+        <div class="dg-type-sample">
+            <div class="label">H3 - Outfit 600</div>
+            <div style="font-family: var(--font-display); font-size: 1.25rem; font-weight: 600;">Card Title</div>
+        </div>
+        <div class="dg-type-sample">
+            <div class="label">Body - Plus Jakarta Sans 400</div>
+            <div style="font-family: var(--font-body); font-size: 0.9375rem;">Regular body text for descriptions, paragraphs, and general content. Should be easy to read at length.</div>
+        </div>
+        <div class="dg-type-sample">
+            <div class="label">Body Semibold - Plus Jakarta Sans 600</div>
+            <div style="font-family: var(--font-body); font-size: 0.875rem; font-weight: 600;">Table headers, form labels, sidebar items</div>
+        </div>
+        <div class="dg-type-sample">
+            <div class="label">Caption/Label - Plus Jakarta Sans 600, uppercase, tracking-wide</div>
+            <div style="font-family: var(--font-body); font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);">STATS LABEL / TABLE HEADER</div>
+        </div>
+        <div class="dg-type-sample">
+            <div class="label">Metric Value - Outfit 700</div>
+            <div style="font-family: var(--font-display); font-size: 1.875rem; font-weight: 700;">1,247</div>
+        </div>
+    </div>
+
+    <div class="dg-do-dont">
+        <div class="dg-do">
+            <div class="dg-do-label">DO</div>
+            Use Outfit for h1, h2, h3 headings and metric numbers.
+            <code>font-family: var(--font-display)</code>
+            Use Plus Jakarta Sans for body text, labels, and UI text.
+            <code>font-family: var(--font-body)</code>
+        </div>
+        <div class="dg-dont">
+            <div class="dg-dont-label">DON'T</div>
+            Don't use Inter, Arial, Roboto, or system fonts directly.
+            <code>font-family: Inter, sans-serif</code>
+            Don't use Outfit for body paragraphs or small UI text.
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     3. SPACING & LAYOUT
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="spacing" class="dg-section">
+    <h2>3. Spacing & Layout</h2>
+    <p>Based on Tailwind's 4px grid. Standard spacing tokens used across the system:</p>
+
+    <div class="dg-card">
+        <div class="dg-space-row"><span class="dg-space-label">1 (4px)</span><div class="dg-space-box" style="width: 16px;"></div><span class="dg-space-val">0.25rem</span>Gap between icon and badge dot</div>
+        <div class="dg-space-row"><span class="dg-space-label">2 (8px)</span><div class="dg-space-box" style="width: 32px;"></div><span class="dg-space-val">0.5rem</span>Inline element gaps</div>
+        <div class="dg-space-row"><span class="dg-space-label">3 (12px)</span><div class="dg-space-box" style="width: 48px;"></div><span class="dg-space-val">0.75rem</span>Icon + text gap, tight groups</div>
+        <div class="dg-space-row"><span class="dg-space-label">4 (16px)</span><div class="dg-space-box" style="width: 64px;"></div><span class="dg-space-val">1rem</span>Section padding, card gaps</div>
+        <div class="dg-space-row"><span class="dg-space-label">5 (20px)</span><div class="dg-space-box" style="width: 80px;"></div><span class="dg-space-val">1.25rem</span>Card inner padding (compact)</div>
+        <div class="dg-space-row"><span class="dg-space-label">6 (24px)</span><div class="dg-space-box" style="width: 96px;"></div><span class="dg-space-val">1.5rem</span>Standard card padding</div>
+        <div class="dg-space-row"><span class="dg-space-label">8 (32px)</span><div class="dg-space-box" style="width: 128px;"></div><span class="dg-space-val">2rem</span>Section margins</div>
+    </div>
+
+    <h3>Border Radius</h3>
+    <div class="dg-demo">
+        <div class="dg-radius-box" style="border-radius: 0.375rem;">lg<br>6px</div>
+        <div class="dg-radius-box" style="border-radius: 0.5rem;">lg<br>8px</div>
+        <div class="dg-radius-box" style="border-radius: 0.75rem;">xl<br>12px</div>
+        <div class="dg-radius-box" style="border-radius: 1rem;">2xl<br>16px</div>
+        <div class="dg-radius-box" style="border-radius: 9999px;">full</div>
+    </div>
+    <p style="margin-top: 0.5rem; font-size: 0.8125rem;"><strong>Buttons & Inputs:</strong> rounded-xl (12px) | <strong>Cards:</strong> rounded-2xl (16px) | <strong>Small elements:</strong> rounded-lg (8px) | <strong>Badges:</strong> rounded-lg (8px) | <strong>Avatars:</strong> rounded-xl or rounded-full</p>
+
+    <h3>Shadows</h3>
+    <div class="dg-demo">
+        <div class="dg-shadow-box" style="box-shadow: 0 1px 2px rgba(0,0,0,0.05);">shadow-sm</div>
+        <div class="dg-shadow-box" style="box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">shadow-md</div>
+        <div class="dg-shadow-box" style="box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">shadow-lg</div>
+        <div class="dg-shadow-box" style="box-shadow: 0 4px 12px -2px rgba(6,182,212,0.3);">brand shadow</div>
+    </div>
+    <p style="margin-top: 0.5rem; font-size: 0.8125rem;">Brand shadows use <code>shadow-lg shadow-{color}-500/25</code> on gradient buttons for a colored glow effect.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     4. COMPONENTS - BUTTONS
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="components" class="dg-section">
+    <h2>4. Components</h2>
+
+    <h3>Buttons</h3>
+    <p>Four button variants with three sizes. All use <code>rounded-xl</code> and gradient backgrounds for primary/danger.</p>
+
+    <div class="dg-demo">
+        <button class="demo-btn demo-btn-primary demo-btn-sm">Small</button>
+        <button class="demo-btn demo-btn-primary">Primary Action</button>
+        <button class="demo-btn demo-btn-primary demo-btn-lg">Large</button>
+    </div>
+
+    <div class="dg-demo">
+        <button class="demo-btn demo-btn-primary">Primary</button>
+        <button class="demo-btn demo-btn-secondary">Secondary</button>
+        <button class="demo-btn demo-btn-ghost">Ghost</button>
+        <button class="demo-btn demo-btn-danger">Danger</button>
+        <button class="demo-btn demo-btn-accent">Accent</button>
+    </div>
+
+    <div class="dg-code">
+<span class="cmt">{# Usage in Jinja2 templates #}</span>
+{% <span class="kw">from</span> <span class="str">"components/ui/macros.html"</span> <span class="kw">import</span> action_button %}
+
+{{ action_button(<span class="str">"Create Ticket"</span>, href=<span class="str">"/admin/tickets/new"</span>, variant=<span class="str">"primary"</span>, color=<span class="str">"primary"</span>) }}
+{{ action_button(<span class="str">"Cancel"</span>, href=<span class="str">"#"</span>, variant=<span class="str">"secondary"</span>) }}
+{{ action_button(<span class="str">"Delete"</span>, href=<span class="str">"#"</span>, variant=<span class="str">"danger"</span>) }}
+    </div>
+
+    <h3>Button States</h3>
+    <div class="dg-demo">
+        <button class="demo-btn demo-btn-primary">Default</button>
+        <button class="demo-btn demo-btn-primary" style="transform: translateY(-1px); box-shadow: 0 6px 16px -2px rgba(6,182,212,0.35);">Hover (lift)</button>
+        <button class="demo-btn demo-btn-primary" style="opacity: 0.75; cursor: wait;">Loading</button>
+        <button class="demo-btn demo-btn-primary" style="opacity: 0.5; cursor: not-allowed;">Disabled</button>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     5. TABLES
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="tables" class="dg-section">
+    <h2>5. Data Tables</h2>
+    <p>Tables are wrapped in <code>rounded-2xl</code> cards with header, scrollable body, and pagination footer.</p>
+
+    <div class="dg-card" style="padding: 0; overflow: hidden;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; border-bottom: 1px solid var(--surface-border);">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div style="width: 36px; height: 36px; border-radius: 0.5rem; background: linear-gradient(135deg, var(--primary-100), var(--primary-200)); display: flex; align-items: center; justify-content: center;">
+                    <svg width="16" height="16" fill="none" stroke="var(--primary-600)" stroke-width="2" viewBox="0 0 24 24"><path d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"/></svg>
+                </div>
+                <span style="font-weight: 600;">Active Tickets</span>
+            </div>
+            <span class="demo-badge demo-badge-info">24</span>
+        </div>
+        <div class="dg-table-wrap" style="border: none; border-radius: 0;">
+            <table class="demo-table">
+                <thead>
+                    <tr>
+                        <th>Ticket #</th>
+                        <th>Subject</th>
+                        <th>Status</th>
+                        <th>Priority</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="font-weight: 600;">TKT-001</td>
+                        <td>Internet connectivity issue</td>
+                        <td><span class="demo-badge demo-badge-warning"><span class="demo-badge-dot"></span>Pending</span></td>
+                        <td><span class="demo-badge demo-badge-error"><span class="demo-badge-dot"></span>High</span></td>
+                        <td style="text-align: right; color: var(--text-muted);">View / Edit</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600;">TKT-002</td>
+                        <td>New fiber installation request</td>
+                        <td><span class="demo-badge demo-badge-active">Active</span></td>
+                        <td><span class="demo-badge demo-badge-info"><span class="demo-badge-dot"></span>Normal</span></td>
+                        <td style="text-align: right; color: var(--text-muted);">View / Edit</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: 600;">TKT-003</td>
+                        <td>Billing inquiry for account</td>
+                        <td><span class="demo-badge demo-badge-success"><span class="demo-badge-dot"></span>Resolved</span></td>
+                        <td><span class="demo-badge demo-badge-draft"><span class="demo-badge-dot"></span>Low</span></td>
+                        <td style="text-align: right; color: var(--text-muted);">View / Edit</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="padding: 0.75rem 1.5rem; border-top: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center; font-size: 0.8125rem; color: var(--text-muted); background: var(--surface-bg);">
+            <span>Showing 1 to 3 of 24 results</span>
+            <div style="display: flex; gap: 4px;">
+                <span style="padding: 0.375rem 0.75rem; border-radius: 0.5rem; background: linear-gradient(to right, var(--primary-500), var(--primary-600)); color: white; font-weight: 600;">1</span>
+                <span style="padding: 0.375rem 0.75rem; border-radius: 0.5rem; border: 1px solid var(--surface-border); background: var(--surface-card);">2</span>
+                <span style="padding: 0.375rem 0.75rem; border-radius: 0.5rem; border: 1px solid var(--surface-border); background: var(--surface-card);">3</span>
+            </div>
+        </div>
+    </div>
+
+    <p style="margin-top: 0.75rem; font-size: 0.8125rem;"><strong>Key patterns:</strong> Header row uses uppercase tracking-wide labels. Row actions appear on hover via <code>opacity-0 group-hover:opacity-100</code>. Table rows use gradient hover: <code>hover:bg-gradient-to-r hover:from-{color}-50/50</code>.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     6. FORMS
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="forms" class="dg-section">
+    <h2>6. Forms</h2>
+    <p>Inputs use <code>rounded-xl</code> borders with color-coded focus rings. Labels are uppercase tracking-wide.</p>
+
+    <div class="dg-card">
+        <div class="dg-grid-2">
+            <div>
+                <div style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.375rem;">Full Name <span style="color: #ef4444;">*</span></div>
+                <div class="demo-input-wrap">
+                    <svg class="demo-input-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    <input class="demo-input" placeholder="John Doe" value="John Doe">
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.375rem;">Email Address</div>
+                <div class="demo-input-wrap">
+                    <svg class="demo-input-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    <input class="demo-input" placeholder="john@example.com">
+                </div>
+            </div>
+        </div>
+        <div style="margin-top: 1.25rem; display: flex; gap: 0.75rem;">
+            <button class="demo-btn demo-btn-primary">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                Save Changes
+            </button>
+            <button class="demo-btn demo-btn-secondary">Cancel</button>
+        </div>
+    </div>
+
+    <h3>Validation States</h3>
+    <div class="dg-demo dg-demo-col">
+        <div class="demo-input-wrap">
+            <input class="demo-input" value="Valid input" style="border-color: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.15); padding-left: 0.75rem;">
+        </div>
+        <div class="demo-input-wrap">
+            <input class="demo-input" value="Invalid input" style="border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.15); padding-left: 0.75rem;">
+            <div style="margin-top: 0.375rem; font-size: 0.8125rem; color: #ef4444;">This field is required</div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     7. BADGES & STATUS
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="badges" class="dg-section">
+    <h2>7. Badges & Status Indicators</h2>
+    <p>Badges use icon + color to convey meaning (accessible, not just color-based). Gradient backgrounds for prominent states.</p>
+
+    <h3>Semantic Status Badges</h3>
+    <div class="dg-demo">
+        <span class="demo-badge demo-badge-active">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+            Active
+        </span>
+        <span class="demo-badge demo-badge-success"><span class="demo-badge-dot"></span>Success</span>
+        <span class="demo-badge demo-badge-warning"><span class="demo-badge-dot"></span>Warning</span>
+        <span class="demo-badge demo-badge-error"><span class="demo-badge-dot"></span>Error</span>
+        <span class="demo-badge demo-badge-info"><span class="demo-badge-dot"></span>Info</span>
+        <span class="demo-badge demo-badge-pending">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Pending
+        </span>
+        <span class="demo-badge demo-badge-draft"><span class="demo-badge-dot"></span>Draft</span>
+    </div>
+
+    <h3>Usage via Macro</h3>
+    <div class="dg-code">
+{{ status_badge(<span class="str">"Online"</span>, variant=<span class="str">"online"</span>, pulse=True) }}
+{{ status_badge(<span class="str">"Pending Review"</span>, variant=<span class="str">"pending"</span>) }}
+{{ status_badge(<span class="str">"Overdue"</span>, variant=<span class="str">"overdue"</span>) }}
+
+<span class="cmt">{# Available variants: active, inactive, online, offline, warning,
+   pending, success, error, info, maintenance, decommissioned,
+   draft, paid, overdue #}</span>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     8. CARDS
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="cards" class="dg-section">
+    <h2>8. Cards</h2>
+    <p>Cards use <code>rounded-2xl</code> with subtle borders and shadow. Stats cards include gradient glow orbs.</p>
+
+    <div class="dg-demo" style="align-items: stretch;">
+        <div class="demo-stats-card">
+            <div class="glow" style="background: var(--primary-400);"></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; position: relative;">
+                <div>
+                    <div class="demo-stats-label">Total Tickets</div>
+                    <div class="demo-stats-value">1,247</div>
+                    <div style="font-size: 0.75rem; color: #059669; margin-top: 0.25rem;">+12% from last period</div>
+                </div>
+                <div class="demo-stats-icon" style="background: linear-gradient(135deg, var(--primary-500), var(--primary-600)); box-shadow: 0 4px 12px rgba(6,182,212,0.25);">
+                    <svg width="20" height="20" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"/></svg>
+                </div>
+            </div>
+        </div>
+        <div class="demo-stats-card">
+            <div class="glow" style="background: var(--accent-400);"></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; position: relative;">
+                <div>
+                    <div class="demo-stats-label">Open Conversations</div>
+                    <div class="demo-stats-value">89</div>
+                    <div style="font-size: 0.75rem; color: #dc2626; margin-top: 0.25rem;">-3% from last period</div>
+                </div>
+                <div class="demo-stats-icon" style="background: linear-gradient(135deg, var(--accent-500), var(--accent-600)); box-shadow: 0 4px 12px rgba(249,115,22,0.25);">
+                    <svg width="20" height="20" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                </div>
+            </div>
+        </div>
+        <div class="demo-stats-card">
+            <div class="glow" style="background: #8b5cf6;"></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; position: relative;">
+                <div>
+                    <div class="demo-stats-label">Work Orders</div>
+                    <div class="demo-stats-value">34</div>
+                </div>
+                <div class="demo-stats-icon" style="background: linear-gradient(135deg, #8b5cf6, #a855f7); box-shadow: 0 4px 12px rgba(139,92,246,0.25);">
+                    <svg width="20" height="20" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     9. ANIMATIONS & MOTION
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="animations" class="dg-section">
+    <h2>9. Motion & Transitions</h2>
+    <p>Purposeful animations that convey state changes. Hover each box to trigger. All animations respect <code>prefers-reduced-motion</code>.</p>
+
+    <h3>Entry Animations</h3>
+    <div class="dg-demo">
+        <div class="anim-box" data-anim="fadeInUp" style="background: linear-gradient(135deg, var(--primary-500), var(--primary-600));">fade in up</div>
+        <div class="anim-box" data-anim="scaleIn" style="background: linear-gradient(135deg, var(--accent-500), var(--accent-600));">scale in</div>
+        <div class="anim-box" data-anim="counterPop" style="background: linear-gradient(135deg, #8b5cf6, #a855f7);">counter pop</div>
+        <div class="anim-box" data-anim="float" style="background: linear-gradient(135deg, #14b8a6, #10b981);">float</div>
+    </div>
+
+    <h3>Hover Interactions</h3>
+    <div class="dg-card">
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem;">
+            <div style="padding: 0.75rem; border: 1px solid var(--surface-border); border-radius: 0.75rem; text-align: center; cursor: pointer; transition: all 0.2s;" onmouseenter="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(6,182,212,0.25)'" onmouseleave="this.style.transform=''; this.style.boxShadow=''">
+                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted);">btn-hover</div>
+                <div style="font-size: 0.6875rem; color: var(--text-muted);">Y: -1px + shadow</div>
+            </div>
+            <div style="padding: 0.75rem; border: 1px solid var(--surface-border); border-radius: 0.75rem; text-align: center; cursor: pointer; transition: all 0.2s;" onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 24px rgba(0,0,0,0.12)'" onmouseleave="this.style.transform=''; this.style.boxShadow=''">
+                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted);">card-hover</div>
+                <div style="font-size: 0.6875rem; color: var(--text-muted);">Y: -2px + shadow</div>
+            </div>
+            <div style="padding: 0.75rem; border: 1px solid var(--surface-border); border-radius: 0.75rem; text-align: center; cursor: pointer; transition: all 0.2s;" onmouseenter="this.style.transform='translateX(2px)'; this.style.background='rgba(6,182,212,0.04)'" onmouseleave="this.style.transform=''; this.style.background=''">
+                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted);">list-item-hover</div>
+                <div style="font-size: 0.6875rem; color: var(--text-muted);">X: +2px + tint</div>
+            </div>
+            <div style="padding: 0.75rem; border: 1px solid var(--surface-border); border-radius: 0.75rem; text-align: center; cursor: pointer; transition: all 0.15s;" onmouseenter="this.style.transform='scale(1.05)'" onmouseleave="this.style.transform=''">
+                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted);">icon-btn-hover</div>
+                <div style="font-size: 0.6875rem; color: var(--text-muted);">scale: 1.05</div>
+            </div>
+        </div>
+    </div>
+
+    <h3>Loading Spinners</h3>
+    <div class="dg-demo">
+        <div style="text-align: center;"><div class="demo-spinner demo-spinner-sm"></div><div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem;">sm (14px)</div></div>
+        <div style="text-align: center;"><div class="demo-spinner demo-spinner-md"></div><div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem;">md (20px)</div></div>
+        <div style="text-align: center;"><div class="demo-spinner demo-spinner-lg"></div><div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem;">lg (28px)</div></div>
+    </div>
+
+    <h3>Stagger Timing</h3>
+    <p>Use <code>.stagger-children</code> or <code>.stagger-in</code> classes for sequential element reveals with 50-75ms delays between items.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     10. DARK MODE
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="dark-mode" class="dg-section">
+    <h2>10. Dark Mode</h2>
+    <p>Class-based dark mode toggled via Alpine.js <code>$store.darkMode.toggle()</code>. Persisted in localStorage. Applied via <code>dark:</code> Tailwind prefix.</p>
+
+    <div class="dg-card">
+        <div class="dg-card-label">Dark Mode Token Mapping</div>
+        <table class="demo-table">
+            <thead>
+                <tr><th>Element</th><th>Light</th><th>Dark</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Page background</td><td><code>bg-slate-100</code></td><td><code>dark:bg-slate-900</code></td></tr>
+                <tr><td>Card surface</td><td><code>bg-white</code></td><td><code>dark:bg-slate-800</code></td></tr>
+                <tr><td>Card border</td><td><code>border-slate-200/60</code></td><td><code>dark:border-slate-700/60</code></td></tr>
+                <tr><td>Primary text</td><td><code>text-slate-900</code></td><td><code>dark:text-white</code></td></tr>
+                <tr><td>Secondary text</td><td><code>text-slate-500</code></td><td><code>dark:text-slate-400</code></td></tr>
+                <tr><td>Muted text</td><td><code>text-slate-400</code></td><td><code>dark:text-slate-500</code></td></tr>
+                <tr><td>Input background</td><td><code>bg-slate-50/50</code></td><td><code>dark:bg-slate-700/50</code></td></tr>
+                <tr><td>Input border</td><td><code>border-slate-200</code></td><td><code>dark:border-slate-600</code></td></tr>
+                <tr><td>Badge bg (subtle)</td><td><code>bg-{color}-500/10</code></td><td><code>dark:bg-{color}-500/20</code></td></tr>
+                <tr><td>Badge text</td><td><code>text-{color}-700</code></td><td><code>dark:text-{color}-400</code></td></tr>
+                <tr><td>Sidebar</td><td><code>bg-white border-slate-200</code></td><td><code>dark:bg-slate-900 dark:border-slate-800</code></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="dg-do-dont">
+        <div class="dg-do">
+            <div class="dg-do-label">DO</div>
+            Always pair light and dark variants for every color token.
+            <code>text-slate-900 dark:text-white</code>
+            <code>bg-white dark:bg-slate-800</code>
+        </div>
+        <div class="dg-dont">
+            <div class="dg-dont-label">DON'T</div>
+            Don't hardcode hex colors without dark mode equivalents.
+            <code>style="color: #0f172a"</code>
+            Don't use light-only gradients or shadows.
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     11. RESPONSIVE DESIGN
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="responsive" class="dg-section">
+    <h2>11. Responsive Design</h2>
+    <p>Mobile-first approach using Tailwind breakpoints. Sidebar collapses to overlay on mobile.</p>
+
+    <div class="dg-card">
+        <div class="dg-card-label">Breakpoints</div>
+        <table class="demo-table">
+            <thead><tr><th>Prefix</th><th>Min Width</th><th>Use Case</th></tr></thead>
+            <tbody>
+                <tr><td><code>sm:</code></td><td>640px</td><td>Small tablets, landscape phones</td></tr>
+                <tr><td><code>md:</code></td><td>768px</td><td>Tablets, 2-column forms</td></tr>
+                <tr><td><code>lg:</code></td><td>1024px</td><td>Desktop sidebar visible, 3-column grids</td></tr>
+                <tr><td><code>xl:</code></td><td>1280px</td><td>Wide desktop, full content width</td></tr>
+                <tr><td><code>2xl:</code></td><td>1536px</td><td>Ultra-wide screens</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>Key Responsive Patterns</h3>
+    <ul>
+        <li><strong>Sidebar:</strong> Fixed on lg+ (<code>lg:static lg:translate-x-0</code>), overlay with backdrop on mobile</li>
+        <li><strong>Content max-width:</strong> <code>max-w-7xl</code> (80rem) centered</li>
+        <li><strong>Grid layouts:</strong> <code>grid-cols-1 sm:grid-cols-2 lg:grid-cols-3</code></li>
+        <li><strong>Page headers:</strong> <code>flex-col gap-4 sm:flex-row sm:items-center</code></li>
+        <li><strong>Tables:</strong> Wrap in <code>overflow-x-auto</code> for horizontal scroll</li>
+        <li><strong>Global search:</strong> Hidden below sm, visible with <code>hidden sm:block</code></li>
+        <li><strong>Touch targets:</strong> Minimum 40px (h-10 w-10) for mobile buttons</li>
+    </ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     12. ACCESSIBILITY
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="accessibility" class="dg-section">
+    <h2>12. Accessibility Standards</h2>
+    <p>Target: WCAG 2.1 AA compliance. Every interactive element must be keyboard accessible and screen reader friendly.</p>
+
+    <div class="dg-card">
+        <div class="dg-card-label">Required ARIA Attributes</div>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div><strong>role="status"</strong> on status badges (<code>status_badge</code> macro)</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div><strong>aria-label</strong> on icon-only buttons (dark mode toggle, notifications, sidebar collapse)</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div><strong>aria-expanded</strong> on dropdowns, collapsible sections, sidebar toggle</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div><strong>aria-controls</strong> linking triggers to their controlled panels</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div><strong>aria-live="polite"</strong> on toast container for screen reader announcements</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div><strong>aria-invalid</strong> + <strong>aria-describedby</strong> on validated form inputs</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div><strong>aria-hidden="true"</strong> on decorative SVG icons</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div><strong>scope="col"</strong> on <code>&lt;th&gt;</code> elements in data tables</div></div>
+        </div>
+    </div>
+
+    <h3>Additional Requirements</h3>
+    <ul>
+        <li>Status badges use <strong>icon + color</strong> (not color alone) for colorblind accessibility</li>
+        <li>All animations disabled via <code>@media (prefers-reduced-motion: reduce)</code></li>
+        <li>Focus rings: <code>focus:ring-2 focus:ring-{color}-500/20 focus:outline-none</code></li>
+        <li>Semantic HTML: <code>&lt;nav&gt;</code>, <code>&lt;main&gt;</code>, <code>&lt;button&gt;</code>, <code>&lt;label&gt;</code>, proper heading hierarchy</li>
+        <li>Global <code>&lt;div id="aria-live-region" aria-live="polite" class="sr-only"&gt;</code> for dynamic updates</li>
+        <li>Keyboard shortcuts documented: <kbd>Cmd+K</kbd> search, <kbd>Esc</kbd> close, arrow navigation</li>
+    </ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     13. APP SHELL & STRUCTURAL LAYOUTS
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="app-shell" class="dg-section">
+    <h2>13. App Shell & Structural Layouts</h2>
+    <p>The admin portal uses a fixed app shell: <strong>collapsible sidebar</strong> + <strong>top navigation bar</strong> + <strong>scrollable main content area</strong>. All pages render within this shell via <code>layouts/admin.html</code>.</p>
+
+    <h3>App Shell Overview</h3>
+    <p>The root layout is a flex container that fills the viewport. The sidebar and main area sit side-by-side, with the top bar inside the main area.</p>
+
+    <div class="dg-layout-diagram" style="padding: 1rem;">
+        <div style="display: flex; gap: 0; height: 320px; border: 1px solid var(--surface-border); border-radius: 0.5rem; overflow: hidden;">
+            <!-- Sidebar -->
+            <div style="width: 180px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--surface-border); background: var(--surface-card);">
+                <div style="padding: 0.75rem; border-bottom: 1px solid var(--surface-border); text-align: center;">
+                    <div class="dg-layout-label">Logo</div>
+                    <div class="dg-layout-measure">Brand + Collapse btn</div>
+                </div>
+                <div style="flex: 1; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem;">
+                    <div class="dg-layout-box dg-layout-box-primary" style="padding: 0.375rem; min-height: 28px; font-size: 0.625rem;">Dashboard</div>
+                    <div class="dg-layout-box dg-layout-box-muted" style="padding: 0.375rem; min-height: 28px; font-size: 0.625rem;">Section Header</div>
+                    <div class="dg-layout-box" style="padding: 0.375rem; min-height: 28px; font-size: 0.625rem;">Nav Item</div>
+                    <div class="dg-layout-box" style="padding: 0.375rem; min-height: 28px; font-size: 0.625rem;">Nav Item</div>
+                    <div class="dg-layout-box dg-layout-box-muted" style="padding: 0.375rem; min-height: 28px; font-size: 0.625rem;">Section Header</div>
+                    <div class="dg-layout-box" style="padding: 0.375rem; min-height: 28px; font-size: 0.625rem;">Nav Item</div>
+                </div>
+                <div style="padding: 0.5rem; border-top: 1px solid var(--surface-border);">
+                    <div class="dg-layout-measure" style="text-align: center;">w-64 (256px)<br>collapsed: w-20 (80px)</div>
+                </div>
+            </div>
+            <!-- Main area -->
+            <div style="flex: 1; display: flex; flex-direction: column; background: var(--surface-bg);">
+                <!-- Top bar -->
+                <div style="height: 48px; border-bottom: 1px solid var(--surface-border); display: flex; align-items: center; justify-content: space-between; padding: 0 0.75rem; background: var(--surface-card);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div class="dg-layout-box dg-layout-box-muted" style="padding: 0.25rem 0.5rem; min-height: 24px; font-size: 0.5625rem;">Breadcrumbs</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.375rem;">
+                        <div class="dg-layout-box" style="padding: 0.25rem 0.5rem; min-height: 24px; font-size: 0.5625rem; border-radius: 0.375rem;">Search (Cmd+K)</div>
+                        <div class="dg-layout-box" style="padding: 0.25rem; min-height: 24px; width: 24px; font-size: 0.5rem; border-radius: 0.25rem;">DM</div>
+                        <div class="dg-layout-box" style="padding: 0.25rem; min-height: 24px; width: 24px; font-size: 0.5rem; border-radius: 0.25rem;">N</div>
+                        <div class="dg-layout-box dg-layout-box-accent" style="padding: 0.25rem; min-height: 24px; width: 24px; font-size: 0.5rem; border-radius: 50%;">U</div>
+                    </div>
+                </div>
+                <!-- Content area -->
+                <div style="flex: 1; padding: 0.75rem; overflow-y: auto;">
+                    <div class="dg-layout-box dg-layout-box-primary" style="min-height: 40px; margin-bottom: 0.5rem; font-size: 0.625rem;">Page Header (page_header macro)</div>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.375rem; margin-bottom: 0.5rem;">
+                        <div class="dg-layout-box dg-layout-box-violet" style="min-height: 36px; font-size: 0.5625rem;">Stats</div>
+                        <div class="dg-layout-box dg-layout-box-violet" style="min-height: 36px; font-size: 0.5625rem;">Stats</div>
+                        <div class="dg-layout-box dg-layout-box-violet" style="min-height: 36px; font-size: 0.5625rem;">Stats</div>
+                        <div class="dg-layout-box dg-layout-box-violet" style="min-height: 36px; font-size: 0.5625rem;">Stats</div>
+                    </div>
+                    <div class="dg-layout-box" style="min-height: 80px; font-size: 0.625rem;">Main Content Area<br><span class="dg-layout-measure">max-w-7xl (80rem), mx-auto</span></div>
+                </div>
+                <div style="text-align: center; padding: 0.25rem;">
+                    <div class="dg-layout-measure">Top bar: h-16 (64px) | Content: flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-900 bg-noise bg-mesh</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dg-code">
+<span class="cmt">&lt;!-- layouts/admin.html - App Shell Structure --&gt;</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"flex h-screen overflow-hidden"</span>&gt;
+    <span class="cmt">&lt;!-- Sidebar --&gt;</span>
+    &lt;<span class="tag">aside</span> <span class="attr">class</span>=<span class="str">"w-64 flex-shrink-0 flex flex-col
+                   bg-white dark:bg-slate-900
+                   border-r border-slate-200 dark:border-slate-800"</span>
+           <span class="attr">x-data</span>=<span class="str">"{ collapsed: $persist(false).as('sidebarCollapsed') }"</span>
+           <span class="attr">:class</span>=<span class="str">"{ 'w-20': collapsed }"</span>&gt;
+        ...
+    &lt;/<span class="tag">aside</span>&gt;
+
+    <span class="cmt">&lt;!-- Main Content Area --&gt;</span>
+    &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"flex-1 flex flex-col overflow-hidden"</span>&gt;
+        <span class="cmt">&lt;!-- Top Bar --&gt;</span>
+        &lt;<span class="tag">header</span> <span class="attr">class</span>=<span class="str">"h-16 flex items-center justify-between px-4
+                        bg-white dark:bg-slate-900
+                        border-b border-slate-200 dark:border-slate-800"</span>&gt;
+            ...
+        &lt;/<span class="tag">header</span>&gt;
+
+        <span class="cmt">&lt;!-- Scrollable Content --&gt;</span>
+        &lt;<span class="tag">main</span> <span class="attr">class</span>=<span class="str">"flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-900 bg-noise bg-mesh"</span>&gt;
+            &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"</span>&gt;
+                {% <span class="kw">block</span> content %}{% <span class="kw">endblock</span> %}
+            &lt;/<span class="tag">div</span>&gt;
+        &lt;/<span class="tag">main</span>&gt;
+    &lt;/<span class="tag">div</span>&gt;
+&lt;/<span class="tag">div</span>&gt;
+    </div>
+
+    <h3>Sidebar Details</h3>
+    <p>The sidebar uses Alpine.js for collapse/expand state, persisted to localStorage. Key structural details:</p>
+    <ul>
+        <li><strong>Expanded width:</strong> <code>w-64</code> (256px) — shows icon + label + badge</li>
+        <li><strong>Collapsed width:</strong> <code>w-20</code> (80px) — icon only, labels hidden via <code>x-show="!sidebarCollapsed"</code></li>
+        <li><strong>Section headers:</strong> <code>text-xs font-semibold uppercase tracking-wider text-slate-400</code></li>
+        <li><strong>Active state:</strong> <code>bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400</code></li>
+        <li><strong>Hover state:</strong> <code>hover:bg-slate-100 dark:hover:bg-slate-800</code></li>
+        <li><strong>Collapsible sections:</strong> Alpine.js <code>x-show</code> + <code>x-collapse</code> transition</li>
+        <li><strong>Badge counts:</strong> Unread conversations (primary), open tickets (red), dispatch jobs (green)</li>
+        <li><strong>Permission gating:</strong> Each nav item wrapped in <code>{% if can_feature %}</code></li>
+        <li><strong>Mobile:</strong> Overlay with <code>bg-slate-900/50 backdrop-blur-sm</code> backdrop</li>
+    </ul>
+
+    <h3>Top Bar Details</h3>
+    <p>The top bar is a fixed-height <code>h-16</code> header inside the main content column. Structure from left to right:</p>
+    <div class="dg-card">
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+                <div class="dg-layout-box dg-layout-box-muted" style="padding: 0.375rem 0.75rem; min-height: 32px; font-size: 0.6875rem;">Mobile Menu Toggle</div>
+                <div class="dg-layout-measure">lg:hidden</div>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+                <div class="dg-layout-box dg-layout-box-muted" style="padding: 0.375rem 0.75rem; min-height: 32px; font-size: 0.6875rem;">Breadcrumbs</div>
+                <div class="dg-layout-measure">nav > text-sm text-slate-500</div>
+            </div>
+            <div style="flex: 1;"></div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+                <div class="dg-layout-box" style="padding: 0.375rem 0.75rem; min-height: 32px; font-size: 0.6875rem;">Global Search (Cmd+K)</div>
+                <div class="dg-layout-measure">Modal overlay, typeahead</div>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+                <div class="dg-layout-box" style="padding: 0.375rem; min-height: 32px; width: 32px; font-size: 0.625rem; border-radius: 0.375rem; text-align: center;">DM</div>
+                <div class="dg-layout-measure">Dark mode</div>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+                <div class="dg-layout-box" style="padding: 0.375rem; min-height: 32px; width: 32px; font-size: 0.625rem; border-radius: 0.375rem; text-align: center;">N</div>
+                <div class="dg-layout-measure">Notifications</div>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+                <div class="dg-layout-box dg-layout-box-accent" style="padding: 0.375rem; min-height: 32px; width: 32px; font-size: 0.625rem; border-radius: 50%; text-align: center;">AV</div>
+                <div class="dg-layout-measure">User dropdown</div>
+            </div>
+        </div>
+    </div>
+    <ul style="margin-top: 0.75rem;">
+        <li><strong>Global search:</strong> Triggered by Cmd+K (Mac) / Ctrl+K, opens as modal overlay with typeahead results. Component: <code>globalSearch()</code> Alpine.js</li>
+        <li><strong>Dark mode toggle:</strong> <code>$store.darkMode.toggle()</code>, persisted to localStorage. Icon swaps between sun/moon</li>
+        <li><strong>Notifications:</strong> Dropdown with unread count badge (red dot with pulse animation)</li>
+        <li><strong>User dropdown:</strong> Avatar initials, name, role, logout link</li>
+    </ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     14. PAGE LAYOUT PATTERNS
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="page-layouts" class="dg-section">
+    <h2>14. Page Layout Patterns</h2>
+    <p>Inside the app shell content area, pages use one of several standard layout patterns. Always use the correct pattern for the page type.</p>
+
+    <h3>A. List Page Layout</h3>
+    <p>For index/listing pages (tickets, contacts, projects). Vertical stack: header → stats → filters → table → pagination.</p>
+    <div class="dg-layout-diagram" style="padding: 1rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 600px;">
+            <div class="dg-layout-box dg-layout-box-primary" style="min-height: 48px;">Page Header (page_header macro)<br><span class="dg-layout-measure">Title + subtitle + icon badge + action buttons</span></div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.375rem;">
+                <div class="dg-layout-box dg-layout-box-violet" style="min-height: 40px; font-size: 0.625rem;">Stats Card</div>
+                <div class="dg-layout-box dg-layout-box-violet" style="min-height: 40px; font-size: 0.625rem;">Stats Card</div>
+                <div class="dg-layout-box dg-layout-box-violet" style="min-height: 40px; font-size: 0.625rem;">Stats Card</div>
+                <div class="dg-layout-box dg-layout-box-violet" style="min-height: 40px; font-size: 0.625rem;">Stats Card</div>
+            </div>
+            <div class="dg-layout-box dg-layout-box-muted" style="min-height: 36px;">Filter Bar (search + filter_select dropdowns)<br><span class="dg-layout-measure">rounded-2xl card wrapper</span></div>
+            <div class="dg-layout-box" style="min-height: 100px;">Data Table<br><span class="dg-layout-measure">rounded-2xl card with header, scrollable tbody, pagination footer</span></div>
+        </div>
+    </div>
+    <div class="dg-code">
+<span class="cmt">{# List page classes #}</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-children"</span>&gt;
+    {{ stats_card(...) }}
+&lt;/<span class="tag">div</span>&gt;
+
+{% <span class="kw">call</span> filter_bar() %}
+    {{ search_input(...) }}
+    {{ filter_select(...) }}
+{% <span class="kw">endcall</span> %}
+
+{% <span class="kw">call</span>(caller) data_table(...) %}
+    ...table rows...
+{% <span class="kw">endcall</span> %}
+
+{{ pagination(page, total_pages) }}
+    </div>
+
+    <h3>B. Detail Page Layout (2/3 + 1/3 Grid)</h3>
+    <p>For detail/view pages (ticket detail, project detail, customer detail). Uses a <strong>3-column grid</strong> with main content spanning 2 columns and a side panel in the third.</p>
+    <div class="dg-layout-diagram" style="padding: 1rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 600px;">
+            <div class="dg-layout-box dg-layout-box-primary" style="min-height: 48px;">Detail Header<br><span class="dg-layout-measure">Back button + title + badges + edit button</span></div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.5rem;">
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div class="dg-layout-box dg-layout-box-accent" style="min-height: 60px;">Main Content Card<br><span class="dg-layout-measure">lg:col-span-2</span></div>
+                    <div class="dg-layout-box dg-layout-box-accent" style="min-height: 40px;">Comments / Activity<br><span class="dg-layout-measure">Timeline with avatars</span></div>
+                    <div class="dg-layout-box dg-layout-box-accent" style="min-height: 40px;">Related Items<br><span class="dg-layout-measure">HTMX lazy-loaded</span></div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div class="dg-layout-box dg-layout-box-green" style="min-height: 60px;">Info Panel<br><span class="dg-layout-measure">Key fields, status</span></div>
+                    <div class="dg-layout-box dg-layout-box-green" style="min-height: 40px;">Quick Actions<br><span class="dg-layout-measure">Status changes, etc.</span></div>
+                    <div class="dg-layout-box dg-layout-box-green" style="min-height: 40px;">Related Links<br><span class="dg-layout-measure">Customer, assignee</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="dg-code">
+<span class="cmt">&lt;!-- Detail page grid --&gt;</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"grid gap-6 lg:grid-cols-3"</span>&gt;
+    <span class="cmt">&lt;!-- Main content: spans 2 of 3 columns --&gt;</span>
+    &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"lg:col-span-2 space-y-6"</span>&gt;
+        <span class="cmt">&lt;!-- Content cards stacked vertically --&gt;</span>
+        &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"rounded-2xl border border-slate-200/60 dark:border-slate-700/60
+                    bg-white dark:bg-slate-800 shadow-sm"</span>&gt;...&lt;/<span class="tag">div</span>&gt;
+    &lt;/<span class="tag">div</span>&gt;
+
+    <span class="cmt">&lt;!-- Side panel: 1 of 3 columns --&gt;</span>
+    &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"space-y-6"</span>&gt;
+        <span class="cmt">&lt;!-- Info cards stacked vertically --&gt;</span>
+        &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"rounded-2xl border border-slate-200/60 dark:border-slate-700/60
+                    bg-white dark:bg-slate-800 shadow-sm p-6"</span>&gt;...&lt;/<span class="tag">div</span>&gt;
+    &lt;/<span class="tag">div</span>&gt;
+&lt;/<span class="tag">div</span>&gt;
+    </div>
+
+    <h3>C. 3-Panel Inbox Layout</h3>
+    <p>For the CRM inbox. Full-viewport-height, horizontal 3-panel split. Overrides the default content container via <code>{% block content_container_class %}</code>.</p>
+    <div class="dg-layout-diagram" style="padding: 1rem;">
+        <div style="display: flex; gap: 0; height: 240px; border: 1px solid var(--surface-border); border-radius: 0.5rem; overflow: hidden;">
+            <div style="width: 200px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--surface-border); background: var(--surface-card);">
+                <div style="padding: 0.5rem; border-bottom: 1px solid var(--surface-border);">
+                    <div class="dg-layout-box dg-layout-box-muted" style="min-height: 24px; font-size: 0.5625rem;">Search + Channel Filters</div>
+                </div>
+                <div style="flex: 1; padding: 0.375rem; display: flex; flex-direction: column; gap: 0.25rem; overflow: hidden;">
+                    <div class="dg-layout-box dg-layout-box-primary" style="min-height: 40px; font-size: 0.5625rem;">Active Conversation</div>
+                    <div class="dg-layout-box" style="min-height: 40px; font-size: 0.5625rem;">Conversation Item</div>
+                    <div class="dg-layout-box" style="min-height: 40px; font-size: 0.5625rem;">Conversation Item</div>
+                </div>
+                <div class="dg-layout-measure" style="text-align: center; padding: 0.25rem;">w-80 (320px)</div>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; background: var(--surface-bg);">
+                <div style="padding: 0.5rem; border-bottom: 1px solid var(--surface-border); background: var(--surface-card);">
+                    <div class="dg-layout-box dg-layout-box-accent" style="min-height: 24px; font-size: 0.5625rem;">Thread Header (contact + status + actions)</div>
+                </div>
+                <div style="flex: 1; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem;">
+                    <div class="dg-layout-box dg-layout-box-muted" style="min-height: 28px; font-size: 0.5625rem; margin-right: auto; max-width: 65%;">Inbound message</div>
+                    <div class="dg-layout-box dg-layout-box-primary" style="min-height: 28px; font-size: 0.5625rem; margin-left: auto; max-width: 65%;">Outbound message</div>
+                    <div class="dg-layout-box dg-layout-box-muted" style="min-height: 28px; font-size: 0.5625rem; margin-right: auto; max-width: 65%;">Inbound message</div>
+                </div>
+                <div style="padding: 0.5rem; border-top: 1px solid var(--surface-border); background: var(--surface-card);">
+                    <div class="dg-layout-box" style="min-height: 28px; font-size: 0.5625rem;">Reply composer + attachments</div>
+                </div>
+                <div class="dg-layout-measure" style="text-align: center; padding: 0.25rem;">flex-1 (fills remaining width)</div>
+            </div>
+            <div style="width: 180px; flex-shrink: 0; border-left: 1px solid var(--surface-border); background: var(--surface-card); padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem;">
+                <div class="dg-layout-box dg-layout-box-green" style="min-height: 28px; font-size: 0.5625rem;">Contact Info</div>
+                <div class="dg-layout-box dg-layout-box-green" style="min-height: 28px; font-size: 0.5625rem;">Customer Link</div>
+                <div class="dg-layout-box dg-layout-box-green" style="min-height: 28px; font-size: 0.5625rem;">Recent Tickets</div>
+                <div class="dg-layout-measure" style="text-align: center; padding: 0.25rem;">Toggleable panel</div>
+            </div>
+        </div>
+    </div>
+    <div class="dg-code">
+<span class="cmt">&lt;!-- Inbox overrides the content container --&gt;</span>
+{% <span class="kw">block</span> content_container_class %}max-w-none px-0 py-0 h-full{% <span class="kw">endblock</span> %}
+
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"flex h-[calc(100vh-4rem)] min-h-0 w-full overflow-hidden"</span>&gt;
+    <span class="cmt">&lt;!-- Conversation list --&gt;</span>
+    &lt;<span class="tag">aside</span> <span class="attr">class</span>=<span class="str">"w-80 flex-shrink-0 flex flex-col border-r
+                   border-slate-200 dark:border-slate-700
+                   bg-white dark:bg-slate-800"</span>&gt;...&lt;/<span class="tag">aside</span>&gt;
+
+    <span class="cmt">&lt;!-- Message thread --&gt;</span>
+    &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"flex-1 flex flex-col min-w-0"</span>&gt;...&lt;/<span class="tag">div</span>&gt;
+
+    <span class="cmt">&lt;!-- Contact detail panel (toggleable) --&gt;</span>
+    &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"w-80 flex-shrink-0 border-l ..."</span> <span class="attr">x-show</span>=<span class="str">"showContactPanel"</span>&gt;...&lt;/<span class="tag">div</span>&gt;
+&lt;/<span class="tag">div</span>&gt;
+    </div>
+
+    <h3>D. Settings Page Layout</h3>
+    <p>For configuration pages. Uses <strong>pill navigation</strong> for filtering categories, followed by grouped form sections.</p>
+    <div class="dg-layout-diagram" style="padding: 1rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 500px;">
+            <div class="dg-layout-box dg-layout-box-primary" style="min-height: 40px;">Page Header</div>
+            <div style="display: flex; gap: 0.375rem; flex-wrap: wrap;">
+                <div class="dg-layout-box dg-layout-box-primary" style="min-height: 28px; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.625rem;">All (active)</div>
+                <div class="dg-layout-box" style="min-height: 28px; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.625rem;">Company</div>
+                <div class="dg-layout-box" style="min-height: 28px; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.625rem;">Notifications</div>
+                <div class="dg-layout-box" style="min-height: 28px; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.625rem;">Integrations</div>
+            </div>
+            <div class="dg-layout-box dg-layout-box-accent" style="min-height: 60px;">Settings Group Card<br><span class="dg-layout-measure">Grouped key-value fields in sm:grid-cols-6</span></div>
+            <div class="dg-layout-box dg-layout-box-accent" style="min-height: 60px;">Settings Group Card</div>
+        </div>
+    </div>
+    <div class="dg-code">
+<span class="cmt">&lt;!-- Settings pill filters --&gt;</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"flex flex-wrap gap-2 mb-6"</span>&gt;
+    &lt;<span class="tag">a</span> <span class="attr">href</span>=<span class="str">"?domain=all"</span>
+       <span class="attr">class</span>=<span class="str">"rounded-full border px-3 py-1 text-sm font-medium
+              {{ 'border-primary-600 bg-primary-50 text-primary-700
+              dark:border-primary-400 dark:bg-primary-900/30 dark:text-primary-300'
+              if active else 'border-slate-200 ...' }}"</span>&gt;
+        All
+    &lt;/<span class="tag">a</span>&gt;
+&lt;/<span class="tag">div</span>&gt;
+    </div>
+
+    <h3>E. Admin Hub / Dashboard Layout</h3>
+    <p>For hub pages with card grids linking to sub-sections. Uses responsive grid from 1 to 4 columns.</p>
+    <div class="dg-layout-diagram" style="padding: 1rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 500px;">
+            <div class="dg-layout-box dg-layout-box-primary" style="min-height: 40px;">Page Header</div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.375rem;">
+                <div class="dg-layout-box dg-layout-box-muted" style="min-height: 56px; font-size: 0.5625rem;">Icon + Title<br><span class="dg-layout-measure">Link card</span></div>
+                <div class="dg-layout-box dg-layout-box-muted" style="min-height: 56px; font-size: 0.5625rem;">Icon + Title<br><span class="dg-layout-measure">Link card</span></div>
+                <div class="dg-layout-box dg-layout-box-muted" style="min-height: 56px; font-size: 0.5625rem;">Icon + Title<br><span class="dg-layout-measure">Link card</span></div>
+                <div class="dg-layout-box dg-layout-box-muted" style="min-height: 56px; font-size: 0.5625rem;">Icon + Title<br><span class="dg-layout-measure">Link card</span></div>
+                <div class="dg-layout-box dg-layout-box-muted" style="min-height: 56px; font-size: 0.5625rem;">Icon + Title<br><span class="dg-layout-measure">Link card</span></div>
+            </div>
+        </div>
+    </div>
+    <div class="dg-code">
+<span class="cmt">&lt;!-- Hub card grid --&gt;</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"</span>&gt;
+    &lt;<span class="tag">a</span> <span class="attr">href</span>=<span class="str">"..."</span> <span class="attr">class</span>=<span class="str">"rounded-lg border border-slate-200 bg-white p-5 shadow-sm
+                          hover:border-primary-500 hover:shadow-md transition-all
+                          dark:bg-slate-800 dark:border-slate-700"</span>&gt;
+        <span class="cmt">&lt;!-- Icon + Title + Description --&gt;</span>
+    &lt;/<span class="tag">a</span>&gt;
+&lt;/<span class="tag">div</span>&gt;
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     15. NAVIGATION & WAYFINDING
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="navigation" class="dg-section">
+    <h2>15. Navigation & Wayfinding</h2>
+
+    <h3>Sidebar Navigation Structure</h3>
+    <p>Defined in <code>templates/components/navigation/admin_sidebar.html</code>. Permission-gated, section-based, with live badge counters.</p>
+
+    <div class="dg-card">
+        <div class="dg-card-label">Sidebar Section Structure</div>
+        <div style="display: flex; flex-direction: column; gap: 0.25rem; max-width: 280px;">
+            <div class="dg-layout-box dg-layout-box-primary" style="min-height: 32px; font-size: 0.6875rem; justify-content: flex-start; padding-left: 1rem;">
+                <span style="margin-right: 0.5rem;">&#9679;</span> Dashboard <span style="margin-left: auto; font-size: 0.5625rem; color: var(--text-muted);">(always visible)</span>
+            </div>
+            <div class="dg-layout-box dg-layout-box-muted" style="min-height: 24px; font-size: 0.625rem; justify-content: flex-start; padding-left: 0.5rem; border-style: none; background: none;">
+                <strong>CUSTOMERS</strong> <span style="margin-left: auto; font-size: 0.5rem;">x-collapse section</span>
+            </div>
+            <div class="dg-layout-box" style="min-height: 28px; font-size: 0.625rem; justify-content: flex-start; padding-left: 1.5rem;">
+                Subscribers
+            </div>
+            <div class="dg-layout-box" style="min-height: 28px; font-size: 0.625rem; justify-content: flex-start; padding-left: 1.5rem;">
+                Inbox <span style="margin-left: auto; background: var(--primary-500); color: white; border-radius: 9999px; padding: 0 0.375rem; font-size: 0.5625rem;">5</span>
+            </div>
+            <div class="dg-layout-box" style="min-height: 28px; font-size: 0.625rem; justify-content: flex-start; padding-left: 1.5rem;">
+                Contacts
+            </div>
+            <div class="dg-layout-box dg-layout-box-muted" style="min-height: 24px; font-size: 0.625rem; justify-content: flex-start; padding-left: 0.5rem; border-style: none; background: none;">
+                <strong>OPERATIONS</strong>
+            </div>
+            <div class="dg-layout-box" style="min-height: 28px; font-size: 0.625rem; justify-content: flex-start; padding-left: 1.5rem;">
+                Tickets <span style="margin-left: auto; background: #ef4444; color: white; border-radius: 9999px; padding: 0 0.375rem; font-size: 0.5625rem;">12</span>
+            </div>
+            <div class="dg-layout-box" style="min-height: 28px; font-size: 0.625rem; justify-content: flex-start; padding-left: 1.5rem;">
+                Projects
+            </div>
+        </div>
+    </div>
+
+    <p style="margin-top: 0.75rem;">Key implementation details:</p>
+    <ul>
+        <li><strong>Section mapping:</strong> <code>section_for_page</code> dict maps <code>active_page</code> → sidebar section for auto-expand</li>
+        <li><strong>Permission checks:</strong> <code>{% if can_inbox %}</code>, <code>{% if can_contacts %}</code>, etc.</li>
+        <li><strong>Active item:</strong> Compared via <code>{% if active_page == 'inbox' %}</code></li>
+        <li><strong>Nested sub-sections:</strong> "Field Service" nested under "Operations" with its own x-collapse</li>
+        <li><strong>Fallback:</strong> Shows "No access assigned" message if user has zero permissions</li>
+    </ul>
+
+    <h3>Breadcrumb Pattern</h3>
+    <p>Breadcrumbs sit in the top bar. They provide hierarchical context and quick navigation.</p>
+    <div class="dg-demo">
+        <nav style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem;">
+            <a href="#" style="color: var(--text-muted); text-decoration: none;">Admin</a>
+            <span style="color: var(--text-muted);">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+            </span>
+            <a href="#" style="color: var(--text-muted); text-decoration: none;">Tickets</a>
+            <span style="color: var(--text-muted);">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+            </span>
+            <span style="font-weight: 600; color: var(--text-primary);">TKT-001</span>
+        </nav>
+    </div>
+    <div class="dg-code">
+&lt;<span class="tag">nav</span> <span class="attr">class</span>=<span class="str">"flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"</span>&gt;
+    &lt;<span class="tag">a</span> <span class="attr">href</span>=<span class="str">"/admin/tickets"</span> <span class="attr">class</span>=<span class="str">"hover:text-primary-600"</span>&gt;Tickets&lt;/<span class="tag">a</span>&gt;
+    <span class="cmt">&lt;!-- Chevron separator --&gt;</span>
+    &lt;<span class="tag">svg</span>&gt;...&lt;/<span class="tag">svg</span>&gt;
+    &lt;<span class="tag">span</span> <span class="attr">class</span>=<span class="str">"font-semibold text-slate-900 dark:text-white"</span>&gt;TKT-001&lt;/<span class="tag">span</span>&gt;
+&lt;/<span class="tag">nav</span>&gt;
+    </div>
+
+    <h3>Global Search</h3>
+    <p>Accessible via <kbd style="font-size: 0.75rem; padding: 0.125rem 0.375rem; background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: 0.25rem;">Cmd+K</kbd> / <kbd style="font-size: 0.75rem; padding: 0.125rem 0.375rem; background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: 0.25rem;">Ctrl+K</kbd>. Opens a centered modal overlay with typeahead search. Results grouped by category (contacts, tickets, subscribers, etc.).</p>
+    <ul>
+        <li>Component: <code>globalSearch()</code> Alpine.js in <code>base.html</code></li>
+        <li>API endpoint: <code>/api/search/typeahead?q=...</code></li>
+        <li>Overlay: <code>fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm</code></li>
+        <li>Search box: <code>max-w-xl mx-auto rounded-2xl</code> with icon + input + keyboard hint</li>
+        <li>Results: Grouped sections with item type icon, title, and subtitle</li>
+    </ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     16. OVERLAYS & FEEDBACK
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="overlays" class="dg-section">
+    <h2>16. Overlays & Feedback</h2>
+
+    <h3>Confirmation Modal</h3>
+    <p>A global modal for destructive or important actions. Triggered via Alpine.js event dispatch. Defined in <code>templates/components/modals/confirm_modal.html</code>.</p>
+
+    <div class="dg-layout-diagram" style="padding: 1.5rem; display: flex; justify-content: center;">
+        <div style="width: 320px; border-radius: 1rem; overflow: hidden; background: var(--surface-card); border: 1px solid var(--surface-border); box-shadow: 0 20px 40px rgba(0,0,0,0.15);">
+            <div style="padding: 1.25rem; display: flex; flex-direction: column; align-items: center; text-align: center;">
+                <div style="width: 48px; height: 48px; border-radius: 50%; background: rgba(239,68,68,0.12); display: flex; align-items: center; justify-content: center; margin-bottom: 0.75rem;">
+                    <svg width="24" height="24" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                </div>
+                <div style="font-weight: 700; font-size: 1rem; margin-bottom: 0.375rem;">Delete Ticket?</div>
+                <div style="font-size: 0.875rem; color: var(--text-secondary);">This action cannot be undone. The ticket and all comments will be permanently removed.</div>
+            </div>
+            <div style="padding: 0.75rem 1.25rem; border-top: 1px solid var(--surface-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button class="demo-btn demo-btn-secondary demo-btn-sm">Cancel</button>
+                <button class="demo-btn demo-btn-danger demo-btn-sm">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="dg-code">
+<span class="cmt">&lt;!-- Trigger via Alpine.js event --&gt;</span>
+&lt;<span class="tag">button</span> @<span class="attr">click</span>=<span class="str">"$dispatch('confirm-action', {
+    title: 'Delete Ticket?',
+    message: 'This cannot be undone.',
+    actionUrl: '/admin/tickets/{{ ticket.id }}/delete',
+    method: 'POST',
+    variant: 'danger'
+})"</span>&gt;Delete&lt;/<span class="tag">button</span>&gt;
+
+<span class="cmt">{# Or use the macro (recommended): #}</span>
+{{ danger_button(<span class="str">"Delete"</span>, action=<span class="str">"/admin/tickets/"</span>~ticket.id~<span class="str">"/delete"</span>,
+                 confirm_title=<span class="str">"Delete Ticket?"</span>,
+                 confirm_message=<span class="str">"This cannot be undone."</span>) }}
+
+<span class="cmt">{# Variants: danger (red), warning (amber), info (blue) #}</span>
+    </div>
+
+    <h3>Toast Notifications</h3>
+    <p>Fixed to bottom-right of viewport. Managed by Alpine.js <code>toastStore()</code>. Auto-dismiss after 5 seconds.</p>
+
+    <div class="dg-demo" style="flex-direction: column; gap: 0.5rem; align-items: flex-end;">
+        <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 0.75rem; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); min-width: 280px;">
+            <svg width="18" height="18" fill="none" stroke="#059669" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span style="font-size: 0.875rem; font-weight: 500; color: #059669;">Ticket created successfully</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 0.75rem; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); min-width: 280px;">
+            <svg width="18" height="18" fill="none" stroke="#dc2626" stroke-width="2" viewBox="0 0 24 24"><path d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span style="font-size: 0.875rem; font-weight: 500; color: #dc2626;">Failed to send message</span>
+        </div>
+    </div>
+
+    <div class="dg-code">
+<span class="cmt"># From Python (HTMX HX-Trigger header):</span>
+headers[<span class="str">"HX-Trigger"</span>] = json.dumps({
+    <span class="str">"showToast"</span>: {<span class="str">"message"</span>: <span class="str">"Ticket created"</span>, <span class="str">"type"</span>: <span class="str">"success"</span>}
+})
+
+<span class="cmt">// From JavaScript (Alpine.js store):</span>
+Alpine.store(<span class="str">'toast'</span>).show(<span class="str">'Saved!'</span>, <span class="str">'success'</span>);
+
+<span class="cmt">// Or via CustomEvent:</span>
+window.dispatchEvent(<span class="kw">new</span> CustomEvent(<span class="str">'show-toast'</span>, {
+    detail: { message: <span class="str">'Saved!'</span>, type: <span class="str">'success'</span> }
+}));
+
+<span class="cmt">// Types: success (green), error (red), warning (amber), info (blue)</span>
+    </div>
+
+    <h3>Alert Banners</h3>
+    <p>Inline banners for form validation errors and success messages. Placed at the top of the content area.</p>
+    <div class="dg-demo dg-demo-col">
+        <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 0.5rem; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); color: #059669;">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span style="font-size: 0.875rem; font-weight: 500;">Settings saved successfully.</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 0.5rem; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); color: #dc2626;">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span style="font-size: 0.875rem; font-weight: 500;">Please fix the errors below.</span>
+        </div>
+    </div>
+    <div class="dg-code">
+<span class="cmt">&lt;!-- Success banner --&gt;</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"rounded-lg border bg-emerald-50 border-emerald-200
+            text-emerald-700 dark:bg-emerald-900/20
+            dark:border-emerald-800 dark:text-emerald-400
+            p-3 flex items-center gap-3"</span>&gt;
+    <span class="cmt">&lt;!-- Icon + message --&gt;</span>
+&lt;/<span class="tag">div</span>&gt;
+
+<span class="cmt">&lt;!-- Error banner --&gt;</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"rounded-lg border bg-red-50 border-red-200
+            text-red-700 dark:bg-red-900/20
+            dark:border-red-800 dark:text-red-400
+            p-3 flex items-center gap-3"</span>&gt;
+    <span class="cmt">&lt;!-- Icon + message --&gt;</span>
+&lt;/<span class="tag">div</span>&gt;
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     17. TEMPLATE CODE PATTERNS
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="patterns" class="dg-section">
+    <h2>17. Template Code Patterns</h2>
+
+    <h3>Standard Page Structure</h3>
+    <div class="dg-code">
+<span class="cmt">{# Every admin page follows this structure #}</span>
+{% <span class="kw">extends</span> <span class="str">"layouts/admin.html"</span> %}
+
+{% <span class="kw">block</span> title %}Page Title - Admin{% <span class="kw">endblock</span> %}
+
+{% <span class="kw">block</span> content %}
+<span class="cmt">{# 1. Import macros #}</span>
+{% <span class="kw">from</span> <span class="str">"components/ui/macros.html"</span> <span class="kw">import</span> page_header, stats_card, data_table, ... %}
+
+<span class="cmt">{# 2. Page header with breadcrumbs #}</span>
+{{ page_header(<span class="str">"Tickets"</span>, subtitle=<span class="str">"Manage support tickets"</span>,
+               icon=icon_ticket(), color=<span class="str">"amber"</span>, color2=<span class="str">"orange"</span>) }}
+
+<span class="cmt">{# 3. Stats cards row #}</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-children"</span>&gt;
+    {{ stats_card(...) }}
+&lt;/<span class="tag">div</span>&gt;
+
+<span class="cmt">{# 4. Filter bar #}</span>
+{% <span class="kw">call</span> filter_bar() %}...{% <span class="kw">endcall</span> %}
+
+<span class="cmt">{# 5. Data table #}</span>
+{% <span class="kw">call</span>(caller) data_table(...) %}...{% <span class="kw">endcall</span> %}
+
+<span class="cmt">{# 6. Pagination #}</span>
+{{ pagination(...) }}
+{% <span class="kw">endblock</span> %}
+    </div>
+
+    <h3>HTMX Partial Pattern</h3>
+    <p>Partial templates are prefixed with <code>_</code> (e.g., <code>_ticket_table.html</code>). They render fragments for HTMX swaps.</p>
+    <div class="dg-code">
+<span class="cmt">&lt;!-- In main template --&gt;</span>
+&lt;<span class="tag">div</span> <span class="attr">id</span>=<span class="str">"data-table"</span>
+     <span class="attr">hx-get</span>=<span class="str">"/admin/tickets/table"</span>
+     <span class="attr">hx-trigger</span>=<span class="str">"load"</span>
+     <span class="attr">hx-swap</span>=<span class="str">"innerHTML"</span>&gt;
+    &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"htmx-indicator"</span>&gt;Loading...&lt;/<span class="tag">div</span>&gt;
+&lt;/<span class="tag">div</span>&gt;
+    </div>
+
+    <h3>Detail Page Card Pattern</h3>
+    <div class="dg-code">
+<span class="cmt">&lt;!-- Standard card structure on detail pages --&gt;</span>
+&lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"rounded-2xl border border-slate-200/60 dark:border-slate-700/60
+            bg-white dark:bg-slate-800 shadow-sm overflow-hidden
+            animate-fade-in-up"</span>&gt;
+    <span class="cmt">&lt;!-- Card header with gradient icon --&gt;</span>
+    &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"px-6 py-4 border-b border-slate-100 dark:border-slate-700
+                flex items-center gap-3"</span>&gt;
+        &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"w-9 h-9 rounded-lg bg-gradient-to-br from-{color}-500 to-{color2}-500
+                    flex items-center justify-center shadow-lg shadow-{color}-500/25"</span>&gt;
+            <span class="cmt">&lt;!-- Icon SVG (white, w-4 h-4) --&gt;</span>
+        &lt;/<span class="tag">div</span>&gt;
+        &lt;<span class="tag">h3</span> <span class="attr">class</span>=<span class="str">"font-semibold text-slate-900 dark:text-white"</span>&gt;Section Title&lt;/<span class="tag">h3</span>&gt;
+    &lt;/<span class="tag">div</span>&gt;
+    <span class="cmt">&lt;!-- Card body --&gt;</span>
+    &lt;<span class="tag">div</span> <span class="attr">class</span>=<span class="str">"p-6"</span>&gt;...&lt;/<span class="tag">div</span>&gt;
+&lt;/<span class="tag">div</span>&gt;
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     18. UI/UX REVIEW CHECKLIST
+     ═══════════════════════════════════════════════════════════════ -->
+<section id="review" class="dg-section">
+    <h2>18. UI/UX Review Checklist</h2>
+    <p>Use this checklist when reviewing any UI changes or creating new pages.</p>
+
+    <div class="dg-grid-2" style="margin-top: 1rem;">
+        <div class="dg-card">
+            <div class="dg-card-label">Visual Consistency</div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Uses correct domain color scheme</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Outfit for headings, Plus Jakarta Sans for body</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>rounded-xl buttons, rounded-2xl cards</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Gradient icon badges for page headers</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Uses macros from ui/macros.html</div></div>
+        </div>
+
+        <div class="dg-card">
+            <div class="dg-card-label">Dark Mode</div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Every color has a dark: variant</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>No hardcoded hex colors inline</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Borders use opacity variants (/60)</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Visually tested in both modes</div></div>
+        </div>
+
+        <div class="dg-card">
+            <div class="dg-card-label">Interactions & Motion</div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Cards use animate-fade-in-up on load</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Buttons lift on hover (translateY -1px)</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Submit buttons show loading spinner</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Reduced-motion preferences respected</div></div>
+        </div>
+
+        <div class="dg-card">
+            <div class="dg-card-label">Accessibility</div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>All interactive elements focusable</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>ARIA labels on icon-only buttons</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Status conveyed with icon + color</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Form inputs have labels + error states</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Proper heading hierarchy (h1 > h2 > h3)</div></div>
+        </div>
+
+        <div class="dg-card">
+            <div class="dg-card-label">Responsive</div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Mobile layout tested (< 640px)</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Touch targets >= 40px (h-10 w-10)</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Tables wrapped in overflow-x-auto</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Grids collapse appropriately</div></div>
+        </div>
+
+        <div class="dg-card">
+            <div class="dg-card-label">HTMX & Alpine.js</div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>HTMX requests include CSRF token</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Loading indicators shown during fetches</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>Toast notifications for user feedback</div></div>
+            <div class="dg-check"><div class="dg-check-icon"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div><div>x-cloak on hidden elements to prevent FOUC</div></div>
+        </div>
+    </div>
+</section>
+
+</div>
+
+<footer style="text-align: center; padding: 3rem 1.5rem; border-top: 1px solid var(--surface-border); color: var(--text-muted); font-size: 0.8125rem;">
+    DotMac CRM Design Guide &middot; Industrial Modern Aesthetic &middot; Last updated February 2026
+</footer>
+
+</body>
+</html>

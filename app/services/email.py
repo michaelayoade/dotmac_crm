@@ -125,8 +125,10 @@ def send_email_with_config(
     body_html: str,
     body_text: str | None = None,
     reply_to: str | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
     attachments: list[dict] | None = None,
-) -> bool:
+) -> tuple[bool, dict | None]:
     msg = _build_email_message(
         subject=subject,
         from_name=config.get("from_name", "DotMac CRM"),
@@ -135,9 +137,10 @@ def send_email_with_config(
         body_html=body_html,
         body_text=body_text,
         reply_to=reply_to,
+        in_reply_to=in_reply_to,
+        references=references,
         attachments=attachments,
     )
-    msg["Subject"] = subject
 
     try:
         host = str(config.get("host") or "localhost")
@@ -157,15 +160,19 @@ def send_email_with_config(
             server.login(username, password)
 
         from_email = str(config.get("from_email") or "")
-        server.sendmail(from_email, to_email, msg.as_string())
+        send_result = server.sendmail(from_email, to_email, msg.as_string())
         server.quit()
-        return True
+        debug = None
+        if send_result:
+            debug = {"refused": send_result}
+            logger.warning("SMTP sendmail refused recipients: %s", send_result)
+        return True, debug
     except smtplib.SMTPAuthenticationError as exc:
         logger.error("SMTP authentication failed for %s: %s", to_email, exc)
-        return False
+        return False, {"error": "SMTP authentication failed"}
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
-        return False
+        return False, {"error": str(e)}
 
 
 def send_email(
@@ -178,8 +185,10 @@ def send_email(
     from_name: str | None = None,
     from_email: str | None = None,
     reply_to: str | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
     attachments: list[dict] | None = None,
-) -> bool:
+) -> tuple[bool, dict | None]:
     """
     Send an email via SMTP.
 
@@ -209,6 +218,8 @@ def send_email(
         body_html=body_html,
         body_text=body_text,
         reply_to=reply_to,
+        in_reply_to=in_reply_to,
+        references=references,
         attachments=attachments,
     )
 
@@ -240,15 +251,19 @@ def send_email(
         if config["username"] and config["password"]:
             server.login(config["username"], config["password"])
 
-        server.sendmail(str(config["from_email"]), to_email, msg.as_string())
+        send_result = server.sendmail(str(config["from_email"]), to_email, msg.as_string())
         server.quit()
 
         if notification and db:
             notification.status = NotificationStatus.delivered
             db.commit()
 
-        logger.info(f"Email sent successfully to {to_email}")
-        return True
+        debug = None
+        if send_result:
+            debug = {"refused": send_result}
+            logger.warning("SMTP sendmail refused recipients: %s", send_result)
+        logger.info("Email sent successfully to %s", to_email)
+        return True, debug
 
     except smtplib.SMTPAuthenticationError as exc:
         logger.error("SMTP authentication failed for %s: %s", to_email, exc)
@@ -256,14 +271,14 @@ def send_email(
             notification.status = NotificationStatus.failed
             notification.last_error = "SMTP authentication failed"
             db.commit()
-        return False
+        return False, {"error": "SMTP authentication failed"}
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
         if notification and db:
             notification.status = NotificationStatus.failed
             notification.last_error = str(e)
             db.commit()
-        return False
+        return False, {"error": str(e)}
 
 
 def _build_email_message(
@@ -274,6 +289,8 @@ def _build_email_message(
     body_html: str,
     body_text: str | None = None,
     reply_to: str | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
     attachments: list[dict] | None = None,
 ) -> MIMEMultipart:
     msg = MIMEMultipart("mixed")
@@ -282,6 +299,10 @@ def _build_email_message(
     msg["To"] = to_email
     if reply_to:
         msg["Reply-To"] = reply_to
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+    if references:
+        msg["References"] = references
 
     alternative = MIMEMultipart("alternative")
     if body_text:

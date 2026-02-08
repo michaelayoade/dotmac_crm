@@ -36,7 +36,9 @@ def _normalize_phone(address: str | None) -> str | None:
     if not address:
         return None
     digits = "".join(ch for ch in address if ch.isdigit())
-    return digits or None
+    if not digits:
+        return None
+    return f"+{digits}"
 
 
 def _normalize_channel_address(channel_type: CrmChannelType, address: str) -> str:

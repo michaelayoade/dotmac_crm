@@ -91,8 +91,8 @@
                 <div>
                     <span class="text-slate-500 dark:text-slate-400">Project:</span>
                     {% if order.project_id %}
-                    <a href="/admin/projects/{{ order.project_id }}" class="text-primary-600 hover:text-primary-700">
-                        {{ order.project_id|string|truncate(8, True, '') }}
+                    <a href="/admin/projects/{{ order.project.number if order.project else order.project_id }}" class="text-primary-600 hover:text-primary-700">
+                        {{ order.project.number if order.project and order.project.number else (order.project_id|string|truncate(8, True, '')) }}
                     </a>
                     {% else %}
                     <span class="text-slate-500 dark:text-slate-400">-</span>
