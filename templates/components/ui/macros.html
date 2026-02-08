@@ -858,12 +858,12 @@
    SUBMIT BUTTON WITH LOADING STATE
    Button with Alpine.js loading state for forms
    ============================================ #}
-{% macro submit_button(label, loading_label="Saving...", icon="check", color="primary", size="md") %}
+{% macro submit_button(label, loading_label="Saving...", icon="check", color="primary", size="md", full_width=False) %}
 {% set sizes = {'sm': 'px-3 py-1.5 text-xs gap-1.5', 'md': 'px-4 py-2.5 text-sm gap-2', 'lg': 'px-5 py-3 text-base gap-2'} %}
 <button type="submit"
         :disabled="submitting"
         :class="{ 'opacity-50 cursor-wait': submitting }"
-        class="inline-flex items-center {{ sizes[size] }} rounded-xl bg-gradient-to-r from-{{ color }}-500 to-{{ color }}-600 font-semibold text-white shadow-lg shadow-{{ color }}-500/25 transition-all hover:shadow-xl hover:shadow-{{ color }}-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-{{ color }}-500 focus:ring-offset-2 disabled:hover:translate-y-0 disabled:hover:shadow-lg">
+        class="{{ 'w-full justify-center' if full_width else 'inline-flex' }} items-center {{ sizes[size] }} rounded-xl bg-gradient-to-r from-{{ color }}-500 to-{{ color }}-600 font-semibold text-white shadow-lg shadow-{{ color }}-500/25 transition-all hover:shadow-xl hover:shadow-{{ color }}-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-{{ color }}-500 focus:ring-offset-2 disabled:hover:translate-y-0 disabled:hover:shadow-lg">
     <span x-show="!submitting" class="flex items-center gap-2">
         {% if icon == "check" %}
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
@@ -918,6 +918,29 @@
     {% endif %}
     {{ label }}
 </button>
+{% endmacro %}
+
+
+{# ============================================
+   TYPEAHEAD INPUT
+   Search-as-you-type field with hidden value
+   Uses data-typeahead-* attributes + static/js/typeahead.js
+   ============================================ #}
+{% macro typeahead_input(name, url, value="", display_value="", placeholder="Search...", required=false, min_chars=2, limit=8, id="", variant="default") %}
+{% set input_classes = {
+    'default': 'block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white',
+    'compact': 'w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200'
+} %}
+<div class="relative" data-typeahead-url="{{ url }}"{% if min_chars != 2 %} data-typeahead-min="{{ min_chars }}"{% endif %}{% if limit != 8 %} data-typeahead-limit="{{ limit }}"{% endif %}>
+    <input type="text" data-typeahead-input
+           {% if id %}id="{{ id }}"{% endif %}
+           value="{{ display_value }}"
+           placeholder="{{ placeholder }}"
+           autocomplete="off"
+           class="{{ input_classes[variant] }}">
+    <input type="hidden" name="{{ name }}" data-typeahead-hidden value="{{ value }}"{% if required %} required{% endif %}>
+    <div data-typeahead-results></div>
+</div>
 {% endmacro %}
 
 

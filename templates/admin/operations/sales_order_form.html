@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button, typeahead_input %}
 {% block title %}Edit Sales Order - Operations{% endblock %}
 
 {% block content %}
@@ -38,13 +39,8 @@
 
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Account</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/accounts">
-                            <input type="text" data-typeahead-input
-                                   value="{{ account_label or '' }}"
-                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                                   placeholder="Search accounts...">
-                            <input type="hidden" name="account_id" data-typeahead-hidden value="{{ order.account_id if order and order.account_id else '' }}">
-                            <div data-typeahead-results></div>
+                        <div class="mt-1">
+                        {{ typeahead_input("account_id", "/api/v1/search/accounts", value=(order.account_id if order and order.account_id else ''), display_value=(account_label or ''), placeholder="Search accounts...") }}
                         </div>
                     </div>
 
@@ -103,7 +99,7 @@
 
         <div class="flex justify-end gap-3">
             <a href="/admin/operations/sales-orders/{{ order.id }}" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Cancel</a>
-            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">Save Changes</button>
+            {{ submit_button("Save Changes") }}
         </div>
     </form>
 </div>

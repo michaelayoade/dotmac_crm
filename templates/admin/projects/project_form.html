@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button, typeahead_input %}
 {% block title %}{{ 'Edit' if project.id else 'New' }} Project - Admin{% endblock %}
 
 {% block content %}
@@ -85,25 +86,15 @@
 
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Subscriber</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/subscribers">
-                            <input type="text" data-typeahead-input
-                                   value="{{ subscriber_label or '' }}"
-                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                                   placeholder="Search subscribers...">
-                            <input type="hidden" name="subscriber_id" data-typeahead-hidden value="{{ project.subscriber_id or '' }}">
-                            <div data-typeahead-results></div>
+                        <div class="mt-1">
+                        {{ typeahead_input("subscriber_id", "/api/v1/search/subscribers", value=(project.subscriber_id or ''), display_value=(subscriber_label or ''), placeholder="Search subscribers...") }}
                         </div>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Assigned Vendor</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/vendors">
-                            <input type="text" data-typeahead-input
-                                   value="{{ assigned_vendor_label or '' }}"
-                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                                   placeholder="Search vendors...">
-                            <input type="hidden" name="assigned_vendor_id" data-typeahead-hidden value="{{ project.assigned_vendor_id or '' }}">
-                            <div data-typeahead-results></div>
+                        <div class="mt-1">
+                        {{ typeahead_input("assigned_vendor_id", "/api/v1/search/vendors", value=(project.assigned_vendor_id or ''), display_value=(assigned_vendor_label or ''), placeholder="Search vendors...") }}
                         </div>
                     </div>
 
@@ -130,49 +121,29 @@
 
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Owner</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/people">
-                            <input type="text" data-typeahead-input
-                                   value="{{ owner_label or '' }}"
-                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                                   placeholder="Search people...">
-                            <input type="hidden" name="owner_person_id" data-typeahead-hidden value="{{ project.owner_person_id or '' }}">
-                            <div data-typeahead-results></div>
+                        <div class="mt-1">
+                        {{ typeahead_input("owner_person_id", "/api/v1/search/people", value=(project.owner_person_id or ''), display_value=(owner_label or ''), placeholder="Search people...") }}
                         </div>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Manager</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/people">
-                            <input type="text" data-typeahead-input
-                                   value="{{ manager_label or '' }}"
-                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                                   placeholder="Search people...">
-                            <input type="hidden" name="manager_person_id" data-typeahead-hidden value="{{ project.manager_person_id or '' }}">
-                            <div data-typeahead-results></div>
+                        <div class="mt-1">
+                        {{ typeahead_input("manager_person_id", "/api/v1/search/people", value=(project.manager_person_id or ''), display_value=(manager_label or ''), placeholder="Search people...") }}
                         </div>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Project Manager</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/people">
-                            <input type="text" data-typeahead-input
-                                   value="{{ project_manager_label or '' }}"
-                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                                   placeholder="Search people...">
-                            <input type="hidden" name="project_manager_person_id" data-typeahead-hidden value="{{ project.project_manager_person_id or '' }}">
-                            <div data-typeahead-results></div>
+                        <div class="mt-1">
+                        {{ typeahead_input("project_manager_person_id", "/api/v1/search/people", value=(project.project_manager_person_id or ''), display_value=(project_manager_label or ''), placeholder="Search people...") }}
                         </div>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Assistant Project Manager</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/people">
-                            <input type="text" data-typeahead-input
-                                   value="{{ assistant_manager_label or '' }}"
-                                   class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                                   placeholder="Search people...">
-                            <input type="hidden" name="assistant_manager_person_id" data-typeahead-hidden value="{{ project.assistant_manager_person_id or '' }}">
-                            <div data-typeahead-results></div>
+                        <div class="mt-1">
+                        {{ typeahead_input("assistant_manager_person_id", "/api/v1/search/people", value=(project.assistant_manager_person_id or ''), display_value=(assistant_manager_label or ''), placeholder="Search people...") }}
                         </div>
                     </div>
 
@@ -237,10 +208,7 @@
             <a href="/admin/projects" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 Cancel
             </a>
-            <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                {{ 'Save Changes' if project.id else 'Create Project' }}
-            </button>
+            {{ submit_button(('Save Changes' if project.id else 'Create Project'), loading_label="Creating...") }}
         </div>
     </form>
 </div>

@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import danger_button, status_badge, submit_button, typeahead_input, warning_button %}
 
 {% block title %}Inbox Settings - Admin{% endblock %}
 
@@ -182,10 +182,7 @@
                 <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Only used when repeat reminders are enabled.</p>
             </div>
             <div class="flex items-end justify-end md:col-span-2">
-                <button type="submit"
-                        class="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600">
-                    Save notification settings
-                </button>
+                {{ submit_button("Save notification settings", color="amber") }}
             </div>
         </form>
     </section>
@@ -388,10 +385,7 @@
                                 </div>
 
                                 <div class="flex items-center justify-end gap-2 pt-2">
-                                    <button type="submit"
-                                            class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                                        Save inbox
-                                    </button>
+                                    {{ submit_button("Save inbox") }}
                                 </div>
                             </form>
                             <form method="POST" action="/admin/crm/inbox/email-polling/reset?next=/admin/crm/inbox/settings" class="mt-2">
@@ -586,10 +580,7 @@
                     </div>
 
                     <div class="flex items-center justify-end gap-2 pt-2">
-                        <button type="submit"
-                                class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                            Create inbox
-                        </button>
+                        {{ submit_button("Create inbox", loading_label="Creating...") }}
                     </div>
                 </form>
             </details>
@@ -662,10 +653,7 @@
                                 </div>
 
                                 <div class="flex items-center justify-end gap-2 pt-2">
-                                    <button type="submit"
-                                            class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                                        Save inbox
-                                    </button>
+                                    {{ submit_button("Save inbox") }}
                                 </div>
                             </form>
                         </div>
@@ -711,10 +699,7 @@
                     </div>
 
                     <div class="flex items-center justify-end gap-2 pt-2">
-                        <button type="submit"
-                                class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                            Create inbox
-                        </button>
+                        {{ submit_button("Create inbox", loading_label="Creating...") }}
                     </div>
                 </form>
             </details>
@@ -852,13 +837,7 @@
                        class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
                         Re-connect
                     </a>
-                    <form method="POST" action="/admin/crm/meta/disconnect" class="inline">
-                        <button type="submit"
-                                onclick="return confirm('Disconnect Meta integration? This will disable Facebook Messenger and Instagram DM support.')"
-                                class="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:bg-slate-800 dark:text-red-400 dark:hover:bg-red-900/20">
-                            Disconnect
-                        </button>
-                    </form>
+                    {{ warning_button("Disconnect", "Confirm Disconnect", "Disconnect Meta integration? This will disable Facebook Messenger and Instagram DM support.", "/admin/crm/meta/disconnect", size="sm") }}
                 </div>
             </div>
         </div>
@@ -979,17 +958,7 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                                         </svg>
                                     </a>
-                                    <form action="/admin/crm/widget/{{ widget.id }}/delete" method="post" class="inline"
-                                          onsubmit="return confirm('Are you sure you want to delete this widget?')">
-                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-                                        <button type="submit"
-                                                class="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                                                title="Delete">
-                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                            </svg>
-                                        </button>
-                                    </form>
+                                    {{ danger_button("Delete", "Confirm Delete", "Are you sure you want to delete this widget?", "/admin/crm/widget/" ~ widget.id ~ "/delete", size="sm") }}
                                 </div>
                             </td>
                         </tr>
@@ -1041,9 +1010,7 @@
                                placeholder="Handles inbound chat and email"
                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                     </div>
-                    <button type="submit" class="w-full rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                        Create team
-                    </button>
+                    {{ submit_button("Create team", full_width=True, loading_label="Creating...") }}
                 </form>
             </section>
 
@@ -1052,12 +1019,8 @@
                 <form method="POST" action="/admin/crm/inbox/agents" class="mt-5 space-y-4">
                     <div>
                         <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Person</label>
-                        <div class="relative mt-1" data-typeahead-url="/api/v1/search/people" data-typeahead-min="2" data-typeahead-limit="8">
-                            <input type="text" name="person_search" data-typeahead-input
-                                   placeholder="Search people..."
-                                   class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                            <input type="hidden" name="person_id" data-typeahead-hidden required>
-                            <div data-typeahead-results></div>
+                        <div class="mt-1">
+                        {{ typeahead_input("person_id", "/api/v1/search/people", placeholder="Search people...", required=true) }}
                         </div>
                     </div>
                     <div>
@@ -1066,9 +1029,7 @@
                                placeholder="Support Agent"
                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                     </div>
-                    <button type="submit" class="w-full rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                        Create agent
-                    </button>
+                    {{ submit_button("Create agent", full_width=True, loading_label="Creating...") }}
                 </form>
             </section>
 
@@ -1101,9 +1062,7 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <button type="submit" class="w-full rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                        Assign agent
-                    </button>
+                    {{ submit_button("Assign agent", full_width=True) }}
                 </form>
             </section>
         </div>

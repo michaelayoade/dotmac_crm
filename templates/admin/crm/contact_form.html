@@ -1,5 +1,6 @@
 {% extends "layouts/admin.html" %}
 
+{% from "components/ui/macros.html" import submit_button, typeahead_input %}
 {% block title %}{{ form_title }} - Admin{% endblock %}
 
 {% block content %}
@@ -97,14 +98,7 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Organization</label>
-                    <div class="relative" data-typeahead-url="/api/v1/search/organizations">
-                        <input type="text" data-typeahead-input
-                               value="{{ organization_label or '' }}"
-                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                               placeholder="Search organizations...">
-                        <input type="hidden" name="organization_id" data-typeahead-hidden value="{{ contact.organization_id or '' }}">
-                        <div data-typeahead-results></div>
-                    </div>
+                    {{ typeahead_input("organization_id", "/api/v1/search/organizations", value=(contact.organization_id or ''), display_value=(organization_label or ''), placeholder="Search organizations...") }}
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Country Code</label>
@@ -122,7 +116,7 @@
         </div>
         <div class="border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-slate-700 dark:bg-slate-800/50 flex items-center justify-end gap-3">
             <a href="/admin/crm/contacts" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Cancel</a>
-            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">{{ submit_label }}</button>
+            {{ submit_button((submit_label), loading_label="Submitting...") }}
         </div>
     </form>
 </div>

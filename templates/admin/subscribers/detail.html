@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge, ambient_background %}
+{% from "components/ui/macros.html" import ambient_background, danger_button, status_badge, submit_button, typeahead_input %}
 
 {% block title %}{{ subscriber.display_name }} - Subscriber{% endblock %}
 
@@ -39,15 +39,7 @@
                 Edit
             </a>
             {% if subscriber.status.value != 'terminated' %}
-            <form method="post" action="/admin/subscribers/{{ subscriber.id }}/delete" class="inline">
-                {% include "components/forms/csrf_input.html" %}
-                <button type="submit"
-                        onclick="return confirm('Are you sure you want to deactivate this subscriber?')"
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50 dark:border-red-800/60 dark:bg-slate-800 dark:text-red-400 dark:hover:bg-red-900/20">
-                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
-                    Deactivate
-                </button>
-            </form>
+            {{ danger_button("Deactivate", "Confirm Deactivate", "Are you sure you want to deactivate this subscriber?", "/admin/subscribers/" ~ subscriber.id ~ "/delete", size="sm") }}
             {% endif %}
         </div>
     </div>
@@ -374,21 +366,15 @@
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Search for an existing contact to link to this subscriber.</p>
         <form method="post" action="/admin/subscribers/{{ subscriber.id }}/link-person" class="mt-4 space-y-4">
             {% include "components/forms/csrf_input.html" %}
-            <div class="relative" data-typeahead-url="/api/v1/search/persons" data-typeahead-min="2" data-typeahead-limit="8">
+            <div>
                 <label for="person_search" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Contact</label>
-                <input type="text" name="person_search" id="person_search" data-typeahead-input
-                    placeholder="Search by name or email..."
-                    class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                <input type="hidden" name="person_id" id="person_id" data-typeahead-hidden required>
-                <div data-typeahead-results></div>
+                {{ typeahead_input("person_id", "/api/v1/search/persons", placeholder="Search by name or email...", required=true, id="person_search") }}
             </div>
             <div class="flex justify-end gap-3 pt-2">
                 <button type="button" onclick="document.getElementById('link-person-modal').classList.add('hidden')" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
                     Cancel
                 </button>
-                <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600">
-                    Link Contact
-                </button>
+                {{ submit_button("Link Contact", color="amber", loading_label="Linking...") }}
             </div>
         </form>
     </div>
