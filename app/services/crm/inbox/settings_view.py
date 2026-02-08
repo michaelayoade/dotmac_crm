@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from sqlalchemy.orm import Session
+from fastapi import HTTPException
 
 from app.models.connector import ConnectorType
 from app.models.domain_settings import SettingDomain
@@ -18,6 +19,10 @@ from app.services.crm.inbox.inboxes import (
     list_channel_targets,
 )
 from app.services.crm.inbox.meta_status import get_meta_connection_status
+from app.services.crm.inbox.permissions import (
+    can_manage_inbox_settings,
+    can_view_inbox_settings,
+)
 from app.services.settings_spec import resolve_value
 
 
@@ -28,7 +33,12 @@ def build_inbox_settings_context(
     headers: Mapping[str, str],
     current_user: dict | None,
     sidebar_stats: dict,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> dict[str, Any]:
+    if not can_view_inbox_settings(roles, scopes):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    can_manage = can_manage_inbox_settings(roles, scopes)
     email_channel = get_email_channel_state(db)
     whatsapp_channel = get_whatsapp_channel_state(db)
     email_inboxes = list_channel_targets(db, ConnectorType.email)
@@ -136,6 +146,7 @@ def build_inbox_settings_context(
         "current_user": current_user,
         "sidebar_stats": sidebar_stats,
         "active_page": "inbox",
+        "can_manage_settings": can_manage,
         "email_channel": email_channel,
         "whatsapp_channel": whatsapp_channel,
         "email_inboxes": email_inboxes,

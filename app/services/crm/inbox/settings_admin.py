@@ -14,6 +14,7 @@ from app.services import crm as crm_service
 from app.services import domain_settings as domain_settings_service
 from app.services import settings_spec
 from app.services.common import coerce_uuid
+from app.services.crm.inbox.permissions import can_manage_inbox_settings
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,15 @@ def update_notification_settings(
     reminder_repeat_enabled: str | None,
     reminder_repeat_interval_seconds: str,
     notification_auto_dismiss_seconds: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> NotificationSettingsResult:
     try:
+        if not can_manage_inbox_settings(roles, scopes):
+            return NotificationSettingsResult(
+                ok=False,
+                error_detail="Not authorized to update notification settings",
+            )
         reminder_delay = _coerce_int(
             "crm_inbox_reply_reminder_delay_seconds", reminder_delay_seconds
         )
@@ -147,8 +155,17 @@ def update_notification_settings(
         )
 
 
-def create_team(db: Session, *, name: str, notes: str | None) -> ActionResult:
+def create_team(
+    db: Session,
+    *,
+    name: str,
+    notes: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
     try:
+        if not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Not authorized to create teams")
         payload = TeamCreate(
             name=name.strip(),
             notes=notes.strip() if notes else None,
@@ -164,8 +181,12 @@ def create_agent(
     *,
     person_id: str | None,
     title: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> ActionResult:
     try:
+        if not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Not authorized to create agents")
         person_id_value = (person_id or "").strip()
         if not person_id_value:
             raise ValueError("Please select a person for the agent")
@@ -195,8 +216,14 @@ def create_agent_team(
     *,
     agent_id: str,
     team_id: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> ActionResult:
     try:
+        if not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(
+                ok=False, error_detail="Not authorized to assign agent to team"
+            )
         payload = AgentTeamCreate(
             agent_id=coerce_uuid(agent_id),
             team_id=coerce_uuid(team_id),

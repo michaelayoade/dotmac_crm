@@ -590,6 +590,15 @@ def _get_current_roles(request: Request) -> list[str]:
     return []
 
 
+def _get_current_scopes(request: Request) -> list[str]:
+    auth = getattr(request.state, "auth", None)
+    if isinstance(auth, dict):
+        scopes = auth.get("scopes") or []
+        if isinstance(scopes, list):
+            return [str(scope) for scope in scopes]
+    return []
+
+
 @router.post("/agents/presence", response_class=JSONResponse)
 async def update_current_agent_presence(
     request: Request,
@@ -728,6 +737,8 @@ async def inbox_settings(
         headers=request.headers,
         current_user=current_user,
         sidebar_stats=sidebar_stats,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
     )
     return templates.TemplateResponse(
         "admin/crm/inbox_settings.html",
@@ -753,6 +764,8 @@ async def update_inbox_notification_settings(
         reminder_repeat_enabled=reminder_repeat_enabled,
         reminder_repeat_interval_seconds=reminder_repeat_interval_seconds,
         notification_auto_dismiss_seconds=notification_auto_dismiss_seconds,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
     )
     if not result.ok:
         detail = quote(result.error_detail or "Failed to save notification settings", safe="")
@@ -773,7 +786,13 @@ async def create_crm_team(
     notes: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    result = create_team(db, name=name, notes=notes)
+    result = create_team(
+        db,
+        name=name,
+        notes=notes,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
     if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?team_setup=1", status_code=303
@@ -792,7 +811,13 @@ async def create_crm_agent(
     title: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    result = create_agent(db, person_id=person_id, title=title)
+    result = create_agent(
+        db,
+        person_id=person_id,
+        title=title,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
     if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?agent_setup=1", status_code=303
@@ -811,7 +836,13 @@ async def create_crm_agent_team(
     team_id: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    result = create_agent_team(db, agent_id=agent_id, team_id=team_id)
+    result = create_agent_team(
+        db,
+        agent_id=agent_id,
+        team_id=team_id,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
     if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?assignment_setup=1", status_code=303

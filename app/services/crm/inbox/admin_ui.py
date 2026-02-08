@@ -20,6 +20,7 @@ from app.services import crm as crm_service
 from app.services.crm import conversations as conversation_service
 from app.services.crm import contacts as contact_service
 from app.services.crm.inbox.attachments_processing import apply_message_attachments
+from app.services.crm.inbox.status_flow import apply_status_transition
 
 
 @dataclass(frozen=True)
@@ -321,8 +322,9 @@ def start_new_conversation(
                 update_lead_owner=True,
             )
     if conversation.status != ConversationStatus.open:
-        conversation.status = ConversationStatus.open
-        db.commit()
+        check = apply_status_transition(conversation, ConversationStatus.open)
+        if check.allowed:
+            db.commit()
 
     return StartConversationResult(
         kind="success",

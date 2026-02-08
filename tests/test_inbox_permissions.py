@@ -1,4 +1,9 @@
-from app.services.crm.inbox.permissions import can_view_private_note, is_admin
+from app.services.crm.inbox.permissions import (
+    can_manage_inbox_settings,
+    can_view_inbox_settings,
+    can_view_private_note,
+    is_admin,
+)
 
 
 def test_is_admin_by_role():
@@ -37,3 +42,15 @@ def test_can_view_private_note_team_default():
         actor_id="user-2",
         roles=[],
     )
+
+
+def test_can_view_inbox_settings():
+    assert can_view_inbox_settings(roles=["admin"])
+    assert can_view_inbox_settings(scopes=["crm:inbox:settings:read"])
+    assert not can_view_inbox_settings(scopes=["other:read"])
+
+
+def test_can_manage_inbox_settings():
+    assert can_manage_inbox_settings(roles=["admin"])
+    assert can_manage_inbox_settings(scopes=["crm:inbox:settings:write"])
+    assert not can_manage_inbox_settings(scopes=["crm:inbox:settings:read"])

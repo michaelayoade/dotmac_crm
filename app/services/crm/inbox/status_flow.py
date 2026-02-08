@@ -53,3 +53,13 @@ def validate_transition(
         allowed=False,
         reason=f"Transition {current.value} -> {target.value} is not allowed",
     )
+
+
+def apply_status_transition(conversation, target: ConversationStatus) -> TransitionCheck:
+    current = conversation.status or ConversationStatus.open
+    if not isinstance(current, ConversationStatus):
+        current = ConversationStatus(str(current))
+    check = validate_transition(current, target)
+    if check.allowed:
+        conversation.status = target
+    return check
