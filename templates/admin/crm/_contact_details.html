@@ -1,3 +1,4 @@
+{% from "components/ui/macros.html" import typeahead_input %}
 <!-- Contact Header -->
 <div class="border-b border-slate-800/60" x-data="{ open: true }">
     <div class="px-4 py-4">
@@ -124,27 +125,13 @@
           hx-swap="innerHTML"
           hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'}); htmx.ajax('GET', '/admin/crm/inbox/conversation/{{ conversation_id }}', {target:'#message-thread', swap:'innerHTML'})"
           class="space-y-2.5 rounded-xl bg-slate-800/30 border border-slate-700/30 p-2.5">
-        <div class="relative" data-typeahead-url="/api/v1/search/people" data-typeahead-min="2" data-typeahead-limit="8">
+        <div>
             <label class="block text-[10px] text-slate-500 mb-1">Person</label>
-            <input type="text"
-                   name="person_search"
-                   data-typeahead-input
-                   autocomplete="off"
-                   placeholder="Search name, email, phone"
-                   class="w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200" />
-            <input type="hidden" name="person_id" data-typeahead-hidden required>
-            <div data-typeahead-results></div>
+            {{ typeahead_input("person_id", "/api/v1/search/people", placeholder="Search name, email, phone", required=true, variant="compact") }}
         </div>
-        <div class="relative" data-typeahead-url="/api/v1/search/subscribers" data-typeahead-min="2" data-typeahead-limit="8">
+        <div>
             <label class="block text-[10px] text-slate-500 mb-1">Subscriber (optional)</label>
-            <input type="text"
-                   name="subscriber_search"
-                   data-typeahead-input
-                   autocomplete="off"
-                   placeholder="Search subscriber number or name"
-                   class="w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200" />
-            <input type="hidden" name="subscriber_id" data-typeahead-hidden>
-            <div data-typeahead-results></div>
+            {{ typeahead_input("subscriber_id", "/api/v1/search/subscribers", placeholder="Search subscriber number or name", variant="compact") }}
         </div>
         <div class="grid grid-cols-2 gap-1.5">
             <div>
