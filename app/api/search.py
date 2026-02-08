@@ -18,7 +18,7 @@ def _empty_typeahead(limit: int) -> dict:
 
 @router.get("/people", response_model=ListResponse[TypeaheadItem])
 def search_people(
-    q: str = Query(min_length=2),
+    q: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
@@ -101,7 +101,7 @@ def search_accounts(
 
 @router.get("/subscribers", response_model=ListResponse[TypeaheadItem])
 def search_subscribers(
-    q: str = Query(min_length=2),
+    q: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db),
 ):

@@ -1,12 +1,14 @@
 """Query functions for inbox statistics and conversation listing."""
 
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, select, true
+from sqlalchemy.sql import lateral
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.crm.conversation import (
     Conversation,
     ConversationAssignment,
     Message,
+    MessageAttachment,
 )
 from app.models.crm.enums import (
     ChannelType,
@@ -34,7 +36,8 @@ def list_inbox_conversations(
     """List inbox conversations with latest message and unread count.
 
     Returns a list of tuples: (Conversation, latest_message_dict, unread_count)
-    where latest_message_dict contains: body, channel_type, received_at, sent_at, created_at, last_message_at
+    where latest_message_dict contains: body, channel_type, received_at, sent_at, created_at,
+    last_message_at, message_type, has_attachments
     """
     query = (
         db.query(Conversation)
@@ -42,6 +45,7 @@ def list_inbox_conversations(
             selectinload(Conversation.contact).selectinload(Person.channels),
             selectinload(Conversation.assignments),
         )
+        .select_from(Conversation)
         .filter(Conversation.is_active.is_(True))
     )
 
@@ -92,9 +96,11 @@ def list_inbox_conversations(
         )
         query = query.filter(Conversation.id.in_(assigned_subq))
     elif assignment_filter == "unassigned":
+        # Treat team-only assignments as unassigned (agent_id is NULL).
         assigned_subq = (
             db.query(ConversationAssignment.conversation_id)
             .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.isnot(None))
             .distinct()
         )
         query = query.filter(~Conversation.id.in_(assigned_subq))
@@ -127,8 +133,15 @@ def list_inbox_conversations(
         Message.sent_at,
         Message.created_at,
     )
-    latest_message_subq = (
-        db.query(
+    has_attachments = (
+        db.query(MessageAttachment.id)
+        .filter(MessageAttachment.message_id == Message.id)
+        .exists()
+    )
+
+    # LATERAL subquery to fetch only the latest message per conversation.
+    latest_message_subq = lateral(
+        select(
             Message.conversation_id.label("conv_id"),
             Message.body.label("body"),
             Message.channel_type.label("channel_type"),
@@ -138,15 +151,15 @@ def list_inbox_conversations(
             Message.sent_at.label("sent_at"),
             Message.created_at.label("created_at"),
             last_message_ts.label("last_message_at"),
-            func.row_number()
-            .over(
-                partition_by=Message.conversation_id,
-                order_by=last_message_ts.desc(),
-            )
-            .label("rnk"),
+            Message.metadata_.label("metadata"),
+            has_attachments.label("has_attachments"),
         )
+        .select_from(Message)
         .outerjoin(IntegrationTarget, IntegrationTarget.id == Message.channel_target_id)
-    ).subquery()
+        .where(Message.conversation_id == Conversation.id)
+        .order_by(last_message_ts.desc())
+        .limit(1)
+    ).alias("latest_message")
 
     unread_subq = (
         db.query(
@@ -162,10 +175,7 @@ def list_inbox_conversations(
 
     query = query.outerjoin(
         latest_message_subq,
-        and_(
-            latest_message_subq.c.conv_id == Conversation.id,
-            latest_message_subq.c.rnk == 1,
-        ),
+        true(),
     ).outerjoin(
         unread_subq,
         unread_subq.c.conv_id == Conversation.id,
@@ -186,6 +196,8 @@ def list_inbox_conversations(
             latest_message_subq.c.sent_at,
             latest_message_subq.c.created_at,
             latest_message_subq.c.last_message_at,
+            latest_message_subq.c.metadata,
+            latest_message_subq.c.has_attachments,
             unread_subq.c.unread_count,
         )
         .limit(limit)
@@ -196,7 +208,8 @@ def list_inbox_conversations(
     for row in conversations_raw:
         conv = row[0]
         latest_message = None
-        if row[1] is not None or row[2] is not None:
+        if row[1] is not None or row[2] is not None or row[9] is not None:
+            metadata = row[9] if isinstance(row[9], dict) else None
             latest_message = {
                 "body": row[1],
                 "channel_type": row[2],
@@ -206,8 +219,11 @@ def list_inbox_conversations(
                 "sent_at": row[6],
                 "created_at": row[7],
                 "last_message_at": row[8],
+                "metadata": metadata,
+                "message_type": metadata.get("type") if metadata else None,
+                "has_attachments": bool(row[10]) if row[10] is not None else False,
             }
-        unread_count = row[9] or 0
+        unread_count = row[11] or 0
         result.append((conv, latest_message, unread_count))
 
     return result

@@ -71,6 +71,12 @@ class EventType(enum.Enum):
     ticket_resolved = "ticket.resolved"
     ticket_assigned = "ticket.assigned"
 
+    # CRM - Conversation events (1)
+    conversation_created = "conversation.created"
+
+    # CRM - Message events (1)
+    message_inbound = "message.inbound"
+
     # Projects - Project events (4)
     project_created = "project.created"
     project_updated = "project.updated"

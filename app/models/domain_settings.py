@@ -54,6 +54,7 @@ class SettingDomain(enum.Enum):
     scheduler = "scheduler"
     integration = "integration"
     campaigns = "campaigns"
+    numbering = "numbering"
 
 
 class DomainSetting(Base):

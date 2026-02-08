@@ -74,6 +74,7 @@ class TicketRead(TicketBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: UUID
+    number: str | None = None
     created_at: datetime
     updated_at: datetime
 

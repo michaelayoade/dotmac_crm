@@ -25,14 +25,16 @@ def _is_upload_like(item: object) -> bool:
     return hasattr(item, "filename") and hasattr(item, "file")
 
 
-def _coerce_upload_files(files: UploadFile | list[UploadFile] | None) -> list[UploadFile]:
+def _coerce_upload_files(files: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | None) -> list[UploadFile]:
     if files is None:
         return []
     if isinstance(files, UploadFile):
         if not files.filename:
             return []
         return [files]
-    if isinstance(files, list):
+    if _is_upload_like(files) and getattr(files, "filename", None):
+        return [files]  # Accept UploadFile-like objects
+    if isinstance(files, (list, tuple)):
         uploads: list[UploadFile] = []
         for item in files:
             if isinstance(item, UploadFile):
@@ -47,7 +49,9 @@ def _coerce_upload_files(files: UploadFile | list[UploadFile] | None) -> list[Up
     )
 
 
-async def prepare_message_attachments(files: UploadFile | list[UploadFile] | None) -> list[dict]:
+async def prepare_message_attachments(
+    files: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | None,
+) -> list[dict]:
     uploads = _coerce_upload_files(files)
     if not uploads:
         return []
@@ -95,7 +99,9 @@ def save_message_attachments(prepared: list[dict]) -> list[dict]:
 
 class MessageAttachments:
     @staticmethod
-    async def prepare(files: UploadFile | list[UploadFile] | None) -> list[dict]:
+    async def prepare(
+        files: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | None,
+    ) -> list[dict]:
         return await prepare_message_attachments(files)
 
     @staticmethod

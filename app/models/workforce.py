@@ -19,7 +19,9 @@ class WorkOrderStatus(enum.Enum):
 
 
 class WorkOrderPriority(enum.Enum):
+    lower = "lower"
     low = "low"
+    medium = "medium"
     normal = "normal"
     high = "high"
     urgent = "urgent"

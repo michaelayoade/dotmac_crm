@@ -48,7 +48,9 @@ def _normalize_phone(value: str | None) -> str | None:
     if not value:
         return None
     digits = "".join(ch for ch in value if ch.isdigit())
-    return digits or None
+    if not digits:
+        return None
+    return f"+{digits}"
 
 
 def _normalize_channel_address(channel_type: ChannelType, address: str | None) -> str | None:

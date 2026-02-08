@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from dependency_injector import containers, providers  # type: ignore[import-not-found]
+from dependency_injector import containers, providers
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session

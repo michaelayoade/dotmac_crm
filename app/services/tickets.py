@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.crm.sales import Lead
+from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.tickets import (
     Ticket,
@@ -28,6 +29,7 @@ from app.services.common import (
 )
 from app.services.events import emit_event
 from app.services.events.types import EventType
+from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
 
 
@@ -64,7 +66,9 @@ def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder
 
     # Map ticket priority to work order priority
     priority_map = {
+        TicketPriority.lower: WorkOrderPriority.lower,
         TicketPriority.low: WorkOrderPriority.low,
+        TicketPriority.medium: WorkOrderPriority.medium,
         TicketPriority.normal: WorkOrderPriority.normal,
         TicketPriority.high: WorkOrderPriority.high,
         TicketPriority.urgent: WorkOrderPriority.urgent,
@@ -128,7 +132,7 @@ def _resolve_technician_contact(db: Session, person_id) -> dict | None:
     name = (
         technician.display_name or f"{technician.first_name or ''} {technician.last_name or ''}".strip() or "Technician"
     )
-    email = technician.email if isinstance(technician.email, str) else None
+    email: str | None = technician.email if isinstance(technician.email, str) else None
     email = email.strip() if email else None
     return {
         "name": name,
@@ -152,7 +156,19 @@ class Tickets(ListResponseMixin):
 
         validate_ticket_creation(db, payload)
 
-        ticket = Ticket(**payload.model_dump())
+        data = payload.model_dump()
+        number = generate_number(
+            db=db,
+            domain=SettingDomain.numbering,
+            sequence_key="ticket_number",
+            enabled_key="ticket_number_enabled",
+            prefix_key="ticket_number_prefix",
+            padding_key="ticket_number_padding",
+            start_key="ticket_number_start",
+        )
+        if number:
+            data["number"] = number
+        ticket = Ticket(**data)
         db.add(ticket)
         db.flush()  # Get ticket.id before creating work order
 
@@ -222,6 +238,15 @@ class Tickets(ListResponseMixin):
     @staticmethod
     def get(db: Session, ticket_id: str):
         ticket = db.get(Ticket, ticket_id)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        return ticket
+
+    @staticmethod
+    def get_by_number(db: Session, number: str):
+        if not number:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        ticket = db.query(Ticket).filter(Ticket.number == number).first()
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
         return ticket
@@ -327,7 +352,7 @@ class Tickets(ListResponseMixin):
         # Emit ticket events based on status transitions
         new_status = ticket.status
         new_priority = ticket.priority
-        event_payload = {
+        event_payload: dict[str, object | None] = {
             "ticket_id": str(ticket.id),
             "title": ticket.title,
             "subject": ticket.title,

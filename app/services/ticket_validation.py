@@ -21,7 +21,15 @@ from app.services.events.types import Event, EventType
 
 logger = logging.getLogger(__name__)
 
-_OPEN_STATUSES = {TicketStatus.new, TicketStatus.open, TicketStatus.pending, TicketStatus.on_hold}
+_OPEN_STATUSES = {
+    TicketStatus.new,
+    TicketStatus.open,
+    TicketStatus.pending,
+    TicketStatus.waiting_on_customer,
+    TicketStatus.lastmile_rerun,
+    TicketStatus.site_under_construction,
+    TicketStatus.on_hold,
+}
 
 
 def validate_ticket_creation(db: Session, payload: TicketCreate) -> None:

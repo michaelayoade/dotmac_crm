@@ -61,6 +61,9 @@ def get_sidebar_stats(db: Session) -> dict:
             TicketStatus.open,
             TicketStatus.new,
             TicketStatus.pending,
+            TicketStatus.waiting_on_customer,
+            TicketStatus.lastmile_rerun,
+            TicketStatus.site_under_construction,
             TicketStatus.on_hold,
         ]
         open_tickets_count = (

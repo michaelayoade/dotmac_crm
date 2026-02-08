@@ -38,7 +38,9 @@
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Priority</label>
                 <select name="priority" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">All Priorities</option>
+                    <option value="lower" {% if priority == 'lower' %}selected{% endif %}>Lower</option>
                     <option value="low" {% if priority == 'low' %}selected{% endif %}>Low</option>
+                    <option value="medium" {% if priority == 'medium' %}selected{% endif %}>Medium</option>
                     <option value="normal" {% if priority == 'normal' %}selected{% endif %}>Normal</option>
                     <option value="high" {% if priority == 'high' %}selected{% endif %}>High</option>
                     <option value="urgent" {% if priority == 'urgent' %}selected{% endif %}>Urgent</option>
@@ -53,6 +55,13 @@
                         {{ project.name }}
                     </option>
                     {% endfor %}
+                </select>
+            </div>
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Assignment</label>
+                <select name="assigned" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Tasks</option>
+                    <option value="me" {% if assigned == 'me' %}selected{% endif %}>Assigned to Me</option>
                 </select>
             </div>
             <div>
@@ -72,6 +81,7 @@
                         <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assigned</th>
                         <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
                         <th class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
                     </tr>
@@ -83,12 +93,14 @@
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="px-6 py-4">
                             <p class="text-sm font-medium text-slate-900 dark:text-white">{{ task.title | default('Task') }}</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">{{ task.id|string|truncate(8, True, '') }}</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">{{ task.number or (task.id|string|truncate(8, True, '')) }}</p>
                         </td>
                         {% set project = project_map.get(task.project_id|string) %}
                         <td class="px-6 py-4">
                             {% if project %}
-                            <a href="/admin/projects/{{ project.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ project.name }}</a>
+                            <a href="/admin/projects/{{ project.number or project.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">
+                                {{ project.number or (project.id|string|truncate(8, True, '')) }}
+                            </a>
                             {% else %}
                             <span class="text-sm text-slate-500 dark:text-slate-400">Unknown</span>
                             {% endif %}
@@ -99,13 +111,22 @@
                         <td class="px-6 py-4">
                             <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">{{ task.priority.value if task.priority else 'normal' }}</span>
                         </td>
+                        <td class="px-6 py-4">
+                            {% if task.assigned_to %}
+                            <div class="text-sm font-medium text-slate-900 dark:text-white">
+                                {{ task.assigned_to.display_name or (task.assigned_to.first_name ~ ' ' ~ task.assigned_to.last_name) }}
+                            </div>
+                            {% else %}
+                            <div class="text-sm text-slate-500 dark:text-slate-400 italic">Unassigned</div>
+                            {% endif %}
+                        </td>
                         <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ task.created_at.strftime('%b %d, %Y') if task.created_at else 'N/A' }}</td>
                         <td class="px-6 py-4 text-right">
-                            <a href="/admin/projects/tasks/{{ task.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
+                            <a href="/admin/projects/tasks/{{ task.number or task.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
                             <span class="px-1.5 text-slate-300">|</span>
-                            <a href="/admin/projects/tasks/{{ task.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
+                            <a href="/admin/projects/tasks/{{ task.number or task.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
                             <span class="px-1.5 text-slate-300">|</span>
-                            <form method="POST" action="/admin/projects/tasks/{{ task.id }}/delete" class="inline" onsubmit="return confirm('Delete this task?');">
+                            <form method="POST" action="/admin/projects/tasks/{{ task.number or task.id }}/delete" class="inline" onsubmit="return confirm('Delete this task?');">
                                 <button type="submit" class="text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400">Delete</button>
                             </form>
                         </td>
@@ -113,7 +134,7 @@
                     {% endfor %}
                     {% else %}
                     <tr>
-                        <td colspan="6" class="px-6 py-12">
+                        <td colspan="7" class="px-6 py-12">
                             {% set title = "No tasks" %}
                             {% set message = "Project tasks will appear here once created." %}
                             {% include "components/data/empty_state.html" %}
@@ -127,14 +148,15 @@
         {% set project_param = '&project_id=' ~ project_id if project_id else '' %}
         {% set status_param = '&status=' ~ status if status else '' %}
         {% set priority_param = '&priority=' ~ priority if priority else '' %}
+        {% set assigned_param = '&assigned=' ~ assigned if assigned else '' %}
         <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row">
             <p class="text-sm text-slate-500 dark:text-slate-400">Page {{ page }} of {{ total_pages }}</p>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
-                <a href="/admin/projects/tasks?page={{ page - 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                <a href="/admin/projects/tasks?page={{ page - 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}{{ assigned_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
                 {% endif %}
                 {% if page < total_pages %}
-                <a href="/admin/projects/tasks?page={{ page + 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                <a href="/admin/projects/tasks?page={{ page + 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}{{ assigned_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
                 {% endif %}
             </div>
         </div>

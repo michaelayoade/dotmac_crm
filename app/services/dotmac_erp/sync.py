@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -13,8 +12,15 @@ from app.models.domain_settings import SettingDomain
 from app.models.projects import Project, ProjectStatus
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
-from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPError
 from app.services import settings_spec
+from app.services.dotmac_erp.client import (
+    DotMacERPAuthError,
+    DotMacERPClient,
+    DotMacERPError,
+    DotMacERPNotFoundError,
+    DotMacERPRateLimitError,
+    DotMacERPTransientError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +41,18 @@ class SyncResult:
     @property
     def has_errors(self) -> bool:
         return len(self.errors) > 0
+
+
+@dataclass
+class SyncEntityResult:
+    """Result of syncing a single entity to ERP."""
+    entity_type: str
+    entity_id: str
+    success: bool
+    error_type: str | None = None
+    error: str | None = None
+    status_code: int | None = None
+    response: dict | None = None
 
 
 class DotMacERPSync:
@@ -60,6 +78,9 @@ class DotMacERPSync:
         TicketStatus.new: "active",
         TicketStatus.open: "active",
         TicketStatus.pending: "active",
+        TicketStatus.waiting_on_customer: "active",
+        TicketStatus.lastmile_rerun: "active",
+        TicketStatus.site_under_construction: "active",
         TicketStatus.on_hold: "active",
         TicketStatus.resolved: "completed",
         TicketStatus.closed: "completed",
@@ -86,16 +107,25 @@ class DotMacERPSync:
 
         # Check if sync is enabled
         enabled = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_sync_enabled"
+            self.db,
+            SettingDomain.integration,
+            "dotmac_erp_sync_enabled",
+            use_cache=False,
         )
         if not enabled:
             return None
 
         base_url_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_base_url"
+            self.db,
+            SettingDomain.integration,
+            "dotmac_erp_base_url",
+            use_cache=False,
         )
         token_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_token"
+            self.db,
+            SettingDomain.integration,
+            "dotmac_erp_token",
+            use_cache=False,
         )
 
         base_url = str(base_url_value) if base_url_value else None
@@ -106,7 +136,10 @@ class DotMacERPSync:
             return None
 
         timeout_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds"
+            self.db,
+            SettingDomain.integration,
+            "dotmac_erp_timeout_seconds",
+            use_cache=False,
         )
         if isinstance(timeout_value, (int, str)):
             timeout = int(timeout_value)
@@ -158,7 +191,7 @@ class DotMacERPSync:
         payload = {
             "omni_id": str(ticket.id),
             "subject": ticket.title,
-            "ticket_number": str(ticket.id),
+            "ticket_number": ticket.number or str(ticket.id),
             "ticket_type": ticket.ticket_type,
             "status": self.TICKET_STATUS_MAP.get(ticket.status, "active"),
             "priority": ticket.priority.value if ticket.priority else None,
@@ -204,17 +237,22 @@ class DotMacERPSync:
 
     # ============ Sync Methods ============
 
-    def sync_project(self, project: Project) -> bool:
+    def sync_project(self, project: Project) -> SyncEntityResult:
         """
         Sync a single project to ERP.
 
         Returns:
-            True if sync succeeded, False otherwise
+            SyncEntityResult with success and error details
         """
         client = self._get_client()
         if not client:
             logger.debug(f"ERP sync skipped for project {project.id}: not configured")
-            return False
+            return SyncEntityResult(
+                entity_type="project",
+                entity_id=str(project.id),
+                success=False,
+                error_type="not_configured",
+            )
 
         try:
             payload = self._map_project(project)
@@ -223,26 +261,85 @@ class DotMacERPSync:
                 f"Synced project to ERP project_id={project.id} "
                 f"name={project.name} status={project.status.value if project.status else None}"
             )
-            return result.get("projects_synced", 0) > 0
-        except DotMacERPError as e:
-            logger.error(
-                f"Failed to sync project to ERP project_id={project.id} "
-                f"name={project.name} status={project.status.value if project.status else None} "
-                f"error={e}"
+            synced = result.get("projects_synced", 0) > 0 if isinstance(result, dict) else False
+            return SyncEntityResult(
+                entity_type="project",
+                entity_id=str(project.id),
+                success=synced,
+                error_type=None if synced else "no_sync",
+                response=result if isinstance(result, dict) else None,
             )
-            return False
+        except DotMacERPRateLimitError as e:
+            logger.warning(
+                "ERP sync rate limited for project_id=%s retry_after=%s",
+                project.id,
+                e.retry_after,
+            )
+            raise
+        except DotMacERPAuthError as e:
+            logger.error(
+                "ERP auth failed syncing project project_id=%s error=%s",
+                project.id,
+                e,
+            )
+            return SyncEntityResult(
+                entity_type="project",
+                entity_id=str(project.id),
+                success=False,
+                error_type="auth",
+                error=str(e),
+                status_code=e.status_code,
+            )
+        except DotMacERPNotFoundError as e:
+            logger.error(
+                "ERP resource not found syncing project project_id=%s error=%s",
+                project.id,
+                e,
+            )
+            return SyncEntityResult(
+                entity_type="project",
+                entity_id=str(project.id),
+                success=False,
+                error_type="not_found",
+                error=str(e),
+                status_code=e.status_code,
+            )
+        except DotMacERPError as e:
+            status_code = e.status_code
+            if status_code is not None and 400 <= status_code < 500 and status_code != 429:
+                logger.error(
+                    "ERP validation failed syncing project project_id=%s status=%s error=%s",
+                    project.id,
+                    status_code,
+                    e,
+                )
+                return SyncEntityResult(
+                    entity_type="project",
+                    entity_id=str(project.id),
+                    success=False,
+                    error_type="validation",
+                    error=str(e),
+                    status_code=status_code,
+                    response=e.response if isinstance(e.response, dict) else None,
+                )
+            raise DotMacERPTransientError(str(e), status_code=status_code, response=e.response)
 
-    def sync_ticket(self, ticket: Ticket) -> bool:
+    def sync_ticket(self, ticket: Ticket) -> SyncEntityResult:
         """
         Sync a single ticket to ERP.
 
         Returns:
-            True if sync succeeded, False otherwise
+            SyncEntityResult with success and error details
         """
         client = self._get_client()
         if not client:
             logger.debug(f"ERP sync skipped for ticket {ticket.id}: not configured")
-            return False
+            return SyncEntityResult(
+                entity_type="ticket",
+                entity_id=str(ticket.id),
+                success=False,
+                error_type="not_configured",
+            )
 
         try:
             payload = self._map_ticket(ticket)
@@ -251,26 +348,85 @@ class DotMacERPSync:
                 f"Synced ticket to ERP ticket_id={ticket.id} "
                 f"number={ticket.id} status={ticket.status.value if ticket.status else None}"
             )
-            return result.get("tickets_synced", 0) > 0
-        except DotMacERPError as e:
-            logger.error(
-                f"Failed to sync ticket to ERP ticket_id={ticket.id} "
-                f"number={ticket.id} status={ticket.status.value if ticket.status else None} "
-                f"error={e}"
+            synced = result.get("tickets_synced", 0) > 0 if isinstance(result, dict) else False
+            return SyncEntityResult(
+                entity_type="ticket",
+                entity_id=str(ticket.id),
+                success=synced,
+                error_type=None if synced else "no_sync",
+                response=result if isinstance(result, dict) else None,
             )
-            return False
+        except DotMacERPRateLimitError as e:
+            logger.warning(
+                "ERP sync rate limited for ticket_id=%s retry_after=%s",
+                ticket.id,
+                e.retry_after,
+            )
+            raise
+        except DotMacERPAuthError as e:
+            logger.error(
+                "ERP auth failed syncing ticket ticket_id=%s error=%s",
+                ticket.id,
+                e,
+            )
+            return SyncEntityResult(
+                entity_type="ticket",
+                entity_id=str(ticket.id),
+                success=False,
+                error_type="auth",
+                error=str(e),
+                status_code=e.status_code,
+            )
+        except DotMacERPNotFoundError as e:
+            logger.error(
+                "ERP resource not found syncing ticket ticket_id=%s error=%s",
+                ticket.id,
+                e,
+            )
+            return SyncEntityResult(
+                entity_type="ticket",
+                entity_id=str(ticket.id),
+                success=False,
+                error_type="not_found",
+                error=str(e),
+                status_code=e.status_code,
+            )
+        except DotMacERPError as e:
+            status_code = e.status_code
+            if status_code is not None and 400 <= status_code < 500 and status_code != 429:
+                logger.error(
+                    "ERP validation failed syncing ticket ticket_id=%s status=%s error=%s",
+                    ticket.id,
+                    status_code,
+                    e,
+                )
+                return SyncEntityResult(
+                    entity_type="ticket",
+                    entity_id=str(ticket.id),
+                    success=False,
+                    error_type="validation",
+                    error=str(e),
+                    status_code=status_code,
+                    response=e.response if isinstance(e.response, dict) else None,
+                )
+            raise DotMacERPTransientError(str(e), status_code=status_code, response=e.response)
 
-    def sync_work_order(self, work_order: WorkOrder) -> bool:
+    def sync_work_order(self, work_order: WorkOrder) -> SyncEntityResult:
         """
         Sync a single work order to ERP.
 
         Returns:
-            True if sync succeeded, False otherwise
+            SyncEntityResult with success and error details
         """
         client = self._get_client()
         if not client:
             logger.debug(f"ERP sync skipped for work_order {work_order.id}: not configured")
-            return False
+            return SyncEntityResult(
+                entity_type="work_order",
+                entity_id=str(work_order.id),
+                success=False,
+                error_type="not_configured",
+            )
 
         try:
             payload = self._map_work_order(work_order)
@@ -279,14 +435,68 @@ class DotMacERPSync:
                 f"Synced work order to ERP work_order_id={work_order.id} "
                 f"title={work_order.title} status={work_order.status.value if work_order.status else None}"
             )
-            return result.get("work_orders_synced", 0) > 0
-        except DotMacERPError as e:
-            logger.error(
-                f"Failed to sync work order to ERP work_order_id={work_order.id} "
-                f"title={work_order.title} status={work_order.status.value if work_order.status else None} "
-                f"error={e}"
+            synced = result.get("work_orders_synced", 0) > 0 if isinstance(result, dict) else False
+            return SyncEntityResult(
+                entity_type="work_order",
+                entity_id=str(work_order.id),
+                success=synced,
+                error_type=None if synced else "no_sync",
+                response=result if isinstance(result, dict) else None,
             )
-            return False
+        except DotMacERPRateLimitError as e:
+            logger.warning(
+                "ERP sync rate limited for work_order_id=%s retry_after=%s",
+                work_order.id,
+                e.retry_after,
+            )
+            raise
+        except DotMacERPAuthError as e:
+            logger.error(
+                "ERP auth failed syncing work_order work_order_id=%s error=%s",
+                work_order.id,
+                e,
+            )
+            return SyncEntityResult(
+                entity_type="work_order",
+                entity_id=str(work_order.id),
+                success=False,
+                error_type="auth",
+                error=str(e),
+                status_code=e.status_code,
+            )
+        except DotMacERPNotFoundError as e:
+            logger.error(
+                "ERP resource not found syncing work_order work_order_id=%s error=%s",
+                work_order.id,
+                e,
+            )
+            return SyncEntityResult(
+                entity_type="work_order",
+                entity_id=str(work_order.id),
+                success=False,
+                error_type="not_found",
+                error=str(e),
+                status_code=e.status_code,
+            )
+        except DotMacERPError as e:
+            status_code = e.status_code
+            if status_code is not None and 400 <= status_code < 500 and status_code != 429:
+                logger.error(
+                    "ERP validation failed syncing work_order work_order_id=%s status=%s error=%s",
+                    work_order.id,
+                    status_code,
+                    e,
+                )
+                return SyncEntityResult(
+                    entity_type="work_order",
+                    entity_id=str(work_order.id),
+                    success=False,
+                    error_type="validation",
+                    error=str(e),
+                    status_code=status_code,
+                    response=e.response if isinstance(e.response, dict) else None,
+                )
+            raise DotMacERPTransientError(str(e), status_code=status_code, response=e.response)
 
     def bulk_sync(
         self,
@@ -305,7 +515,7 @@ class DotMacERPSync:
         Returns:
             SyncResult with counts and any errors
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         result = SyncResult()
 
         client = self._get_client()
@@ -335,7 +545,7 @@ class DotMacERPSync:
             logger.error(f"Bulk sync failed: {e}")
             result.errors.append({"type": "api", "error": str(e)})
 
-        result.duration_seconds = (datetime.now(timezone.utc) - start_time).total_seconds()
+        result.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
         return result
 
     def sync_all_active(self, limit: int = 500) -> SyncResult:
@@ -397,7 +607,7 @@ class DotMacERPSync:
         """
         from datetime import timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
+        cutoff = datetime.now(UTC) - timedelta(minutes=since_minutes)
 
         projects = (
             self.db.query(Project)

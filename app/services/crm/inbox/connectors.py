@@ -169,4 +169,15 @@ def _smtp_config_from_connector(config: ConnectorConfig) -> dict | None:
         smtp_config["from_email"] = auth_config.get("from_email")
     if auth_config.get("from_name"):
         smtp_config["from_name"] = auth_config.get("from_name")
+    # Ensure From domain aligns with authenticated SMTP user when possible.
+    username = smtp_config.get("username")
+    from_email = smtp_config.get("from_email")
+    if isinstance(username, str) and "@" in username:
+        username_domain = username.split("@", 1)[1].lower()
+        if isinstance(from_email, str) and "@" in from_email:
+            from_domain = from_email.split("@", 1)[1].lower()
+            if from_domain != username_domain:
+                smtp_config["from_email"] = username
+        elif not from_email:
+            smtp_config["from_email"] = username
     return smtp_config

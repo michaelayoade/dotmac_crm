@@ -373,3 +373,49 @@
     </div>
 </div>
 {% endblock %}
+
+{% block scripts %}
+<script src="/static/js/session-refresh.js"></script>
+<script>
+    if (typeof initSessionRefresh === 'function') {
+        initSessionRefresh({
+            refreshUrl: "/auth/refresh",
+            loginUrl: "/auth/login",
+            intervalMs: 10 * 60 * 1000
+        });
+    } else {
+        console.warn('[SessionRefresh] initSessionRefresh not available');
+    }
+</script>
+<script>
+    (function () {
+        const endpoint = "/admin/crm/agents/presence";
+        const send = (status) => {
+            fetch(endpoint, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": getCsrfToken() || ""
+                },
+                body: JSON.stringify({ status }),
+                keepalive: true
+            }).catch(() => {});
+        };
+
+        send("online");
+        setInterval(() => {
+            if (!document.hidden) {
+                send("online");
+            }
+        }, 60000);
+
+        document.addEventListener("visibilitychange", () => {
+            send(document.hidden ? "away" : "online");
+        });
+
+        window.addEventListener("beforeunload", () => {
+            send("offline");
+        });
+    })();
+</script>
+{% endblock %}

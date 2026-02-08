@@ -10,24 +10,28 @@ from app.services.response import list_response
 def people(db: Session, query: str, limit: int) -> list[dict]:
     term = (query or "").strip()
     if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(Person)
-        .filter(
-            or_(
-                Person.first_name.ilike(like_term),
-                Person.last_name.ilike(like_term),
-                Person.email.ilike(like_term),
-                Person.phone.ilike(like_term),
+        results = db.query(Person).order_by(Person.created_at.desc()).limit(limit).all()
+    else:
+        like_term = f"%{term}%"
+        results = (
+            db.query(Person)
+            .filter(
+                or_(
+                    Person.first_name.ilike(like_term),
+                    Person.last_name.ilike(like_term),
+                    Person.display_name.ilike(like_term),
+                    Person.email.ilike(like_term),
+                    Person.phone.ilike(like_term),
+                )
             )
+            .limit(limit)
+            .all()
         )
-        .limit(limit)
-        .all()
-    )
     items = []
     for person in results:
         label = " ".join(part for part in [person.first_name, person.last_name] if part)
+        if not label and person.display_name:
+            label = person.display_name
         if person.email:
             label = f"{label} ({person.email})"
         elif person.phone:
@@ -43,10 +47,7 @@ def people_response(db: Session, query: str, limit: int) -> dict:
 def subscribers(db: Session, query: str, limit: int) -> list[dict]:
     """Search subscribers by subscriber number, account number, name, or external ID."""
     term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
+    query_builder = (
         db.query(Subscriber)
         .outerjoin(Person, Subscriber.person_id == Person.id)
         .outerjoin(Organization, Subscriber.organization_id == Organization.id)
@@ -54,20 +55,26 @@ def subscribers(db: Session, query: str, limit: int) -> list[dict]:
             joinedload(Subscriber.person),
             joinedload(Subscriber.organization),
         )
-        .filter(
-            or_(
-                Subscriber.subscriber_number.ilike(like_term),
-                Subscriber.account_number.ilike(like_term),
-                Subscriber.external_id.ilike(like_term),
-                Person.first_name.ilike(like_term),
-                Person.last_name.ilike(like_term),
-                Person.email.ilike(like_term),
-                Organization.name.ilike(like_term),
-            )
-        )
-        .limit(limit)
-        .all()
     )
+    if not term:
+        results = query_builder.order_by(Subscriber.created_at.desc()).limit(limit).all()
+    else:
+        like_term = f"%{term}%"
+        results = (
+            query_builder.filter(
+                or_(
+                    Subscriber.subscriber_number.ilike(like_term),
+                    Subscriber.account_number.ilike(like_term),
+                    Subscriber.external_id.ilike(like_term),
+                    Person.first_name.ilike(like_term),
+                    Person.last_name.ilike(like_term),
+                    Person.email.ilike(like_term),
+                    Organization.name.ilike(like_term),
+                )
+            )
+            .limit(limit)
+            .all()
+        )
     items = []
     for subscriber in results:
         label = subscriber.display_name

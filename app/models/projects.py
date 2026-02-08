@@ -29,7 +29,9 @@ class ProjectStatus(enum.Enum):
 
 
 class ProjectPriority(enum.Enum):
+    lower = "lower"
     low = "low"
+    medium = "medium"
     normal = "normal"
     high = "high"
     urgent = "urgent"
@@ -53,7 +55,9 @@ class TaskStatus(enum.Enum):
 
 
 class TaskPriority(enum.Enum):
+    lower = "lower"
     low = "low"
+    medium = "medium"
     normal = "normal"
     high = "high"
     urgent = "urgent"
@@ -90,6 +94,7 @@ class Project(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     code: Mapped[str | None] = mapped_column(String(80))
+    number: Mapped[str | None] = mapped_column(String(40))
     description: Mapped[str | None] = mapped_column(Text)
     customer_address: Mapped[str | None] = mapped_column(Text)
     project_type: Mapped[ProjectType | None] = mapped_column(Enum(ProjectType))
@@ -137,6 +142,7 @@ class ProjectTask(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     parent_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("project_tasks.id"))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+    number: Mapped[str | None] = mapped_column(String(40))
     description: Mapped[str | None] = mapped_column(Text)
     template_task_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("project_template_tasks.id")

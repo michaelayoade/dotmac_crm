@@ -23,7 +23,7 @@ def evaluate_conditions(conditions: list[dict], context: dict) -> bool:
     for condition in conditions:
         field = condition.get("field", "")
         op = condition.get("op", "")
-        value = condition.get("value")
+        value = _normalize_condition_value(condition.get("value"))
 
         field_value = _resolve_field(context, field)
 
@@ -72,19 +72,21 @@ def _evaluate_single(field_value: Any, op: str, expected: Any) -> bool:
         return False
 
     if op == "eq":
-        return _loose_equals(field_value, expected)
+        return _loose_equals(_normalize_compare_value(field_value), expected)
 
     if op == "neq":
-        return not _loose_equals(field_value, expected)
+        return not _loose_equals(_normalize_compare_value(field_value), expected)
 
     if op == "in":
         if isinstance(expected, list):
-            return field_value in expected
+            candidate = _normalize_compare_value(field_value)
+            return candidate in expected
         return False
 
     if op == "not_in":
         if isinstance(expected, list):
-            return field_value not in expected
+            candidate = _normalize_compare_value(field_value)
+            return candidate not in expected
         return True
 
     if op == "contains":
@@ -116,6 +118,25 @@ def _loose_equals(a: Any, b: Any) -> bool:
         except (TypeError, ValueError):
             pass
     return False
+
+
+def _normalize_condition_value(value: Any) -> Any:
+    """Normalize condition values from rules (strip strings, list items)."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        normalized = []
+        for item in value:
+            normalized.append(item.strip() if isinstance(item, str) else item)
+        return normalized
+    return value
+
+
+def _normalize_compare_value(value: Any) -> Any:
+    """Normalize incoming field values for string comparisons."""
+    if isinstance(value, str):
+        return value.strip()
+    return value
 
 
 def _compare_numeric(field_value: Any, op: str, expected: Any) -> bool:

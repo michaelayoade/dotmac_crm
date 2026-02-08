@@ -79,6 +79,15 @@ def get_meta_settings(db: Session) -> dict:
         "meta_oauth_redirect_uri": settings_spec.resolve_value(
             db, SettingDomain.comms, "meta_oauth_redirect_uri"
         ) or os.getenv("META_OAUTH_REDIRECT_URI"),
+        "whatsapp_app_id": settings_spec.resolve_value(
+            db, SettingDomain.comms, "whatsapp_app_id"
+        ) or os.getenv("WHATSAPP_APP_ID"),
+        "whatsapp_app_secret": settings_spec.resolve_value(
+            db, SettingDomain.comms, "whatsapp_app_secret"
+        ) or os.getenv("WHATSAPP_APP_SECRET"),
+        "whatsapp_webhook_verify_token": settings_spec.resolve_value(
+            db, SettingDomain.comms, "whatsapp_webhook_verify_token"
+        ) or os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN"),
     }
 
 META_OAUTH_BASE_URL = "https://www.facebook.com"

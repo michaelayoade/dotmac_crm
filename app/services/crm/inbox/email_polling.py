@@ -225,7 +225,10 @@ def _imap_poll(
         # Some IMAP servers reject UTF-8 unless explicitly enabled; fall back to US-ASCII.
         for charset in ("UTF-8", "US-ASCII", None):
             try:
-                status, data = client.uid("search", charset, search_criteria)
+                if charset is None:
+                    status, data = client.uid("search", search_criteria)
+                else:
+                    status, data = client.uid("search", charset, search_criteria)
             except imaplib.IMAP4.error:
                 continue
             logger.info(
@@ -284,7 +287,7 @@ def _imap_poll(
             if not msg_data or not msg_data[0]:
                 continue
             header, raw = msg_data[0] if isinstance(msg_data[0], tuple) else (None, None)
-            if not raw:
+            if not raw or not isinstance(raw, (bytes, bytearray)):
                 continue
             uid_value = _extract_uid_from_fetch_header(header)
             if last_uid is not None:
@@ -382,8 +385,10 @@ def _imap_poll(
         _, msg_data = client.uid("fetch", uid_value, "(RFC822)")
         if not msg_data or not msg_data[0]:
             continue
-        raw = msg_data[0][1]
-        msg = email.message_from_bytes(raw)
+        raw_bytes = msg_data[0][1]
+        if not isinstance(raw_bytes, (bytes, bytearray)):
+            continue
+        msg = email.message_from_bytes(raw_bytes)
         from_header = msg.get("From") or ""
         from_addr = parseaddr(from_header)[1]
         if _is_self_sender(from_addr, config, auth_config):

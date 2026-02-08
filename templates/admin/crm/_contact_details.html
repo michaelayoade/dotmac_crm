@@ -57,11 +57,21 @@
             <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
                 <div>
                     <p class="text-[10px] uppercase tracking-wide text-slate-500">Email</p>
-                    <p class="truncate">{{ contact.email or '—' }}</p>
+                    <p class="truncate">
+                        {% if contact.email and not contact.email.endswith('@example.invalid') %}
+                            {{ contact.email }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </p>
                 </div>
                 <div>
                     <p class="text-[10px] uppercase tracking-wide text-slate-500">Phone</p>
                     <p class="truncate">{{ contact.phone or '—' }}</p>
+                </div>
+                <div class="col-span-2">
+                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Address</p>
+                    <p class="truncate">{{ contact.address.text or '—' }}</p>
                 </div>
                 <div>
                     <p class="text-[10px] uppercase tracking-wide text-slate-500">Linked</p>

@@ -185,6 +185,9 @@ class Message(Base):
     channel_target_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("integration_targets.id")
     )
+    reply_to_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_messages.id")
+    )
     channel_type: Mapped[ChannelType] = mapped_column(Enum(ChannelType), nullable=False)
     direction: Mapped[MessageDirection] = mapped_column(
         Enum(MessageDirection), nullable=False

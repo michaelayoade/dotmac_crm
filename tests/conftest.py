@@ -3,12 +3,16 @@ import sqlite3
 import uuid
 
 import pytest
-from sqlalchemy import create_engine, event, TypeDecorator, String
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, event, TypeDecorator, String, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
+
+load_dotenv(os.path.join(os.getcwd(), ".env"))
 
 
 class _JoseDateTimeProxy:
@@ -135,12 +139,31 @@ from app.services import workforce as workforce_service
 from app.services import network as network_service
 from app.services import gis as gis_service
 
+
+def _resolve_test_database_url() -> str | None:
+    raw_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not raw_url:
+        return None
+
+    url = make_url(raw_url)
+    if url.drivername.startswith("postgresql"):
+        if url.database != "crm_test":
+            url = url.set(database="crm_test")
+        if url.host == "db":
+            url = url.set(host="localhost")
+        return str(url)
+
+    return raw_url
+
+
 @pytest.fixture(scope="session")
 def engine():
-    database_url = os.getenv("TEST_DATABASE_URL")
+    database_url = _resolve_test_database_url()
     if database_url:
         # Use PostgreSQL for tests (recommended)
         engine = create_engine(database_url)
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
     else:
         # Fall back to SQLite with Spatialite
         engine = create_engine(
@@ -403,4 +426,3 @@ def crm_agent_team(db_session, crm_agent, crm_team):
     db_session.commit()
     db_session.refresh(link)
     return link
-

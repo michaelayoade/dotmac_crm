@@ -12,6 +12,7 @@ from app.models.automation_rule import AutomationLogOutcome, AutomationRuleStatu
 
 class AutomationActionType(enum.Enum):
     assign_conversation = "assign_conversation"
+    assign_conversation_auto = "assign_conversation_auto"
     set_field = "set_field"
     add_tag = "add_tag"
     send_notification = "send_notification"

@@ -554,6 +554,7 @@ function inboxController() {
         notificationAutoDismissSeconds: {{ (notification_auto_dismiss_seconds or 12) | tojson }},
         notificationSoundEnabled: true,
         notificationAudioContext: null,
+        replyTo: null,
         _initialized: false,
         init() {
             // Guard against double initialization (Alpine Devtools can trigger this)
@@ -569,6 +570,8 @@ function inboxController() {
                     this.scrollToBottom();
                     this.refreshConversations();
                     this.resizeEmailFrames();
+                    this.initQuoteHandlers();
+                    this.renderQuotePreview();
                 }
                 if (e.detail.target.id === 'conversation-list') {
                     this.storeConversationCache();
@@ -587,6 +590,7 @@ function inboxController() {
             this.updateNewConversationTarget();
             this.normalizeInboxTarget();
             this.resizeEmailFrames();
+            this.initQuoteHandlers();
 
             // Setup WebSocket event listeners
             window.addEventListener('inbox-new-message', (e) => {
@@ -637,6 +641,70 @@ function inboxController() {
                     this.refreshThread(true);
                 });
             }
+        },
+        initQuoteHandlers() {
+            if (!this._quoteDelegated) {
+                this._quoteDelegated = true;
+                document.body.addEventListener('click', (event) => {
+                    const btn = event.target?.closest?.('[data-quote-button]');
+                    if (!btn) return;
+                    this.setQuoteFromButton(btn);
+                });
+            }
+            const clearBtn = document.querySelector('[data-clear-quote]');
+            if (clearBtn && clearBtn.dataset.quoteBound !== '1') {
+                clearBtn.dataset.quoteBound = '1';
+                clearBtn.addEventListener('click', () => {
+                    this.clearQuote();
+                });
+            }
+        },
+        setQuoteFromButton(btn) {
+            if (!btn) return;
+            const id = btn.dataset.quoteId || '';
+            if (!id) return;
+            const author = btn.dataset.quoteAuthor || 'Unknown';
+            const content = (btn.dataset.quoteContent || '').trim();
+            const sentAt = btn.dataset.quoteSentAt || null;
+            this.replyTo = {
+                id,
+                author,
+                content,
+                sentAt
+            };
+            const replyInput = document.querySelector('input[name="reply_to_message_id"]');
+            if (replyInput) {
+                replyInput.value = id;
+            }
+            this.renderQuotePreview();
+            const messageInput = document.querySelector('#message-thread textarea[name="message"]');
+            if (messageInput) {
+                messageInput.focus();
+            }
+        },
+        renderQuotePreview() {
+            const preview = document.getElementById('reply-preview');
+            const authorEl = document.getElementById('reply-preview-author');
+            const contentEl = document.getElementById('reply-preview-content');
+            if (!preview || !authorEl || !contentEl) return;
+            if (!this.replyTo) {
+                preview.classList.add('hidden');
+                authorEl.textContent = 'Unknown';
+                contentEl.textContent = 'Attachment';
+                return;
+            }
+            const previewContent = this.replyTo.content ? this.replyTo.content : 'Attachment';
+            authorEl.textContent = this.replyTo.author || 'Unknown';
+            contentEl.textContent = previewContent;
+            preview.classList.remove('hidden');
+        },
+        clearQuote() {
+            this.replyTo = null;
+            const replyInput = document.querySelector('input[name="reply_to_message_id"]');
+            if (replyInput) {
+                replyInput.value = '';
+            }
+            this.renderQuotePreview();
         },
         resizeEmailFrames() {
             const frames = document.querySelectorAll('iframe.email-html-frame');
@@ -1133,6 +1201,7 @@ function inboxController() {
             this.selectedContactId = contactId;
             this.showContactPanel = false;
             this.sidePanel = null;
+            this.clearQuote();
 
             // Subscribe to new conversation
             if (this.inboxWs && convId) {

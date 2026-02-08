@@ -152,12 +152,12 @@
     <script>
         // Read CSRF token from cookie or meta tag
         function getCsrfToken() {
-            // Try meta tag first
-            const meta = document.querySelector('meta[name="csrf-token"]');
-            if (meta && meta.content) return meta.content;
-            // Fall back to cookie
+            // Prefer cookie (freshest across tabs/session refresh)
             const match = document.cookie.match(/csrf_token=([^;]+)/);
-            return match ? match[1] : '';
+            if (match && match[1]) return match[1];
+            // Fall back to meta tag
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            return meta && meta.content ? meta.content : '';
         }
 
         // Configure HTMX to include CSRF token in all requests

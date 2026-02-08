@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% block title %}Ticket #{{ ticket.ticket_number or (ticket.id|string)[:8] }} - Admin{% endblock %}
+{% block title %}Ticket #{{ ticket.number or (ticket.id|string)[:8] }} - Admin{% endblock %}
 
 {% set status_val = ticket.status.value if ticket.status is not string else ticket.status %}
 {% set priority_val = ticket.priority.value if ticket.priority is not string else ticket.priority %}
@@ -22,7 +22,7 @@
             </a>
             <div>
                 <div class="flex flex-wrap items-center gap-3">
-                    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Ticket #{{ ticket.ticket_number or (ticket.id|string)[:8] }}</h1>
+                    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Ticket #{{ ticket.number or (ticket.id|string)[:8] }}</h1>
                     {% if status_val == 'new' %}
                     <span class="inline-flex items-center gap-1.5 rounded-lg bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-400">
                         <span class="h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
@@ -37,6 +37,21 @@
                     <span class="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
                         <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         Pending
+                    </span>
+                    {% elif status_val == 'waiting_on_customer' %}
+                    <span class="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        Waiting on Customer
+                    </span>
+                    {% elif status_val == 'lastmile_rerun' %}
+                    <span class="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        Lastmile Rerun
+                    </span>
+                    {% elif status_val == 'site_under_construction' %}
+                    <span class="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6h4M12 6v12m7-2H5"/></svg>
+                        Site Under Construction
                     </span>
                     {% elif status_val == 'on_hold' %}
                     <span class="inline-flex items-center gap-1.5 rounded-lg bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-700 dark:bg-orange-500/20 dark:text-orange-400">
@@ -69,7 +84,7 @@
                 <p class="mt-2 text-lg text-slate-700 dark:text-slate-300">{{ ticket.title or 'No title' }}</p>
             </div>
         </div>
-        <a href="/admin/support/tickets/{{ ticket.id }}/edit" class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+        <a href="/admin/support/tickets/{{ ticket.number or ticket.id }}/edit" class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
             Edit Ticket
         </a>
@@ -158,7 +173,7 @@
                                 <details class="mt-2 text-xs">
                                     <summary class="cursor-pointer text-slate-500 hover:text-amber-600 dark:text-slate-400 dark:hover:text-amber-400">Edit comment</summary>
                                     <form method="POST"
-                                          action="/admin/support/tickets/{{ ticket.id }}/comments/{{ comment.id }}/edit"
+                                          action="/admin/support/tickets/{{ ticket.number or ticket.id }}/comments/{{ comment.id }}/edit"
                                           class="mt-2 space-y-2">
                                         <textarea name="body"
                                                   rows="3"
@@ -207,7 +222,7 @@
 
                 <!-- Add Comment Form -->
                 <div class="border-t border-slate-200/60 bg-slate-50/50 p-6 dark:border-slate-700/60 dark:bg-slate-800/50">
-                    <form method="POST" action="/admin/support/tickets/{{ ticket.id }}/comments" enctype="multipart/form-data" hx-post="/admin/support/tickets/{{ ticket.id }}/comments" hx-encoding="multipart/form-data" hx-swap="none" class="space-y-4">
+                    <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/comments" enctype="multipart/form-data" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/comments" hx-encoding="multipart/form-data" hx-swap="none" class="space-y-4">
                         <div>
                             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Add Comment</label>
                             <textarea name="body" rows="3" required class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500" placeholder="Type your comment here..."></textarea>
@@ -282,6 +297,89 @@
 
         <!-- Sidebar -->
         <div class="space-y-6">
+            <!-- Customer & Subscriber -->
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 75ms;">
+                <div class="flex items-start gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm">
+                        <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A9 9 0 1118.88 6.196M12 7v5l3 3"/></svg>
+                    </div>
+                    <div>
+                        <h2 class="font-semibold text-slate-900 dark:text-white">Customer & Subscriber</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">If details are incorrect, update the customer information.</p>
+                    </div>
+                </div>
+                <div class="p-5 space-y-4 text-sm">
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Customer</div>
+                        {% if customer_details %}
+                        <div class="mt-2 space-y-1">
+                            <p class="text-slate-900 dark:text-white">{{ customer_details.name }}</p>
+                            <p class="text-slate-600 dark:text-slate-300">{{ customer_details.email or '—' }}</p>
+                            <p class="text-slate-600 dark:text-slate-300">{{ customer_details.phone or '—' }}</p>
+                            <p class="text-slate-600 dark:text-slate-300">{{ customer_details.organization or '—' }}</p>
+                            <p class="text-slate-600 dark:text-slate-300">{{ customer_details.address or '—' }}</p>
+                        </div>
+                        {% else %}
+                        <p class="mt-2 text-slate-500 dark:text-slate-400">No customer linked.</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="border-t border-slate-100 pt-4 dark:border-slate-700/50">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Subscriber</div>
+                        {% if subscriber_details %}
+                        <div class="mt-2 space-y-1">
+                            <p class="text-slate-600 dark:text-slate-300">Subscriber # {{ subscriber_details.subscriber_number or '—' }}</p>
+                            <p class="text-slate-600 dark:text-slate-300">Account # {{ subscriber_details.account_number or '—' }}</p>
+                            <p class="text-slate-600 dark:text-slate-300">Status: {{ subscriber_details.status or '—' }}</p>
+                            <p class="text-slate-600 dark:text-slate-300">
+                                Plan: {{ subscriber_details.service_plan or '—' }}
+                                {% if subscriber_details.service_speed %} · {{ subscriber_details.service_speed }}{% endif %}
+                            </p>
+                            <p class="text-slate-600 dark:text-slate-300">{{ subscriber_details.service_address or '—' }}</p>
+                            <a href="/admin/subscribers/{{ subscriber_details.id }}"
+                               class="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 hover:text-amber-700 dark:text-amber-400">
+                                View subscriber
+                                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </a>
+                        </div>
+                        {% else %}
+                        <p class="mt-2 text-slate-500 dark:text-slate-400">No subscriber linked.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attachments -->
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 90ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 shadow-sm">
+                        <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                    </div>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Attachments</h2>
+                </div>
+                <div class="p-5">
+                    {% if ticket_attachments %}
+                    <ul class="space-y-2">
+                        {% for attachment in ticket_attachments %}
+                        <li class="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-700/50">
+                            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-slate-600">
+                                <svg class="h-4 w-4 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                            </div>
+                            <a href="{{ attachment.url }}" class="flex-1 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400" target="_blank" rel="noopener">
+                                {{ attachment.file_name or 'Attachment' }}
+                            </a>
+                            {% if attachment.file_size %}
+                            <span class="text-xs text-slate-400 dark:text-slate-500">{{ ((attachment.file_size or 0) / 1024)|round(1) }} KB</span>
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400">No attachments uploaded.</p>
+                    {% endif %}
+                </div>
+            </div>
+
             <!-- Quick Actions -->
             <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 100ms;">
                 <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
@@ -291,11 +389,14 @@
                     <h2 class="font-semibold text-slate-900 dark:text-white">Update Status</h2>
                 </div>
                 <div class="p-5">
-                    <form method="POST" action="/admin/support/tickets/{{ ticket.id }}/status" hx-post="/admin/support/tickets/{{ ticket.id }}/status" hx-swap="none" class="space-y-3">
+                    <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/status" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/status" hx-swap="none" class="space-y-3">
                         <select name="status" class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
                             <option value="new" {% if status_val == 'new' %}selected{% endif %}>New</option>
                             <option value="open" {% if status_val == 'open' %}selected{% endif %}>Open</option>
                             <option value="pending" {% if status_val == 'pending' %}selected{% endif %}>Pending</option>
+                            <option value="waiting_on_customer" {% if status_val == 'waiting_on_customer' %}selected{% endif %}>Waiting on Customer</option>
+                            <option value="lastmile_rerun" {% if status_val == 'lastmile_rerun' %}selected{% endif %}>Lastmile Rerun</option>
+                            <option value="site_under_construction" {% if status_val == 'site_under_construction' %}selected{% endif %}>Site Under Construction</option>
                             <option value="on_hold" {% if status_val == 'on_hold' %}selected{% endif %}>On Hold</option>
                             <option value="resolved" {% if status_val == 'resolved' %}selected{% endif %}>Resolved</option>
                             <option value="closed" {% if status_val == 'closed' %}selected{% endif %}>Closed</option>
@@ -317,10 +418,14 @@
                     <h2 class="font-semibold text-slate-900 dark:text-white">Priority</h2>
                 </div>
                 <div class="p-5">
-                    <form method="POST" action="/admin/support/tickets/{{ ticket.id }}/priority" hx-post="/admin/support/tickets/{{ ticket.id }}/priority" hx-swap="none" class="space-y-3">
+                    <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority" hx-swap="none" class="space-y-3">
                         <select name="priority" class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
+                            {% if priority_val == 'normal' %}
+                            <option value="normal" selected>Normal</option>
+                            {% endif %}
+                            <option value="lower" {% if priority_val == 'lower' %}selected{% endif %}>Lower</option>
                             <option value="low" {% if priority_val == 'low' %}selected{% endif %}>Low</option>
-                            <option value="normal" {% if priority_val == 'normal' %}selected{% endif %}>Normal</option>
+                            <option value="medium" {% if priority_val == 'medium' %}selected{% endif %}>Medium</option>
                             <option value="high" {% if priority_val == 'high' %}selected{% endif %}>High</option>
                             <option value="urgent" {% if priority_val == 'urgent' %}selected{% endif %}>Urgent</option>
                         </select>

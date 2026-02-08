@@ -8,6 +8,7 @@ from app.models.crm.enums import (
     MessageStatus,
     LeadStatus,
     QuoteStatus,
+    AgentPresenceStatus,
 )
 from app.models.crm.conversation import (
     Conversation,
@@ -17,6 +18,7 @@ from app.models.crm.conversation import (
     MessageAttachment,
 )
 from app.models.crm.team import CrmTeam, CrmAgent, CrmAgentTeam, CrmTeamChannel, CrmRoutingRule
+from app.models.crm.presence import AgentPresence
 from app.models.crm.sales import Pipeline, PipelineStage, Lead, Quote, CrmQuoteLineItem
 from app.models.crm.comments import SocialComment, SocialCommentPlatform, SocialCommentReply
 from app.models.crm.campaign import Campaign, CampaignRecipient, CampaignStep
@@ -39,6 +41,7 @@ __all__ = [
     "MessageStatus",
     "LeadStatus",
     "QuoteStatus",
+    "AgentPresenceStatus",
     "Conversation",
     "ConversationAssignment",
     "ConversationTag",
@@ -49,6 +52,7 @@ __all__ = [
     "CrmAgentTeam",
     "CrmTeamChannel",
     "CrmRoutingRule",
+    "AgentPresence",
     "Pipeline",
     "PipelineStage",
     "Lead",

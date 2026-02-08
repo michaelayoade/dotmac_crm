@@ -2,6 +2,7 @@
 
 import contextlib
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -42,10 +43,17 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
     }
 
 
-def _form_str_opt(val: str) -> str | None:
-    if val is None or val.strip() == "":
+def _form_str(val: object | None, default: str = "") -> str:
+    if isinstance(val, str):
+        return val
+    return default
+
+
+def _form_str_opt(val: object | None) -> str | None:
+    value = _form_str(val).strip()
+    if not value:
         return None
-    return val.strip()
+    return value
 
 
 # ── LIST ──────────────────────────────────────────────────────────
@@ -99,9 +107,9 @@ async def survey_create(request: Request, db: Session = Depends(_get_db)):
     created_by_id = current_user.get("person_id") if current_user else None
 
     form = await request.form()
-    name = form.get("name", "").strip()
+    name = _form_str(form.get("name", "")).strip()
     description = _form_str_opt(form.get("description", ""))
-    trigger_type_val = form.get("trigger_type", "manual")
+    trigger_type_val = _form_str(form.get("trigger_type", "manual"))
     public_slug = _form_str_opt(form.get("public_slug", ""))
     thank_you_message = _form_str_opt(form.get("thank_you_message", ""))
 
@@ -113,7 +121,7 @@ async def survey_create(request: Request, db: Session = Depends(_get_db)):
     # Parse questions from form (JSON encoded by Alpine.js)
     import json
 
-    questions_json = form.get("questions_json", "[]")
+    questions_json = _form_str(form.get("questions_json", "[]"), "[]")
     questions = []
     try:
         raw_questions = json.loads(questions_json)
@@ -195,7 +203,7 @@ async def survey_update(request: Request, survey_id: str, db: Session = Depends(
     form = await request.form()
     name = _form_str_opt(form.get("name", ""))
     description = _form_str_opt(form.get("description", ""))
-    trigger_type_val = form.get("trigger_type")
+    trigger_type_val = _form_str(form.get("trigger_type"))
     public_slug = _form_str_opt(form.get("public_slug", ""))
     thank_you_message = _form_str_opt(form.get("thank_you_message", ""))
 
@@ -206,7 +214,7 @@ async def survey_update(request: Request, survey_id: str, db: Session = Depends(
 
     import json
 
-    questions_json = form.get("questions_json", "[]")
+    questions_json = _form_str(form.get("questions_json", "[]"), "[]")
     questions = None
     try:
         raw_questions = json.loads(questions_json)
@@ -224,7 +232,7 @@ async def survey_update(request: Request, survey_id: str, db: Session = Depends(
     except (json.JSONDecodeError, ValueError) as e:
         logger.warning("Failed to parse questions: %s", e)
 
-    update_data = {}
+    update_data: dict[str, Any] = {}
     if name:
         update_data["name"] = name
     if description is not None:

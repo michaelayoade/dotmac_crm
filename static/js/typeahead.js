@@ -45,6 +45,23 @@
             results.appendChild(menu);
         }
 
+        function maybeFetchResults(query, force) {
+            if (query.length < minChars) {
+                if (minChars === 0 && force) {
+                    fetchResults(query);
+                    lastQuery = query;
+                } else {
+                    clearResults();
+                    lastQuery = query;
+                }
+                return;
+            }
+            if (force || query !== lastQuery) {
+                fetchResults(query);
+                lastQuery = query;
+            }
+        }
+
         function fetchResults(query) {
             var requestUrl = url + "?q=" + encodeURIComponent(query) + "&limit=" + limit;
             fetch(requestUrl)
@@ -65,20 +82,22 @@
         input.addEventListener("input", function () {
             var query = input.value.trim();
             updateHiddenValue("");
-            if (query.length < minChars) {
-                clearResults();
-                lastQuery = query;
-                return;
-            }
             if (timer) {
                 window.clearTimeout(timer);
             }
             timer = window.setTimeout(function () {
-                if (query !== lastQuery) {
-                    fetchResults(query);
-                    lastQuery = query;
-                }
+                maybeFetchResults(query, false);
             }, 250);
+        });
+
+        input.addEventListener("focus", function () {
+            var query = input.value.trim();
+            maybeFetchResults(query, true);
+        });
+
+        input.addEventListener("click", function () {
+            var query = input.value.trim();
+            maybeFetchResults(query, true);
         });
 
         document.addEventListener("click", function (event) {

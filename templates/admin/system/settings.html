@@ -538,7 +538,9 @@
                             <select name="ticket_type_priority_{{ loop.index0 }}"
                                     class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                                 <option value="" {% if not item.priority %}selected{% endif %}>No default</option>
+                                <option value="lower" {% if item.priority == 'lower' %}selected{% endif %}>Lower</option>
                                 <option value="low" {% if item.priority == 'low' %}selected{% endif %}>Low</option>
+                                <option value="medium" {% if item.priority == 'medium' %}selected{% endif %}>Medium</option>
                                 <option value="normal" {% if item.priority == 'normal' %}selected{% endif %}>Normal</option>
                                 <option value="high" {% if item.priority == 'high' %}selected{% endif %}>High</option>
                                 <option value="urgent" {% if item.priority == 'urgent' %}selected{% endif %}>Urgent</option>
@@ -637,7 +639,9 @@
                         <select name="ticket_type_priority_${idx}"
                                 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                             <option value="" selected>No default</option>
+                            <option value="lower">Lower</option>
                             <option value="low">Low</option>
+                            <option value="medium">Medium</option>
                             <option value="normal">Normal</option>
                             <option value="high">High</option>
                             <option value="urgent">Urgent</option>

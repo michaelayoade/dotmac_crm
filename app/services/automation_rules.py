@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import List
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import String, cast, func, or_
@@ -18,6 +20,7 @@ from app.models.automation_rule import (
     AutomationRuleLog,
     AutomationRuleStatus,
 )
+from app.schemas.automation_rule import AutomationRuleCreate, AutomationRuleUpdate
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
 
@@ -37,7 +40,7 @@ class AutomationRulesManager(ListResponseMixin):
         order_dir: str = "desc",
         limit: int = 50,
         offset: int = 0,
-    ) -> list[AutomationRule]:
+    ) -> List[AutomationRule]:
         query = db.query(AutomationRule)
 
         status_value = None
@@ -136,7 +139,7 @@ class AutomationRulesManager(ListResponseMixin):
         return rule
 
     @staticmethod
-    def get_active_rules_for_event(db: Session, event_type_value: str) -> list[AutomationRule]:
+    def get_active_rules_for_event(db: Session, event_type_value: str) -> List[AutomationRule]:
         """Hot path query using the composite index."""
         return (
             db.query(AutomationRule)
@@ -153,10 +156,10 @@ class AutomationRulesManager(ListResponseMixin):
     def record_execution(
         db: Session,
         rule: AutomationRule,
-        event_id: UUID,  # noqa: F821
+        event_id: UUID,
         event_type: str,
         outcome: AutomationLogOutcome,
-        actions_executed: list[dict],
+        actions_executed: List[dict],
         duration_ms: int,
         error: str | None = None,
     ) -> AutomationRuleLog:
@@ -179,7 +182,7 @@ class AutomationRulesManager(ListResponseMixin):
         return log
 
     @staticmethod
-    def recent_logs(db: Session, rule_id: str, limit: int = 20) -> list[AutomationRuleLog]:
+    def recent_logs(db: Session, rule_id: str, limit: int = 20) -> List[AutomationRuleLog]:
         return (
             db.query(AutomationRuleLog)
             .filter(AutomationRuleLog.rule_id == coerce_uuid(rule_id))

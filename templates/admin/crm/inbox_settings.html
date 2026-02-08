@@ -1161,6 +1161,8 @@
                                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agent</th>
                                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
                                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Teams</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Presence</th>
+                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Seen</th>
                                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
                             </tr>
                         </thead>
@@ -1197,6 +1199,13 @@
                                             —
                                         {% endif %}
                                     </td>
+                                    <td class="px-6 py-4" data-agent-id="{{ agent.id }}">
+                                        <div class="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                            <span class="h-2 w-2 rounded-full bg-slate-400" data-agent-presence-dot></span>
+                                            <span data-agent-presence-label>Offline</span>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400" data-agent-last-seen>—</td>
                                     <td class="px-6 py-4">
                                         {% if agent.is_active %}
                                         {{ status_badge("Active", "active", size="sm") }}
@@ -1208,7 +1217,7 @@
                                 {% endfor %}
                             {% else %}
                                 <tr>
-                                    <td colspan="4" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No agents yet.</td>
+                                    <td colspan="6" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No agents yet.</td>
                                 </tr>
                             {% endif %}
                         </tbody>
@@ -1230,5 +1239,79 @@ function copyWidgetEmbed(button) {
         }, 1500);
     });
 }
+
+function _presenceDotClass(status) {
+    if (status === 'online') return 'bg-emerald-500';
+    if (status === 'away') return 'bg-amber-500';
+    return 'bg-slate-400';
+}
+
+function _presenceLabel(status) {
+    if (status === 'online') return 'Online';
+    if (status === 'away') return 'Away';
+    return 'Offline';
+}
+
+function _formatLastSeen(value) {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs < 0) return 'just now';
+    const seconds = Math.floor(diffMs / 1000);
+    if (seconds < 45) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+}
+
+function updateAgentPresence() {
+    fetch('/crm/agents/presence?limit=200&stale_after_minutes=5', {
+        headers: { 'Accept': 'application/json' }
+    })
+    .then((response) => response.ok ? response.json() : null)
+    .then((data) => {
+        if (!data || !Array.isArray(data.items)) return;
+        const byId = {};
+        const lastSeenById = {};
+        for (const item of data.items) {
+            if (!item || !item.agent_id) continue;
+            byId[String(item.agent_id)] = item.effective_status || item.status || 'offline';
+            lastSeenById[String(item.agent_id)] = item.last_seen_at || null;
+        }
+        document.querySelectorAll('td[data-agent-id]').forEach((cell) => {
+            const agentId = cell.getAttribute('data-agent-id');
+            const status = byId[String(agentId)] || 'offline';
+            const dot = cell.querySelector('[data-agent-presence-dot]');
+            const label = cell.querySelector('[data-agent-presence-label]');
+            const lastSeen = cell.parentElement?.querySelector('[data-agent-last-seen]');
+            if (dot) {
+                dot.classList.remove('bg-emerald-500', 'bg-amber-500', 'bg-slate-400');
+                dot.classList.add(_presenceDotClass(status));
+            }
+            if (label) {
+                label.textContent = _presenceLabel(status);
+            }
+            if (lastSeen) {
+                const lastSeenValue = lastSeenById[String(agentId)];
+                lastSeen.textContent = _formatLastSeen(lastSeenValue);
+                if (lastSeenValue) {
+                    lastSeen.setAttribute('title', new Date(lastSeenValue).toLocaleString());
+                } else {
+                    lastSeen.removeAttribute('title');
+                }
+            }
+        });
+    })
+    .catch(() => {});
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateAgentPresence();
+    setInterval(updateAgentPresence, 60000);
+});
 </script>
 {% endblock %}

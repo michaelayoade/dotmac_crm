@@ -138,8 +138,7 @@ class TicketQuery(BaseQuery[Ticket]):
             Ticket.description.ilike(like_term),
             cast(Ticket.id, String).ilike(like_term),
         ]
-        # Check if ticket_number column exists
-        ticket_number_attr = getattr(Ticket, "ticket_number", None)
+        ticket_number_attr = getattr(Ticket, "number", None)
         if ticket_number_attr is not None:
             search_filters.append(ticket_number_attr.ilike(like_term))
         clone._query = clone._query.filter(or_(*search_filters))

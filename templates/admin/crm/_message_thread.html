@@ -27,7 +27,13 @@
                     </span>
                     {% endif %}
                 </div>
+                {% if conversation.channel == 'whatsapp' %}
+                <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-500">
+                    {{ (conversation.contact.phone or conversation.contact.name or '—')|replace('+', '') }}
+                </p>
+                {% else %}
                 <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-500">{{ conversation.contact.email }}</p>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -190,6 +196,14 @@
                     </div>
                     <div class="flex-1">
                         <div class="message-inbound rounded-2xl rounded-tl-md px-4 py-3 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40">
+                            {% if msg.reply_to %}
+                            <div class="mb-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-[11px] text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/50 dark:text-slate-300">
+                                <div class="text-[10px] uppercase tracking-wide text-slate-400">Replying to {{ msg.reply_to.author or 'Unknown' }}</div>
+                                <div class="mt-1 text-[11px] text-slate-500 line-clamp-2 dark:text-slate-400">
+                                    {{ msg.reply_to.excerpt or 'Attachment' }}
+                                </div>
+                            </div>
+                            {% endif %}
                             <div class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
                                 {% if msg.html_body %}
                                 <iframe class="email-html-frame"
@@ -236,6 +250,15 @@
                         </div>
                         <div class="flex items-center gap-2 mt-1.5 px-1">
                             <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%H:%M') }}</span>
+                            <button type="button"
+                                    data-quote-button
+                                    data-quote-id="{{ msg.id }}"
+                                    data-quote-author="{{ msg.sender.name }}"
+                                    data-quote-content="{{ msg.content }}"
+                                    data-quote-sent-at="{{ msg.timestamp.isoformat() if msg.timestamp else '' }}"
+                                    class="text-[10px] font-semibold text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300">
+                                Quote
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -247,6 +270,14 @@
                     </div>
                     <div class="flex-1">
                         <div class="message-outbound rounded-2xl rounded-tr-md px-4 py-3 bg-primary-500/10 border border-primary-500/20 dark:bg-transparent dark:border-primary-500/20">
+                            {% if msg.reply_to %}
+                            <div class="mb-2 rounded-lg border border-primary-200/60 bg-white/70 px-3 py-2 text-[11px] text-slate-600 dark:border-primary-500/30 dark:bg-slate-900/50 dark:text-slate-300">
+                                <div class="text-[10px] uppercase tracking-wide text-slate-400">Replying to {{ msg.reply_to.author or 'Unknown' }}</div>
+                                <div class="mt-1 text-[11px] text-slate-500 line-clamp-2 dark:text-slate-400">
+                                    {{ msg.reply_to.excerpt or 'Attachment' }}
+                                </div>
+                            </div>
+                            {% endif %}
                             <div class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
                                 {% if msg.html_body %}
                                 <iframe class="email-html-frame"
@@ -293,6 +324,15 @@
                         </div>
                         <div class="flex items-center gap-2 mt-1.5 px-1 justify-end">
                             <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%H:%M') }}</span>
+                            <button type="button"
+                                    data-quote-button
+                                    data-quote-id="{{ msg.id }}"
+                                    data-quote-author="{{ msg.sender.name }}"
+                                    data-quote-content="{{ msg.content }}"
+                                    data-quote-sent-at="{{ msg.timestamp.isoformat() if msg.timestamp else '' }}"
+                                    class="text-[10px] font-semibold text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300">
+                                Quote
+                            </button>
                             {% if msg.status in ['sent', 'delivered'] %}
                             <svg class="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
@@ -380,9 +420,45 @@
         </div>
         <p class="text-[11px] text-red-400" data-private-note-error></p>
     </form>
+    <div id="reply-preview" class="max-w-3xl mx-auto mb-3 hidden">
+        <div class="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-xs text-slate-600 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+            <div class="flex items-start justify-between gap-3">
+                <div class="flex-1">
+                    <div class="text-[10px] uppercase tracking-wide text-slate-400">Replying to</div>
+                    <div id="reply-preview-author" class="mt-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200">Unknown</div>
+                    <div id="reply-preview-content" class="mt-1 text-[11px] text-slate-500 line-clamp-2 dark:text-slate-400">Attachment</div>
+                </div>
+                <button type="button"
+                        data-clear-quote
+                        class="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                        aria-label="Clear quote">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
     <form method="POST"
           action="/admin/crm/inbox/conversation/{{ conversation.id }}/message"
-          class="max-w-3xl mx-auto">
+          class="max-w-3xl mx-auto"
+          x-on:submit.prevent="
+              const text = ($refs.messageInput?.value || '').trim();
+              const hasAttachments = pendingAttachments && pendingAttachments.length > 0;
+              if (!text && !hasAttachments) {
+                  if ($refs.messageError) {
+                      $refs.messageError.textContent = 'Enter a message or attach a file.';
+                  }
+                  return;
+              }
+              if ($refs.messageError) {
+                  $refs.messageError.textContent = '';
+              }
+              if ($root && $root.clearDraft) {
+                  $root.clearDraft('{{ conversation.id }}');
+              }
+              $el.submit();
+          ">
         <div class="flex items-end gap-3">
             <!-- Attachment button -->
         <button type="button"
@@ -406,7 +482,12 @@
                           placeholder="Type your message..."
                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 placeholder-slate-400 resize-none focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/30 transition-all dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-white dark:placeholder-slate-500"
                           @keydown.enter.prevent="if (!$event.shiftKey) { $el.closest('form').requestSubmit(); }"
-                          @input="$el.style.height = 'auto'; $el.style.height = Math.min($el.scrollHeight, 150) + 'px'"></textarea>
+                          @input="
+                              $el.style.height = 'auto';
+                              $el.style.height = Math.min($el.scrollHeight, 150) + 'px';
+                              if ($refs.messageError) { $refs.messageError.textContent = ''; }
+                              if ($root && $root.storeDraft) { $root.storeDraft('{{ conversation.id }}', $el.value); }
+                          "></textarea>
             </div>
 
             <!-- Send button -->
@@ -418,7 +499,9 @@
             </button>
         </div>
 
+        <input type="hidden" name="reply_to_message_id" :value="$root.replyTo ? $root.replyTo.id : ''">
         <input type="hidden" name="attachments" x-ref="messageAttachments">
+        <p x-ref="messageError" class="mt-2 text-[11px] text-red-500 dark:text-red-400"></p>
 
         <div x-show="pendingAttachments.length" class="mt-2 flex flex-wrap gap-2">
             <template x-for="(att, idx) in pendingAttachments" :key="att.stored_name || idx">

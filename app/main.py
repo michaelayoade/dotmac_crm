@@ -183,18 +183,20 @@ def _load_branding_settings(db: Session) -> dict:
 
         # Cache miss - query database
         try:
-            branding_keys = ["company_name", "brand_logo_url", "brand_favicon_url"]
+            branding_keys = ["company_name", "brand_logo_url", "brand_favicon_url", "brand_color"]
             values = settings_spec.resolve_values_atomic(db, SettingDomain.comms, branding_keys)
             result = {
                 "company_name": values.get("company_name") or "Dotmac",
                 "logo_url": values.get("brand_logo_url"),
                 "favicon_url": values.get("brand_favicon_url"),
+                "brand_color": values.get("brand_color") or "#0f172a",
             }
         except Exception:
             result = {
                 "company_name": "Dotmac",
                 "logo_url": None,
                 "favicon_url": None,
+                "brand_color": "#0f172a",
             }
 
         _BRANDING_CACHE = result
@@ -208,6 +210,9 @@ async def branding_middleware(request: Request, call_next):
 
     Uses in-memory cache with 5-minute TTL to avoid DB query on every request.
     """
+    # Keep health/metrics fast and avoid DB during probes.
+    if request.url.path in ("/health", "/metrics"):
+        return await call_next(request)
     db: Session = getattr(request.state, "middleware_db", None) or SessionLocal()
     owns_db = not hasattr(request.state, "middleware_db")
     try:
@@ -525,6 +530,16 @@ async def static_cache_middleware(request: Request, call_next):
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.head("/")
+def head_root():
+    return Response(status_code=200)
+
+
+@app.head("/health")
+def head_health():
+    return Response(status_code=200)
 
 
 @app.get("/metrics")

@@ -32,6 +32,22 @@ class Conversations(ListResponseMixin):
         db.add(conversation)
         db.commit()
         db.refresh(conversation)
+        from app.services.events import EventType, emit_event
+
+        emit_event(
+            db,
+            EventType.conversation_created,
+            {
+                "conversation_id": str(conversation.id),
+                "person_id": str(conversation.person_id),
+                "status": conversation.status.value if conversation.status else None,
+                "subject": conversation.subject,
+                "doc": {
+                    "name": str(conversation.id),
+                    "status": conversation.status.value if conversation.status else None,
+                },
+            },
+        )
         return conversation
 
     @staticmethod
@@ -216,6 +232,24 @@ class Messages(ListResponseMixin):
         conversation.updated_at = timestamp
         db.commit()
         db.refresh(message)
+        if message.direction == MessageDirection.inbound:
+            from app.services.events import EventType, emit_event
+
+            emit_event(
+                db,
+                EventType.message_inbound,
+                {
+                    "message_id": str(message.id),
+                    "conversation_id": str(message.conversation_id),
+                    "person_id": str(conversation.person_id),
+                    "channel_type": message.channel_type.value,
+                    "channel_target_id": (
+                        str(message.channel_target_id) if message.channel_target_id else None
+                    ),
+                    "subject": message.subject,
+                    "external_id": message.external_id,
+                },
+            )
         return message
 
     @staticmethod
