@@ -1,11 +1,12 @@
 import base64
+import contextlib
 import logging
 import os
 import smtplib
+from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email import encoders
 
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from app.models.notification import (
     NotificationChannel,
     NotificationStatus,
 )
+from app.services.branding import get_branding
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
@@ -71,9 +73,7 @@ def _setting_value(db: Session | None, key: str) -> str | None:
 
 
 def _get_smtp_config(db: Session | None) -> dict:
-    username = _env_value("SMTP_USERNAME") or _env_value("SMTP_USER") or _setting_value(
-        db, "smtp_username"
-    )
+    username = _env_value("SMTP_USERNAME") or _env_value("SMTP_USER") or _setting_value(db, "smtp_username")
     from_email = (
         _env_value("SMTP_FROM_EMAIL")
         or _env_value("SMTP_FROM")
@@ -92,7 +92,9 @@ def _get_smtp_config(db: Session | None) -> dict:
         "use_tls": use_tls,
         "use_ssl": use_ssl,
         "from_email": from_email,
-        "from_name": _env_value("SMTP_FROM_NAME") or _setting_value(db, "smtp_from_name") or "DotMac CRM",
+        "from_name": _env_value("SMTP_FROM_NAME")
+        or _setting_value(db, "smtp_from_name")
+        or (get_branding(db)["company_name"] if db else "Dotmac"),
         "user": username,
         "from_addr": from_email,
     }
@@ -131,7 +133,7 @@ def send_email_with_config(
 ) -> tuple[bool, dict | None]:
     msg = _build_email_message(
         subject=subject,
-        from_name=config.get("from_name", "DotMac CRM"),
+        from_name=config.get("from_name") or "System",
         from_email=config.get("from_email", "noreply@example.com"),
         to_email=to_email,
         body_html=body_html,
@@ -323,9 +325,7 @@ def _build_email_message(
                 content = base64.b64decode(content_base64)
             except Exception:
                 continue
-            maintype, subtype = (
-                mime_type.split("/", 1) if "/" in mime_type else ("application", "octet-stream")
-            )
+            maintype, subtype = mime_type.split("/", 1) if "/" in mime_type else ("application", "octet-stream")
             part = MIMEBase(maintype, subtype)
             part.set_payload(content)
             encoders.encode_base64(part)
@@ -346,9 +346,7 @@ def test_smtp_connection(
     # Use configurable timeout, fallback to default of 10 seconds
     if timeout_sec is None:
         timeout_value = resolve_value(db, SettingDomain.notification, "smtp_test_timeout_seconds") if db else None
-        if isinstance(timeout_value, (int, float)):
-            timeout_sec = int(timeout_value)
-        elif isinstance(timeout_value, str) and timeout_value.isdigit():
+        if isinstance(timeout_value, int | float) or (isinstance(timeout_value, str) and timeout_value.isdigit()):
             timeout_sec = int(timeout_value)
         else:
             timeout_sec = None
@@ -384,10 +382,8 @@ def test_smtp_connection(
         return False, f"SMTP error: {exc}"
     finally:
         if server:
-            try:
+            with contextlib.suppress(Exception):
                 server.quit()
-            except Exception:
-                pass
 
 
 def send_password_reset_email(db: Session, to_email: str, reset_token: str, person_name: str | None = None) -> bool:
@@ -465,7 +461,8 @@ If you didn't request a password reset, you can safely ignore this email.
 This is an automated message. Please do not reply to this email.
 """
 
-    return send_email(db, to_email, subject, body_html, body_text)
+    success, _ = send_email(db, to_email, subject, body_html, body_text)
+    return success
 
 
 def send_user_invite_email(db: Session, to_email: str, reset_token: str, person_name: str | None = None) -> bool:
@@ -489,7 +486,9 @@ def send_user_invite_email(db: Session, to_email: str, reset_token: str, person_
 
     greeting = f"Hi {person_name}," if person_name else "Hi,"
 
-    subject = "You're invited to Dotmac SM"
+    branding = get_branding(db)
+    company = branding["company_name"]
+    subject = f"You're invited to {company}"
 
     body_html = f"""
 <!DOCTYPE html>
@@ -513,7 +512,7 @@ def send_user_invite_email(db: Session, to_email: str, reset_token: str, person_
 </head>
 <body>
     <div class="container">
-        <h2>Welcome to Dotmac SM</h2>
+        <h2>Welcome to {company}</h2>
         <p>{greeting}</p>
         <p>Your account has been created. Use the button below to set your password and get started:</p>
         <p><a href="{reset_url}" class="button">Set Password</a></p>
@@ -530,7 +529,7 @@ def send_user_invite_email(db: Session, to_email: str, reset_token: str, person_
 
     body_text = f"""{greeting}
 
-Welcome to Dotmac SM.
+Welcome to {company}.
 
 Use the link below to set your password:
 {reset_url}
@@ -540,4 +539,5 @@ This link will expire in {expiry_minutes} minutes.
 This is an automated message. Please do not reply to this email.
 """
 
-    return send_email(db, to_email, subject, body_html, body_text)
+    success, _ = send_email(db, to_email, subject, body_html, body_text)
+    return success

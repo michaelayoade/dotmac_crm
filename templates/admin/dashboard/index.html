@@ -1,6 +1,7 @@
 {% extends "layouts/admin.html" %}
+{% set brand_name = request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" %}
 
-{% block title %}Operations Center - Dotmac{% endblock %}
+{% block title %}Operations Center - {{ brand_name }}{% endblock %}
 
 {% block charts_js %}
 <script src="/static/js/vendor/chart.min.js"></script>
@@ -416,6 +417,48 @@
             </div>
         </div>
         {% endif %}
+    </div>
+    {% endif %}
+
+    {% if can_inbox %}
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-3 animate-fade-in-up" style="animation-delay: 0.22s">
+        <div class="lg:col-span-1 rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 4h8M5 6h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z"/></svg>
+                    </div>
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Inbox Health</h3>
+                </div>
+                <span class="text-xs text-slate-400 dark:text-slate-500">Live</span>
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+                <div class="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-700/40">
+                    <p class="text-slate-400 dark:text-slate-500">Open</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ stats.inbox_open | default(0) }}</p>
+                </div>
+                <div class="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-700/40">
+                    <p class="text-slate-400 dark:text-slate-500">Pending</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ stats.inbox_pending | default(0) }}</p>
+                </div>
+                <div class="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-700/40">
+                    <p class="text-slate-400 dark:text-slate-500">Snoozed</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ stats.inbox_snoozed | default(0) }}</p>
+                </div>
+                <div class="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-700/40">
+                    <p class="text-slate-400 dark:text-slate-500">Resolved</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ stats.inbox_resolved | default(0) }}</p>
+                </div>
+            </div>
+            <div class="mt-4 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                <span>Outbox due</span>
+                <span class="font-semibold text-slate-900 dark:text-white">{{ inbox_metrics.outbox.due | default(0) }}</span>
+            </div>
+            <div class="mt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                <span>Outbox failed</span>
+                <span class="font-semibold text-rose-600 dark:text-rose-400">{{ inbox_metrics.outbox.failed | default(0) }}</span>
+            </div>
+        </div>
     </div>
     {% endif %}
 

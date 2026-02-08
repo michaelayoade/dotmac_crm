@@ -1,72 +1,74 @@
 import secrets
-from fastapi import Depends, FastAPI, Request
-from time import monotonic
+from datetime import UTC, datetime
 from threading import Lock
-from starlette.responses import Response
+from time import monotonic
+
+from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from sqlalchemy.orm import Session
+from starlette.responses import Response
 
-from app.csrf import (
-    CSRF_COOKIE_NAME,
-    CSRF_HEADER_NAME,
-    CSRF_TOKEN_NAME,
-    get_csrf_token,
-    set_csrf_cookie,
-    generate_csrf_token,
-)
-
+from app.api.analytics import router as analytics_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.auth_flow import router as auth_flow_router
-from app.api.rbac import router as rbac_router
-from app.api.notifications import router as notifications_router
-from app.api.workflow import router as workflow_router
-from app.api.dispatch import router as dispatch_router
-from app.api.inventory import router as inventory_router
-from app.api.timecost import router as timecost_router
+from app.api.bandwidth import router as bandwidth_router
 from app.api.comms import router as comms_router
-from app.api.analytics import router as analytics_router
-from app.api.projects import router as projects_router
-from app.api.tickets import router as tickets_router
-from app.api.workforce import router as workforce_router
-from app.api.external import router as external_router
-from app.api.sales_orders import router as sales_orders_router
-from app.api.gis import router as gis_router
-from app.api.geocoding import router as geocoding_router
-from app.api.qualification import router as qualification_router
-from app.api.settings import router as settings_router
-from app.api.webhooks import router as webhooks_router
 from app.api.connectors import router as connectors_router
-from app.api.integrations import router as integrations_router
-from app.api.persons import router as people_router
-from app.api.customers import router as customers_router
-from app.api.search import router as search_router
-from app.api.scheduler import router as scheduler_router
-from app.api.fiber_plant import router as fiber_plant_router
 from app.api.crm import router as crm_router
+from app.api.crm.widget_public import router as widget_public_router
+from app.api.customers import router as customers_router
+from app.api.defaults import router as defaults_router
+from app.api.deps import require_role, require_user_auth
+from app.api.dispatch import router as dispatch_router
+from app.api.external import router as external_router
+from app.api.fiber_plant import router as fiber_plant_router
+from app.api.geocoding import router as geocoding_router
+from app.api.gis import router as gis_router
+from app.api.integrations import router as integrations_router
+from app.api.inventory import router as inventory_router
+from app.api.nextcloud_talk import router as nextcloud_talk_router
+from app.api.notifications import router as notifications_router
+from app.api.persons import router as people_router
+from app.api.projects import router as projects_router
+from app.api.qualification import router as qualification_router
+from app.api.rbac import router as rbac_router
 from app.api.sales import router as sales_router
+from app.api.sales_orders import router as sales_orders_router
+from app.api.scheduler import router as scheduler_router
+from app.api.search import router as search_router
+from app.api.settings import router as settings_router
+from app.api.subscribers import router as subscribers_router
+from app.api.tickets import router as tickets_router
+from app.api.timecost import router as timecost_router
+from app.api.validation import router as validation_router
 from app.api.vendor import router as vendor_portal_router
 from app.api.vendors import router as vendors_router
-from app.api.subscribers import router as subscribers_router
-from app.api.wireless_survey import router as wireless_survey_router
+from app.api.webhooks import router as webhooks_router
 from app.api.wireless_masts import router as wireless_masts_router
-from app.api.nextcloud_talk import router as nextcloud_talk_router
-from app.api.bandwidth import router as bandwidth_router
-from app.api.validation import router as validation_router
-from app.api.defaults import router as defaults_router
-from app.web_home import router as web_home_router
-from app.web import router as web_router
+from app.api.wireless_survey import router as wireless_survey_router
+from app.api.workflow import router as workflow_router
+from app.api.workforce import router as workforce_router
+from app.csrf import (
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    generate_csrf_token,
+    set_csrf_cookie,
+)
 from app.db import SessionLocal
+from app.errors import register_error_handlers
+from app.logging import configure_logging
+from app.middleware.api_rate_limit import APIRateLimitMiddleware
+from app.models.domain_settings import DomainSetting, SettingDomain
+from app.observability import ObservabilityMiddleware
 from app.services import audit as audit_service
 from app.services import settings_spec
 from app.services.crm import smtp_inbound as smtp_inbound_service
-from app.api.deps import require_permission, require_role, require_user_auth
-from app.models.domain_settings import DomainSetting, SettingDomain
-from sqlalchemy.orm import Session
 from app.services.settings_seed import (
     seed_audit_settings,
-    seed_auth_settings,
     seed_auth_policy_settings,
+    seed_auth_settings,
     seed_comms_settings,
     seed_geocoding_settings,
     seed_gis_settings,
@@ -74,16 +76,16 @@ from app.services.settings_seed import (
     seed_network_policy_settings,
     seed_network_settings,
     seed_notification_settings,
-    seed_scheduler_settings,
     seed_projects_settings,
     seed_provisioning_settings,
+    seed_scheduler_settings,
     seed_workflow_settings,
 )
-from app.logging import configure_logging
-from app.observability import ObservabilityMiddleware
-from app.middleware.api_rate_limit import APIRateLimitMiddleware
 from app.telemetry import setup_otel
-from app.errors import register_error_handlers
+from app.web import router as web_router
+from app.web_home import router as web_home_router
+from app.websocket.router import router as ws_router
+from app.websocket.widget_router import router as ws_widget_router
 
 app = FastAPI(title="dotmac_crm API")
 
@@ -142,9 +144,7 @@ async def audit_middleware(request: Request, call_next):
             response = await call_next(request)
         except Exception:
             if should_log:
-                audit_service.audit_events.log_request(
-                    db, request, Response(status_code=500)
-                )
+                audit_service.audit_events.log_request(db, request, Response(status_code=500))
             raise
         if should_log:
             audit_service.audit_events.log_request(db, request, response)
@@ -165,11 +165,7 @@ def _load_branding_settings(db: Session) -> dict:
     # Fast path: check cache validity without lock
     cache = _BRANDING_CACHE
     cache_at = _BRANDING_CACHE_AT
-    if (
-        cache is not None
-        and cache_at is not None
-        and now - cache_at < _BRANDING_CACHE_TTL_SECONDS
-    ):
+    if cache is not None and cache_at is not None and now - cache_at < _BRANDING_CACHE_TTL_SECONDS:
         return cache
 
     # Slow path: acquire lock and recheck
@@ -183,13 +179,23 @@ def _load_branding_settings(db: Session) -> dict:
 
         # Cache miss - query database
         try:
-            branding_keys = ["company_name", "brand_logo_url", "brand_favicon_url", "brand_color"]
+            branding_keys = [
+                "company_name",
+                "brand_logo_url",
+                "brand_favicon_url",
+                "brand_color",
+                "support_email",
+                "support_phone",
+            ]
             values = settings_spec.resolve_values_atomic(db, SettingDomain.comms, branding_keys)
             result = {
                 "company_name": values.get("company_name") or "Dotmac",
                 "logo_url": values.get("brand_logo_url"),
                 "favicon_url": values.get("brand_favicon_url"),
                 "brand_color": values.get("brand_color") or "#0f172a",
+                "support_email": values.get("support_email"),
+                "support_phone": values.get("support_phone"),
+                "current_year": datetime.now(UTC).year,
             }
         except Exception:
             result = {
@@ -197,6 +203,9 @@ def _load_branding_settings(db: Session) -> dict:
                 "logo_url": None,
                 "favicon_url": None,
                 "brand_color": "#0f172a",
+                "support_email": None,
+                "support_phone": None,
+                "current_year": datetime.now(UTC).year,
             }
 
         _BRANDING_CACHE = result
@@ -261,6 +270,7 @@ async def csrf_middleware(request: Request, call_next):
         if not cookie_token:
             # No CSRF cookie - reject request
             from fastapi.responses import HTMLResponse
+
             return HTMLResponse(
                 content="<h1>403 Forbidden</h1><p>CSRF token missing. Please refresh the page and try again.</p>",
                 status_code=403,
@@ -271,6 +281,7 @@ async def csrf_middleware(request: Request, call_next):
         if header_token:
             if not secrets.compare_digest(cookie_token, header_token):
                 from fastapi.responses import HTMLResponse
+
                 return HTMLResponse(
                     content="<h1>403 Forbidden</h1><p>CSRF token invalid. Please refresh the page and try again.</p>",
                     status_code=403,
@@ -284,6 +295,7 @@ async def csrf_middleware(request: Request, call_next):
 
                 # Parse form data to get CSRF token
                 from urllib.parse import parse_qs
+
                 try:
                     if "multipart/form-data" in content_type:
                         # For multipart, we need to handle it differently
@@ -295,15 +307,17 @@ async def csrf_middleware(request: Request, call_next):
                         if b"_csrf_token" in body:
                             # Extract token from multipart body (simplified)
                             import re
+
                             match = re.search(rb'name="_csrf_token"\r\n\r\n([^\r\n-]+)', body)
                             if match:
-                                form_token = match.group(1).decode('utf-8')
+                                form_token = match.group(1).decode("utf-8")
                     else:
-                        form_data = parse_qs(body.decode('utf-8'))
+                        form_data = parse_qs(body.decode("utf-8"))
                         form_token = form_data.get("_csrf_token", [None])[0]
 
                     if form_token and not secrets.compare_digest(cookie_token, form_token):
                         from fastapi.responses import HTMLResponse
+
                         return HTMLResponse(
                             content="<h1>403 Forbidden</h1><p>CSRF token invalid. Please refresh the page and try again.</p>",
                             status_code=403,
@@ -352,11 +366,7 @@ def _load_audit_settings(db: Session):
     # Fast path: check cache validity without lock (read is atomic for these types)
     cache = _AUDIT_SETTINGS_CACHE
     cache_at = _AUDIT_SETTINGS_CACHE_AT
-    if (
-        cache is not None
-        and cache_at is not None
-        and now - cache_at < _AUDIT_SETTINGS_CACHE_TTL_SECONDS
-    ):
+    if cache is not None and cache_at is not None and now - cache_at < _AUDIT_SETTINGS_CACHE_TTL_SECONDS:
         return cache
 
     # Slow path: acquire lock and recheck (double-checked locking)
@@ -433,6 +443,7 @@ def _to_list(setting: DomainSetting, upper: bool) -> set[str] | list[str]:
 def _is_audit_path_skipped(path: str, skip_paths: list[str]) -> bool:
     return any(path.startswith(prefix) for prefix in skip_paths)
 
+
 def _include_api_router(router, dependencies=None):
     app.include_router(router, dependencies=dependencies)
     app.include_router(router, prefix="/api/v1", dependencies=dependencies)
@@ -477,7 +488,6 @@ _include_api_router(validation_router, dependencies=[Depends(require_user_auth)]
 _include_api_router(defaults_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)])
 # Chat widget public endpoints - no auth required (visitor token-based)
-from app.api.crm.widget_public import router as widget_public_router
 _include_api_router(widget_public_router)
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api/v1", dependencies=[Depends(require_user_auth)])
@@ -486,8 +496,6 @@ app.include_router(vendor_portal_router, prefix="/api/v1")
 app.include_router(web_home_router)
 app.include_router(web_router)
 
-from app.websocket.router import router as ws_router
-from app.websocket.widget_router import router as ws_widget_router
 app.include_router(ws_router)
 app.include_router(ws_widget_router)
 
@@ -511,18 +519,16 @@ async def static_cache_middleware(request: Request, call_next):
         )
     path = request.url.path
 
-    if path.startswith("/static/"):
-        # Skip if already has cache headers
-        if "cache-control" not in response.headers:
-            if any(path.endswith(ext) for ext in (".css", ".js", ".woff2", ".woff")):
-                # Long cache for versioned assets
-                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-            elif any(path.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")):
-                # Medium cache for images
-                response.headers["Cache-Control"] = "public, max-age=604800"
-            else:
-                # Short cache for other static files
-                response.headers["Cache-Control"] = "public, max-age=86400"
+    if path.startswith("/static/") and "cache-control" not in response.headers:
+        if any(path.endswith(ext) for ext in (".css", ".js", ".woff2", ".woff")):
+            # Long cache for versioned assets
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif any(path.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")):
+            # Medium cache for images
+            response.headers["Cache-Control"] = "public, max-age=604800"
+        else:
+            # Short cache for other static files
+            response.headers["Cache-Control"] = "public, max-age=86400"
 
     return response
 
@@ -574,6 +580,7 @@ def _start_jobs():
 @app.on_event("startup")
 async def _start_websocket_manager():
     from app.websocket.manager import get_connection_manager
+
     manager = get_connection_manager()
     await manager.connect()
 
@@ -581,5 +588,6 @@ async def _start_websocket_manager():
 @app.on_event("shutdown")
 async def _stop_websocket_manager():
     from app.websocket.manager import get_connection_manager
+
     manager = get_connection_manager()
     await manager.disconnect()

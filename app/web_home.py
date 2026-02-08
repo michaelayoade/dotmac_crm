@@ -33,7 +33,9 @@ def home(request: Request, db: Session = Depends(get_db)):
         limit=25,
         offset=0,
     )
+    branding = getattr(request.state, "branding", {})
+    title = branding.get("company_name") or "Dotmac"
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "title": "Dotmac SM", "people": people},
+        {"request": request, "title": title, "people": people},
     )

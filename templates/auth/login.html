@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% set brand_name = request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" %}
+{% set brand_logo = request.state.branding.logo_url if request.state.branding is defined and request.state.branding.logo_url else "" %}
+{% set brand_year = request.state.branding.current_year if request.state.branding is defined and request.state.branding.current_year else "2026" %}
 
-{% block title %}Sign In - Dotmac{% endblock %}
+{% block title %}Sign In - {{ brand_name }}{% endblock %}
 
 {% block body %}
 <div class="min-h-screen flex bg-slate-900" x-data="{ loading: false }">
@@ -24,12 +27,16 @@
             <!-- Logo -->
             <div>
                 <a href="/" class="flex items-center gap-3">
+                    {% if brand_logo %}
+                    <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="h-12 w-12 rounded-xl border border-white/20 object-contain backdrop-blur-sm">
+                    {% else %}
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
                         <svg class="h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                         </svg>
                     </div>
-                    <span class="text-2xl font-bold font-display">Dotmac</span>
+                    {% endif %}
+                    <span class="text-2xl font-bold font-display">{{ brand_name }}</span>
                 </a>
             </div>
 
@@ -77,7 +84,7 @@
 
             <!-- Footer -->
             <div class="text-sm text-primary-200">
-                &copy; 2026 Dotmac Field Service Platform
+                &copy; {{ brand_year }} {{ brand_name }}
             </div>
         </div>
     </div>
@@ -88,12 +95,16 @@
             <!-- Mobile Logo -->
             <div class="lg:hidden text-center mb-8">
                 <a href="/" class="inline-flex items-center gap-3">
+                    {% if brand_logo %}
+                    <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="h-12 w-12 rounded-xl border border-slate-200 dark:border-slate-700 object-contain shadow-lg">
+                    {% else %}
                     <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/25">
                         <svg class="h-7 w-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                         </svg>
                     </div>
-                    <span class="text-2xl font-bold text-slate-900 dark:text-white font-display">Dotmac</span>
+                    {% endif %}
+                    <span class="text-2xl font-bold text-slate-900 dark:text-white font-display">{{ brand_name }}</span>
                 </a>
             </div>
 

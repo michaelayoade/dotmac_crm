@@ -1,20 +1,21 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_
 
 from app.celery_app import celery_app
 from app.db import SessionLocal
-from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.crm.campaign import Campaign, CampaignRecipient
-from app.services import email as email_service
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
+from app.models.notification import Notification, NotificationChannel, NotificationStatus
+from app.services import email as email_service
+from app.services.branding import get_branding
 
 # Timeout for stuck "sending" notifications (5 minutes)
 SENDING_TIMEOUT_MINUTES = 5
 
 
 def _deliver_notification_queue(db, batch_size: int = 50) -> int:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stuck_threshold = now - timedelta(minutes=SENDING_TIMEOUT_MINUTES)
 
     # Query both queued notifications and stuck "sending" notifications
@@ -28,16 +29,10 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
                 Notification.status == NotificationStatus.queued,
                 # Stuck "sending" notifications (likely crashed during send)
                 # Use updated_at to detect stuck notifications
-                (
-                    (Notification.status == NotificationStatus.sending)
-                    & (Notification.updated_at < stuck_threshold)
-                ),
+                ((Notification.status == NotificationStatus.sending) & (Notification.updated_at < stuck_threshold)),
             )
         )
-        .filter(
-            (Notification.send_at.is_(None))
-            | (Notification.send_at <= now)
-        )
+        .filter((Notification.send_at.is_(None)) | (Notification.send_at <= now))
         .order_by(Notification.created_at.asc())
         .limit(batch_size)
         .all()
@@ -76,11 +71,11 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
                     "password": smtp_profile.password,
                     "use_tls": smtp_profile.use_tls,
                     "use_ssl": smtp_profile.use_ssl,
-                    "from_name": notification.from_name or "DotMac CRM",
+                    "from_name": notification.from_name or get_branding(db)["company_name"],
                     "from_email": notification.from_email or "noreply@example.com",
                     "from_addr": notification.from_email or "noreply@example.com",
                 }
-                success = email_service.send_email_with_config(
+                success, _ = email_service.send_email_with_config(
                     smtp_config,
                     notification.recipient,
                     subject,
@@ -89,7 +84,7 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
                     reply_to=notification.reply_to,
                 )
             else:
-                success = email_service.send_email(
+                success, _ = email_service.send_email(
                     db=db,
                     to_email=notification.recipient,
                     subject=subject,
@@ -105,7 +100,7 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
             notification.last_error = str(exc)
         if success:
             notification.status = NotificationStatus.delivered
-            notification.sent_at = datetime.now(timezone.utc)
+            notification.sent_at = datetime.now(UTC)
             notification.last_error = None
             delivered += 1
         else:

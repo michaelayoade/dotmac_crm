@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block body %}
+{% set brand_name = request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" %}
+{% set brand_logo = request.state.branding.logo_url if request.state.branding is defined and request.state.branding.logo_url else "" %}
 <div class="min-h-screen flex flex-col">
     <!-- Vendor Navigation -->
     <header x-data="{ mobileOpen: false }" class="sticky top-0 z-40 border-b border-stone-200/60 bg-white/80 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:border-stone-700/60 dark:bg-stone-900/80">
@@ -8,12 +10,16 @@
             <div class="flex h-16 items-center justify-between">
                 <!-- Logo -->
                 <a href="/vendor/dashboard" class="group flex items-center gap-3">
+                    {% if brand_logo %}
+                    <img src="{{ brand_logo }}" alt="{{ brand_name }}" class="h-10 w-10 rounded-xl border border-stone-200 dark:border-stone-700 object-contain shadow-md transition-all duration-300 group-hover:shadow-lg group-hover:scale-105">
+                    {% else %}
                     <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-md shadow-emerald-500/20 transition-all duration-300 group-hover:shadow-lg group-hover:shadow-emerald-500/30 group-hover:scale-105">
                         <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
                         </svg>
                     </div>
-                    <span class="text-lg font-bold text-stone-900 dark:text-white" style="font-family: var(--font-display);">Vendor Portal</span>
+                    {% endif %}
+                    <span class="text-lg font-bold text-stone-900 dark:text-white" style="font-family: var(--font-display);">{{ brand_name }}</span>
                 </a>
 
                 <!-- Desktop Navigation -->
