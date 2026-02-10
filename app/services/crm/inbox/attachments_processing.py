@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Message
 from app.schemas.crm.conversation import MessageAttachmentCreate
 from app.services.crm.conversations import message_attachments as message_attachments_service
+from app.services.crm.conversations import service as conversation_service
 from app.services.crm.inbox.errors import InboxValidationError
 
 
@@ -42,7 +43,7 @@ def apply_message_attachments(
         if not isinstance(item, dict):
             continue
         _validate_attachment_payload(item)
-        message_attachments_service.create(
+        conversation_service.MessageAttachments.create(
             db,
             MessageAttachmentCreate(
                 message_id=message.id,

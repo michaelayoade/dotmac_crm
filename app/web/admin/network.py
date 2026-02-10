@@ -13,9 +13,9 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session, load_only
 
 from app.db import SessionLocal
-from app.models.gis import GeoAreaType, GeoLocation, GeoLocationType
 from app.models.domain_settings import SettingDomain
 from app.models.fiber_change_request import FiberChangeRequestOperation
+from app.models.gis import GeoAreaType, GeoLocation, GeoLocationType
 from app.models.network import (
     FdhCabinet,
     FiberAccessPoint,
@@ -25,9 +25,9 @@ from app.models.network import (
     FiberSpliceTray,
     Splitter,
 )
-from app.services import settings_spec
 from app.services import fiber_change_requests as change_request_service
 from app.services import gis as gis_service
+from app.services import settings_spec
 from app.services import vendor as vendor_service
 from app.services.common import coerce_uuid
 
@@ -75,7 +75,7 @@ def _parse_lat_lng(lat: float | str, lng: float | str) -> tuple[float, float]:
 
 
 def _coerce_float(value: object, default: float) -> float:
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     if isinstance(value, str):
         try:
@@ -96,7 +96,7 @@ def _postgis_available(db: Session) -> bool:
 
 @router.get("/map", response_class=HTMLResponse)
 def network_map(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     features: list[dict] = []
 
@@ -337,7 +337,7 @@ def pop_sites_list(
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=5, le=100),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     offset = (page - 1) * per_page
     pop_sites = gis_service.geo_locations.list(
@@ -385,7 +385,7 @@ def pop_sites_list(
 
 @router.get("/fdh-cabinets", response_class=HTMLResponse)
 def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     cabinets = (
         db.query(FdhCabinet)
@@ -411,9 +411,8 @@ def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/fdh-cabinets/new", response_class=HTMLResponse)
 def fdh_cabinet_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
-    from app.web.admin import get_sidebar_stats, get_current_user
 
     regions = gis_service.geo_areas.list(
         db,
@@ -480,7 +479,7 @@ def fdh_cabinet_create(
         db.rollback()
         error = str(exc)
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     regions = gis_service.geo_areas.list(
         db,
@@ -514,7 +513,7 @@ def fdh_cabinet_create(
 
 @router.get("/fdh-cabinets/{cabinet_id}", response_class=HTMLResponse)
 def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     cabinet = db.get(FdhCabinet, cabinet_id)
     if not cabinet:
@@ -533,11 +532,7 @@ def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(
         offset=0,
     )
     region_map = {str(region.id): region for region in regions}
-    setattr(
-        cabinet,
-        "region",
-        region_map.get(str(cabinet.region_id)) if cabinet.region_id else None,
-    )
+    cabinet.region = region_map.get(str(cabinet.region_id)) if cabinet.region_id else None
     splitters = (
         db.query(Splitter)
         .filter(Splitter.fdh_id == cabinet.id)
@@ -561,7 +556,7 @@ def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(
 
 @router.get("/fdh-cabinets/{cabinet_id}/edit", response_class=HTMLResponse)
 def fdh_cabinet_edit(request: Request, cabinet_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     cabinet = db.get(FdhCabinet, cabinet_id)
     if not cabinet:
@@ -632,7 +627,7 @@ def fdh_cabinet_update(
         db.rollback()
         error = str(exc)
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     regions = gis_service.geo_areas.list(
         db,

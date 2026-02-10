@@ -100,7 +100,7 @@ class IntegrationTargets:
         if not target:
             raise HTTPException(status_code=404, detail="Integration target not found")
         data = payload.model_dump(exclude_unset=True)
-        if "connector_config_id" in data and data["connector_config_id"]:
+        if data.get("connector_config_id"):
             config = db.get(ConnectorConfig, data["connector_config_id"])
             if not config:
                 raise HTTPException(status_code=404, detail="Connector config not found")

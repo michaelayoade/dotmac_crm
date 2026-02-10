@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
-from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorType
 from app.models.domain_settings import SettingDomain
@@ -23,6 +24,7 @@ from app.services.crm.inbox.permissions import (
     can_manage_inbox_settings,
     can_view_inbox_settings,
 )
+from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
 
 
@@ -99,7 +101,7 @@ def build_inbox_settings_context(
     agents = crm_service.agents.list(
         db=db,
         person_id=None,
-        is_active=None,
+        is_active=True,
         order_by="created_at",
         order_dir="desc",
         limit=200,
@@ -136,11 +138,28 @@ def build_inbox_settings_context(
                 people_by_id[person_key] = person
     teams_by_id = {str(team.id): team for team in teams}
     widgets = widget_configs.list(db=db, is_active=None, limit=100)
+    routing_rules = crm_service.routing_rules.list(
+        db=db,
+        team_id=None,
+        channel_type=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="desc",
+        limit=200,
+        offset=0,
+    )
+    templates = message_templates.list(
+        db,
+        channel_type=None,
+        is_active=None,
+        limit=200,
+        offset=0,
+    )
     host = headers.get("host", "localhost:8000")
     scheme = headers.get("x-forwarded-proto", "http")
     base_url = f"{scheme}://{host}"
     for widget in widgets:
-        setattr(widget, "embed_code", widget_configs.generate_embed_code(widget, base_url))
+        widget.embed_code = widget_configs.generate_embed_code(widget, base_url)
 
     return {
         "current_user": current_user,
@@ -188,4 +207,6 @@ def build_inbox_settings_context(
         "people_by_id": people_by_id,
         "teams_by_id": teams_by_id,
         "widgets": widgets,
+        "routing_rules": routing_rules,
+        "message_templates": templates,
     }

@@ -1,20 +1,19 @@
 """Tests for analytics service."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
 
-from app.models.analytics import KPIConfig, KPIAggregate
+from app.models.analytics import KPIConfig
 from app.models.workflow import WorkflowEntityType
-from app.schemas.analytics import KPIConfigCreate, KPIConfigUpdate, KPIAggregateCreate
+from app.schemas.analytics import KPIAggregateCreate, KPIConfigCreate, KPIConfigUpdate
 from app.schemas.workflow import SlaBreachCreate, SlaClockCreate, SlaPolicyCreate, SlaTargetCreate
 from app.services import analytics as analytics_service
 from app.services import workflow as workflow_service
 from app.services.common import apply_ordering, apply_pagination
-
 
 # =============================================================================
 # Helper Function Tests
@@ -205,7 +204,7 @@ class TestKPIAggregatesCreate:
 
     def test_creates_aggregate(self, db_session):
         """Test creates a KPI aggregate."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         aggregate = analytics_service.kpi_aggregates.create(
             db_session,
             KPIAggregateCreate(
@@ -224,7 +223,7 @@ class TestKPIAggregatesGet:
 
     def test_gets_aggregate_by_id(self, db_session):
         """Test gets aggregate by ID."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         aggregate = analytics_service.kpi_aggregates.create(
             db_session,
             KPIAggregateCreate(
@@ -251,7 +250,7 @@ class TestKPIAggregatesList:
 
     def test_lists_all_aggregates(self, db_session):
         """Test lists all aggregates."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         analytics_service.kpi_aggregates.create(
             db_session,
             KPIAggregateCreate(
@@ -283,7 +282,7 @@ class TestKPIAggregatesList:
 
     def test_filters_by_key(self, db_session):
         """Test filters by key."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         analytics_service.kpi_aggregates.create(
             db_session,
             KPIAggregateCreate(

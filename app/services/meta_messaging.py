@@ -4,20 +4,17 @@ Handles outbound messaging via Facebook Messenger and Instagram DMs.
 """
 
 import asyncio
-import httpx
-from datetime import datetime, timezone
 
+import httpx
 from sqlalchemy.orm import Session
 
-from app.logging import get_logger
 from app.config import settings
-from app.services.settings_spec import resolve_value
-from app.models.domain_settings import SettingDomain
-from app.models.connector import ConnectorConfig, ConnectorType
+from app.logging import get_logger
 from app.models.crm.enums import ChannelType
-from app.models.integration import IntegrationTarget, IntegrationTargetType
+from app.models.domain_settings import SettingDomain
+from app.models.integration import IntegrationTarget
 from app.models.oauth_token import OAuthToken
-from app.services.common import coerce_uuid
+from app.services.settings_spec import resolve_value
 
 logger = get_logger(__name__)
 
@@ -25,10 +22,22 @@ _FACEBOOK_REQUIRED_SCOPES = {"pages_messaging"}
 _INSTAGRAM_REQUIRED_SCOPES = {"instagram_manage_messages"}
 
 
+def _safe_status_code(response: httpx.Response) -> int | None:
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    if status_code is None:
+        return None
+    try:
+        return int(status_code)
+    except (TypeError, ValueError):
+        return None
+
+
 def _ensure_token_scopes(token: OAuthToken | None, required_scopes: set[str], context: str) -> None:
     if not token or not token.scopes:
         return
-    if not isinstance(token.scopes, (list, tuple, set)):
+    if not isinstance(token.scopes, list | tuple | set):
         return
     granted = {str(scope) for scope in token.scopes}
     missing = required_scopes - granted
@@ -48,7 +57,10 @@ async def _post_with_retry(
     retries = 0
     while True:
         response = await client.post(url, params=params, json=json, timeout=timeout)
-        if response.status_code in {429} or response.status_code >= 500:
+        status_code = _safe_status_code(response)
+        if status_code is None:
+            return response
+        if status_code in {429} or status_code >= 500:
             if retries >= max_retries:
                 return response
             retry_after = response.headers.get("Retry-After")
@@ -217,12 +229,13 @@ async def send_facebook_message(
             json=payload,
             timeout=30,
         )
-        if response.status_code >= 400:
+        status_code = _safe_status_code(response)
+        if status_code is not None and status_code >= 400:
             logger.error(
                 "facebook_message_send_failed page_id=%s recipient=%s status=%s body=%s",
                 page_id,
                 recipient_psid[:8],
-                response.status_code,
+                status_code,
                 response.text,
             )
         response.raise_for_status()
@@ -309,12 +322,13 @@ async def send_instagram_message(
             json=payload,
             timeout=30,
         )
-        if response.status_code >= 400:
+        status_code = _safe_status_code(response)
+        if status_code is not None and status_code >= 400:
             logger.error(
                 "instagram_message_send_failed ig_account_id=%s recipient=%s status=%s body=%s",
                 ig_account_id,
                 recipient_igsid[:8],
-                response.status_code,
+                status_code,
                 response.text,
             )
         response.raise_for_status()

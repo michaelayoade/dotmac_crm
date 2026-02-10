@@ -10,9 +10,11 @@ from app.models.auth import (
     AuthProvider,
     MFAMethod,
     MFAMethodType,
-    Session as AuthSession,
     SessionStatus,
     UserCredential,
+)
+from app.models.auth import (
+    Session as AuthSession,
 )
 from app.models.person import Person
 from app.schemas.auth import (
@@ -356,7 +358,7 @@ class ApiKeys:
         data = payload.model_dump(exclude_unset=True)
         if "person_id" in data and data["person_id"] is not None:
             _ensure_person(db, str(data["person_id"]))
-        if "key_hash" in data and data["key_hash"]:
+        if data.get("key_hash"):
             data["key_hash"] = hash_api_key(data["key_hash"])
         for key, value in data.items():
             setattr(api_key, key, value)

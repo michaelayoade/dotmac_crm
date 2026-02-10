@@ -1,11 +1,11 @@
+from fastapi import HTTPException
 from geoalchemy2.functions import ST_MakePoint, ST_SetSRID
 from sqlalchemy.orm import Session
 
 from app.models.wireless_mast import WirelessMast
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.schemas.wireless_mast import WirelessMastCreate, WirelessMastUpdate
+from app.services.common import apply_ordering, apply_pagination
 from app.services.response import ListResponseMixin
-from fastapi import HTTPException
 
 
 class WirelessMasts(ListResponseMixin):

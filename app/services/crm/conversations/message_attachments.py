@@ -1,5 +1,6 @@
 import uuid
 from pathlib import Path
+from typing import cast
 
 from fastapi import HTTPException, UploadFile
 
@@ -32,9 +33,11 @@ def _coerce_upload_files(files: UploadFile | list[UploadFile] | tuple[UploadFile
         if not files.filename:
             return []
         return [files]
-    if _is_upload_like(files) and getattr(files, "filename", None):
-        return [files]  # Accept UploadFile-like objects
-    if isinstance(files, (list, tuple)):
+    if _is_upload_like(files) and not isinstance(files, list | tuple):
+        upload = cast(UploadFile, files)
+        if getattr(upload, "filename", None):
+            return [upload]  # Accept UploadFile-like objects
+    if isinstance(files, list | tuple):
         uploads: list[UploadFile] = []
         for item in files:
             if isinstance(item, UploadFile):

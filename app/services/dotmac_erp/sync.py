@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import ClassVar
 
 from sqlalchemy.orm import Session
 
@@ -66,7 +67,7 @@ class DotMacERPSync:
     """
 
     # Status mappings from CRM to ERP
-    PROJECT_STATUS_MAP = {
+    PROJECT_STATUS_MAP: ClassVar[dict[ProjectStatus, str]] = {
         ProjectStatus.planned: "active",
         ProjectStatus.active: "active",
         ProjectStatus.on_hold: "active",
@@ -74,7 +75,7 @@ class DotMacERPSync:
         ProjectStatus.canceled: "canceled",
     }
 
-    TICKET_STATUS_MAP = {
+    TICKET_STATUS_MAP: ClassVar[dict[TicketStatus, str]] = {
         TicketStatus.new: "active",
         TicketStatus.open: "active",
         TicketStatus.pending: "active",
@@ -87,7 +88,7 @@ class DotMacERPSync:
         TicketStatus.canceled: "canceled",
     }
 
-    WORK_ORDER_STATUS_MAP = {
+    WORK_ORDER_STATUS_MAP: ClassVar[dict[WorkOrderStatus, str]] = {
         WorkOrderStatus.draft: "active",
         WorkOrderStatus.scheduled: "active",
         WorkOrderStatus.dispatched: "active",
@@ -141,7 +142,7 @@ class DotMacERPSync:
             "dotmac_erp_timeout_seconds",
             use_cache=False,
         )
-        if isinstance(timeout_value, (int, str)):
+        if isinstance(timeout_value, int | str):
             timeout = int(timeout_value)
         else:
             timeout = 30

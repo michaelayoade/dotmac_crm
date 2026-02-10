@@ -1,37 +1,61 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.crm.sales import Quote
+from app.models.person import Person
 from app.models.sales_order import (
     SalesOrder,
     SalesOrderLine,
     SalesOrderPaymentStatus,
     SalesOrderStatus,
 )
-from app.models.crm.sales import Quote
-from app.models.person import Person
 from app.models.sequence import DocumentSequence
 from app.services.common import (
     apply_ordering,
     apply_pagination,
     coerce_uuid,
-    ensure_exists,
     get_by_id,
     round_money,
     validate_enum,
 )
 from app.services.response import ListResponseMixin
 
+
 def _ensure_person(db: Session, person_id: str):
     person = get_by_id(db, Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     return person
+
+
+def _parse_decimal(value: str | None) -> Decimal | None:
+    if value is None:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        return Decimal(raw)
+    except (InvalidOperation, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid decimal value")
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid datetime value") from exc
 
 
 def _next_sequence_value(db: Session, key: str, start_value: int = 1) -> int:
@@ -67,7 +91,7 @@ def _apply_payment_fields(sales_order: SalesOrder, data: dict) -> None:
         if total > 0 and balance_due <= 0:
             sales_order.payment_status = SalesOrderPaymentStatus.paid
             if not sales_order.paid_at:
-                sales_order.paid_at = datetime.now(timezone.utc)
+                sales_order.paid_at = datetime.now(UTC)
         elif amount_paid > 0:
             sales_order.payment_status = SalesOrderPaymentStatus.partial
         else:
@@ -75,9 +99,11 @@ def _apply_payment_fields(sales_order: SalesOrder, data: dict) -> None:
     if sales_order.payment_status == SalesOrderPaymentStatus.paid:
         if sales_order.status in {SalesOrderStatus.draft, SalesOrderStatus.confirmed}:
             sales_order.status = SalesOrderStatus.paid
-    elif sales_order.payment_status == SalesOrderPaymentStatus.waived:
-        if sales_order.status == SalesOrderStatus.draft:
-            sales_order.status = SalesOrderStatus.confirmed
+    elif (
+        sales_order.payment_status == SalesOrderPaymentStatus.waived
+        and sales_order.status == SalesOrderStatus.draft
+    ):
+        sales_order.status = SalesOrderStatus.confirmed
 
 
 def _recalculate_order_totals(db: Session, sales_order_id: str) -> None:
@@ -284,7 +310,7 @@ class SalesOrders(ListResponseMixin):
                 data["amount_paid"] = round_money(resolved_total)
             data["balance_due"] = Decimal("0.00")
             if "paid_at" not in data or data.get("paid_at") is None:
-                data["paid_at"] = datetime.now(timezone.utc)
+                data["paid_at"] = datetime.now(UTC)
             if "status" not in data and sales_order.status in {
                 SalesOrderStatus.draft,
                 SalesOrderStatus.confirmed,
@@ -299,6 +325,51 @@ class SalesOrders(ListResponseMixin):
         db.commit()
         db.refresh(sales_order)
         return sales_order
+
+    @staticmethod
+    def update_from_input(
+        db: Session,
+        sales_order_id: str,
+        *,
+        status: str | None = None,
+        payment_status: str | None = None,
+        total: str | None = None,
+        amount_paid: str | None = None,
+        paid_at: str | None = None,
+        notes: str | None = None,
+    ):
+        """Update sales order using raw string inputs (e.g., from web forms)."""
+        update_data: dict[str, object | None] = {}
+        if status:
+            update_data["status"] = validate_enum(status, SalesOrderStatus, "status")
+        if payment_status:
+            update_data["payment_status"] = validate_enum(
+                payment_status, SalesOrderPaymentStatus, "payment_status"
+            )
+
+        total_value = _parse_decimal(total)
+        if total_value is not None:
+            update_data["total"] = total_value
+
+        amount_paid_value = _parse_decimal(amount_paid)
+        if amount_paid_value is not None:
+            update_data["amount_paid"] = amount_paid_value
+
+        paid_at_value = _parse_datetime(paid_at)
+        if paid_at is not None:
+            update_data["paid_at"] = paid_at_value
+
+        if notes is not None:
+            update_data["notes"] = notes.strip() or None
+
+        # If payment status is paid and paid_at is missing, set it now to satisfy validation.
+        if update_data.get("payment_status") == SalesOrderPaymentStatus.paid and update_data.get("paid_at") is None:
+            update_data["paid_at"] = datetime.now(UTC)
+
+        from app.schemas.sales_order import SalesOrderUpdate
+
+        payload = SalesOrderUpdate(**update_data)
+        return SalesOrders.update(db, sales_order_id, payload)
 
     @staticmethod
     def delete(db: Session, sales_order_id: str):

@@ -2,8 +2,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorAuthType, ConnectorConfig, ConnectorType
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.schemas.connector import ConnectorConfigCreate, ConnectorConfigUpdate
+from app.services.common import apply_ordering, apply_pagination, validate_enum
 from app.services.response import ListResponseMixin
 
 
@@ -92,7 +92,7 @@ class ConnectorConfigs(ListResponseMixin):
         if not config:
             raise HTTPException(status_code=404, detail="Connector config not found")
         data = payload.model_dump(exclude_unset=True)
-        if "auth_config" in data and data["auth_config"]:
+        if data.get("auth_config"):
             merged = dict(config.auth_config or {})
             merged.update(data["auth_config"])
             data["auth_config"] = merged

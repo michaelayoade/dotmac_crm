@@ -1,14 +1,13 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.services.response import list_response
 from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.dispatch import (
+    AutoAssignResponse,
     AvailabilityBlockCreate,
     AvailabilityBlockRead,
     AvailabilityBlockUpdate,
-    AutoAssignResponse,
     DispatchRuleCreate,
     DispatchRuleRead,
     DispatchRuleUpdate,
@@ -29,6 +28,7 @@ from app.schemas.dispatch import (
     WorkOrderAssignmentQueueUpdate,
 )
 from app.services import dispatch as dispatch_service
+from app.services.response import list_response
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 

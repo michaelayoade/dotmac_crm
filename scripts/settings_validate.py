@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 
 from app.db import SessionLocal
 from app.models.domain_settings import DomainSetting
-from app.services.settings_spec import SETTINGS_SPECS, coerce_value, extract_db_value
 from app.services.secrets import is_openbao_ref
+from app.services.settings_spec import SETTINGS_SPECS, coerce_value, extract_db_value
 
 
 def _env_value(name: str) -> str | None:
@@ -35,12 +35,11 @@ def main() -> None:
                 continue
             db_setting = db_map.get((spec.domain, spec.key))
             db_raw = extract_db_value(db_setting)
-            if spec.is_secret and db_raw:
-                if isinstance(db_raw, str) and not is_openbao_ref(db_raw):
-                    errors.append(
-                        f"{spec.domain.value}.{spec.key}: secret must be an OpenBao reference"
-                    )
-                    continue
+            if spec.is_secret and db_raw and isinstance(db_raw, str) and not is_openbao_ref(db_raw):
+                errors.append(
+                    f"{spec.domain.value}.{spec.key}: secret must be an OpenBao reference"
+                )
+                continue
             db_value, db_error = coerce_value(spec, db_raw) if db_raw is not None else (None, None)
             if db_error:
                 errors.append(f"{spec.domain.value}.{spec.key}: db {db_error}")
@@ -81,11 +80,9 @@ def main() -> None:
         db.close()
 
     if errors:
-        print("Settings validation failed:")
-        for item in errors:
-            print(f"- {item}")
+        for _item in errors:
+            pass
         raise SystemExit(1)
-    print("Settings validation passed.")
 
 
 if __name__ == "__main__":

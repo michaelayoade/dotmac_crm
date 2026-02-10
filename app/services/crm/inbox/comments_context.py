@@ -3,22 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-
+from datetime import UTC, datetime
 from urllib.parse import quote
+
 from sqlalchemy.orm import Session
 
-from app.models.domain_settings import SettingDomain
+from app.logging import get_logger
+from app.models.domain_settings import SettingDomain, SettingValueType
 from app.schemas.settings import DomainSettingUpdate
 from app.services import domain_settings as domain_settings_service
 from app.services import meta_pages as meta_pages_service
 from app.services import settings_spec
+from app.services.crm import comments as comments_service
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.search import normalize_search
-from app.logging import get_logger
-from app.models.domain_settings import SettingValueType
-from app.services.crm import comments as comments_service
-
 
 logger = get_logger(__name__)
 
@@ -149,6 +147,10 @@ class CommentsContext:
     grouped_comments: list[dict]
     selected_comment: object | None
     comment_replies: list
+    offset: int
+    limit: int
+    has_more: bool
+    next_offset: int | None
 
 
 async def load_comments_context(
@@ -156,6 +158,8 @@ async def load_comments_context(
     *,
     search: str | None,
     comment_id: str | None,
+    offset: int = 0,
+    limit: int = 150,
     fetch: bool = True,
     target_id: str | None = None,
     include_thread: bool = True,
@@ -174,8 +178,8 @@ async def load_comments_context(
             try:
                 last_sync = datetime.fromisoformat(last_sync_raw.strip())
                 if last_sync.tzinfo is None:
-                    last_sync = last_sync.replace(tzinfo=timezone.utc)
-                should_sync = (datetime.now(timezone.utc) - last_sync).total_seconds() > 120
+                    last_sync = last_sync.replace(tzinfo=UTC)
+                should_sync = (datetime.now(UTC) - last_sync).total_seconds() > 120
             except ValueError:
                 should_sync = True
         if should_sync:
@@ -187,7 +191,7 @@ async def load_comments_context(
                     "comments_last_sync_at",
                     DomainSettingUpdate(
                         value_type=SettingValueType.string,
-                        value_text=datetime.now(timezone.utc).isoformat(),
+                        value_text=datetime.now(UTC).isoformat(),
                     ),
                 )
             except Exception as exc:
@@ -196,13 +200,8 @@ async def load_comments_context(
         inbox_cache.invalidate_comments()
 
     normalized_search = normalize_search(search)
-    list_cache_key = inbox_cache.build_comments_list_key(normalized_search)
-    cached_comments = inbox_cache.get(list_cache_key)
-    if cached_comments is not None:
-        comments = cached_comments
-    else:
-        comments = comments_service.list_social_comments(db, search=normalized_search, limit=50)
-        inbox_cache.set(list_cache_key, comments, inbox_cache.COMMENTS_LIST_TTL_SECONDS)
+    safe_offset = max(int(offset or 0), 0)
+    safe_limit = max(int(limit or 0), 1)
 
     target_filter = None
     target_prefix = (target_id or "").strip()
@@ -210,14 +209,39 @@ async def load_comments_context(
         target_filter = ("facebook", target_prefix[3:])
     elif target_prefix.startswith("ig:"):
         target_filter = ("instagram", target_prefix[3:])
-    if target_filter:
-        platform, account_id = target_filter
-        comments = [
-            comment
-            for comment in comments
-            if comment.platform.value == platform
-            and (not account_id or comment.source_account_id == account_id)
-        ]
+
+    list_cache_key = inbox_cache.build_comments_list_key(
+        {
+            "search": normalized_search,
+            "offset": safe_offset,
+            "limit": safe_limit,
+            "target_id": target_id,
+        }
+    )
+    cached_comments = inbox_cache.get(list_cache_key)
+    if cached_comments is not None:
+        comments = cached_comments
+    else:
+        platform = None
+        account_id = None
+        if target_filter:
+            platform, account_id = target_filter
+        comments = comments_service.list_social_comments(
+            db,
+            search=normalized_search,
+            platform=platform,
+            source_account_id=account_id,
+            limit=safe_limit + 1,
+            offset=safe_offset,
+        )
+        inbox_cache.set(list_cache_key, comments, inbox_cache.COMMENTS_LIST_TTL_SECONDS)
+
+    has_more = False
+    next_offset: int | None = None
+    if len(comments) > safe_limit:
+        has_more = True
+        comments = comments[:safe_limit]
+        next_offset = safe_offset + safe_limit
     grouped_comments = _group_comment_authors(comments)
     _apply_comment_inbox_labels(db, grouped_comments)
     if comment_id:
@@ -260,4 +284,8 @@ async def load_comments_context(
         grouped_comments=grouped_comments,
         selected_comment=selected_comment,
         comment_replies=comment_replies,
+        offset=safe_offset,
+        limit=safe_limit,
+        has_more=has_more,
+        next_offset=next_offset,
     )

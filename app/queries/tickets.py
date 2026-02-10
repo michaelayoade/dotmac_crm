@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import selectinload
 
 from app.models.tickets import (
     Ticket,
+    TicketAssignee,
     TicketChannel,
     TicketComment,
     TicketPriority,
@@ -39,14 +40,14 @@ class TicketQuery(BaseQuery[Ticket]):
     """
 
     model_class = Ticket
-    ordering_fields = {
+    ordering_fields: ClassVar[dict[str, Any]] = {
         "created_at": Ticket.created_at,
         "updated_at": Ticket.updated_at,
         "status": Ticket.status,
         "priority": Ticket.priority,
     }
 
-    def by_subscriber(self, subscriber_id: "UUID | str | None") -> "TicketQuery":
+    def by_subscriber(self, subscriber_id: UUID | str | None) -> TicketQuery:
         """Filter by subscriber ID."""
         if not subscriber_id:
             return self
@@ -56,7 +57,7 @@ class TicketQuery(BaseQuery[Ticket]):
         )
         return clone
 
-    def by_status(self, status: TicketStatus | str | None) -> "TicketQuery":
+    def by_status(self, status: TicketStatus | str | None) -> TicketQuery:
         """Filter by ticket status."""
         if not status:
             return self
@@ -66,7 +67,7 @@ class TicketQuery(BaseQuery[Ticket]):
         clone._query = clone._query.filter(Ticket.status == status)
         return clone
 
-    def by_statuses(self, statuses: list[TicketStatus | str]) -> "TicketQuery":
+    def by_statuses(self, statuses: list[TicketStatus | str]) -> TicketQuery:
         """Filter by multiple statuses."""
         if not statuses:
             return self
@@ -78,7 +79,7 @@ class TicketQuery(BaseQuery[Ticket]):
         clone._query = clone._query.filter(Ticket.status.in_(status_enums))
         return clone
 
-    def by_priority(self, priority: TicketPriority | str | None) -> "TicketQuery":
+    def by_priority(self, priority: TicketPriority | str | None) -> TicketQuery:
         """Filter by ticket priority."""
         if not priority:
             return self
@@ -88,7 +89,7 @@ class TicketQuery(BaseQuery[Ticket]):
         clone._query = clone._query.filter(Ticket.priority == priority)
         return clone
 
-    def by_channel(self, channel: TicketChannel | str | None) -> "TicketQuery":
+    def by_channel(self, channel: TicketChannel | str | None) -> TicketQuery:
         """Filter by ticket channel."""
         if not channel:
             return self
@@ -98,7 +99,7 @@ class TicketQuery(BaseQuery[Ticket]):
         clone._query = clone._query.filter(Ticket.channel == channel)
         return clone
 
-    def by_created_by(self, person_id: "UUID | str | None") -> "TicketQuery":
+    def by_created_by(self, person_id: UUID | str | None) -> TicketQuery:
         """Filter by creator person ID."""
         if not person_id:
             return self
@@ -108,7 +109,7 @@ class TicketQuery(BaseQuery[Ticket]):
         )
         return clone
 
-    def by_assigned_to(self, person_id: "UUID | str | None") -> "TicketQuery":
+    def by_assigned_to(self, person_id: UUID | str | None) -> TicketQuery:
         """Filter by assigned person ID."""
         if not person_id:
             return self
@@ -118,13 +119,13 @@ class TicketQuery(BaseQuery[Ticket]):
         )
         return clone
 
-    def unassigned(self) -> "TicketQuery":
+    def unassigned(self) -> TicketQuery:
         """Filter to only unassigned tickets."""
         clone = self._clone()
         clone._query = clone._query.filter(Ticket.assigned_to_person_id.is_(None))
         return clone
 
-    def search(self, term: str | None) -> "TicketQuery":
+    def search(self, term: str | None) -> TicketQuery:
         """Search tickets by title, description, or ID.
 
         Performs case-insensitive search across multiple fields.
@@ -144,14 +145,14 @@ class TicketQuery(BaseQuery[Ticket]):
         clone._query = clone._query.filter(or_(*search_filters))
         return clone
 
-    def with_tag(self, tag: str) -> "TicketQuery":
+    def with_tag(self, tag: str) -> TicketQuery:
         """Filter tickets that have a specific tag."""
         clone = self._clone()
         # Assumes tags is a JSON array column
         clone._query = clone._query.filter(Ticket.tags.contains([tag]))
         return clone
 
-    def open_tickets(self) -> "TicketQuery":
+    def open_tickets(self) -> TicketQuery:
         """Filter to only open tickets (not resolved/closed)."""
         return self.by_statuses([
             TicketStatus.new,
@@ -160,7 +161,7 @@ class TicketQuery(BaseQuery[Ticket]):
             TicketStatus.on_hold,
         ])
 
-    def closed_tickets(self) -> "TicketQuery":
+    def closed_tickets(self) -> TicketQuery:
         """Filter to only closed tickets."""
         return self.by_statuses([
             TicketStatus.resolved,
@@ -168,7 +169,7 @@ class TicketQuery(BaseQuery[Ticket]):
             TicketStatus.canceled,
         ])
 
-    def with_relations(self) -> "TicketQuery":
+    def with_relations(self) -> TicketQuery:
         """Eager load common relationships to avoid N+1 queries.
 
         Loads: subscriber, customer, created_by, assigned_to, lead.
@@ -179,6 +180,9 @@ class TicketQuery(BaseQuery[Ticket]):
             selectinload(Ticket.customer),
             selectinload(Ticket.created_by),
             selectinload(Ticket.assigned_to),
+            selectinload(Ticket.assignees).selectinload(TicketAssignee.person),
+            selectinload(Ticket.ticket_manager),
+            selectinload(Ticket.assistant_manager),
             selectinload(Ticket.lead),
         )
         return clone
@@ -188,11 +192,11 @@ class TicketCommentQuery(BaseQuery[TicketComment]):
     """Query builder for TicketComment model."""
 
     model_class = TicketComment
-    ordering_fields = {
+    ordering_fields: ClassVar[dict[str, Any]] = {
         "created_at": TicketComment.created_at,
     }
 
-    def by_ticket(self, ticket_id: "UUID | str | None") -> "TicketCommentQuery":
+    def by_ticket(self, ticket_id: UUID | str | None) -> TicketCommentQuery:
         """Filter by ticket ID."""
         if not ticket_id:
             return self
@@ -202,7 +206,7 @@ class TicketCommentQuery(BaseQuery[TicketComment]):
         )
         return clone
 
-    def by_author(self, person_id: "UUID | str | None") -> "TicketCommentQuery":
+    def by_author(self, person_id: UUID | str | None) -> TicketCommentQuery:
         """Filter by author person ID."""
         if not person_id:
             return self
@@ -212,19 +216,19 @@ class TicketCommentQuery(BaseQuery[TicketComment]):
         )
         return clone
 
-    def internal_only(self) -> "TicketCommentQuery":
+    def internal_only(self) -> TicketCommentQuery:
         """Filter to only internal comments."""
         clone = self._clone()
         clone._query = clone._query.filter(TicketComment.is_internal.is_(True))
         return clone
 
-    def external_only(self) -> "TicketCommentQuery":
+    def external_only(self) -> TicketCommentQuery:
         """Filter to only external (customer-visible) comments."""
         clone = self._clone()
         clone._query = clone._query.filter(TicketComment.is_internal.is_(False))
         return clone
 
-    def is_internal(self, internal: bool | None) -> "TicketCommentQuery":
+    def is_internal(self, internal: bool | None) -> TicketCommentQuery:
         """Filter by internal flag."""
         if internal is None:
             return self
@@ -232,7 +236,7 @@ class TicketCommentQuery(BaseQuery[TicketComment]):
         clone._query = clone._query.filter(TicketComment.is_internal == internal)
         return clone
 
-    def with_author(self) -> "TicketCommentQuery":
+    def with_author(self) -> TicketCommentQuery:
         """Eager load author relationship to avoid N+1 queries."""
         clone = self._clone()
         clone._query = clone._query.options(selectinload(TicketComment.author))
@@ -243,12 +247,12 @@ class TicketSlaEventQuery(BaseQuery[TicketSlaEvent]):
     """Query builder for TicketSlaEvent model."""
 
     model_class = TicketSlaEvent
-    ordering_fields = {
+    ordering_fields: ClassVar[dict[str, Any]] = {
         "created_at": TicketSlaEvent.created_at,
         "event_type": TicketSlaEvent.event_type,
     }
 
-    def by_ticket(self, ticket_id: "UUID | str | None") -> "TicketSlaEventQuery":
+    def by_ticket(self, ticket_id: UUID | str | None) -> TicketSlaEventQuery:
         """Filter by ticket ID."""
         if not ticket_id:
             return self
@@ -258,7 +262,7 @@ class TicketSlaEventQuery(BaseQuery[TicketSlaEvent]):
         )
         return clone
 
-    def by_event_type(self, event_type: str | None) -> "TicketSlaEventQuery":
+    def by_event_type(self, event_type: str | None) -> TicketSlaEventQuery:
         """Filter by event type."""
         if not event_type:
             return self

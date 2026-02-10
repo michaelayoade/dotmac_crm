@@ -9,8 +9,8 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation, Message
-from app.services.crm import conversations as conversation_service
 from app.services.crm.conversation import mark_conversation_read
+from app.services.crm.conversations import service as conversation_service
 
 
 @dataclass(frozen=True)

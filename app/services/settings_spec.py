@@ -1783,6 +1783,14 @@ SETTINGS_SPECS: list[SettingSpec] = [
         ],
         label="Ticket Type Settings",
     ),
+    SettingSpec(
+        domain=SettingDomain.comms,
+        key="region_ticket_assignments",
+        env_var=None,
+        value_type=SettingValueType.json,
+        default={},
+        label="Region Ticket Assignments",
+    ),
     # ============== Auth Domain: Customer/Reseller/Vendor Portal Auth ==============
     SettingSpec(
         domain=SettingDomain.auth,
@@ -2109,6 +2117,42 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=30,
         min_value=1,
         label="Time-Off Sync Days Ahead",
+    ),
+    # ============== Integration Domain: DotMac ERP Contact Sync ==============
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_contact_sync_enabled",
+        env_var="DOTMAC_ERP_CONTACT_SYNC_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Enable ERP Contact Sync",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_contact_sync_interval_minutes",
+        env_var="DOTMAC_ERP_CONTACT_SYNC_INTERVAL_MINUTES",
+        value_type=SettingValueType.integer,
+        default=60,
+        min_value=5,
+        label="Contact Sync Interval (minutes)",
+    ),
+    # ============== Integration Domain: DotMac ERP Team Sync ==============
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_team_sync_enabled",
+        env_var="DOTMAC_ERP_TEAM_SYNC_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Enable ERP Team Sync",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_team_sync_interval_minutes",
+        env_var="DOTMAC_ERP_TEAM_SYNC_INTERVAL_MINUTES",
+        value_type=SettingValueType.integer,
+        default=60,
+        min_value=5,
+        label="Team Sync Interval (minutes)",
     ),
     # ============== Integration Domain: Chatwoot CRM Sync ==============
     SettingSpec(

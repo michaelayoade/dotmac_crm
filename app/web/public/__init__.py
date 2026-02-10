@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter
 
-from app.web.public.legal import router as legal_router
 from app.web.public.crm_webhooks import router as crm_webhooks_router
+from app.web.public.legal import router as legal_router
 from app.web.public.surveys import router as surveys_router
 
 router = APIRouter(tags=["web-public"])

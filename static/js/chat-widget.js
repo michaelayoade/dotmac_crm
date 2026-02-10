@@ -797,6 +797,7 @@
         this.inputField.focus();
         this.scrollToBottom();
         this.updateUnreadBadge(0);
+        this.markRead();
       } else {
         // Close panel with animation
         this.panel.classList.remove('panel-enter');
@@ -874,6 +875,9 @@
           const data = await response.json();
           this.messages = data.messages || [];
           this.renderMessages();
+          if (this.isOpen) {
+            this.markRead();
+          }
         }
       } catch (error) {
         console.error('[DotMac Widget] Failed to load history:', error);
@@ -1096,6 +1100,8 @@
               const badge = this.container.querySelector('.dotmac-widget-unread');
               const current = parseInt(badge.textContent) || 0;
               this.updateUnreadBadge(current + 1);
+            } else {
+              this.markRead();
             }
           }
           break;
@@ -1156,6 +1162,28 @@
           type: 'typing',
           is_typing: isTyping
         }));
+      }
+    }
+
+    /**
+     * Mark outbound messages as read.
+     */
+    async markRead() {
+      if (!this.session || !this.session.sessionId) return;
+      try {
+        await fetch(
+          `${this.apiUrl}/widget/session/${this.session.sessionId}/read`,
+          {
+            method: 'POST',
+            headers: {
+              'X-Visitor-Token': this.session.visitorToken,
+              'Origin': window.location.origin
+            }
+          }
+        );
+        this.updateUnreadBadge(0);
+      } catch (error) {
+        console.warn('[DotMac Widget] Failed to mark read:', error);
       }
     }
 

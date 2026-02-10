@@ -5,17 +5,17 @@ Revises: 0345c81d2b40, f3a1b9c2d4e5
 Create Date: 2026-02-02
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
-
 revision: str = "c6e4b2a1d9f0"
-down_revision: Union[str, Sequence[str], None] = ("0345c81d2b40", "f3a1b9c2d4e5")
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = ("0345c81d2b40", "f3a1b9c2d4e5")
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

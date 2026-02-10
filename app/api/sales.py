@@ -7,9 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.services.crm import sales as sales_service
 from app.services.crm import reports as reports_service
-
+from app.services.crm import sales as sales_service
 
 router = APIRouter(prefix="/leads", tags=["sales"])
 

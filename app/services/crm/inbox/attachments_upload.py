@@ -10,6 +10,7 @@ from app.services.crm.inbox.attachments_processing import (
     prepare_uploads_async,
     save_uploads,
 )
+from app.services.crm.inbox.permissions import can_upload_attachments
 
 
 async def save_conversation_attachments(
@@ -17,7 +18,11 @@ async def save_conversation_attachments(
     *,
     conversation_id: str,
     files,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> list[dict]:
+    if (roles is not None or scopes is not None) and not can_upload_attachments(roles, scopes):
+        raise PermissionError("Not authorized to upload attachments")
     try:
         conversation_uuid = coerce_uuid(conversation_id)
     except Exception:

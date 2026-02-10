@@ -1,4 +1,5 @@
 """Admin subscriber web routes."""
+import contextlib
 import math
 from uuid import UUID
 
@@ -10,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.subscriber import SubscriberStatus
 from app.services.subscriber import subscriber as subscriber_service
-from app.services.person import people as person_service
 
 router = APIRouter(prefix="/subscribers", tags=["admin-subscribers"])
 templates = Jinja2Templates(directory="templates")
@@ -26,17 +26,14 @@ def subscriber_list(
     per_page: int = 20,
 ):
     """List subscribers."""
-    from app.web.admin import get_current_user
-    from app.web.admin import get_sidebar_stats
+    from app.web.admin import get_current_user, get_sidebar_stats
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
 
     status_filter = None
     if status:
-        try:
+        with contextlib.suppress(ValueError):
             status_filter = SubscriberStatus(status)
-        except ValueError:
-            pass
 
     offset = (page - 1) * per_page
 
@@ -99,8 +96,7 @@ def subscriber_new(
     db: Session = Depends(get_db),
 ):
     """Show subscriber creation form."""
-    from app.web.admin import get_current_user
-    from app.web.admin import get_sidebar_stats
+    from app.web.admin import get_current_user, get_sidebar_stats
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
 
@@ -167,8 +163,7 @@ def subscriber_detail(
     db: Session = Depends(get_db),
 ):
     """Show subscriber detail page."""
-    from app.web.admin import get_current_user
-    from app.web.admin import get_sidebar_stats
+    from app.web.admin import get_current_user, get_sidebar_stats
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
 
@@ -195,8 +190,7 @@ def subscriber_edit(
     db: Session = Depends(get_db),
 ):
     """Show subscriber edit form."""
-    from app.web.admin import get_current_user
-    from app.web.admin import get_sidebar_stats
+    from app.web.admin import get_current_user, get_sidebar_stats
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
 

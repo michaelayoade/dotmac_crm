@@ -7,18 +7,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
-from app.services import inventory as inventory_service
-from app.services import audit as audit_service
-from app.services.audit_helpers import build_changes_metadata, extract_changes, format_changes, log_audit_event
-from app.models.person import Person
 from app.csrf import get_csrf_token
+from app.db import SessionLocal
+from app.models.person import Person
 from app.schemas.inventory import (
     InventoryItemCreate,
     InventoryItemUpdate,
     InventoryLocationCreate,
     InventoryLocationUpdate,
 )
+from app.services import audit as audit_service
+from app.services import inventory as inventory_service
+from app.services.audit_helpers import build_changes_metadata, extract_changes, format_changes, log_audit_event
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/inventory", tags=["web-admin-inventory"])
@@ -34,11 +34,11 @@ def get_db():
 
 @router.get("", response_class=HTMLResponse)
 def inventory_index(request: Request, tab: str = "items", db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     # Get inventory data
     items = inventory_service.inventory_items.list(
-        db=db, is_active=None, order_by="created_at", order_dir="desc", limit=100, offset=0
+        db=db, is_active=None, search=None, order_by="created_at", order_dir="desc", limit=100, offset=0
     )
     locations = inventory_service.inventory_locations.list(
         db=db, is_active=None, order_by="created_at", order_dir="desc", limit=100, offset=0
@@ -70,7 +70,7 @@ def inventory_index(request: Request, tab: str = "items", db: Session = Depends(
 
 @router.get("/items/new", response_class=HTMLResponse)
 def inventory_item_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     context = {
         "request": request,
@@ -94,7 +94,7 @@ def inventory_item_create(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
         payload = InventoryItemCreate(
@@ -131,7 +131,7 @@ def inventory_item_create(
 
 @router.get("/items/{item_id}", response_class=HTMLResponse)
 def inventory_item_detail(request: Request, item_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     item = inventory_service.inventory_items.get(db=db, item_id=item_id)
     stocks = inventory_service.inventory_stocks.list(
@@ -197,7 +197,7 @@ def inventory_item_detail(request: Request, item_id: str, db: Session = Depends(
 
 @router.get("/items/{item_id}/edit", response_class=HTMLResponse)
 def inventory_item_edit(request: Request, item_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     item = inventory_service.inventory_items.get(db=db, item_id=item_id)
 
@@ -224,7 +224,7 @@ def inventory_item_update(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
         before = inventory_service.inventory_items.get(db=db, item_id=item_id)
@@ -296,7 +296,7 @@ def inventory_item_delete(
 
 @router.get("/locations/new", response_class=HTMLResponse)
 def inventory_location_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     context = {
         "request": request,
@@ -319,7 +319,7 @@ def inventory_location_create(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
         payload = InventoryLocationCreate(
@@ -357,7 +357,7 @@ def inventory_location_create(
 def inventory_location_detail(
     request: Request, location_id: str, db: Session = Depends(get_db)
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     location = inventory_service.inventory_locations.get(db=db, location_id=location_id)
     stocks = inventory_service.inventory_stocks.list(
@@ -431,7 +431,7 @@ def inventory_location_detail(
 def inventory_location_edit(
     request: Request, location_id: str, db: Session = Depends(get_db)
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     location = inventory_service.inventory_locations.get(db=db, location_id=location_id)
 
@@ -457,7 +457,7 @@ def inventory_location_update(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
         before = inventory_service.inventory_locations.get(db=db, location_id=location_id)

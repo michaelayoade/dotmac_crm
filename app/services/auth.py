@@ -2,27 +2,26 @@ import hashlib
 import os
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import HTTPException, Request
 import redis
-from sqlalchemy.orm import Session
+from fastapi import HTTPException, Request
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.models.auth import (
     ApiKey,
     AuthProvider,
     MFAMethod,
     MFAMethodType,
-    Session as AuthSession,
     SessionStatus,
     UserCredential,
 )
-from app.services.common import validate_enum, apply_pagination, apply_ordering, coerce_uuid
-from app.services.response import ListResponseMixin
+from app.models.auth import (
+    Session as AuthSession,
+)
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.person import Person
-from app.services import settings_spec
 from app.schemas.auth import (
     ApiKeyCreate,
     ApiKeyGenerateRequest,
@@ -34,6 +33,9 @@ from app.schemas.auth import (
     UserCredentialCreate,
     UserCredentialUpdate,
 )
+from app.services import settings_spec
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.response import ListResponseMixin
 
 
 def hash_api_key(value: str) -> str:
@@ -366,7 +368,7 @@ class Sessions(ListResponseMixin):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         session.status = SessionStatus.revoked
-        session.revoked_at = datetime.now(timezone.utc)
+        session.revoked_at = datetime.now(UTC)
         db.commit()
 
 
@@ -475,7 +477,7 @@ class ApiKeys(ListResponseMixin):
         data = payload.model_dump(exclude_unset=True)
         if "person_id" in data and data["person_id"] is not None:
             _ensure_person(db, str(data["person_id"]))
-        if "key_hash" in data and data["key_hash"]:
+        if data.get("key_hash"):
             data["key_hash"] = hash_api_key(data["key_hash"])
         for key, value in data.items():
             setattr(api_key, key, value)
@@ -489,7 +491,7 @@ class ApiKeys(ListResponseMixin):
         if not api_key:
             raise HTTPException(status_code=404, detail="API key not found")
         api_key.is_active = False
-        api_key.revoked_at = datetime.now(timezone.utc)
+        api_key.revoked_at = datetime.now(UTC)
         db.commit()
 
     @staticmethod

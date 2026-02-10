@@ -53,6 +53,7 @@ def get_sidebar_stats(db: Session) -> dict:
     Uses SQL COUNT for efficiency instead of loading records into memory.
     """
     from sqlalchemy import func
+
     from app.models.tickets import Ticket, TicketStatus
 
     try:

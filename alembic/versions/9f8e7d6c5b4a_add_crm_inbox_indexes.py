@@ -6,21 +6,21 @@ Create Date: 2026-02-02 12:30:00.000000
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 from alembic import op
 
-
 revision: str = "9f8e7d6c5b4a"
-down_revision: Union[str, Sequence[str], None] = (
+down_revision: str | Sequence[str] | None = (
     "7c9d0e1f2a3b",
     "b1c2d3e4f5a6",
     "2a4ea51a31ac",
     "e7c1b2a3d4f5",
     "c4d5e6f7a8b9",
 )
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+import builtins
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -341,7 +341,7 @@ class PersonPermissions(ListResponseMixin):
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
-    def list_for_person(db: Session, person_id: str) -> List[PersonPermission]:
+    def list_for_person(db: Session, person_id: str) -> builtins.list[PersonPermission]:
         """Get all direct permissions for a person."""
         return (
             db.query(PersonPermission)

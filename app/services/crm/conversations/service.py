@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -12,13 +12,14 @@ from app.models.crm.conversation import (
     MessageAttachment,
 )
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
-from app.models.person import ChannelType as PersonChannelType, Person, PersonChannel
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Person, PersonChannel
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Conversations(ListResponseMixin):

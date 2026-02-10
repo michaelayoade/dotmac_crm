@@ -1,14 +1,14 @@
 """initial_schema
 
 Revision ID: af8fbbefa221
-Revises: 
+Revises:
 Create Date: 2026-01-27 10:40:21.918754
 
 """
 
-from alembic import op
-import sqlalchemy as sa
 import geoalchemy2
+import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = 'af8fbbefa221'

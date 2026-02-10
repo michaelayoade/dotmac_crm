@@ -339,7 +339,7 @@
                                 <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
                                     <div class="grid gap-3">
                                         {% for region in region_pm_regions or [] %}
-                                        <div class="grid gap-3 sm:grid-cols-3">
+                                        <div class="grid gap-3 sm:grid-cols-4">
                                             <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
                                             <div>
                                                 <select name="region_pm_manager_{{ region }}"
@@ -361,6 +361,68 @@
                                                     {% for tech in technicians or [] %}
                                                     {% if tech.person %}
                                                     <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
+                                                        {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                                    </option>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <select name="region_pm_spc_{{ region }}"
+                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">SPCs</option>
+                                                    {% for tech in technicians or [] %}
+                                                    {% if tech.person %}
+                                                    <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].spc_person_id == tech.person.id|string %}selected{% endif %}>
+                                                        {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                                    </option>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% elif domain == 'comms' and setting.key == 'region_ticket_assignments' %}
+                                <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
+                                    <div class="grid gap-3">
+                                        {% for region in region_ticket_regions or [] %}
+                                        <div class="grid gap-3 sm:grid-cols-4">
+                                            <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
+                                            <div>
+                                                <select name="region_ticket_manager_{{ region }}"
+                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">Ticket Manager</option>
+                                                    {% for tech in technicians or [] %}
+                                                    {% if tech.person %}
+                                                    <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].manager_person_id == tech.person.id|string %}selected{% endif %}>
+                                                        {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                                    </option>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <select name="region_ticket_assistant_{{ region }}"
+                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">Assistant Manager</option>
+                                                    {% for tech in technicians or [] %}
+                                                    {% if tech.person %}
+                                                    <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
+                                                        {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                                    </option>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <select name="region_ticket_spc_{{ region }}"
+                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">SPCs</option>
+                                                    {% for tech in technicians or [] %}
+                                                    {% if tech.person %}
+                                                    <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].spc_person_id == tech.person.id|string %}selected{% endif %}>
                                                         {{ tech.person.first_name }} {{ tech.person.last_name }}
                                                     </option>
                                                     {% endif %}
@@ -429,7 +491,7 @@
                         <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
                             <div class="grid gap-3">
                                 {% for region in region_pm_regions or [] %}
-                                <div class="grid gap-3 sm:grid-cols-3">
+                                <div class="grid gap-3 sm:grid-cols-4">
                                     <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
                                     <div>
                                         <select name="region_pm_manager_{{ region }}"
@@ -451,6 +513,68 @@
                                             {% for tech in technicians or [] %}
                                             {% if tech.person %}
                                             <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
+                                                {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                            </option>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <select name="region_pm_spc_{{ region }}"
+                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">SPCs</option>
+                                            {% for tech in technicians or [] %}
+                                            {% if tech.person %}
+                                            <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].spc_person_id == tech.person.id|string %}selected{% endif %}>
+                                                {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                            </option>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% elif domain == 'comms' and setting.key == 'region_ticket_assignments' %}
+                        <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
+                            <div class="grid gap-3">
+                                {% for region in region_ticket_regions or [] %}
+                                <div class="grid gap-3 sm:grid-cols-4">
+                                    <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
+                                    <div>
+                                        <select name="region_ticket_manager_{{ region }}"
+                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">Ticket Manager</option>
+                                            {% for tech in technicians or [] %}
+                                            {% if tech.person %}
+                                            <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].manager_person_id == tech.person.id|string %}selected{% endif %}>
+                                                {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                            </option>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <select name="region_ticket_assistant_{{ region }}"
+                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">Assistant Manager</option>
+                                            {% for tech in technicians or [] %}
+                                            {% if tech.person %}
+                                            <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
+                                                {{ tech.person.first_name }} {{ tech.person.last_name }}
+                                            </option>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <select name="region_ticket_spc_{{ region }}"
+                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">SPCs</option>
+                                            {% for tech in technicians or [] %}
+                                            {% if tech.person %}
+                                            <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].spc_person_id == tech.person.id|string %}selected{% endif %}>
                                                 {{ tech.person.first_name }} {{ tech.person.last_name }}
                                             </option>
                                             {% endif %}

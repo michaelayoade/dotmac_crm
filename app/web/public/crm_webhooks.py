@@ -1,23 +1,28 @@
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TypedDict
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
-from starlette.requests import ClientDisconnect
 from sqlalchemy.orm import Session
+from starlette.requests import ClientDisconnect
 
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.schemas.crm.inbox import EmailWebhookPayload, MetaWebhookPayload, WhatsAppWebhookPayload
-from app.services import meta_oauth
-from app.services import meta_webhooks
+from app.services import meta_oauth, meta_webhooks
 from app.tasks import webhooks as webhook_tasks
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/webhooks/crm", tags=["web-public-crm"])
 
-_VERIFY_TOKEN_CACHE = {
+class VerifyTokenCache(TypedDict):
+    value: str | None
+    loaded_at: float
+
+
+_VERIFY_TOKEN_CACHE: dict[str, VerifyTokenCache] = {
     "meta": {"value": None, "loaded_at": 0.0},
     "whatsapp": {"value": None, "loaded_at": 0.0},
 }
@@ -33,9 +38,12 @@ def get_db():
 
 def _get_verify_token(db: Session, channel: str = "meta") -> str | None:
     cache_key = "whatsapp" if channel == "whatsapp" else "meta"
-    cache = _VERIFY_TOKEN_CACHE.get(cache_key) or {"value": None, "loaded_at": 0.0}
+    cache = _VERIFY_TOKEN_CACHE.get(cache_key)
+    if cache is None:
+        cache = {"value": None, "loaded_at": 0.0}
+        _VERIFY_TOKEN_CACHE[cache_key] = cache
     now = time.monotonic()
-    loaded_at = float(cache.get("loaded_at") or 0.0)
+    loaded_at = float(cache.get("loaded_at", 0.0))
     if now - loaded_at > _VERIFY_TOKEN_TTL_SECONDS:
         settings = meta_oauth.get_meta_settings(db)
         if cache_key == "whatsapp":
@@ -76,7 +84,7 @@ def _extract_meta_whatsapp_messages(payload: dict) -> list[WhatsAppWebhookPayloa
                 timestamp = msg.get("timestamp")
                 if timestamp:
                     try:
-                        received_at = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+                        received_at = datetime.fromtimestamp(int(timestamp), tz=UTC)
                     except Exception:
                         received_at = None
 
@@ -150,6 +158,11 @@ def _extract_meta_whatsapp_messages(payload: dict) -> list[WhatsAppWebhookPayloa
                     "attachments": attachments or None,
                     "raw": value,
                 }
+                context = msg.get("context")
+                if isinstance(context, dict):
+                    context_id = context.get("id")
+                    if context_id:
+                        metadata_payload["context_message_id"] = context_id
                 if location_payload:
                     metadata_payload.update(location_payload)
                 if reaction_payload:
@@ -268,13 +281,7 @@ async def meta_webhook_verify(
     We verify the token matches our configured token and return the challenge.
     """
     # Get expected token from database settings with short-lived cache
-    now = time.monotonic()
-    loaded_at = float(_VERIFY_TOKEN_CACHE.get("loaded_at") or 0.0)
-    if now - loaded_at > _VERIFY_TOKEN_TTL_SECONDS:
-        settings = meta_oauth.get_meta_settings(db)
-        _VERIFY_TOKEN_CACHE["value"] = settings.get("meta_webhook_verify_token")
-        _VERIFY_TOKEN_CACHE["loaded_at"] = now
-    expected_token = _VERIFY_TOKEN_CACHE["value"]
+    expected_token = _get_verify_token(db, "meta")
 
     if not expected_token:
         logger.warning("meta_webhook_verify_failed reason=no_verify_token_configured")

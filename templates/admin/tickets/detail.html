@@ -264,11 +264,7 @@
                                 <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ activity.change_summary }}</div>
                                 {% endif %}
                                 <div class="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                    {% if activity.actor_url %}
-                                    <a href="{{ activity.actor_url }}" class="font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">{{ activity.actor_name }}</a>
-                                    {% else %}
-                                    <span class="font-medium">{{ activity.actor_name }}</span>
-                                    {% endif %}
+                                    <span class="font-medium text-amber-600 dark:text-amber-400">{{ activity.actor_name }}</span>
                                     {% if activity.occurred_at %}
                                     <span>·</span>
                                     <span>{{ activity.occurred_at.strftime('%b %d, %Y at %H:%M') }}</span>
@@ -470,6 +466,12 @@
                             {{ ticket.ticket_type or '—' }}
                         </dd>
                     </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Region</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">
+                            {{ ticket.region or '—' }}
+                        </dd>
+                    </div>
                     {% if ticket.account %}
                     <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Account</dt>
@@ -482,19 +484,54 @@
                     <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Created By</dt>
                         <dd class="mt-1.5">
-                            <a href="/admin/customers/person/{{ ticket.created_by.id }}" class="group inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
+                            <span class="text-sm font-medium text-slate-900 dark:text-white">
                                 {{ ticket.created_by.first_name }} {{ ticket.created_by.last_name }}
-                                <svg class="h-3.5 w-3.5 opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                            </a>
+                            </span>
                         </dd>
                     </div>
                     {% endif %}
                     <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Assigned To</dt>
-                        {% if ticket.assigned_to %}
+                        {% if ticket.assignees %}
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">
+                            {% for assignee in ticket.assignees %}
+                                {% if assignee.person %}
+                                    {{ assignee.person.display_name or (assignee.person.first_name ~ ' ' ~ assignee.person.last_name) }}
+                                {% else %}
+                                    Technician {{ assignee.person_id|string|truncate(8, True, '') }}
+                                {% endif %}
+                                {% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        </dd>
+                        {% elif ticket.assigned_to %}
                         <dd class="mt-1.5">
-                            <a href="/admin/customers/person/{{ ticket.assigned_to.id }}" class="group inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
+                            <span class="text-sm font-medium text-slate-900 dark:text-white">
                                 {{ ticket.assigned_to.first_name }} {{ ticket.assigned_to.last_name }}
+                            </span>
+                        </dd>
+                        {% else %}
+                        <dd class="mt-1.5 text-sm text-slate-500 dark:text-slate-400 italic">Unassigned</dd>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Ticket Manager</dt>
+                        {% if ticket.ticket_manager %}
+                        <dd class="mt-1.5">
+                            <a href="/admin/customers/person/{{ ticket.ticket_manager.id }}" class="group inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
+                                {{ ticket.ticket_manager.first_name }} {{ ticket.ticket_manager.last_name }}
+                                <svg class="h-3.5 w-3.5 opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </a>
+                        </dd>
+                        {% else %}
+                        <dd class="mt-1.5 text-sm text-slate-500 dark:text-slate-400 italic">Unassigned</dd>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Assistant Manager</dt>
+                        {% if ticket.assistant_manager %}
+                        <dd class="mt-1.5">
+                            <a href="/admin/customers/person/{{ ticket.assistant_manager.id }}" class="group inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
+                                {{ ticket.assistant_manager.first_name }} {{ ticket.assistant_manager.last_name }}
                                 <svg class="h-3.5 w-3.5 opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                             </a>
                         </dd>
@@ -562,6 +599,52 @@
                 </div>
             </div>
             {% endif %}
+
+            <!-- Material Requests -->
+            {% if material_requests is defined and material_requests %}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 275ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-emerald-600 shadow-sm">
+                        <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+                    </div>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Material Requests</h2>
+                    <span class="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{ material_requests|length }}</span>
+                </div>
+                <div class="p-5">
+                    <ul class="space-y-2">
+                        {% for mr in material_requests %}
+                        <li>
+                            <a href="/admin/operations/material-requests/{{ mr.id }}" class="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                                <div>
+                                    <span class="text-sm font-medium text-teal-600 dark:text-teal-400">{{ mr.number or mr.id|string|truncate(8, True, '') }}</span>
+                                    <span class="ml-2 text-xs text-slate-500 dark:text-slate-400">{{ mr.items|length }} items</span>
+                                </div>
+                                {% set sv = mr.status.value if mr.status else 'draft' %}
+                                {% if sv == 'approved' %}
+                                <span class="rounded-lg bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">Approved</span>
+                                {% elif sv == 'submitted' %}
+                                <span class="rounded-lg bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-400">Submitted</span>
+                                {% elif sv == 'fulfilled' %}
+                                <span class="rounded-lg bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-500/20 dark:text-teal-400">Fulfilled</span>
+                                {% elif sv == 'draft' %}
+                                <span class="rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">Draft</span>
+                                {% elif sv == 'rejected' %}
+                                <span class="rounded-lg bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-500/20 dark:text-red-400">Rejected</span>
+                                {% endif %}
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+            {% endif %}
+            <div class="text-center">
+                <a href="/admin/operations/material-requests/new?ticket_id={{ ticket.id }}"
+                   class="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                    Request Materials
+                </a>
+            </div>
         </div>
     </div>
 </div>

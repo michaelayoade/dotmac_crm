@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from app.db import SessionLocal
 from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.scheduler import ScheduleType, ScheduledTask
+from app.models.scheduler import ScheduledTask, ScheduleType
 from app.services import integration as integration_service
 from app.services.settings_spec import resolve_value
 
@@ -559,6 +559,52 @@ def build_beat_schedule() -> dict:
             task_name="app.tasks.integrations.sync_dotmac_erp_shifts",
             enabled=dotmac_erp_shift_sync_enabled,
             interval_seconds=dotmac_erp_shift_sync_interval_seconds,
+        )
+
+        # DotMac ERP contact sync - pulls customers and contacts from ERP
+        dotmac_erp_contact_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_contact_sync_enabled",
+            "DOTMAC_ERP_CONTACT_SYNC_ENABLED",
+            False,
+        )
+        dotmac_erp_contact_sync_interval_minutes = _coerce_int(
+            resolve_value(
+                session, SettingDomain.integration, "dotmac_erp_contact_sync_interval_minutes"
+            ),
+            60,
+        )
+        dotmac_erp_contact_sync_interval_seconds = max(dotmac_erp_contact_sync_interval_minutes * 60, 300)
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_contact_sync",
+            task_name="app.tasks.integrations.sync_dotmac_erp_contacts",
+            enabled=dotmac_erp_contact_sync_enabled,
+            interval_seconds=dotmac_erp_contact_sync_interval_seconds,
+        )
+
+        # DotMac ERP team sync - pulls departments from ERP into ServiceTeam
+        dotmac_erp_team_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_team_sync_enabled",
+            "DOTMAC_ERP_TEAM_SYNC_ENABLED",
+            False,
+        )
+        dotmac_erp_team_sync_interval_minutes = _coerce_int(
+            resolve_value(
+                session, SettingDomain.integration, "dotmac_erp_team_sync_interval_minutes"
+            ),
+            60,
+        )
+        dotmac_erp_team_sync_interval_seconds = max(dotmac_erp_team_sync_interval_minutes * 60, 300)
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_team_sync",
+            task_name="app.tasks.integrations.sync_dotmac_erp_teams",
+            enabled=dotmac_erp_team_sync_enabled,
+            interval_seconds=dotmac_erp_team_sync_interval_seconds,
         )
 
         # Survey triggers - checks for ticket_closed / work_order_completed triggers

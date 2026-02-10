@@ -1,8 +1,8 @@
 """Query functions for inbox statistics and conversation listing."""
 
-from sqlalchemy import and_, func, select, true
-from sqlalchemy.sql import lateral
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session, aliased, selectinload
+from sqlalchemy.sql import lateral
 
 from app.models.crm.conversation import (
     Conversation,
@@ -32,6 +32,7 @@ def list_inbox_conversations(
     channel_target_id: str | None = None,
     exclude_superseded_resolved: bool = True,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[tuple]:
     """List inbox conversations with latest message and unread count.
 
@@ -104,6 +105,33 @@ def list_inbox_conversations(
             .distinct()
         )
         query = query.filter(~Conversation.id.in_(assigned_subq))
+    elif assignment_filter == "my_team":
+        if not assigned_person_id:
+            return []
+        from app.models.crm.team import CrmTeam
+        from app.models.service_team import ServiceTeamMember
+
+        person_uuid = coerce_uuid(assigned_person_id)
+        # Find ServiceTeams the person belongs to
+        team_ids_subq = (
+            db.query(ServiceTeamMember.team_id)
+            .filter(ServiceTeamMember.person_id == person_uuid)
+            .filter(ServiceTeamMember.is_active.is_(True))
+        )
+        # Find CrmTeams linked to those ServiceTeams
+        crm_team_ids_subq = (
+            db.query(CrmTeam.id)
+            .filter(CrmTeam.service_team_id.in_(team_ids_subq))
+            .filter(CrmTeam.is_active.is_(True))
+        )
+        # Find conversations assigned to those CRM teams
+        team_conv_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.team_id.in_(crm_team_ids_subq))
+            .distinct()
+        )
+        query = query.filter(Conversation.id.in_(team_conv_subq))
 
     if search:
         search_term = f"%{search.strip()}%"
@@ -201,6 +229,7 @@ def list_inbox_conversations(
             unread_subq.c.unread_count,
         )
         .limit(limit)
+        .offset(offset)
         .all()
     )
 

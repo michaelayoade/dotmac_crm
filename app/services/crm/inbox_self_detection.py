@@ -1,6 +1,7 @@
 """Compatibility wrapper for inbox self-detection helpers."""
 
 from app.services.crm.inbox.self_detection import (
+    SelfDetectionService,
     _extract_self_email_addresses,
     _extract_whatsapp_business_number,
     _is_self_email_message,
@@ -9,6 +10,7 @@ from app.services.crm.inbox.self_detection import (
 )
 
 __all__ = [
+    "SelfDetectionService",
     "_extract_self_email_addresses",
     "_extract_whatsapp_business_number",
     "_is_self_email_message",

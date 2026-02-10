@@ -6,6 +6,7 @@ Falls back to in-memory limiting if Redis is unavailable.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
 from collections import defaultdict
@@ -76,7 +77,7 @@ class WidgetRateLimiter:
 
     def check_message_send(
         self,
-        session_id: "UUID | str",
+        session_id: UUID | str,
         limit: int = 10,
         window_seconds: int = 60,
     ) -> tuple[bool, int]:
@@ -96,7 +97,7 @@ class WidgetRateLimiter:
 
     def check_websocket_connection(
         self,
-        session_id: "UUID | str",
+        session_id: UUID | str,
         limit: int = 3,
         window_seconds: int = 60,
     ) -> tuple[bool, int]:
@@ -198,10 +199,8 @@ class WidgetRateLimiter:
         """Reset rate limit for a key (for testing)."""
         redis = self._get_redis()
         if redis:
-            try:
+            with contextlib.suppress(Exception):
                 redis.delete(f"{RATE_LIMIT_PREFIX}{key}")
-            except Exception:
-                pass
 
         with _memory_lock:
             _memory_store.pop(key, None)

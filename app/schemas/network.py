@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 from datetime import datetime
 from uuid import UUID
 
@@ -13,7 +14,6 @@ from app.models.network import (
     OltPortType,
     SplitterPortType,
 )
-import enum
 
 
 # Stub enums for removed models (schemas reference these but models removed)
@@ -104,7 +104,7 @@ class PortCreate(PortBase):
     device_id: UUID | None = None  # type: ignore[assignment]
 
     @model_validator(mode="after")
-    def _resolve_device(self) -> "PortCreate":
+    def _resolve_device(self) -> PortCreate:
         if not self.device_id and not self.olt_id:
             raise ValueError("device_id or olt_id is required.")
         if not self.device_id and self.olt_id:
@@ -195,13 +195,15 @@ class IPAssignmentBase(BaseModel):
 
 class IPAssignmentCreate(IPAssignmentBase):
     @model_validator(mode="after")
-    def _validate_ip_version(self) -> "IPAssignmentCreate":
-        if self.ip_version == IPVersion.ipv4:
-            if not self.ipv4_address_id or self.ipv6_address_id is not None:
-                raise ValueError("ipv4 assignments require ipv4_address_id only.")
-        elif self.ip_version == IPVersion.ipv6:
-            if not self.ipv6_address_id or self.ipv4_address_id is not None:
-                raise ValueError("ipv6 assignments require ipv6_address_id only.")
+    def _validate_ip_version(self) -> IPAssignmentCreate:
+        if self.ip_version == IPVersion.ipv4 and (
+            not self.ipv4_address_id or self.ipv6_address_id is not None
+        ):
+            raise ValueError("ipv4 assignments require ipv4_address_id only.")
+        if self.ip_version == IPVersion.ipv6 and (
+            not self.ipv6_address_id or self.ipv4_address_id is not None
+        ):
+            raise ValueError("ipv6 assignments require ipv6_address_id only.")
         return self
 
 
@@ -220,19 +222,21 @@ class IPAssignmentUpdate(BaseModel):
     is_active: bool | None = None
 
     @model_validator(mode="after")
-    def _validate_ip_version(self) -> "IPAssignmentUpdate":
+    def _validate_ip_version(self) -> IPAssignmentUpdate:
         fields_set = self.model_fields_set
         if {"ip_version", "ipv4_address_id", "ipv6_address_id"} & fields_set:
             if self.ip_version is None:
                 if self.ipv4_address_id is not None and self.ipv6_address_id is not None:
                     raise ValueError("Provide only one of ipv4_address_id or ipv6_address_id.")
                 return self
-            if self.ip_version == IPVersion.ipv4:
-                if not self.ipv4_address_id or self.ipv6_address_id is not None:
-                    raise ValueError("ipv4 assignments require ipv4_address_id only.")
-            elif self.ip_version == IPVersion.ipv6:
-                if not self.ipv6_address_id or self.ipv4_address_id is not None:
-                    raise ValueError("ipv6 assignments require ipv6_address_id only.")
+            if self.ip_version == IPVersion.ipv4 and (
+                not self.ipv4_address_id or self.ipv6_address_id is not None
+            ):
+                raise ValueError("ipv4 assignments require ipv4_address_id only.")
+            if self.ip_version == IPVersion.ipv6 and (
+                not self.ipv6_address_id or self.ipv4_address_id is not None
+            ):
+                raise ValueError("ipv6 assignments require ipv6_address_id only.")
         return self
 
 
@@ -409,7 +413,7 @@ class PonPortCreate(PonPortBase):
     card_id: UUID | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
-    def _ensure_name(self) -> "PonPortCreate":
+    def _ensure_name(self) -> PonPortCreate:
         if not self.name:
             if self.port_number is None:
                 raise ValueError("name or port_number is required.")
@@ -725,7 +729,7 @@ class FiberStrandCreate(FiberStrandBase):
     segment_id: UUID | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
-    def _resolve_cable_name(self) -> "FiberStrandCreate":
+    def _resolve_cable_name(self) -> FiberStrandCreate:
         if not self.cable_name:
             if not self.segment_id:
                 raise ValueError("cable_name or segment_id is required.")
@@ -822,7 +826,7 @@ class FiberSpliceCreate(FiberSpliceBase):
     position: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
-    def _validate_requirements(self) -> "FiberSpliceCreate":
+    def _validate_requirements(self) -> FiberSpliceCreate:
         has_full = self.closure_id and self.from_strand_id and self.to_strand_id
         has_tray = self.tray_id and self.position
         if not has_full and not has_tray:

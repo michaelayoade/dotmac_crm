@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import math
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -13,14 +13,12 @@ from app.models.qualification import (
     BuildoutProjectStatus,
     BuildoutRequest,
     BuildoutRequestStatus,
-    BuildoutUpdate,
     BuildoutStatus,
+    BuildoutUpdate,
     CoverageArea,
     QualificationStatus,
     ServiceQualification,
 )
-from app.services.response import ListResponseMixin
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.schemas.qualification import (
     BuildoutApproveRequest,
     BuildoutMilestoneCreate,
@@ -34,6 +32,8 @@ from app.schemas.qualification import (
     CoverageAreaUpdate,
     ServiceQualificationRequest,
 )
+from app.services.common import apply_ordering, apply_pagination, validate_enum
+from app.services.response import ListResponseMixin
 
 
 def _extract_polygon(geometry: dict) -> list[tuple[float, float]]:
@@ -55,7 +55,7 @@ def _extract_polygon(geometry: dict) -> list[tuple[float, float]]:
         raise HTTPException(status_code=400, detail="Polygon ring must have 4+ points")
     points: list[tuple[float, float]] = []
     for coord in ring:
-        if not isinstance(coord, (list, tuple)) or len(coord) < 2:
+        if not isinstance(coord, list | tuple) or len(coord) < 2:
             raise HTTPException(status_code=400, detail="Invalid coordinate in polygon")
         lon, lat = coord[0], coord[1]
         points.append((float(lon), float(lat)))
@@ -266,9 +266,8 @@ class ServiceQualifications(ListResponseMixin):
                 reasons.append(f"buildout_status:{area.buildout_status.value}")
             constraints = area.constraints or {}
             allowed_tech = constraints.get("allowed_tech")
-            if allowed_tech and payload.requested_tech:
-                if payload.requested_tech not in allowed_tech:
-                    reasons.append("tech_not_supported")
+            if allowed_tech and payload.requested_tech and payload.requested_tech not in allowed_tech:
+                reasons.append("tech_not_supported")
             capacity_available = constraints.get("capacity_available")
             if capacity_available is False:
                 reasons.append("capacity_unavailable")
@@ -298,7 +297,7 @@ class ServiceQualifications(ListResponseMixin):
             estimated_install_window=estimated_install_window,
             reasons=reasons,
             metadata=payload.metadata_,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         db.add(qualification)
         db.commit()

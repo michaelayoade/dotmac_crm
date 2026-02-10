@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import imaplib
 import json
 import logging
 import poplib
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.connector import ConnectorType
 from app.schemas.connector import ConnectorConfigUpdate
 from app.schemas.integration import IntegrationTargetUpdate
 from app.services import connector as connector_service
@@ -24,6 +25,7 @@ from app.services.crm.inbox.inboxes import (
     get_email_channel_state,
     get_whatsapp_channel_state,
 )
+from app.services.crm.inbox.permissions import can_manage_inbox_settings
 from app.services.crm.inbox.targets import resolve_target_and_config
 
 logger = logging.getLogger(__name__)
@@ -50,7 +52,7 @@ def _as_bool(value: object | None) -> bool:
         return False
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return value != 0
     text = str(value).strip().lower()
     return text in {"1", "true", "yes", "on"}
@@ -150,7 +152,16 @@ def configure_email_connector(
     form: Mapping[str, Any],
     defaults: Mapping[str, Any],
     next_url: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> ConnectorSaveResult:
+    if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+        return ConnectorSaveResult(
+            ok=False,
+            next_url=_normalize_next_url(next_url, "/admin/crm/inbox/settings"),
+            query_key="email_error",
+            error_detail="Forbidden",
+        )
     target_id_value = _as_str(form.get("target_id")) if "target_id" in form else _as_str(defaults.get("target_id"))
     connector_id_value = _as_str(form.get("connector_id")) if "connector_id" in form else _as_str(defaults.get("connector_id"))
     create_new_value = _as_str(form.get("create_new")) if "create_new" in form else _as_str(defaults.get("create_new"))
@@ -196,6 +207,8 @@ def configure_email_connector(
     imap_mailbox = _as_str(defaults.get("imap_mailbox"))
     pop3_use_ssl = _as_str(defaults.get("pop3_use_ssl"))
     poll_interval_seconds = _as_str(defaults.get("poll_interval_seconds"))
+    rate_limit_per_minute_provided = "rate_limit_per_minute" in form
+    rate_limit_per_minute_value = _as_str(form.get("rate_limit_per_minute")) if rate_limit_per_minute_provided else _as_str(defaults.get("rate_limit_per_minute"))
 
     email_channel = get_email_channel_state(db)
     resolved_target = None
@@ -294,7 +307,7 @@ def configure_email_connector(
             imap_port_value = imap.get("port") if isinstance(imap, dict) else None
             if not imap_host or imap_port_value is None:
                 raise ValueError("IMAP host and port are required to validate the connection.")
-            if isinstance(imap_port_value, (int, str)):
+            if isinstance(imap_port_value, int | str):
                 imap_port_num = int(imap_port_value)
             else:
                 raise ValueError("IMAP port must be a number.")
@@ -316,7 +329,7 @@ def configure_email_connector(
             pop3_config_port_value = pop3.get("port") if isinstance(pop3, dict) else None
             if not pop3_host or pop3_config_port_value is None:
                 raise ValueError("POP3 host and port are required to validate the connection.")
-            if isinstance(pop3_config_port_value, (int, str)):
+            if isinstance(pop3_config_port_value, int | str):
                 pop3_port_num = int(pop3_config_port_value)
             else:
                 raise ValueError("POP3 port must be a number.")
@@ -357,6 +370,10 @@ def configure_email_connector(
                 metadata["pop3"] = pop3
             elif pop3_host_provided and not pop3_host_value:
                 metadata.pop("pop3", None)
+            if rate_limit_per_minute_value:
+                metadata["rate_limit_per_minute"] = _as_int(rate_limit_per_minute_value)
+            elif rate_limit_per_minute_provided:
+                metadata.pop("rate_limit_per_minute", None)
 
             auth_config = dict(config.auth_config or {}) if isinstance(config.auth_config, dict) else {}
             if username:
@@ -402,6 +419,10 @@ def configure_email_connector(
                 metadata["imap"] = imap
             if pop3:
                 metadata["pop3"] = pop3
+            if rate_limit_per_minute_value:
+                metadata["rate_limit_per_minute"] = _as_int(rate_limit_per_minute_value)
+            elif rate_limit_per_minute_provided:
+                metadata.pop("rate_limit_per_minute", None)
             target = inbox_service.create_email_connector_target(
                 db,
                 name=name.strip() if name else "CRM Email",
@@ -409,6 +430,7 @@ def configure_email_connector(
                 imap=imap,
                 pop3=pop3,
                 auth_config=auth_config or None,
+                metadata={"rate_limit_per_minute": _as_int(rate_limit_per_minute_value)} if rate_limit_per_minute_value else None,
             )
             target_id = str(target.id)
 
@@ -456,7 +478,16 @@ def configure_whatsapp_connector(
     form: Mapping[str, Any],
     defaults: Mapping[str, Any],
     next_url: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> ConnectorSaveResult:
+    if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+        return ConnectorSaveResult(
+            ok=False,
+            next_url=_normalize_next_url(next_url, "/admin/crm/inbox/settings"),
+            query_key="whatsapp_error",
+            error_detail="Forbidden",
+        )
     target_id_value = _as_str(form.get("target_id")) if "target_id" in form else _as_str(defaults.get("target_id"))
     connector_id_value = _as_str(form.get("connector_id")) if "connector_id" in form else _as_str(defaults.get("connector_id"))
     create_new_value = _as_str(form.get("create_new")) if "create_new" in form else _as_str(defaults.get("create_new"))
@@ -466,6 +497,8 @@ def configure_whatsapp_connector(
     access_token = _as_str(defaults.get("access_token"))
     phone_number_id = _as_str(defaults.get("phone_number_id"))
     base_url = _as_str(defaults.get("base_url"))
+    rate_limit_per_minute_provided = "rate_limit_per_minute" in form
+    rate_limit_per_minute_value = _as_str(form.get("rate_limit_per_minute")) if rate_limit_per_minute_provided else _as_str(defaults.get("rate_limit_per_minute"))
 
     whatsapp_channel = get_whatsapp_channel_state(db)
     if not create_new_flag and (target_id_value or connector_id_value):
@@ -485,6 +518,10 @@ def configure_whatsapp_connector(
             merged_metadata = dict(config.metadata_ or {}) if isinstance(config.metadata_, dict) else {}
             if phone_number_id:
                 merged_metadata["phone_number_id"] = phone_number_id.strip()
+            if rate_limit_per_minute_value:
+                merged_metadata["rate_limit_per_minute"] = _as_int(rate_limit_per_minute_value)
+            elif rate_limit_per_minute_provided:
+                merged_metadata.pop("rate_limit_per_minute", None)
             auth_config = dict(config.auth_config or {}) if isinstance(config.auth_config, dict) else {}
             if access_token:
                 auth_config["access_token"] = access_token.strip()
@@ -516,6 +553,7 @@ def configure_whatsapp_connector(
                 phone_number_id=phone_number_id.strip() if phone_number_id else None,
                 auth_config=auth_config,
                 base_url=base_url.strip() if base_url else None,
+                metadata={"rate_limit_per_minute": _as_int(rate_limit_per_minute_value)} if rate_limit_per_minute_value else None,
             )
     except Exception:
         return ConnectorSaveResult(

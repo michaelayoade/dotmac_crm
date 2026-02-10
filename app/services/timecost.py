@@ -8,7 +8,6 @@ from app.models.person import Person
 from app.models.projects import Project
 from app.models.timecost import BillingRate, CostRate, ExpenseLine, WorkLog
 from app.models.workforce import WorkOrder
-from app.services import settings_spec
 from app.schemas.timecost import (
     BillingRateCreate,
     BillingRateUpdate,
@@ -19,7 +18,8 @@ from app.schemas.timecost import (
     WorkLogCreate,
     WorkLogUpdate,
 )
-from app.services.common import validate_enum, apply_pagination, apply_ordering, coerce_uuid
+from app.services import settings_spec
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid
 from app.services.response import ListResponseMixin
 
 
@@ -176,9 +176,9 @@ class ExpenseLines(ListResponseMixin):
         if not line:
             raise HTTPException(status_code=404, detail="Expense line not found")
         data = payload.model_dump(exclude_unset=True)
-        if "work_order_id" in data and data["work_order_id"]:
+        if data.get("work_order_id"):
             _ensure_work_order(db, str(data["work_order_id"]))
-        if "project_id" in data and data["project_id"]:
+        if data.get("project_id"):
             _ensure_project(db, str(data["project_id"]))
         for key, value in data.items():
             setattr(line, key, value)
@@ -242,7 +242,7 @@ class CostRates(ListResponseMixin):
         if not rate:
             raise HTTPException(status_code=404, detail="Cost rate not found")
         data = payload.model_dump(exclude_unset=True)
-        if "person_id" in data and data["person_id"]:
+        if data.get("person_id"):
             _ensure_person(db, str(data["person_id"]))
         for key, value in data.items():
             setattr(rate, key, value)

@@ -140,9 +140,7 @@ def build_macro_call(macro_name, label, title, message, action_url, size, icon, 
     parts = [f'"{label}"', f'"{title}"', f'"{message}"', url_expr]
     if size != "md":
         parts.append(f'size="{size}"')
-    if icon != "delete" and macro_name == "danger_button":
-        parts.append(f'icon="{icon}"')
-    elif icon != "warning" and macro_name == "warning_button":
+    if (icon != "delete" and macro_name == "danger_button") or (icon != "warning" and macro_name == "warning_button"):
         parts.append(f'icon="{icon}"')
 
     args = ", ".join(parts)
@@ -295,12 +293,12 @@ def ensure_macro_import(content: str, macros_needed: set) -> str:
             return content
 
         all_imports = sorted(existing | macros_needed)
-        new_import = '{%% from "components/ui/macros.html" import %s %%}' % ", ".join(all_imports)
+        new_import = '{{% from "components/ui/macros.html" import {} %}}'.format(", ".join(all_imports))
         stats["imports_added"] += 1
         return content[:match.start()] + new_import + content[match.end():]
     else:
         new_import_parts = sorted(macros_needed)
-        new_import = '{%% from "components/ui/macros.html" import %s %%}' % ", ".join(new_import_parts)
+        new_import = '{{% from "components/ui/macros.html" import {} %}}'.format(", ".join(new_import_parts))
 
         extends_match = re.search(r'{%\s*extends\s+[^%]+%}\s*\n', content)
         if extends_match:
@@ -323,16 +321,15 @@ def dry_run_file(filepath: Path):
     if not matches:
         return
 
-    rel_path = filepath.relative_to(TEMPLATES_DIR)
+    filepath.relative_to(TEMPLATES_DIR)
 
     for m in matches:
         confirm_msg = m.group(1)
         confirm_pos = m.start()
-        line_num = content[:confirm_pos].count("\n") + 1
+        content[:confirm_pos].count("\n") + 1
 
         form_bounds = find_enclosing_form(content, confirm_pos)
         if not form_bounds:
-            print(f"  {rel_path}:{line_num} - SKIP (no enclosing form)")
             continue
 
         form_start, form_end = form_bounds
@@ -344,30 +341,21 @@ def dry_run_file(filepath: Path):
         button_match = re.search(r"<button[\s\S]*?>([\s\S]*?)</button>", form_block)
         label = extract_button_label(button_match.group(0), confirm_msg) if button_match else extract_button_label("", confirm_msg)
 
-        macro_name = classify_action(confirm_msg, label, action_url)
-        size = determine_size(form_block, "")
-        title = make_confirm_title(confirm_msg, label)
+        classify_action(confirm_msg, label, action_url)
+        determine_size(form_block, "")
+        make_confirm_title(confirm_msg, label)
 
-        print(f"  {rel_path}:{line_num}")
-        print(f"    action: {action_url}")
-        print(f"    msg:    {confirm_msg}")
-        print(f"    label:  {label}")
-        print(f"    ->      {macro_name}(\"{label}\", \"{title}\", ..., \"{action_url}\", size=\"{size}\")")
-        print()
 
 
 def main():
     dry = "--dry-run" in sys.argv
 
-    print("=" * 60)
     if dry:
-        print("DRY RUN: showing what would be changed")
+        pass
     else:
-        print("Migrating inline confirm() to danger_button/warning_button")
-    print("=" * 60)
+        pass
 
     template_files = sorted(TEMPLATES_DIR.rglob("*.html"))
-    print(f"\nScanning {len(template_files)} template files...\n")
 
     for filepath in template_files:
         if "macros.html" in filepath.name and "components/ui" in str(filepath):
@@ -380,21 +368,12 @@ def main():
         else:
             before_count = stats["replacements"]
             if process_file(filepath):
-                count = stats["replacements"] - before_count
-                rel_path = filepath.relative_to(TEMPLATES_DIR)
-                print(f"  Modified: {rel_path} ({count} replacements)")
+                stats["replacements"] - before_count
+                filepath.relative_to(TEMPLATES_DIR)
 
-    if not dry:
-        print(f"\n{'=' * 60}")
-        print(f"Results:")
-        print(f"  Files modified:     {stats['files_modified']}")
-        print(f"  Total replacements: {stats['replacements']}")
-        print(f"  Imports added:      {stats['imports_added']}")
-        if stats["skipped"]:
-            print(f"\n  Skipped ({len(stats['skipped'])}):")
-            for s in stats["skipped"]:
-                print(f"    - {s}")
-        print(f"{'=' * 60}")
+    if not dry and stats["skipped"]:
+        for _s in stats["skipped"]:
+            pass
 
 
 if __name__ == "__main__":

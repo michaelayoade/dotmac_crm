@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import ClassVar
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.sales import Lead
@@ -16,6 +16,7 @@ from app.models.projects import (
     ProjectPriority,
     ProjectStatus,
     ProjectTask,
+    ProjectTaskAssignee,
     ProjectTaskComment,
     ProjectTaskDependency,
     ProjectTemplate,
@@ -79,6 +80,44 @@ def _ensure_lead(db: Session, lead_id: str):
     lead = db.get(Lead, coerce_uuid(lead_id))
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+
+
+def _normalize_assignee_ids(assignee_ids: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for raw in assignee_ids:
+        if not raw:
+            continue
+        try:
+            coerced = str(coerce_uuid(raw))
+        except Exception:
+            continue
+        if coerced not in seen:
+            seen.add(coerced)
+            normalized.append(coerced)
+    return normalized
+
+
+def _sync_project_task_assignees(db: Session, task: ProjectTask, assignee_ids: list[str] | None) -> None:
+    if assignee_ids is None:
+        return
+    normalized = _normalize_assignee_ids(assignee_ids)
+    for person_id in normalized:
+        _ensure_person(db, person_id)
+
+    task.assigned_to_person_id = coerce_uuid(normalized[0]) if normalized else None
+
+    current_ids = {str(assignee.person_id) for assignee in task.assignees}
+    target_ids = set(normalized)
+
+    for person_id in target_ids - current_ids:
+        task.assignees.append(
+            ProjectTaskAssignee(task_id=task.id, person_id=coerce_uuid(person_id))
+        )
+    if target_ids != current_ids:
+        for assignee in list(task.assignees):
+            if str(assignee.person_id) not in target_ids:
+                task.assignees.remove(assignee)
 
 
 def _person_label(person: Person | None) -> str:
@@ -930,7 +969,13 @@ class ProjectTasks(ListResponseMixin):
             work_order = db.get(WorkOrder, payload.work_order_id)
             if not work_order:
                 raise HTTPException(status_code=404, detail="Work order not found")
-        data = payload.model_dump()
+        data = payload.model_dump(exclude={"assigned_to_person_ids"})
+        fields_set = payload.model_fields_set
+        assignee_ids: list[str] | None = None
+        if "assigned_to_person_ids" in fields_set:
+            assignee_ids = [str(value) for value in (payload.assigned_to_person_ids or [])]
+        elif payload.assigned_to_person_id:
+            assignee_ids = [str(payload.assigned_to_person_id)]
         number = generate_number(
             db=db,
             domain=SettingDomain.numbering,
@@ -942,7 +987,6 @@ class ProjectTasks(ListResponseMixin):
         )
         if number:
             data["number"] = number
-        fields_set = payload.model_fields_set
         if "status" not in fields_set:
             default_status = settings_spec.resolve_value(db, SettingDomain.projects, "default_task_status")
             if default_status:
@@ -953,6 +997,8 @@ class ProjectTasks(ListResponseMixin):
                 data["priority"] = validate_enum(default_priority, TaskPriority, "priority")
         task = ProjectTask(**data)
         db.add(task)
+        db.flush()
+        _sync_project_task_assignees(db, task, assignee_ids)
         db.commit()
         db.refresh(task)
         if task.assigned_to_person_id:
@@ -1003,7 +1049,10 @@ class ProjectTasks(ListResponseMixin):
     ):
         query = db.query(ProjectTask)
         if include_assigned:
-            query = query.options(selectinload(ProjectTask.assigned_to))
+            query = query.options(
+                selectinload(ProjectTask.assigned_to),
+                selectinload(ProjectTask.assignees).selectinload(ProjectTaskAssignee.person),
+            )
         if project_id:
             query = query.filter(ProjectTask.project_id == project_id)
         if status:
@@ -1011,7 +1060,16 @@ class ProjectTasks(ListResponseMixin):
         if priority:
             query = query.filter(ProjectTask.priority == validate_enum(priority, TaskPriority, "priority"))
         if assigned_to_person_id:
-            query = query.filter(ProjectTask.assigned_to_person_id == assigned_to_person_id)
+            assigned_uuid = coerce_uuid(assigned_to_person_id)
+            query = query.filter(
+                or_(
+                    ProjectTask.assigned_to_person_id == assigned_uuid,
+                    exists().where(
+                        ProjectTaskAssignee.task_id == ProjectTask.id,
+                        ProjectTaskAssignee.person_id == assigned_uuid,
+                    ),
+                )
+            )
         if parent_task_id:
             query = query.filter(ProjectTask.parent_task_id == parent_task_id)
         if is_active is None:
@@ -1036,6 +1094,15 @@ class ProjectTasks(ListResponseMixin):
         if not task:
             raise HTTPException(status_code=404, detail="Project task not found")
         data = payload.model_dump(exclude_unset=True)
+        assignee_ids: list[str] | None = None
+        if "assigned_to_person_ids" in payload.model_fields_set:
+            assignee_ids = [str(value) for value in (payload.assigned_to_person_ids or [])]
+        elif "assigned_to_person_id" in data:
+            if data.get("assigned_to_person_id"):
+                assignee_ids = [str(data["assigned_to_person_id"])]
+            else:
+                assignee_ids = []
+        data.pop("assigned_to_person_ids", None)
         if "project_id" in data:
             project = db.get(Project, data["project_id"])
             if not project:
@@ -1058,6 +1125,7 @@ class ProjectTasks(ListResponseMixin):
                 raise HTTPException(status_code=404, detail="Work order not found")
         for key, value in data.items():
             setattr(task, key, value)
+        _sync_project_task_assignees(db, task, assignee_ids)
         db.commit()
         db.refresh(task)
         return task

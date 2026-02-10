@@ -33,14 +33,13 @@ def test_send_message_with_retry_raises_permanent():
     with patch(
         "app.services.crm.inbox.outbound.send_message",
         side_effect=PermanentOutboundError("bad"),
-    ) as mock_send:
-        with pytest.raises(PermanentOutboundError):
-            send_message_with_retry(
-                None,
-                payload=None,
-                author_id=None,
-                max_attempts=3,
-            )
+    ) as mock_send, pytest.raises(PermanentOutboundError):
+        send_message_with_retry(
+            None,
+            payload=None,
+            author_id=None,
+            max_attempts=3,
+        )
     assert mock_send.call_count == 1
 
 

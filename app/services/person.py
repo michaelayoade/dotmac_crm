@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import builtins
 from uuid import UUID
-from typing import List
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_
@@ -17,7 +17,7 @@ from app.models.person import (
     PersonStatusLog,
 )
 from app.schemas.person import PersonChannelCreate, PersonCreate, PersonUpdate
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.common import apply_ordering, apply_pagination, validate_enum
 from app.services.response import ListResponseMixin
 
 
@@ -344,8 +344,8 @@ class People(ListResponseMixin):
         merged_by_id: UUID | None = None,
     ) -> Person:
         """Merge source person into target, preserving all relationships."""
-        from app.models.crm.sales import Lead, Quote
         from app.models.crm.conversation import Conversation
+        from app.models.crm.sales import Lead, Quote
 
         source = db.get(Person, source_id)
         target = db.get(Person, target_id)
@@ -443,14 +443,14 @@ class People(ListResponseMixin):
         )
 
     @staticmethod
-    def linked_user_labels(db: Session, person_id) -> List[str]:
+    def linked_user_labels(db: Session, person_id) -> builtins.list[str]:
         """Check for records that would block user deletion."""
         from app.models.crm.conversation import Conversation, ConversationAssignment
         from app.models.crm.sales import Lead, Quote
         from app.models.crm.team import CrmAgent
+        from app.models.projects import Project, ProjectComment, ProjectTask, ProjectTaskComment
         from app.models.tickets import Ticket, TicketComment
         from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote
-        from app.models.projects import Project, ProjectTask, ProjectTaskComment, ProjectComment
 
         checks = [
             ("CRM agent", db.query(CrmAgent.id).filter(CrmAgent.person_id == person_id)),
@@ -506,10 +506,12 @@ class People(ListResponseMixin):
         Raises HTTPException if user is active or has linked business records.
         """
         from sqlalchemy.exc import IntegrityError
-        from app.models.auth import UserCredential, MFAMethod, Session as AuthSession, ApiKey
-        from app.models.rbac import PersonRole, PersonPermission
-        from app.models.vendor import VendorUser
+
+        from app.models.auth import ApiKey, MFAMethod, UserCredential
+        from app.models.auth import Session as AuthSession
+        from app.models.rbac import PersonPermission, PersonRole
         from app.models.subscriber import ResellerUser
+        from app.models.vendor import VendorUser
 
         person = db.get(Person, person_id)
         if not person:

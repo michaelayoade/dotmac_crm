@@ -1,17 +1,16 @@
-import json
 import os
 
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingValueType
 from app.services.domain_settings import (
-    auth_settings,
     audit_settings,
+    auth_settings,
+    comms_settings,
     geocoding_settings,
+    gis_settings,
     imports_settings,
     inventory_settings,
-    gis_settings,
-    comms_settings,
     network_settings,
     notification_settings,
     projects_settings,

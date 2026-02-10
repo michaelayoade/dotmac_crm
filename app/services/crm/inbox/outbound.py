@@ -9,29 +9,44 @@ import base64
 import os
 import random
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, cast as typing_cast
+from typing import TYPE_CHECKING
+from typing import cast as typing_cast
 
 import httpx
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.logging import get_logger
 from app.logic.crm_inbox_logic import (
     ChannelType as LogicChannelType,
+)
+from app.logic.crm_inbox_logic import (
     LogicService,
     MessageContext,
 )
-from app.models.crm.conversation import Message
+from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
-from app.models.person import ChannelType as PersonChannelType, PersonChannel
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import PersonChannel
 from app.schemas.crm.conversation import MessageCreate
 from app.schemas.crm.inbox import InboxSendRequest
-from app.config import settings
 from app.services import email as email_service
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
+from app.services.crm.inbox import cache as inbox_cache
+from app.services.crm.inbox.circuit_breaker import CircuitBreaker, CircuitOpenError
+from app.services.crm.inbox.errors import (
+    InboxConfigError,
+    InboxError,
+    InboxNotFoundError,
+    InboxValidationError,
+)
+from app.services.crm.inbox.observability import MESSAGE_PROCESSING_TIME, OUTBOUND_MESSAGES
+from app.services.crm.inbox.rate_limit import RateLimitExceeded, build_rate_limit_key, check_rate_limit
+from app.services.crm.inbox.templates import message_templates
 from app.services.crm.inbox_connectors import (
     _get_whatsapp_api_timeout,
     _resolve_connector_config,
@@ -39,23 +54,17 @@ from app.services.crm.inbox_connectors import (
     _smtp_config_from_connector,
 )
 from app.services.crm.inbox_normalizers import _normalize_email_address
-from app.services.crm.inbox import cache as inbox_cache
-from app.services.crm.inbox.errors import (
-    InboxAuthError,
-    InboxConfigError,
-    InboxNotFoundError,
-    InboxValidationError,
-    InboxError,
-)
 
 if TYPE_CHECKING:
-    from app.models.crm.conversation import Conversation
     from app.models.connector import ConnectorConfig
+    from app.models.crm.conversation import Conversation
     from app.models.integration import IntegrationTarget
 
 logger = get_logger(__name__)
 USE_INBOX_LOGIC_SERVICE = os.getenv("USE_INBOX_LOGIC_SERVICE", "0") == "1"
 _logic_service = LogicService()
+WHATSAPP_CIRCUIT = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+META_CIRCUIT = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
 
 
 class OutboundSendError(InboxError):
@@ -101,9 +110,7 @@ def _is_transient_exception(exc: Exception, status_code: int | None = None) -> b
         return exc.retryable
     if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
         return _is_transient_status(exc.response.status_code)
-    if isinstance(exc, httpx.TransportError):
-        return True
-    return False
+    return bool(isinstance(exc, httpx.TransportError))
 
 
 def _sleep_with_backoff(attempt: int, base: float, max_backoff: float) -> None:
@@ -112,7 +119,7 @@ def _sleep_with_backoff(attempt: int, base: float, max_backoff: float) -> None:
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _render_personalization(body: str, personalization: dict | None) -> str:
@@ -125,6 +132,43 @@ def _render_personalization(body: str, personalization: dict | None) -> str:
     return rendered
 
 
+def _build_reply_subject(current_subject: str | None, base_subject: str | None) -> str | None:
+    if base_subject:
+        subject = base_subject.strip()
+    else:
+        subject = (current_subject or "").strip()
+    if not subject:
+        return current_subject
+    if subject.lower().startswith("re:"):
+        return subject
+    return f"Re: {subject}"
+
+
+def _get_rate_limit_per_minute(config) -> int:
+    if not config or not isinstance(getattr(config, "metadata_", None), dict):
+        return 0
+    raw = config.metadata_.get("rate_limit_per_minute")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(value, 0)
+
+
+def _enforce_rate_limit(channel_type: ChannelType, target: IntegrationTarget | None, config) -> None:
+    limit = _get_rate_limit_per_minute(config)
+    if limit <= 0:
+        return
+    key = build_rate_limit_key(channel_type.value, str(target.id) if target else None)
+    try:
+        check_rate_limit(key, limit)
+    except RateLimitExceeded as exc:
+        raise TransientOutboundError(
+            f"Rate limit exceeded (retry_after={exc.retry_after}s)",
+            status_code=429,
+        )
+
+
 def _merge_reply_metadata(reply_context: dict | None) -> dict | None:
     if not reply_context:
         return None
@@ -135,7 +179,27 @@ def _merge_reply_metadata(reply_context: dict | None) -> dict | None:
     return metadata or None
 
 
-def _resolve_reply_author(db: Session, conversation: "Conversation", message: Message) -> str:
+def _resolve_person_channel_for_message(
+    db: Session,
+    person: Person,
+    channel_type: ChannelType,
+) -> PersonChannel | None:
+    """Resolve the recipient channel for outbound messaging."""
+    try:
+        person_channel_type = PersonChannelType(channel_type.value)
+    except Exception:
+        return None
+
+    return (
+        db.query(PersonChannel)
+        .filter(PersonChannel.person_id == person.id)
+        .filter(PersonChannel.channel_type == person_channel_type)
+        .order_by(PersonChannel.is_primary.desc(), PersonChannel.created_at.desc())
+        .first()
+    )
+
+
+def _resolve_reply_author(db: Session, conversation: Conversation, message: Message) -> str:
     if message.direction == MessageDirection.inbound:
         contact = conversation.contact
         if contact:
@@ -157,7 +221,7 @@ def _resolve_reply_author(db: Session, conversation: "Conversation", message: Me
 
 def _build_reply_context(
     db: Session,
-    conversation: "Conversation",
+    conversation: Conversation,
     reply_to_message_id,
 ) -> dict | None:
     if not reply_to_message_id:
@@ -205,6 +269,34 @@ def _build_reply_context(
         if reply_msg.channel_type == ChannelType.whatsapp
         else None,
     }
+
+
+def _resolve_reply_context(
+    db: Session,
+    reply_to_message_id,
+    channel_type: ChannelType,
+    target: IntegrationTarget | None,
+) -> dict | None:
+    """Resolve and validate reply context for outbound messages."""
+    if not reply_to_message_id:
+        return None
+    reply_msg = db.get(Message, reply_to_message_id)
+    if not reply_msg:
+        return None
+    if reply_msg.channel_type and reply_msg.channel_type != channel_type:
+        raise InboxValidationError(
+            "reply_channel_mismatch",
+            "Reply channel does not match the originating channel",
+        )
+    if target and reply_msg.channel_target_id and reply_msg.channel_target_id != target.id:
+        raise InboxValidationError(
+            "reply_target_mismatch",
+            "Reply channel target does not match the originating target",
+        )
+    conversation = db.get(Conversation, reply_msg.conversation_id)
+    if not conversation:
+        return None
+    return _build_reply_context(db, conversation, reply_to_message_id)
 
 
 def _prepare_email_attachments(attachments: list[dict] | None) -> list[dict] | None:
@@ -267,6 +359,20 @@ def _get_last_inbound_message(db: Session, conversation_id) -> Message | None:
     )
 
 
+def _get_last_inbound_message_for_channel(
+    db: Session, conversation_id, channel_type: ChannelType
+) -> Message | None:
+    """Get the last inbound message for a conversation and channel."""
+    return (
+        db.query(Message)
+        .filter(Message.conversation_id == conversation_id)
+        .filter(Message.direction == MessageDirection.inbound)
+        .filter(Message.channel_type == channel_type)
+        .order_by(func.coalesce(Message.received_at, Message.created_at).desc())
+        .first()
+    )
+
+
 def _resolve_meta_account_id(
     db: Session,
     conversation_id,
@@ -301,10 +407,10 @@ def _resolve_meta_account_id(
 
 def _send_email_message(
     db: Session,
-    conversation: "Conversation",
+    conversation: Conversation,
     person_channel: PersonChannel,
-    target: "IntegrationTarget | None",
-    config: "ConnectorConfig | None",
+    target: IntegrationTarget | None,
+    config: ConnectorConfig | None,
     payload: InboxSendRequest,
     rendered_body: str,
     author_id: str | None,
@@ -314,6 +420,7 @@ def _send_email_message(
     """Send a message via email channel."""
     if not person_channel.address:
         raise InboxValidationError("recipient_missing", "Recipient email missing")
+    _enforce_rate_limit(payload.channel_type, target, config)
 
     message = conversation_service.Messages.create(
         db,
@@ -339,7 +446,7 @@ def _send_email_message(
     if config:
         smtp_config = _smtp_config_from_connector(config)
         if smtp_config:
-            sent, smtp_debug = email_service.send_email_with_config(
+            result = email_service.send_email_with_config(
                 smtp_config,
                 person_channel.address,
                 payload.subject or "Message",
@@ -349,9 +456,14 @@ def _send_email_message(
                 references=reply_context.get("email_references") if reply_context else None,
                 attachments=email_attachments,
             )
+            if isinstance(result, tuple):
+                sent, smtp_debug = result
+            else:
+                sent = bool(result)
+                smtp_debug = None
 
     if not sent:
-        sent, smtp_debug = email_service.send_email(
+        result = email_service.send_email(
             db,
             person_channel.address,
             payload.subject or "Message",
@@ -361,6 +473,11 @@ def _send_email_message(
             references=reply_context.get("email_references") if reply_context else None,
             attachments=email_attachments,
         )
+        if isinstance(result, tuple):
+            sent, smtp_debug = result
+        else:
+            sent = bool(result)
+            smtp_debug = None
 
     message.status = MessageStatus.sent if sent else MessageStatus.failed
     if smtp_debug:
@@ -385,10 +502,10 @@ def _send_email_message(
 
 def _send_whatsapp_message(
     db: Session,
-    conversation: "Conversation",
+    conversation: Conversation,
     person_channel: PersonChannel,
-    target: "IntegrationTarget | None",
-    config: "ConnectorConfig | None",
+    target: IntegrationTarget | None,
+    config: ConnectorConfig | None,
     payload: InboxSendRequest,
     rendered_body: str,
     author_id: str | None,
@@ -398,6 +515,7 @@ def _send_whatsapp_message(
     """Send a message via WhatsApp channel."""
     if not config:
         raise InboxConfigError("whatsapp_config_missing", "WhatsApp connector not configured")
+    _enforce_rate_limit(payload.channel_type, target, config)
 
     token = None
     if config.auth_config:
@@ -490,16 +608,26 @@ def _send_whatsapp_message(
     retry_error: OutboundSendError | None = None
     try:
         whatsapp_timeout = config.timeout_sec or _get_whatsapp_api_timeout(db)
-        response = httpx.post(
-            f"{base_url.rstrip('/')}/{phone_number_id}/messages",
-            json=payload_data,
-            headers=headers,
-            timeout=whatsapp_timeout,
-        )
-        response.raise_for_status()
+
+        def _do_call():
+            response = httpx.post(
+                f"{base_url.rstrip('/')}/{phone_number_id}/messages",
+                json=payload_data,
+                headers=headers,
+                timeout=whatsapp_timeout,
+            )
+            response.raise_for_status()
+            return response
+
+        response = WHATSAPP_CIRCUIT.call(_do_call)
         data = response.json() if response.content else {}
         message.status = MessageStatus.sent
         message.external_id = data.get("messages", [{}])[0].get("id")
+    except CircuitOpenError as exc:
+        message.status = MessageStatus.failed
+        _set_message_send_error(message, "whatsapp", str(exc))
+        if raise_on_failure:
+            retry_error = TransientOutboundError("WhatsApp circuit open")
     except httpx.HTTPError as exc:
         message.status = MessageStatus.failed
         status_code = None
@@ -562,9 +690,9 @@ def _send_whatsapp_message(
 
 def _send_facebook_message(
     db: Session,
-    conversation: "Conversation",
+    conversation: Conversation,
     person_channel: PersonChannel,
-    target: "IntegrationTarget | None",
+    target: IntegrationTarget | None,
     last_inbound: Message | None,
     payload: InboxSendRequest,
     rendered_body: str,
@@ -574,13 +702,14 @@ def _send_facebook_message(
 ) -> Message:
     """Send a message via Facebook Messenger channel."""
     from app.services import meta_messaging
+    _enforce_rate_limit(payload.channel_type, target, target.connector_config if target else None)
 
     account_id = _resolve_meta_account_id(db, conversation.id, payload.channel_type)
 
     # Check Meta 24-hour reply window
     if not last_inbound or not last_inbound.received_at:
         raise InboxValidationError("meta_reply_window_expired", "Meta reply window expired")
-    if (datetime.now(timezone.utc) - last_inbound.received_at).total_seconds() > 24 * 3600:
+    if (datetime.now(UTC) - last_inbound.received_at).total_seconds() > 24 * 3600:
         raise InboxValidationError("meta_reply_window_expired", "Meta reply window expired")
 
     message = conversation_service.Messages.create(
@@ -602,7 +731,8 @@ def _send_facebook_message(
 
     retry_error: OutboundSendError | None = None
     try:
-        result = meta_messaging.send_facebook_message_sync(
+        result = META_CIRCUIT.call(
+            meta_messaging.send_facebook_message_sync,
             db,
             person_channel.address,
             rendered_body,
@@ -611,6 +741,11 @@ def _send_facebook_message(
         )
         message.status = MessageStatus.sent
         message.external_id = result.get("message_id")
+    except CircuitOpenError as exc:
+        message.status = MessageStatus.failed
+        _set_message_send_error(message, "facebook_messenger", str(exc))
+        if raise_on_failure:
+            retry_error = TransientOutboundError("Facebook circuit open")
     except Exception as exc:
         logger.error(
             "facebook_messenger_send_failed conversation_id=%s error=%s",
@@ -643,9 +778,9 @@ def _send_facebook_message(
 
 def _send_instagram_message(
     db: Session,
-    conversation: "Conversation",
+    conversation: Conversation,
     person_channel: PersonChannel,
-    target: "IntegrationTarget | None",
+    target: IntegrationTarget | None,
     last_inbound: Message | None,
     payload: InboxSendRequest,
     rendered_body: str,
@@ -655,13 +790,14 @@ def _send_instagram_message(
 ) -> Message:
     """Send a message via Instagram DM channel."""
     from app.services import meta_messaging
+    _enforce_rate_limit(payload.channel_type, target, target.connector_config if target else None)
 
     account_id = _resolve_meta_account_id(db, conversation.id, payload.channel_type)
 
     # Check Meta 24-hour reply window
     if not last_inbound or not last_inbound.received_at:
         raise InboxValidationError("meta_reply_window_expired", "Meta reply window expired")
-    if (datetime.now(timezone.utc) - last_inbound.received_at).total_seconds() > 24 * 3600:
+    if (datetime.now(UTC) - last_inbound.received_at).total_seconds() > 24 * 3600:
         raise InboxValidationError("meta_reply_window_expired", "Meta reply window expired")
 
     message = conversation_service.Messages.create(
@@ -683,7 +819,8 @@ def _send_instagram_message(
 
     retry_error: OutboundSendError | None = None
     try:
-        result = meta_messaging.send_instagram_message_sync(
+        result = META_CIRCUIT.call(
+            meta_messaging.send_instagram_message_sync,
             db,
             person_channel.address,
             rendered_body,
@@ -692,6 +829,11 @@ def _send_instagram_message(
         )
         message.status = MessageStatus.sent
         message.external_id = result.get("message_id")
+    except CircuitOpenError as exc:
+        message.status = MessageStatus.failed
+        _set_message_send_error(message, "instagram_dm", str(exc))
+        if raise_on_failure:
+            retry_error = TransientOutboundError("Instagram circuit open")
     except Exception as exc:
         logger.error(
             "instagram_dm_send_failed conversation_id=%s error=%s",
@@ -724,9 +866,9 @@ def _send_instagram_message(
 
 def _send_chat_widget_message(
     db: Session,
-    conversation: "Conversation",
+    conversation: Conversation,
     person_channel: PersonChannel,
-    target: "IntegrationTarget | None",
+    target: IntegrationTarget | None,
     payload: InboxSendRequest,
     rendered_body: str,
     author_id: str | None,
@@ -808,211 +950,218 @@ def send_message(
     Raises:
         InboxError: If channel is not configured or message cannot be sent
     """
-    conversation = conversation_service.Conversations.get(
-        db, str(payload.conversation_id)
-    )
-    person = conversation.person
-    if not person:
-        raise InboxNotFoundError("contact_not_found", "Contact not found")
-
-    last_inbound = _get_last_inbound_message(db, conversation.id)
-    resolved_channel_target_id = payload.channel_target_id
-
-    if USE_INBOX_LOGIC_SERVICE:
-        requested_channel_type: LogicChannelType = typing_cast(
-            LogicChannelType, payload.channel_type.value
+    try:
+        conversation = conversation_service.Conversations.get(
+            db, str(payload.conversation_id)
         )
-        last_inbound_channel_type: LogicChannelType | None = typing_cast(
-            LogicChannelType | None,
-            last_inbound.channel_type.value
-            if last_inbound and last_inbound.channel_type
-            else None,
-        )
-        ctx = MessageContext(
-            conversation_id=str(conversation.id),
-            person_id=str(person.id),
-            requested_channel_type=requested_channel_type,
-            requested_channel_target_id=str(payload.channel_target_id)
-            if payload.channel_target_id
-            else None,
-            last_inbound_channel_type=last_inbound_channel_type,
-            last_inbound_channel_target_id=str(last_inbound.channel_target_id)
-            if last_inbound and last_inbound.channel_target_id
-            else None,
-            last_inbound_received_at_iso=last_inbound.received_at.isoformat()
-            if last_inbound and last_inbound.received_at
-            else None,
-            now_iso=_now().isoformat(),
-        )
-        decision = _logic_service.decide_send_message(ctx)
-        if decision.status == "deny":
-            raise InboxValidationError(
-                "message_not_allowed", decision.reason or "Message not allowed"
-            )
+        person = conversation.person
+        if not person:
+            raise InboxNotFoundError("contact_not_found", "Contact not found")
 
-        if decision.channel_type != payload.channel_type.value:
+        if payload.template_id and not payload.body:
+            template = message_templates.get(db, str(payload.template_id))
             payload = payload.model_copy(
-                update={"channel_type": ChannelType(decision.channel_type)}
+                update={
+                    "body": template.body,
+                    "subject": payload.subject or template.subject,
+                    "channel_type": template.channel_type,
+                }
             )
 
-        if decision.channel_target_id and not payload.channel_target_id:
-            resolved_channel_target_id = coerce_uuid(decision.channel_target_id)
-    else:
-        if last_inbound and last_inbound.channel_type != payload.channel_type:
-            raise InboxValidationError(
-                "reply_channel_mismatch",
-                "Reply channel does not match the originating channel",
-            )
+        last_inbound = _get_last_inbound_message(db, conversation.id)
+        resolved_channel_target_id = payload.channel_target_id
 
-        if last_inbound and last_inbound.channel_target_id:
-            if (
-                resolved_channel_target_id
-                and last_inbound.channel_target_id != resolved_channel_target_id
-            ):
+        if USE_INBOX_LOGIC_SERVICE:
+            requested_channel_type: LogicChannelType = typing_cast(
+                LogicChannelType, payload.channel_type.value
+            )
+            last_inbound_channel_type: LogicChannelType | None = typing_cast(
+                LogicChannelType | None,
+                last_inbound.channel_type.value
+                if last_inbound and last_inbound.channel_type
+                else None,
+            )
+            ctx = MessageContext(
+                conversation_id=str(conversation.id),
+                person_id=str(person.id),
+                requested_channel_type=requested_channel_type,
+                requested_channel_target_id=str(payload.channel_target_id)
+                if payload.channel_target_id
+                else None,
+                last_inbound_channel_type=last_inbound_channel_type,
+                last_inbound_channel_target_id=str(last_inbound.channel_target_id)
+                if last_inbound and last_inbound.channel_target_id
+                else None,
+                last_inbound_received_at_iso=last_inbound.received_at.isoformat()
+                if last_inbound and last_inbound.received_at
+                else None,
+                now_iso=_now().isoformat(),
+            )
+            decision = _logic_service.decide_send_message(ctx)
+            if decision.status == "deny":
                 raise InboxValidationError(
-                    "reply_channel_target_mismatch",
-                    "Reply channel target does not match the originating channel",
+                    "message_not_allowed", decision.reason or "Message not allowed"
                 )
-            if not resolved_channel_target_id:
+
+            if decision.channel_type != payload.channel_type.value:
+                payload = payload.model_copy(
+                    update={"channel_type": ChannelType(decision.channel_type)}
+                )
+
+            if decision.channel_target_id and not payload.channel_target_id:
+                resolved_channel_target_id = coerce_uuid(decision.channel_target_id)
+        else:
+            if last_inbound and last_inbound.channel_type != payload.channel_type:
+                raise InboxValidationError(
+                    "reply_channel_mismatch",
+                    "Reply channel does not match the originating channel",
+                )
+
+            if last_inbound and last_inbound.channel_target_id:
+                if (
+                    resolved_channel_target_id
+                    and last_inbound.channel_target_id != resolved_channel_target_id
+                ):
+                    raise InboxValidationError(
+                        "reply_target_mismatch",
+                        "Reply channel target does not match the originating target",
+                    )
                 resolved_channel_target_id = last_inbound.channel_target_id
 
-    # Auto-create email channel if needed
-    if payload.channel_type == ChannelType.email and not payload.person_channel_id:
-        email_address = (
-            _normalize_email_address(person.email) if person.email else None
+        person_channel = _resolve_person_channel_for_message(
+            db, person, payload.channel_type
         )
-        if email_address:
-            existing_channel = (
-                db.query(PersonChannel)
-                .filter(PersonChannel.person_id == person.id)
-                .filter(PersonChannel.channel_type == PersonChannelType.email)
-                .filter(func.lower(PersonChannel.address) == email_address)
-                .first()
-            )
-            if not existing_channel:
-                has_primary = (
-                    db.query(PersonChannel)
-                    .filter(PersonChannel.person_id == person.id)
-                    .filter(PersonChannel.channel_type == PersonChannelType.email)
-                    .filter(PersonChannel.is_primary.is_(True))
-                    .first()
-                )
-                db.add(
-                    PersonChannel(
-                        person_id=person.id,
-                        channel_type=PersonChannelType.email,
-                        address=email_address,
-                        is_primary=has_primary is None,
-                    )
-                )
-                db.flush()
-
-    # Resolve person channel
-    person_channel = None
-    if payload.person_channel_id:
-        person_channel = db.get(PersonChannel, payload.person_channel_id)
         if not person_channel:
-            raise InboxValidationError("contact_channel_missing", "Contact channel not found")
-        if person_channel.person_id != person.id:
-            raise InboxValidationError("contact_channel_mismatch", "Contact channel mismatch")
-        if person_channel.channel_type.value != payload.channel_type.value:
             raise InboxValidationError(
-                "contact_channel_type_mismatch", "Contact channel type mismatch"
+                "contact_channel_missing", "Contact channel not found"
             )
-    else:
-        person_channel = conversation_service.resolve_person_channel(
-            db, str(person.id), payload.channel_type
+
+        target = None
+        if resolved_channel_target_id:
+            target = _resolve_integration_target(
+                db,
+                payload.channel_type,
+                str(resolved_channel_target_id),
+            )
+        if not target:
+            target = _resolve_integration_target(db, payload.channel_type, None)
+
+        config = (
+            _resolve_connector_config(db, target, payload.channel_type)
+            if target
+            else None
         )
+        reply_context = None
+        if payload.reply_to_message_id:
+            reply_context = _resolve_reply_context(
+                db,
+                payload.reply_to_message_id,
+                payload.channel_type,
+                target,
+            )
+        if payload.channel_type == ChannelType.email:
+            last_inbound_email = (
+                last_inbound
+                if last_inbound and last_inbound.channel_type == ChannelType.email
+                else _get_last_inbound_message_for_channel(
+                    db, conversation.id, ChannelType.email
+                )
+            )
+            reply_subject = None
+            if payload.reply_to_message_id:
+                reply_msg = db.get(Message, payload.reply_to_message_id)
+                if reply_msg and reply_msg.subject:
+                    reply_subject = reply_msg.subject
+            if not reply_subject and last_inbound_email and last_inbound_email.subject:
+                reply_subject = last_inbound_email.subject
+            if reply_subject:
+                payload = payload.model_copy(
+                    update={"subject": _build_reply_subject(payload.subject, reply_subject)}
+                )
 
-    if not person_channel:
-        raise InboxValidationError("contact_channel_missing", "Contact channel not found")
+            if not payload.reply_to_message_id and not reply_context and last_inbound_email:
+                if (
+                    not target
+                    or not last_inbound_email.channel_target_id
+                    or last_inbound_email.channel_target_id == target.id
+                ):
+                    reply_context = _build_reply_context(
+                        db, conversation, last_inbound_email.id
+                    )
 
-    target = _resolve_integration_target(
-        db,
-        payload.channel_type,
-        str(resolved_channel_target_id) if resolved_channel_target_id else None,
-    )
-    config = (
-        _resolve_connector_config(db, target, payload.channel_type) if target else None
-    )
+        rendered_body = _render_personalization(payload.body, payload.personalization)
 
-    rendered_body = _render_personalization(payload.body, payload.personalization)
-    reply_context = _build_reply_context(
-        db,
-        conversation,
-        payload.reply_to_message_id,
-    )
+        if payload.channel_type == ChannelType.email:
+            return _send_email_message(
+                db,
+                conversation,
+                person_channel,
+                target,
+                config,
+                payload,
+                rendered_body,
+                author_id,
+                reply_context,
+                raise_on_failure=raise_on_failure,
+            )
 
-    # Handle each channel type
-    if payload.channel_type == ChannelType.email:
-        return _send_email_message(
-            db,
-            conversation,
-            person_channel,
-            target,
-            config,
-            payload,
-            rendered_body,
-            author_id,
-            reply_context,
-            raise_on_failure=raise_on_failure,
-        )
+        if payload.channel_type == ChannelType.whatsapp:
+            return _send_whatsapp_message(
+                db,
+                conversation,
+                person_channel,
+                target,
+                config,
+                payload,
+                rendered_body,
+                author_id,
+                reply_context,
+                raise_on_failure=raise_on_failure,
+            )
 
-    if payload.channel_type == ChannelType.whatsapp:
-        return _send_whatsapp_message(
-            db,
-            conversation,
-            person_channel,
-            target,
-            config,
-            payload,
-            rendered_body,
-            author_id,
-            reply_context,
-            raise_on_failure=raise_on_failure,
-        )
+        if payload.channel_type == ChannelType.facebook_messenger:
+            return _send_facebook_message(
+                db,
+                conversation,
+                person_channel,
+                target,
+                last_inbound,
+                payload,
+                rendered_body,
+                author_id,
+                reply_context,
+                raise_on_failure=raise_on_failure,
+            )
 
-    if payload.channel_type == ChannelType.facebook_messenger:
-        return _send_facebook_message(
-            db,
-            conversation,
-            person_channel,
-            target,
-            last_inbound,
-            payload,
-            rendered_body,
-            author_id,
-            reply_context,
-            raise_on_failure=raise_on_failure,
-        )
+        if payload.channel_type == ChannelType.instagram_dm:
+            return _send_instagram_message(
+                db,
+                conversation,
+                person_channel,
+                target,
+                last_inbound,
+                payload,
+                rendered_body,
+                author_id,
+                reply_context,
+                raise_on_failure=raise_on_failure,
+            )
 
-    if payload.channel_type == ChannelType.instagram_dm:
-        return _send_instagram_message(
-            db,
-            conversation,
-            person_channel,
-            target,
-            last_inbound,
-            payload,
-            rendered_body,
-            author_id,
-            reply_context,
-            raise_on_failure=raise_on_failure,
-        )
+        if payload.channel_type == ChannelType.chat_widget:
+            return _send_chat_widget_message(
+                db,
+                conversation,
+                person_channel,
+                target,
+                payload,
+                rendered_body,
+                author_id,
+                reply_context,
+            )
 
-    if payload.channel_type == ChannelType.chat_widget:
-        return _send_chat_widget_message(
-            db,
-            conversation,
-            person_channel,
-            target,
-            payload,
-            rendered_body,
-            author_id,
-            reply_context,
-        )
-
-    raise InboxValidationError("channel_unsupported", "Unsupported channel type")
+        raise InboxValidationError("channel_unsupported", "Unsupported channel type")
+    except InboxError as exc:
+        raise exc.to_http_exception() from exc
 
 
 def send_message_with_retry(
@@ -1027,22 +1176,49 @@ def send_message_with_retry(
     """Send a message with retry/backoff for transient failures."""
     if max_attempts < 1:
         raise ValueError("max_attempts must be >= 1")
+    channel_label = "unknown"
+    if payload and payload.channel_type:
+        channel_label = payload.channel_type.value
+    start = time.perf_counter()
     last_exc: TransientOutboundError | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            return send_message(
+            message = send_message(
                 db,
                 payload,
                 author_id=author_id,
                 raise_on_failure=True,
             )
+            OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="sent").inc()
+            MESSAGE_PROCESSING_TIME.labels(
+                channel_type=channel_label, direction="outbound"
+            ).observe(time.perf_counter() - start)
+            return message
         except TransientOutboundError as exc:
             last_exc = exc
+            OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="retried").inc()
             if attempt >= max_attempts:
+                OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="failed").inc()
+                MESSAGE_PROCESSING_TIME.labels(
+                    channel_type=channel_label, direction="outbound"
+                ).observe(time.perf_counter() - start)
                 raise
             _sleep_with_backoff(attempt, base_backoff, max_backoff)
         except PermanentOutboundError:
+            OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="failed").inc()
+            MESSAGE_PROCESSING_TIME.labels(
+                channel_type=channel_label, direction="outbound"
+            ).observe(time.perf_counter() - start)
             raise
+        except Exception:
+            OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="failed").inc()
+            MESSAGE_PROCESSING_TIME.labels(
+                channel_type=channel_label, direction="outbound"
+            ).observe(time.perf_counter() - start)
+            raise
+    MESSAGE_PROCESSING_TIME.labels(
+        channel_type=channel_label, direction="outbound"
+    ).observe(time.perf_counter() - start)
     raise last_exc or TransientOutboundError("Outbound send failed")
 
 

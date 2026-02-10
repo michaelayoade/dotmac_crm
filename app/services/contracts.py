@@ -1,6 +1,6 @@
 """Service for contract signatures (click-to-sign workflow)."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -32,7 +32,7 @@ class ContractSignatures:
 
         data = payload.model_dump()
         if not data.get("signed_at"):
-            data["signed_at"] = datetime.now(timezone.utc)
+            data["signed_at"] = datetime.now(UTC)
 
         signature = ContractSignature(**data)
         db.add(signature)

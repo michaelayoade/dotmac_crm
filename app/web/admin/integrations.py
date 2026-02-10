@@ -1,7 +1,7 @@
 """Admin integrations routes."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -158,7 +158,7 @@ def connectors_list(request: Request, db: Session = Depends(get_db)):
 @router.get("/connectors/new", response_class=HTMLResponse)
 def connector_new(request: Request, db: Session = Depends(get_db)):
     """New connector form."""
-    from app.models.connector import ConnectorType, ConnectorAuthType
+    from app.models.connector import ConnectorAuthType, ConnectorType
 
     context = _base_context(request, db, active_page="connectors")
     context.update({
@@ -202,7 +202,7 @@ def connector_create(
         )
         connector = connector_service.connector_configs.create(db, payload)
     except Exception as exc:
-        from app.models.connector import ConnectorType, ConnectorAuthType
+        from app.models.connector import ConnectorAuthType, ConnectorType
 
         context = _base_context(request, db, active_page="connectors")
         context.update({
@@ -842,9 +842,8 @@ def provider_create(
         if provider_type not in provider_types:
             raise ValueError("Invalid provider type")
         connector_id = connector_config_id or None
-        if connector_id:
-            if not db.get(ConnectorConfig, UUID(connector_id)):
-                raise ValueError("Connector not found")
+        if connector_id and not db.get(ConnectorConfig, UUID(connector_id)):
+            raise ValueError("Connector not found")
     except (ValueError, HTTPException) as exc:
         context = _base_context(request, db, active_page="providers")
         context.update(
@@ -867,7 +866,7 @@ def provider_create(
         )
 
     providers, setting = _load_payment_providers(db)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     provider_id = str(uuid4())
     providers.append(
         {
@@ -1002,9 +1001,10 @@ def channel_create(
     db: Session = Depends(get_db),
 ):
     """Create a new CRM channel."""
+    from pydantic import BaseModel
+
     from app.models.crm.enums import ChannelType
     from app.services.crm import team as crm_team_service
-    from pydantic import BaseModel
 
     class ChannelCreate(BaseModel):
         team_id: UUID
@@ -1116,9 +1116,10 @@ def channel_update(
     db: Session = Depends(get_db),
 ):
     """Update a CRM channel."""
+    from pydantic import BaseModel
+
     from app.models.crm.enums import ChannelType
     from app.services.crm import team as crm_team_service
-    from pydantic import BaseModel
 
     class ChannelUpdate(BaseModel):
         team_id: UUID | None = None
@@ -1527,7 +1528,7 @@ def _humanize_time_ago(dt_str: str | None) -> str:
         return "Never"
     try:
         dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         diff = now - dt
         seconds = diff.total_seconds()
 
@@ -1558,10 +1559,10 @@ def dotmac_erp_index(
     from app.services import settings_spec
     from app.services.dotmac_erp import (
         get_daily_stats,
+        get_inventory_sync_history,
+        get_last_inventory_sync,
         get_last_sync,
         get_sync_history,
-        get_last_inventory_sync,
-        get_inventory_sync_history,
     )
 
     # Get configuration
@@ -1757,7 +1758,7 @@ def dotmac_erp_test(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Connection error: {str(e)}'
+            f'Connection error: {e!s}'
             '</div>',
             status_code=200,
         )
@@ -1797,7 +1798,7 @@ def dotmac_erp_sync_now(
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Failed to queue sync task: {str(e)}'
+            f'Failed to queue sync task: {e!s}'
             '</div>',
             status_code=500,
         )
@@ -1823,7 +1824,7 @@ def dotmac_erp_inventory_sync_now(request: Request, db: Session = Depends(get_db
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Failed to queue inventory sync task: {str(e)}'
+            f'Failed to queue inventory sync task: {e!s}'
             '</div>',
             status_code=500,
         )

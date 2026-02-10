@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import builtins
+
 from fastapi import HTTPException
-from typing import List
 from geoalchemy2.functions import ST_Contains, ST_Distance, ST_DWithin, ST_MakePoint, ST_SetSRID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -15,8 +16,6 @@ from app.models.gis import (
     GeoLocation,
     GeoLocationType,
 )
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
-from app.services.response import ListResponseMixin, list_response
 from app.schemas.gis import (
     GeoAreaCreate,
     GeoAreaUpdate,
@@ -27,7 +26,8 @@ from app.schemas.gis import (
     GeoLocationCreate,
     GeoLocationUpdate,
 )
-
+from app.services.common import apply_ordering, apply_pagination, validate_enum
+from app.services.response import ListResponseMixin, list_response
 
 
 class GeoLocations(ListResponseMixin):
@@ -116,7 +116,7 @@ class GeoLocations(ListResponseMixin):
         radius_meters: float,
         location_type: str | None = None,
         limit: int = 100,
-    ) -> List[GeoLocation]:
+    ) -> builtins.list[GeoLocation]:
         """Find locations within a radius using PostGIS spatial query.
 
         Args:
@@ -162,7 +162,7 @@ class GeoLocations(ListResponseMixin):
         area_id: str,
         location_type: str | None = None,
         limit: int = 100,
-    ) -> List[GeoLocation]:
+    ) -> builtins.list[GeoLocation]:
         """Find locations within a GeoArea polygon.
 
         Args:
@@ -305,7 +305,7 @@ class GeoAreas(ListResponseMixin):
         latitude: float,
         longitude: float,
         area_type: str | None = None,
-    ) -> List[GeoArea]:
+    ) -> builtins.list[GeoArea]:
         """Find all areas that contain a given point.
 
         Args:
@@ -422,7 +422,7 @@ class GeoFeatures(ListResponseMixin):
         max_longitude: float | None,
         limit: int,
         offset: int,
-    ) -> List[GeoFeatureRead]:
+    ) -> list[GeoFeatureRead]:
         return _build_layer_features(
             db,
             layer_key,
@@ -490,9 +490,9 @@ def _build_layer_features(
     max_longitude: float | None,
     limit: int,
     offset: int,
-) -> List[GeoFeatureRead]:
+) -> list[GeoFeatureRead]:
     layer = GeoLayers.get_by_key(db, layer_key)
-    features: List[GeoFeatureRead] = []
+    features: list[GeoFeatureRead] = []
     if layer.source_type.value == "locations":
         locations = GeoLocations.list(
             db,

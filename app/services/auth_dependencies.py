@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.db import get_db as _get_db
-from app.models.auth import ApiKey, Session as AuthSession, SessionStatus
+from app.models.auth import ApiKey, SessionStatus
+from app.models.auth import Session as AuthSession
 from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
 from app.services.auth import hash_api_key
 from app.services.auth_cache import get_cached_session, set_cached_session
@@ -24,7 +25,7 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=UTC)
     return value
 
 
@@ -56,14 +57,14 @@ def _has_audit_scope(payload: dict) -> bool:
 
 
 def require_audit_auth(
-    request: Request,
+    request: Request = None,
     authorization: str | None = Header(default=None),
     x_session_token: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
     db: Session = Depends(_get_db),
 ):
     token = _extract_bearer_token(authorization) or x_session_token
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if token:
         if _is_jwt(token):
             payload = decode_access_token(db, token)
@@ -115,7 +116,7 @@ def require_audit_auth(
 
 
 def require_user_auth(
-    request: Request,
+    request: Request = None,
     authorization: str | None = Header(default=None),
     db: Session = Depends(_get_db),
 ):
@@ -129,8 +130,12 @@ def require_user_auth(
     session_id = payload.get("session_id")
     if not person_id or not session_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    roles_claim = payload.get("roles")
+    scopes_claim = payload.get("scopes")
+    roles_from_claim = list(roles_claim) if isinstance(roles_claim, (list, tuple, set)) else []
+    scopes_from_claim = list(scopes_claim) if isinstance(scopes_claim, (list, tuple, set)) else []
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Check cache first
     cached = get_cached_session(str(session_id))
@@ -178,7 +183,11 @@ def require_user_auth(
     )
     if not session:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    roles, scopes = _load_rbac_claims(db, str(person_id))
+    if roles_from_claim or scopes_from_claim:
+        roles = roles_from_claim
+        scopes = scopes_from_claim
+    else:
+        roles, scopes = _load_rbac_claims(db, str(person_id))
 
     # Cache the session for future requests
     set_cached_session(str(session_id), {

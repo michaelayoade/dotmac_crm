@@ -1,8 +1,8 @@
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -60,6 +60,16 @@ class Ticket(Base):
     assigned_to_person_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id")
     )
+    ticket_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id")
+    )
+    assistant_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id")
+    )
+    service_team_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_teams.id")
+    )
+    region: Mapped[str | None] = mapped_column(String(80))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[TicketStatus] = mapped_column(
@@ -81,10 +91,10 @@ class Ticket(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
     subscriber = relationship("Subscriber", back_populates="tickets")
@@ -92,7 +102,45 @@ class Ticket(Base):
     customer = relationship("Person", foreign_keys=[customer_person_id])
     created_by = relationship("Person", foreign_keys=[created_by_person_id])
     assigned_to = relationship("Person", foreign_keys=[assigned_to_person_id])
+    ticket_manager = relationship("Person", foreign_keys=[ticket_manager_person_id])
+    assistant_manager = relationship("Person", foreign_keys=[assistant_manager_person_id])
+    service_team = relationship("ServiceTeam", foreign_keys=[service_team_id])
     comments = relationship("TicketComment", back_populates="ticket")
+    assignees = relationship(
+        "TicketAssignee",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def assigned_to_person_ids(self):
+        if self.assignees:
+            return [assignee.person_id for assignee in self.assignees]
+        if self.assigned_to_person_id:
+            return [self.assigned_to_person_id]
+        return []
+
+
+class TicketAssignee(Base):
+    __tablename__ = "ticket_assignees"
+
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tickets.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+    )
+
+    ticket = relationship("Ticket", back_populates="assignees")
+    person = relationship("Person")
 
 
 class TicketComment(Base):
@@ -111,7 +159,7 @@ class TicketComment(Base):
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False)
     attachments: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     ticket = relationship("Ticket", back_populates="comments")
@@ -132,7 +180,7 @@ class TicketSlaEvent(Base):
     actual_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     ticket = relationship("Ticket")

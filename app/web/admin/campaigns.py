@@ -1,17 +1,16 @@
 """Admin campaign management web routes."""
 
 from datetime import datetime
-from typing import List
+from types import SimpleNamespace
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from types import SimpleNamespace
 
 from app.db import SessionLocal
-from app.models.crm.enums import CampaignStatus, CampaignType
+from app.models.crm.enums import CampaignType
 from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import (
     CampaignCreate,
@@ -23,11 +22,15 @@ from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
 from app.services.crm.campaigns import (
     Campaigns,
-    CampaignSteps,
-    CampaignRecipients,
-    campaigns as campaigns_service,
-    campaign_steps as steps_service,
+)
+from app.services.crm.campaigns import (
     campaign_recipients as recipients_service,
+)
+from app.services.crm.campaigns import (
+    campaign_steps as steps_service,
+)
+from app.services.crm.campaigns import (
+    campaigns as campaigns_service,
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.admin.crm import REGION_OPTIONS
@@ -167,8 +170,8 @@ def campaign_create(
     body_text: str = Form(""),
     campaign_sender_id: str = Form(""),
     campaign_smtp_config_id: str = Form(""),
-    seg_party_status: List[str] = Form([]),
-    seg_regions: List[str] = Form([]),
+    seg_party_status: list[str] = Form([]),
+    seg_regions: list[str] = Form([]),
     seg_active_status: str = Form("active"),
     seg_created_after: str = Form(""),
     seg_created_before: str = Form(""),
@@ -320,8 +323,8 @@ def campaign_update(
     body_text: str = Form(""),
     campaign_sender_id: str = Form(""),
     campaign_smtp_config_id: str = Form(""),
-    seg_party_status: List[str] = Form([]),
-    seg_regions: List[str] = Form([]),
+    seg_party_status: list[str] = Form([]),
+    seg_regions: list[str] = Form([]),
     seg_active_status: str = Form("active"),
     seg_created_after: str = Form(""),
     seg_created_before: str = Form(""),

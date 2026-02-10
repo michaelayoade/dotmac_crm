@@ -19,9 +19,9 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
 from app.config import settings
 from app.csrf import get_csrf_token
+from app.db import SessionLocal
 from app.logging import get_logger
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import (
@@ -617,12 +617,18 @@ async def inbox(
     target_id: str | None = None,
     conversation_id: str | None = None,
     comment_id: str | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+    page: int | None = None,
 ):
     """Omni-channel inbox view."""
     from app.web.admin import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
+    safe_limit = max(int(limit or 150), 1)
+    safe_page = max(int(page or 1), 1)
+    safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
     context = await build_inbox_page_context(
         db,
         current_user=current_user,
@@ -636,6 +642,9 @@ async def inbox(
         target_id=target_id,
         conversation_id=conversation_id,
         comment_id=comment_id,
+        offset=safe_offset,
+        limit=safe_limit,
+        page=safe_page,
     )
     return templates.TemplateResponse(
         "admin/crm/inbox.html",
@@ -653,19 +662,30 @@ async def inbox_comments_list(
     search: str | None = None,
     comment_id: str | None = None,
     target_id: str | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+    page: int | None = None,
 ):
     from app.services.crm.inbox.comments_context import load_comments_context
 
+    safe_limit = max(int(limit or 150), 1)
+    safe_page = max(int(page or 1), 1)
+    safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
     context = await load_comments_context(
         db,
         search=search,
         comment_id=comment_id,
+        offset=safe_offset,
+        limit=safe_limit,
         fetch=True,
         target_id=target_id,
         include_thread=False,
     )
+    template_name = (
+        "admin/crm/_comment_list_page.html" if safe_offset > 0 else "admin/crm/_comment_list.html"
+    )
     return templates.TemplateResponse(
-        "admin/crm/_comment_list.html",
+        template_name,
         {
             "request": request,
             "comments": context.grouped_comments,
@@ -677,6 +697,12 @@ async def inbox_comments_list(
             ),
             "search": search,
             "current_target_id": target_id,
+            "comments_has_more": context.has_more,
+            "comments_next_offset": context.next_offset,
+            "comments_limit": context.limit,
+            "comments_page": (safe_offset // safe_limit) + 1,
+            "comments_prev_page": (safe_page - 1) if safe_page > 1 else None,
+            "comments_next_page": (safe_page + 1) if context.has_more else None,
         },
     )
 
@@ -813,6 +839,52 @@ async def create_crm_agent(
     )
 
 
+@router.post("/inbox/agents/{agent_id}/deactivate", response_class=HTMLResponse)
+async def deactivate_crm_agent(
+    request: Request,
+    agent_id: str,
+    db: Session = Depends(get_db),
+):
+    from app.services.crm.inbox.settings_admin import deactivate_agent
+
+    result = deactivate_agent(
+        db,
+        agent_id=agent_id,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?agent_update=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to update agent", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?agent_error=1&agent_error_detail={detail}",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/agents/{agent_id}/activate", response_class=HTMLResponse)
+async def activate_crm_agent(
+    request: Request,
+    agent_id: str,
+    db: Session = Depends(get_db),
+):
+    from app.services.crm.inbox.settings_admin import activate_agent
+
+    result = activate_agent(
+        db,
+        agent_id=agent_id,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?agent_update=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to update agent", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?agent_error=1&agent_error_detail={detail}",
+        status_code=303,
+    )
+
+
 @router.post("/inbox/agent-teams", response_class=HTMLResponse)
 async def create_crm_agent_team(
     request: Request,
@@ -830,6 +902,29 @@ async def create_crm_agent_team(
     if result.ok:
         return RedirectResponse(url="/admin/crm/inbox/settings?assignment_setup=1", status_code=303)
     detail = quote(result.error_detail or "Failed to assign agent to team", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?assignment_error=1&assignment_error_detail={detail}",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/agent-teams/{link_id}/remove", response_class=HTMLResponse)
+async def remove_crm_agent_team(
+    request: Request,
+    link_id: str,
+    db: Session = Depends(get_db),
+):
+    from app.services.crm.inbox.settings_admin import remove_agent_team
+
+    result = remove_agent_team(
+        db,
+        link_id=link_id,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?assignment_setup=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to update agent team", safe="")
     return RedirectResponse(
         url=f"/admin/crm/inbox/settings?assignment_error=1&assignment_error_detail={detail}",
         status_code=303,
@@ -1087,6 +1182,9 @@ async def inbox_conversations_partial(
     search: str | None = None,
     assignment: str | None = None,
     target_id: str | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+    page: int | None = None,
 ):
     """Partial template for conversation list (HTMX)."""
     from app.web.admin import get_current_user
@@ -1094,6 +1192,10 @@ async def inbox_conversations_partial(
     current_user = get_current_user(request)
     assigned_person_id = current_user.get("person_id")
     from app.services.crm.inbox.listing import load_inbox_list
+
+    safe_limit = max(int(limit or 150), 1)
+    safe_page = max(int(page or 1), 1)
+    safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
 
     listing = await load_inbox_list(
         db,
@@ -1103,6 +1205,8 @@ async def inbox_conversations_partial(
         assignment=assignment,
         assigned_person_id=assigned_person_id,
         target_id=target_id,
+        offset=safe_offset,
+        limit=safe_limit,
         include_thread=False,
         fetch_comments=False,
     )
@@ -1116,16 +1220,19 @@ async def inbox_conversations_partial(
         )
         for conv, latest_message, unread_count in listing.conversations_raw
     ]
-    if listing.comment_items:
+    if listing.comment_items and safe_offset == 0:
         conversations = conversations + listing.comment_items
         conversations.sort(
             key=lambda item: item.get("last_message_at") or datetime.min.replace(tzinfo=UTC),
             reverse=True,
         )
-        conversations = conversations[:50]
+        conversations = conversations[:safe_limit]
 
+    template_name = (
+        "admin/crm/_conversation_list_page.html" if safe_offset > 0 else "admin/crm/_conversation_list.html"
+    )
     return templates.TemplateResponse(
-        "admin/crm/_conversation_list.html",
+        template_name,
         {
             "request": request,
             "conversations": conversations,
@@ -1134,6 +1241,12 @@ async def inbox_conversations_partial(
             "current_assignment": assignment,
             "current_target_id": target_id,
             "search": search,
+            "conversations_has_more": listing.has_more,
+            "conversations_next_offset": listing.next_offset,
+            "conversations_limit": listing.limit,
+            "conversations_page": (safe_offset // safe_limit) + 1,
+            "conversations_prev_page": (safe_page - 1) if safe_page > 1 else None,
+            "conversations_next_page": (safe_page + 1) if listing.has_more else None,
         },
     )
 
@@ -2778,6 +2891,9 @@ def crm_leads_list(
 
 @router.get("/leads/new", response_class=HTMLResponse)
 def crm_lead_new(request: Request, db: Session = Depends(get_db)):
+    from app.models.crm.team import CrmAgent
+    from app.web.admin import get_current_user
+
     person_id = request.query_params.get("person_id", "").strip()
     contact_id = request.query_params.get("contact_id", "").strip()  # Legacy support
     pipeline_id = request.query_params.get("pipeline_id", "").strip()
@@ -2812,6 +2928,19 @@ def crm_lead_new(request: Request, db: Session = Depends(get_db)):
         "notes": "",
         "is_active": True,
     }
+    current_user = get_current_user(request)
+    current_person_id = current_user.get("person_id") if current_user else None
+    if current_person_id:
+        agent = (
+            db.query(CrmAgent)
+            .filter(
+                CrmAgent.person_id == coerce_uuid(current_person_id),
+                CrmAgent.is_active.is_(True),
+            )
+            .first()
+        )
+        if agent:
+            lead["owner_agent_id"] = str(agent.id)
     context = _crm_base_context(request, db, "contacts")
     context.update(
         {
@@ -2888,6 +3017,8 @@ def crm_lead_create(
     db: Session = Depends(get_db),
 ):
     from datetime import date as date_type
+    from app.models.crm.team import CrmAgent
+    from app.web.admin import get_current_user
 
     error = None
     lead: dict[str, str | bool] = {
@@ -2924,6 +3055,20 @@ def crm_lead_create(
         region_value = lead["region"] if isinstance(lead["region"], str) else ""
         address_value = lead["address"] if isinstance(lead["address"], str) else ""
         notes_value = lead["notes"] if isinstance(lead["notes"], str) else ""
+        if not owner_agent_id_value:
+            current_user = get_current_user(request)
+            current_person_id = current_user.get("person_id") if current_user else None
+            if current_person_id:
+                agent = (
+                    db.query(CrmAgent)
+                    .filter(
+                        CrmAgent.person_id == coerce_uuid(current_person_id),
+                        CrmAgent.is_active.is_(True),
+                    )
+                    .first()
+                )
+                if agent:
+                    owner_agent_id_value = str(agent.id)
         value = _parse_decimal(estimated_value_value, "estimated_value")
         prob_value = int(probability_value) if probability_value else None
         close_date = None
@@ -3261,14 +3406,7 @@ def crm_quote_new(
         limit=500,
         offset=0,
     )
-    inventory_items = inventory_service.inventory_items.list(
-        db=db,
-        is_active=True,
-        order_by="name",
-        order_dir="asc",
-        limit=200,
-        offset=0,
-    )
+    inventory_items: list = []
     project_types = [item.value for item in ProjectType]
     lead_id_value = (lead_id or "").strip()
     contact_id_value = ""
@@ -3850,14 +3988,7 @@ def crm_quote_create(
         limit=500,
         offset=0,
     )
-    inventory_items = inventory_service.inventory_items.list(
-        db=db,
-        is_active=True,
-        order_by="name",
-        order_dir="asc",
-        limit=200,
-        offset=0,
-    )
+    inventory_items: list = []
     project_types = [item.value for item in ProjectType]
     context = _crm_base_context(request, db, "quotes")
     context.update(

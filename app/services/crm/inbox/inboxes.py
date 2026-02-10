@@ -88,6 +88,7 @@ def build_email_state_for_target(
         "smtp": metadata.get("smtp"),
         "imap": metadata.get("imap"),
         "pop3": metadata.get("pop3"),
+        "rate_limit_per_minute": metadata.get("rate_limit_per_minute"),
         "poll_interval_seconds": poll_interval,
         "polling_active": bool(job and job.is_active),
         "receiving_enabled": bool((metadata.get("imap") or metadata.get("pop3")) and job and job.is_active),
@@ -109,6 +110,7 @@ def build_whatsapp_state_for_target(
         "auth_config": auth_config,
         "base_url": config.base_url,
         "phone_number_id": metadata.get("phone_number_id"),
+        "rate_limit_per_minute": metadata.get("rate_limit_per_minute"),
         "is_active": bool(target.is_active),
         "connector_active": bool(config.is_active),
     }

@@ -1,8 +1,8 @@
 import argparse
-from datetime import datetime, timezone
 
 from app.db import SessionLocal
-from app.models.person import ChannelType as PersonChannelType, Person, PersonChannel
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Person, PersonChannel
 
 
 def _normalize_phone(value: str | None) -> str | None:
@@ -49,10 +49,9 @@ def main() -> int:
             person_changed = False
             channel_changed = False
 
-            if not person.phone or not person.phone.startswith("+"):
-                if person.phone != normalized:
-                    person.phone = normalized
-                    person_changed = True
+            if (not person.phone or not person.phone.startswith("+")) and person.phone != normalized:
+                person.phone = normalized
+                person_changed = True
 
             if ch.address != normalized:
                 ch.address = normalized
@@ -77,11 +76,6 @@ def main() -> int:
     finally:
         db.close()
 
-    print(
-        f"whatsapp_contact_backfill updated_people={updated_people} "
-        f"updated_channels={updated_channels} dry_run={args.dry_run} "
-        f"completed_at={datetime.now(timezone.utc).isoformat()}"
-    )
     return 0
 
 

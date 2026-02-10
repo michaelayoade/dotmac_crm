@@ -19,10 +19,10 @@ logger = get_logger(__name__)
 AUTH_CACHE_PREFIX = "auth:"
 SESSION_TTL = 300  # 5 minutes
 
-_redis_client: "Redis | None" = None
+_redis_client: Redis | None = None
 
 
-def _get_redis() -> "Redis | None":
+def _get_redis() -> Redis | None:
     """Get Redis client instance, creating if needed.
 
     Returns None if Redis is unavailable, allowing graceful fallback.

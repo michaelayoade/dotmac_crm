@@ -26,7 +26,7 @@ def _handle_task_exception(task: asyncio.Task):
 def _run_async(coro):
     """Run an async coroutine from sync code with error handling."""
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         task = asyncio.create_task(coro)
         task.add_done_callback(_handle_task_exception)
     except RuntimeError:
@@ -44,7 +44,7 @@ def _ensure_manager_connected(manager) -> None:
         logger.warning("websocket_manager_connect_error error=%s", exc)
 
 
-def broadcast_new_message(message: "Message", conversation: "Conversation"):
+def broadcast_new_message(message: Message, conversation: Conversation):
     """
     Broadcast a new message event to conversation subscribers.
 
@@ -106,7 +106,7 @@ def broadcast_message_status(
         logger.warning("broadcast_message_status_error error=%s", exc)
 
 
-def broadcast_conversation_updated(conversation: "Conversation"):
+def broadcast_conversation_updated(conversation: Conversation):
     """
     Broadcast a conversation update event.
 
@@ -148,7 +148,7 @@ def broadcast_conversation_summary(conversation_id: str, summary: dict):
         logger.warning("broadcast_conversation_summary_error error=%s", exc)
 
 
-def broadcast_to_widget_visitor(session_id: str, message: "Message"):
+def broadcast_to_widget_visitor(session_id: str, message: Message):
     """
     Broadcast a message to a specific widget visitor's connections.
 

@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -171,18 +172,20 @@ def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -
     if existing_assignment:
         return
 
-    online_window_minutes = params.get("online_window_minutes", 60)
+    online_window_minutes_raw = params.get("online_window_minutes", 60)
+    if online_window_minutes_raw is None:
+        raise ValueError("online_window_minutes must be an integer")
     try:
-        online_window_minutes = int(online_window_minutes)
+        online_window_minutes = int(online_window_minutes_raw)
     except (TypeError, ValueError) as exc:
         raise ValueError("online_window_minutes must be an integer") from exc
     if online_window_minutes <= 0:
         raise ValueError("online_window_minutes must be greater than 0")
 
-    max_assigned = params.get("max_assigned")
-    if max_assigned not in (None, "", "null"):
+    max_assigned_raw = params.get("max_assigned")
+    if max_assigned_raw not in (None, "", "null"):
         try:
-            max_assigned = int(max_assigned)
+            max_assigned = int(str(max_assigned_raw))
         except (TypeError, ValueError) as exc:
             raise ValueError("max_assigned must be an integer") from exc
         if max_assigned < 0:
@@ -276,7 +279,7 @@ def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -
         return
 
     candidate_ids = [row.id for row in candidates]
-    counts = dict(
+    count_rows = (
         db.query(
             ConversationAssignment.agent_id,
             func.count(ConversationAssignment.id),
@@ -289,6 +292,7 @@ def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -
         .group_by(ConversationAssignment.agent_id)
         .all()
     )
+    counts: dict[UUID, int] = {row[0]: int(row[1]) for row in count_rows if row[0] is not None}
 
     if max_assigned is not None:
         candidates = [row for row in candidates if counts.get(row.id, 0) <= max_assigned]

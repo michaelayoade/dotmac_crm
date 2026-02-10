@@ -4,27 +4,27 @@ Handles pipelines, leads, quotes, and sales workflow.
 """
 
 from app.services.crm.sales.service import (
+    CrmQuoteLineItems,
+    Leads,
     Pipelines,
     PipelineStages,
-    Leads,
     Quotes,
-    CrmQuoteLineItems,
-    pipelines,
-    pipeline_stages,
     leads,
-    quotes,
+    pipeline_stages,
+    pipelines,
     quote_line_items,
+    quotes,
 )
 
 __all__ = [
-    "Pipelines",
-    "PipelineStages",
-    "Leads",
-    "Quotes",
     "CrmQuoteLineItems",
-    "pipelines",
-    "pipeline_stages",
+    "Leads",
+    "PipelineStages",
+    "Pipelines",
+    "Quotes",
     "leads",
-    "quotes",
+    "pipeline_stages",
+    "pipelines",
     "quote_line_items",
+    "quotes",
 ]

@@ -1,5 +1,5 @@
 import argparse
-from typing import Iterable
+from collections.abc import Iterable
 
 from sqlalchemy import asc
 
@@ -8,7 +8,6 @@ from app.models.domain_settings import SettingDomain
 from app.models.projects import Project, ProjectTask
 from app.models.tickets import Ticket
 from app.services.numbering import generate_number
-
 
 ENTITY_CONFIG = {
     "tickets": {
@@ -94,9 +93,7 @@ def main():
         total = 0
         for key in targets:
             updated = backfill_entity(db, key, dry_run=args.dry_run)
-            print(f"{key}: {updated} updated")
             total += updated
-        print(f"total: {total} updated")
     finally:
         db.close()
 

@@ -15,6 +15,11 @@ class TicketBase(BaseModel):
     customer_person_id: UUID | None = None
     created_by_person_id: UUID | None = None
     assigned_to_person_id: UUID | None = None
+    assigned_to_person_ids: list[UUID] | None = None
+    ticket_manager_person_id: UUID | None = None
+    assistant_manager_person_id: UUID | None = None
+    service_team_id: UUID | None = None
+    region: str | None = Field(default=None, max_length=80)
     title: str = Field(min_length=1, max_length=200)
     description: str | None = None
     status: TicketStatus = TicketStatus.new
@@ -43,6 +48,11 @@ class TicketUpdate(BaseModel):
     customer_person_id: UUID | None = None
     created_by_person_id: UUID | None = None
     assigned_to_person_id: UUID | None = None
+    assigned_to_person_ids: list[UUID] | None = None
+    ticket_manager_person_id: UUID | None = None
+    assistant_manager_person_id: UUID | None = None
+    service_team_id: UUID | None = None
+    region: str | None = Field(default=None, max_length=80)
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
     status: TicketStatus | None = None
@@ -60,7 +70,7 @@ class TicketUpdate(BaseModel):
     is_active: bool | None = None
 
     @model_validator(mode="after")
-    def _validate_status_timestamps(self) -> "TicketUpdate":
+    def _validate_status_timestamps(self) -> TicketUpdate:
         fields_set = self.model_fields_set
         if "status" in fields_set:
             if self.status == TicketStatus.resolved and "resolved_at" not in fields_set:

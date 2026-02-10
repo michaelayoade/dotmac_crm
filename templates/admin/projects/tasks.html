@@ -113,7 +113,17 @@
                             <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">{{ task.priority.value if task.priority else 'normal' }}</span>
                         </td>
                         <td class="px-6 py-4">
-                            {% if task.assigned_to %}
+                            {% if task.assignees %}
+                            <div class="flex flex-wrap gap-1">
+                                {% for assignee in task.assignees %}
+                                {% if assignee.person %}
+                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                                    {{ assignee.person.display_name or (assignee.person.first_name ~ ' ' ~ assignee.person.last_name) }}
+                                </span>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% elif task.assigned_to %}
                             <div class="text-sm font-medium text-slate-900 dark:text-white">
                                 {{ task.assigned_to.display_name or (task.assigned_to.first_name ~ ' ' ~ task.assigned_to.last_name) }}
                             </div>
@@ -127,7 +137,19 @@
                             <span class="px-1.5 text-slate-300">|</span>
                             <a href="/admin/projects/tasks/{{ task.number or task.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
                             <span class="px-1.5 text-slate-300">|</span>
-                            {{ danger_button("Delete", "Confirm Delete", "Delete this task?", "/admin/projects/tasks/" ~ (task.number or task.id) ~ "/delete", size="sm") }}
+                            <form method="post"
+                                  action="/admin/projects/tasks/{{ task.number or task.id }}/delete"
+                                  class="inline"
+                                  onsubmit="return confirm('Delete this task?')">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                <button type="submit"
+                                        class="inline-flex items-center px-3 py-1.5 text-xs gap-1.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                    </svg>
+                                    Delete
+                                </button>
+                            </form>
                         </td>
                     </tr>
                     {% endfor %}

@@ -16,8 +16,8 @@ from app.services.crm.teams.service import (
 )
 
 __all__ = [
-    "Agents",
     "AgentTeams",
+    "Agents",
     "RoutingRules",
     "TeamChannels",
     "Teams",

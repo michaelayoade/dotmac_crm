@@ -1,14 +1,14 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.crm.enums import ChannelType
 from app.models.crm.team import (
-    CrmTeam,
     CrmAgent,
     CrmAgentTeam,
-    CrmTeamChannel,
     CrmRoutingRule,
+    CrmTeam,
+    CrmTeamChannel,
 )
-from app.models.crm.enums import ChannelType
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
 
@@ -296,6 +296,14 @@ class RoutingRules(ListResponseMixin):
         db.commit()
         db.refresh(rule)
         return rule
+
+    @staticmethod
+    def delete(db: Session, rule_id: str) -> None:
+        rule = db.get(CrmRoutingRule, coerce_uuid(rule_id))
+        if not rule:
+            raise HTTPException(status_code=404, detail="Routing rule not found")
+        db.delete(rule)
+        db.commit()
 
 
 def get_agent_labels(db: Session, agents: list) -> dict[str, str]:

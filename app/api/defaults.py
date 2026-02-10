@@ -1,16 +1,14 @@
 """Smart Defaults API endpoints."""
 
 from datetime import date
-from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.services.smart_defaults import SmartDefaultsService
 from app.services.auth_dependencies import require_user_auth
-
+from app.services.smart_defaults import SmartDefaultsService
 
 router = APIRouter(prefix="/defaults", tags=["defaults"])
 
@@ -30,9 +28,9 @@ class CustomerDefaultsResponse(BaseModel):
     is_active: bool
     country_code: str
     locale: str
-    gender: Optional[str] = None
-    email_verified: Optional[bool] = None
-    marketing_opt_in: Optional[bool] = None
+    gender: str | None = None
+    email_verified: bool | None = None
+    marketing_opt_in: bool | None = None
 
 
 class SubscriptionDefaultsResponse(BaseModel):
@@ -47,7 +45,7 @@ class SubscriptionDefaultsResponse(BaseModel):
 class TicketDefaultsResponse(BaseModel):
     """Response model for ticket defaults."""
     priority: str
-    category_id: Optional[str] = None
+    category_id: str | None = None
     status: str
 
 
@@ -60,8 +58,8 @@ class CurrencySettingsResponse(BaseModel):
 
 class DueDateCalculationRequest(BaseModel):
     """Request body for due date calculation."""
-    issued_at: Optional[str] = None
-    payment_terms_days: Optional[int] = None
+    issued_at: str | None = None
+    payment_terms_days: int | None = None
 
 
 class DueDateCalculationResponse(BaseModel):

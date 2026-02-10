@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from sqlalchemy import exists, or_
 
 from app.models.projects import (
     Project,
-    ProjectComment,
     ProjectPriority,
     ProjectStatus,
     ProjectTask,
+    ProjectTaskAssignee,
     ProjectTemplate,
     TaskPriority,
     TaskStatus,
@@ -38,7 +40,7 @@ class ProjectQuery(BaseQuery[Project]):
     """
 
     model_class = Project
-    ordering_fields = {
+    ordering_fields: ClassVar[dict[str, Any]] = {
         "created_at": Project.created_at,
         "updated_at": Project.updated_at,
         "name": Project.name,
@@ -50,7 +52,7 @@ class ProjectQuery(BaseQuery[Project]):
         "due_at": Project.due_at,
     }
 
-    def by_subscriber(self, subscriber_id: "UUID | str | None") -> "ProjectQuery":
+    def by_subscriber(self, subscriber_id: UUID | str | None) -> ProjectQuery:
         """Filter by subscriber ID."""
         if not subscriber_id:
             return self
@@ -60,7 +62,7 @@ class ProjectQuery(BaseQuery[Project]):
         )
         return clone
 
-    def by_status(self, status: ProjectStatus | str | None) -> "ProjectQuery":
+    def by_status(self, status: ProjectStatus | str | None) -> ProjectQuery:
         """Filter by project status."""
         if not status:
             return self
@@ -70,7 +72,7 @@ class ProjectQuery(BaseQuery[Project]):
         clone._query = clone._query.filter(Project.status == status)
         return clone
 
-    def by_statuses(self, statuses: list[ProjectStatus | str]) -> "ProjectQuery":
+    def by_statuses(self, statuses: list[ProjectStatus | str]) -> ProjectQuery:
         """Filter by multiple statuses."""
         if not statuses:
             return self
@@ -82,7 +84,7 @@ class ProjectQuery(BaseQuery[Project]):
         clone._query = clone._query.filter(Project.status.in_(status_enums))
         return clone
 
-    def exclude_statuses(self, statuses: list[ProjectStatus | str]) -> "ProjectQuery":
+    def exclude_statuses(self, statuses: list[ProjectStatus | str]) -> ProjectQuery:
         """Exclude projects with these statuses."""
         if not statuses:
             return self
@@ -94,7 +96,7 @@ class ProjectQuery(BaseQuery[Project]):
         clone._query = clone._query.filter(Project.status.notin_(status_enums))
         return clone
 
-    def by_priority(self, priority: ProjectPriority | str | None) -> "ProjectQuery":
+    def by_priority(self, priority: ProjectPriority | str | None) -> ProjectQuery:
         """Filter by project priority."""
         if not priority:
             return self
@@ -104,7 +106,7 @@ class ProjectQuery(BaseQuery[Project]):
         clone._query = clone._query.filter(Project.priority == priority)
         return clone
 
-    def by_owner(self, person_id: "UUID | str | None") -> "ProjectQuery":
+    def by_owner(self, person_id: UUID | str | None) -> ProjectQuery:
         """Filter by owner person ID."""
         if not person_id:
             return self
@@ -114,7 +116,7 @@ class ProjectQuery(BaseQuery[Project]):
         )
         return clone
 
-    def by_manager(self, person_id: "UUID | str | None") -> "ProjectQuery":
+    def by_manager(self, person_id: UUID | str | None) -> ProjectQuery:
         """Filter by manager person ID."""
         if not person_id:
             return self
@@ -124,7 +126,7 @@ class ProjectQuery(BaseQuery[Project]):
         )
         return clone
 
-    def by_template(self, template_id: "UUID | str | None") -> "ProjectQuery":
+    def by_template(self, template_id: UUID | str | None) -> ProjectQuery:
         """Filter by project template ID."""
         if not template_id:
             return self
@@ -134,21 +136,21 @@ class ProjectQuery(BaseQuery[Project]):
         )
         return clone
 
-    def in_progress(self) -> "ProjectQuery":
+    def in_progress(self) -> ProjectQuery:
         """Filter to in-progress projects."""
         return self.by_statuses([
             ProjectStatus.active,
             ProjectStatus.on_hold,
         ])
 
-    def open_projects(self) -> "ProjectQuery":
+    def open_projects(self) -> ProjectQuery:
         """Filter to open (non-completed, non-canceled) projects."""
         return self.exclude_statuses([
             ProjectStatus.completed,
             ProjectStatus.canceled,
         ])
 
-    def for_site_surveys(self) -> "ProjectQuery":
+    def for_site_surveys(self) -> ProjectQuery:
         """Filter projects available for site surveys (not completed/canceled)."""
         return self.exclude_statuses([
             ProjectStatus.completed,
@@ -160,7 +162,7 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
     """Query builder for ProjectTask model."""
 
     model_class = ProjectTask
-    ordering_fields = {
+    ordering_fields: ClassVar[dict[str, Any]] = {
         "created_at": ProjectTask.created_at,
         "updated_at": ProjectTask.updated_at,
         "name": ProjectTask.title,
@@ -171,7 +173,7 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
         "due_at": ProjectTask.due_at,
     }
 
-    def by_project(self, project_id: "UUID | str | None") -> "ProjectTaskQuery":
+    def by_project(self, project_id: UUID | str | None) -> ProjectTaskQuery:
         """Filter by project ID."""
         if not project_id:
             return self
@@ -181,7 +183,7 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
         )
         return clone
 
-    def by_status(self, status: TaskStatus | str | None) -> "ProjectTaskQuery":
+    def by_status(self, status: TaskStatus | str | None) -> ProjectTaskQuery:
         """Filter by task status."""
         if not status:
             return self
@@ -191,7 +193,7 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
         clone._query = clone._query.filter(ProjectTask.status == status)
         return clone
 
-    def by_statuses(self, statuses: list[TaskStatus | str]) -> "ProjectTaskQuery":
+    def by_statuses(self, statuses: list[TaskStatus | str]) -> ProjectTaskQuery:
         """Filter by multiple statuses."""
         if not statuses:
             return self
@@ -203,7 +205,7 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
         clone._query = clone._query.filter(ProjectTask.status.in_(status_enums))
         return clone
 
-    def by_priority(self, priority: TaskPriority | str | None) -> "ProjectTaskQuery":
+    def by_priority(self, priority: TaskPriority | str | None) -> ProjectTaskQuery:
         """Filter by task priority."""
         if not priority:
             return self
@@ -213,34 +215,44 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
         clone._query = clone._query.filter(ProjectTask.priority == priority)
         return clone
 
-    def by_assignee(self, person_id: "UUID | str | None") -> "ProjectTaskQuery":
+    def by_assignee(self, person_id: UUID | str | None) -> ProjectTaskQuery:
         """Filter by assignee person ID."""
         if not person_id:
             return self
         clone = self._clone()
+        person_uuid = coerce_uuid(person_id)
         clone._query = clone._query.filter(
-            ProjectTask.assigned_to_person_id == coerce_uuid(person_id)
+            or_(
+                ProjectTask.assigned_to_person_id == person_uuid,
+                exists().where(
+                    ProjectTaskAssignee.task_id == ProjectTask.id,
+                    ProjectTaskAssignee.person_id == person_uuid,
+                ),
+            )
         )
         return clone
 
-    def unassigned(self) -> "ProjectTaskQuery":
+    def unassigned(self) -> ProjectTaskQuery:
         """Filter to only unassigned tasks."""
         clone = self._clone()
-        clone._query = clone._query.filter(ProjectTask.assigned_to_person_id.is_(None))
+        clone._query = clone._query.filter(
+            ProjectTask.assigned_to_person_id.is_(None),
+            ~exists().where(ProjectTaskAssignee.task_id == ProjectTask.id),
+        )
         return clone
 
-    def pending(self) -> "ProjectTaskQuery":
+    def pending(self) -> ProjectTaskQuery:
         """Filter to pending tasks (not started)."""
         return self.by_statuses([
             TaskStatus.todo,
             TaskStatus.blocked,
         ])
 
-    def in_progress(self) -> "ProjectTaskQuery":
+    def in_progress(self) -> ProjectTaskQuery:
         """Filter to in-progress tasks."""
         return self.by_status(TaskStatus.in_progress)
 
-    def completed(self) -> "ProjectTaskQuery":
+    def completed(self) -> ProjectTaskQuery:
         """Filter to completed tasks."""
         return self.by_statuses([
             TaskStatus.done,
@@ -252,12 +264,12 @@ class ProjectTemplateQuery(BaseQuery[ProjectTemplate]):
     """Query builder for ProjectTemplate model."""
 
     model_class = ProjectTemplate
-    ordering_fields = {
+    ordering_fields: ClassVar[dict[str, Any]] = {
         "created_at": ProjectTemplate.created_at,
         "name": ProjectTemplate.name,
     }
 
-    def search(self, term: str | None) -> "ProjectTemplateQuery":
+    def search(self, term: str | None) -> ProjectTemplateQuery:
         """Search templates by name."""
         if not term or not term.strip():
             return self

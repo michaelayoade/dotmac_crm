@@ -4,8 +4,9 @@ from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.auth import ApiKey, Session as AuthSession, SessionStatus
-from app.models.rbac import Permission, PersonRole, RolePermission, Role
+from app.models.auth import ApiKey, SessionStatus
+from app.models.auth import Session as AuthSession
+from app.models.rbac import Permission, PersonRole, Role, RolePermission
 from app.services.auth import hash_api_key
 from app.services.auth_flow import decode_access_token, hash_session_token
 

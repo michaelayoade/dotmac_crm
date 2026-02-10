@@ -64,6 +64,10 @@ alembic history                          # Show migration chain
 npm run css:build                        # One-time build (minified)
 npm run css:watch                        # Watch mode for development
 
+# ── Security Scanning ─────────────────────────────────────────
+bandit -r app                            # Security scan (runs in CI)
+bandit -r app -f json                    # JSON output for tooling
+
 # ── Useful Checks ────────────────────────────────────────────
 python -c "from app.models import *"     # Verify all models compile
 python -c "from app.main import app"     # Verify app boots
@@ -285,7 +289,7 @@ mypy app/ --ignore-missing-imports # Suppress third-party import errors
 ### Pre-Commit Workflow
 Before committing, run:
 ```bash
-ruff check app/ tests/ --fix && ruff format app/ tests/ && mypy app/
+ruff check app/ tests/ --fix && ruff format app/ tests/ && mypy app/ && bandit -r app -q
 ```
 
 ## Database Conventions
@@ -630,6 +634,27 @@ Each portal has separate auth:
 - Customer: `/portal/auth/login` with account-scoped access
 - Reseller: `/reseller/auth/login` with multi-account access
 - Vendor: `/vendor/auth/login` with project-scoped access
+
+### Login Methods
+
+**Web Login (form-based, sets cookies):**
+- `POST /auth/login` — form fields: `username`, `password`
+- Sets `session_token` (JWT access, short-lived) and `refresh_token` (long-lived) as HttpOnly cookies
+- CSRF double-submit cookie pattern: `csrf_token` cookie must match `_csrf_token` form field or `X-CSRF-Token` header
+- Redirects to `/admin/` on success
+
+**API Login (JSON, returns tokens):**
+- `POST /api/v1/auth/login` — JSON body: `{"username": "...", "password": "..."}`
+- Optional field: `provider` (auth provider enum, defaults to local)
+- Returns: `{"access_token": "...", "refresh_token": "...", "token_type": "bearer"}`
+- Use `Authorization: Bearer <access_token>` header for subsequent API requests
+
+**Token Refresh:**
+- `POST /api/v1/auth/refresh` — JSON body: `{"refresh_token": "..."}`
+- Returns new access + refresh tokens
+
+**Dev/Test Credentials:**
+- Username: `admin` / Password: `Admin123` (seeded via `scripts/seed_admin.py`)
 
 ### Sidebar Navigation
 - Sidebar permissions defined in `templates/components/navigation/admin_sidebar.html`

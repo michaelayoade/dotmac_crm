@@ -261,12 +261,10 @@
   const body = document.getElementById("quote-items-body");
   const template = document.getElementById("quote-item-template");
   const addButton = document.getElementById("add-quote-item");
+  const datalist = document.getElementById("inventory-item-suggestions");
   const inventoryMap = new Map();
-  document.querySelectorAll("#inventory-item-suggestions option").forEach((option) => {
-    inventoryMap.set(option.value, option.dataset.itemId || "");
-  });
 
-  if (!body || !template || !addButton) {
+  if (!body || !template || !addButton || !datalist) {
     return;
   }
 
@@ -274,6 +272,68 @@
   const totalInput = document.querySelector("[data-quote-total]");
   const taxInput = document.querySelector("[data-quote-tax-total]");
   const taxRateSelect = document.querySelector("[data-quote-tax-rate]");
+
+  const renderSuggestions = (items) => {
+    datalist.replaceChildren();
+    inventoryMap.clear();
+    items.forEach((item) => {
+      const name = item?.name || "";
+      if (!name) {
+        return;
+      }
+      const sku = item?.sku || "";
+      const label = sku ? `${name} (${sku})` : name;
+      const option = document.createElement("option");
+      option.value = label;
+      option.dataset.itemId = item?.id || "";
+      datalist.appendChild(option);
+      inventoryMap.set(label, option.dataset.itemId || "");
+    });
+  };
+
+  let searchTimer = null;
+  let searchAbort = null;
+  const fetchSuggestions = async (query) => {
+    const trimmed = (query || "").trim();
+    if (!trimmed) {
+      renderSuggestions([]);
+      return;
+    }
+    if (searchAbort) {
+      searchAbort.abort();
+    }
+    searchAbort = new AbortController();
+    const params = new URLSearchParams({
+      search: trimmed,
+      limit: "50",
+      offset: "0",
+      order_by: "name",
+      order_dir: "asc",
+      is_active: "true",
+    });
+    try {
+      const response = await fetch(`/api/v1/inventory/items?${params.toString()}`, {
+        credentials: "same-origin",
+        signal: searchAbort.signal,
+      });
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      renderSuggestions(Array.isArray(data?.items) ? data.items : []);
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        console.warn("inventory_suggestions_fetch_failed", err);
+      }
+    }
+  };
+
+  const scheduleSearch = (value) => {
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+    }
+    searchTimer = setTimeout(() => fetchSuggestions(value), 200);
+  };
 
   const recalcTotals = () => {
     if (!subtotalInput || !totalInput) {
@@ -333,6 +393,9 @@
 
     qtyInput?.addEventListener("input", updateAmount);
     priceInput?.addEventListener("input", updateAmount);
+    descInput?.addEventListener("input", (event) => {
+      scheduleSearch(event.target.value);
+    });
     descInput?.addEventListener("change", updateInventoryItem);
     descInput?.addEventListener("blur", updateInventoryItem);
     updateAmount();

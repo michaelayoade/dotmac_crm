@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from enum import Enum
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from zoneinfo import ZoneInfo
 
 from app.models.audit import AuditActorType
 from app.models.person import Person
 from app.schemas.audit import AuditEventCreate
 from app.services import audit as audit_service
-
 
 SENSITIVE_FIELDS = {
     "password",
@@ -33,7 +32,7 @@ AUDIT_TIMEZONE = ZoneInfo("Africa/Lagos")
 def _normalize_value(value):
     if isinstance(value, Enum):
         return value.value
-    if isinstance(value, (datetime, date)):
+    if isinstance(value, datetime | date):
         return value.isoformat()
     if isinstance(value, UUID):
         return str(value)
@@ -44,7 +43,7 @@ def _to_audit_timezone(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
+        value = value.replace(tzinfo=UTC)
     return value.astimezone(AUDIT_TIMEZONE)
 
 

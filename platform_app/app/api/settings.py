@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from app.schemas.common import ListResponse
-from app.services.response import list_response
 
 from app.db import SessionLocal
 from app.models.domain_settings import SettingValueType
+from app.schemas.common import ListResponse
 from app.schemas.settings import DomainSettingRead, DomainSettingUpdate
 from app.services import domain_settings as settings_service
+from app.services.response import list_response
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -99,7 +99,7 @@ def upsert_gis_setting(
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
     if key == "sync_interval_minutes":
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             minutes = int(value)
@@ -136,7 +136,7 @@ def _normalize_auth_setting(key: str, payload: DomainSettingUpdate) -> DomainSet
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
     if key in _AUTH_SETTING_INT_KEYS:
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             parsed = int(value)
@@ -233,7 +233,7 @@ def _normalize_imports_setting(
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
-    if not isinstance(value, (int, str)):
+    if not isinstance(value, int | str):
         raise HTTPException(status_code=400, detail="Value must be an integer")
     try:
         parsed = int(value)

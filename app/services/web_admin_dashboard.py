@@ -8,17 +8,22 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditActorType
-from app.models.network import OLTDevice, OntUnit
 from app.models.domain_settings import SettingDomain
+from app.models.network import OLTDevice
 from app.models.person import Person
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import (
     audit as audit_service,
-    tickets as tickets_service,
-    web_admin as web_admin_service,
-    system_health as system_health_service,
+)
+from app.services import (
     settings_spec,
+)
+from app.services import (
+    system_health as system_health_service,
+)
+from app.services import (
+    web_admin as web_admin_service,
 )
 from app.services.audit_helpers import (
     extract_changes,
@@ -27,6 +32,8 @@ from app.services.audit_helpers import (
     humanize_action,
     humanize_entity,
 )
+from app.services.crm.inbox.metrics import get_inbox_metrics
+from app.services.crm.inbox.queries import get_inbox_stats
 
 templates = Jinja2Templates(directory="templates")
 
@@ -51,6 +58,8 @@ def _is_user_actor(actor_type) -> bool:
 
 def _build_stats_context(db: Session) -> dict:
     """Build only stats-related context (counts and network health)."""
+    inbox_stats = get_inbox_stats(db)
+    inbox_metrics = get_inbox_metrics(db)
     customers_count = db.query(func.count(Person.id)).scalar() or 0
     open_tickets_count = (
         db.query(func.count(Ticket.id))
@@ -94,6 +103,11 @@ def _build_stats_context(db: Session) -> dict:
         "subscribers_active": customers_count,
         "open_tickets": open_tickets_count,
         "pending_work_orders": pending_work_orders,
+        "unread_messages": inbox_stats.get("unread", 0),
+        "inbox_open": inbox_stats.get("open", 0),
+        "inbox_pending": inbox_stats.get("pending", 0),
+        "inbox_snoozed": inbox_stats.get("snoozed", 0),
+        "inbox_resolved": inbox_stats.get("resolved", 0),
     }
 
     network_health = {
@@ -108,6 +122,8 @@ def _build_stats_context(db: Session) -> dict:
         "open_tickets_count": open_tickets_count,
         "pending_work_orders": pending_work_orders,
         "active_olts": active_olts,
+        "inbox_metrics": inbox_metrics,
+        "inbox_stats": inbox_stats,
     }
 
 

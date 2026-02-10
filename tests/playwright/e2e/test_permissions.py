@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
 from playwright.sync_api import Page, expect
-
 from tests.playwright.helpers.api import api_get, api_post_json, bearer_headers
 
 

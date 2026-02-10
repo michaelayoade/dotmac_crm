@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.services import web_auth as web_auth_service
+
 router = APIRouter(prefix="/auth", tags=["web-auth"])
 
 

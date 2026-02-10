@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.common import ListResponse
+from app.schemas.timecost import CostSummary
 from app.schemas.workforce import (
     WorkOrderAssignmentCreate,
     WorkOrderAssignmentRead,
@@ -14,9 +15,8 @@ from app.schemas.workforce import (
     WorkOrderRead,
     WorkOrderUpdate,
 )
-from app.schemas.timecost import CostSummary
-from app.services import workforce as workforce_service
 from app.services import timecost as timecost_service
+from app.services import workforce as workforce_service
 
 router = APIRouter()
 

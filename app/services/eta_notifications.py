@@ -5,7 +5,7 @@ or when ETA is updated.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,6 @@ def _resolve_customer_contact(db: Session, work_order: WorkOrder) -> dict | None
 
     Returns dict with name, email, phone if found, otherwise None.
     """
-    from app.models.person import Person
 
     if work_order.subscriber and work_order.subscriber.person:
         person = work_order.subscriber.person
@@ -43,8 +42,8 @@ def send_eta_notification(db: Session, work_order_id: str) -> bool:
     Returns:
         True if notification was sent successfully
     """
-    from app.services import sms as sms_service
     from app.services import email as email_service
+    from app.services import sms as sms_service
 
     work_order = db.get(WorkOrder, coerce_uuid(work_order_id))
     if not work_order:
@@ -106,7 +105,7 @@ def send_eta_notification(db: Session, work_order_id: str) -> bool:
     # Send email if available
     if contact.get("email"):
         try:
-            from app.models.notification import NotificationTemplate, NotificationChannel
+            from app.models.notification import NotificationChannel, NotificationTemplate
 
             template = (
                 db.query(NotificationTemplate)
@@ -159,8 +158,8 @@ def send_technician_assigned_notification(db: Session, work_order_id: str) -> bo
     Returns:
         True if notification was sent successfully
     """
-    from app.services import sms as sms_service
     from app.services import email as email_service
+    from app.services import sms as sms_service
 
     work_order = db.get(WorkOrder, coerce_uuid(work_order_id))
     if not work_order:
@@ -216,7 +215,7 @@ def send_technician_assigned_notification(db: Session, work_order_id: str) -> bo
     # Send email
     if contact.get("email"):
         try:
-            from app.models.notification import NotificationTemplate, NotificationChannel
+            from app.models.notification import NotificationChannel, NotificationTemplate
 
             template = (
                 db.query(NotificationTemplate)
@@ -226,7 +225,7 @@ def send_technician_assigned_notification(db: Session, work_order_id: str) -> bo
                 .first()
             )
 
-            subject = f"Your Technician Has Been Assigned"
+            subject = "Your Technician Has Been Assigned"
             body = f"""Dear {context['customer_name']},
 
 A technician has been assigned to your service request.
@@ -299,12 +298,12 @@ def send_work_order_completed_notification(db: Session, work_order_id: str) -> b
         "work_order_number": str(work_order.id)[:8].upper(),
         "work_order_title": work_order.title or "Service Visit",
         "technician_name": technician_name,
-        "completed_at": datetime.now(timezone.utc).strftime("%B %d, %Y at %H:%M"),
+        "completed_at": datetime.now(UTC).strftime("%B %d, %Y at %H:%M"),
         "completion_notes": work_order.notes or "Work completed successfully.",
     }
 
     try:
-        from app.models.notification import NotificationTemplate, NotificationChannel
+        from app.models.notification import NotificationChannel, NotificationTemplate
 
         template = (
             db.query(NotificationTemplate)

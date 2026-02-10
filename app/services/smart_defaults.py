@@ -1,7 +1,7 @@
 """Smart Defaults Service - Provides intelligent default values for forms."""
 
 from datetime import date, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -151,8 +151,8 @@ class SmartDefaultsService:
 
     def calculate_due_date(
         self,
-        issued_at: Optional[date] = None,
-        payment_terms_days: Optional[int] = None
+        issued_at: date | None = None,
+        payment_terms_days: int | None = None
     ) -> date:
         """
         Calculate the due date based on issue date and payment terms.

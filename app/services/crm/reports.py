@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -12,9 +12,9 @@ from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirecti
 from app.models.crm.sales import Lead, PipelineStage
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.person import Person
+from app.models.projects import Project, ProjectTask
 from app.models.tickets import Ticket, TicketSlaEvent, TicketStatus
 from app.models.workforce import WorkOrder
-from app.models.projects import Project, ProjectTask
 from app.services.common import coerce_uuid
 
 
@@ -219,8 +219,6 @@ def inbox_kpis(
         convo_ids = [c.id for c in conversations]
 
         # Batch query: first inbound message per conversation using window function
-        from sqlalchemy import over
-        from sqlalchemy.sql import literal_column
 
         inbound_subq = (
             db.query(
@@ -711,8 +709,8 @@ def sales_pipeline_metrics(
 
     stage_breakdown = []
     for stage in stages:
-        stage_leads = [l for l in leads if l.stage_id == stage.id]
-        stage_value = sum((l.estimated_value or Decimal(0)) for l in stage_leads)
+        stage_leads = [lead for lead in leads if lead.stage_id == stage.id]
+        stage_value = sum((lead.estimated_value or Decimal(0)) for lead in stage_leads)
         stage_breakdown.append({
             "id": str(stage.id),
             "name": stage.name,
@@ -770,14 +768,15 @@ def sales_forecast(
         month_end = month_start.replace(day=last_day)
 
         month_leads = [
-            l for l in leads
-            if l.expected_close_date and month_start <= l.expected_close_date <= month_end
+            lead
+            for lead in leads
+            if lead.expected_close_date and month_start <= lead.expected_close_date <= month_end
         ]
 
-        expected_value = sum((l.estimated_value or Decimal(0)) for l in month_leads)
+        expected_value = sum((lead.estimated_value or Decimal(0)) for lead in month_leads)
         weighted_value = sum(
-            (l.estimated_value or Decimal(0)) * Decimal(l.probability or 50) / Decimal(100)
-            for l in month_leads
+            (lead.estimated_value or Decimal(0)) * Decimal(lead.probability or 50) / Decimal(100)
+            for lead in month_leads
         )
 
         forecast.append({
@@ -846,10 +845,10 @@ def agent_sales_performance(
         if person:
             name = person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or "Agent"
 
-        won = [l for l in agent_lead_list if l.status == LeadStatus.won]
-        lost = [l for l in agent_lead_list if l.status == LeadStatus.lost]
+        won = [lead for lead in agent_lead_list if lead.status == LeadStatus.won]
+        lost = [lead for lead in agent_lead_list if lead.status == LeadStatus.lost]
 
-        won_value = sum((l.estimated_value or Decimal(0)) for l in won)
+        won_value = sum((lead.estimated_value or Decimal(0)) for lead in won)
         total_closed = len(won) + len(lost)
         win_rate = (len(won) / total_closed * 100) if total_closed > 0 else None
 

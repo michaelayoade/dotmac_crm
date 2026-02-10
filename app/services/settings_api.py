@@ -1,8 +1,7 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.domain_settings import SettingDomain
-from app.models.domain_settings import SettingValueType
+from app.models.domain_settings import SettingDomain, SettingValueType
 from app.schemas.settings import DomainSettingUpdate
 from app.services import domain_settings as settings_service
 from app.services import settings_spec
@@ -127,7 +126,7 @@ def _normalize_spec_setting(
             status_code=400, detail=f"Value must be one of: {allowed}"
         )
     if spec.value_type == SettingValueType.integer:
-        if not isinstance(coerced, (int, str)):
+        if not isinstance(coerced, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             parsed = int(coerced)
@@ -239,7 +238,7 @@ def _normalize_gis_setting(key: str, payload: DomainSettingUpdate) -> DomainSett
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
     if key == "sync_interval_minutes":
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             minutes = int(value)
@@ -321,7 +320,7 @@ def _normalize_geocoding_setting(
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
     if key in _GEOCODING_SETTING_INT_KEYS:
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             parsed = int(value)
@@ -407,7 +406,7 @@ def _normalize_radius_setting(key: str, payload: DomainSettingUpdate) -> DomainS
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
     if key in _RADIUS_SETTING_INT_KEYS:
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             parsed = int(value)
@@ -506,7 +505,7 @@ def _normalize_auth_setting(key: str, payload: DomainSettingUpdate) -> DomainSet
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
     if key in _AUTH_SETTING_INT_KEYS:
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             parsed = int(value)
@@ -691,7 +690,7 @@ def _normalize_imports_setting(
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
-    if not isinstance(value, (int, str)):
+    if not isinstance(value, int | str):
         raise HTTPException(status_code=400, detail="Value must be an integer")
     try:
         parsed = int(value)
@@ -757,7 +756,7 @@ def _normalize_notification_setting(
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
     if key in _NOTIFICATION_SETTING_INT_KEYS:
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             parsed = int(value)
@@ -845,7 +844,7 @@ def _normalize_scheduler_setting(
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
     if key in {"beat_max_loop_interval", "beat_refresh_seconds"}:
-        if not isinstance(value, (int, str)):
+        if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
             parsed = int(value)

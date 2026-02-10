@@ -142,9 +142,13 @@ class DotMacERPClient:
             )
 
         if response.status_code >= 400:
-            error_msg = data.get("detail") if isinstance(data, dict) else str(data)
+            if isinstance(data, dict):
+                error_msg = data.get("detail") or data.get("message") or data.get("error") or str(data)
+            else:
+                error_msg = str(data)
+            logger.warning("ERP API error: status=%s body=%s", response.status_code, data)
             raise DotMacERPError(
-                f"API error: {error_msg}",
+                f"API error ({response.status_code}): {error_msg}",
                 status_code=response.status_code,
                 response=data,
             )
@@ -310,6 +314,132 @@ class DotMacERPClient:
 
         result = self._request("GET", "/api/v1/sync/expense-totals", params=params)
         return result if isinstance(result, dict) else {}
+
+    # ============ Material Request API Methods ============
+
+    def push_material_request(self, payload: dict, idempotency_key: str | None = None) -> dict:
+        """Push an approved material request to ERP.
+
+        Args:
+            payload: Material request data (see MaterialRequestSync._map_material_request)
+            idempotency_key: Idempotency key for safe retries
+
+        Returns:
+            ERP response with material_request_id
+        """
+        result = self._request(
+            "POST",
+            "/api/v1/sync/crm/material-requests",
+            json_data=payload,
+            idempotency_key=idempotency_key or f"mr-{uuid.uuid4()}",
+        )
+        return result if isinstance(result, dict) else {}
+
+    def get_material_request_status(self, omni_id: str) -> dict | None:
+        """Check material request fulfillment status from ERP.
+
+        Args:
+            omni_id: CRM material request UUID
+
+        Returns:
+            Status dict or None if not found
+        """
+        try:
+            result = self._request("GET", f"/api/v1/sync/crm/material-requests/{omni_id}")
+            return result if isinstance(result, dict) else None
+        except DotMacERPNotFoundError:
+            return None
+
+    # ============ Customer/Contact API Methods ============
+
+    def get_companies(
+        self,
+        updated_since: str | None = None,
+        include_inactive: bool = False,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Fetch B2B companies from ERP for Organization sync.
+
+        Args:
+            updated_since: ISO datetime for incremental sync
+            include_inactive: Include archived companies
+            limit: Pagination limit
+            offset: Pagination offset
+
+        Returns:
+            List of company dicts
+        """
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if updated_since:
+            params["updated_since"] = updated_since
+        if include_inactive:
+            params["include_inactive"] = "true"
+
+        result = self._request("GET", "/api/v1/sync/crm/contacts/companies", params=params)
+        if isinstance(result, dict):
+            return result.get("companies", [])
+        return result if isinstance(result, list) else []
+
+    def get_contacts(
+        self,
+        updated_since: str | None = None,
+        company_id: str | None = None,
+        include_inactive: bool = False,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Fetch individual contacts from ERP for Person sync.
+
+        Args:
+            updated_since: ISO datetime for incremental sync
+            company_id: Filter by company
+            include_inactive: Include archived contacts
+            limit: Pagination limit
+            offset: Pagination offset
+
+        Returns:
+            List of contact dicts
+        """
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if updated_since:
+            params["updated_since"] = updated_since
+        if company_id:
+            params["company_id"] = company_id
+        if include_inactive:
+            params["include_inactive"] = "true"
+
+        result = self._request("GET", "/api/v1/sync/crm/contacts/people", params=params)
+        if isinstance(result, dict):
+            return result.get("contacts", [])
+        return result if isinstance(result, list) else []
+
+    # ============ Department API Methods ============
+
+    def get_departments(
+        self,
+        include_inactive: bool = False,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Fetch departments from ERP for ServiceTeam sync.
+
+        Args:
+            include_inactive: Include archived departments
+            limit: Pagination limit
+            offset: Pagination offset
+
+        Returns:
+            List of department dicts with members
+        """
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if include_inactive:
+            params["include_inactive"] = "true"
+
+        result = self._request("GET", "/api/v1/sync/crm/workforce/departments", params=params)
+        if isinstance(result, dict):
+            return result.get("departments", [])
+        return result if isinstance(result, list) else []
 
     # ============ Inventory API Methods ============
 

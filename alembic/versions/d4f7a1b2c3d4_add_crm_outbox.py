@@ -5,10 +5,9 @@ Revises: e467ee5c4c52
 Create Date: 2026-02-08
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
-
 
 # revision identifiers, used by Alembic.
 revision = "d4f7a1b2c3d4"
@@ -33,7 +32,24 @@ def upgrade():
             sa.ForeignKey("crm_messages.id"),
             nullable=True,
         ),
-        sa.Column("channel_type", sa.Enum("email", "whatsapp", "facebook_messenger", "instagram_dm", "sms", "telegram", "webchat", "phone", "chat_widget", "note", name="channeltype"), nullable=False),
+        sa.Column(
+            "channel_type",
+            postgresql.ENUM(
+                "email",
+                "whatsapp",
+                "facebook_messenger",
+                "instagram_dm",
+                "sms",
+                "telegram",
+                "webchat",
+                "phone",
+                "chat_widget",
+                "note",
+                name="channeltype",
+                create_type=False,
+            ),
+            nullable=False,
+        ),
         sa.Column("status", sa.String(length=32), nullable=False, server_default="queued"),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("next_attempt_at", sa.DateTime(timezone=True), nullable=True),

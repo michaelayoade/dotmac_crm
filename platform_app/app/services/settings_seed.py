@@ -4,10 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingValueType
 from app.services.domain_settings import (
-    auth_settings,
     audit_settings,
-    imports_settings,
+    auth_settings,
     gis_settings,
+    imports_settings,
     scheduler_settings,
 )
 from app.services.secrets import is_openbao_ref

@@ -1,10 +1,10 @@
 """Compatibility wrapper for contact service imports."""
 
 from app.services.crm.contacts.service import (
-    Contacts,
     ContactChannels,
-    contacts,
+    Contacts,
     contact_channels,
+    contacts,
     get_contact_context,
     get_contact_conversations_summary,
     get_contact_recent_conversations,
@@ -19,10 +19,10 @@ from app.services.crm.contacts.service import (
 )
 
 __all__ = [
-    "Contacts",
     "ContactChannels",
-    "contacts",
+    "Contacts",
     "contact_channels",
+    "contacts",
     "get_contact_context",
     "get_contact_conversations_summary",
     "get_contact_recent_conversations",

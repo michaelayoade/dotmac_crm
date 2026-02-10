@@ -4,11 +4,11 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.analytics import KPIAggregate, KPIConfig
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workflow import SlaBreach
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.schemas.analytics import KPIAggregateCreate, KPIConfigCreate, KPIConfigUpdate
+from app.services.common import apply_ordering, apply_pagination
 from app.services.response import ListResponseMixin
 
 

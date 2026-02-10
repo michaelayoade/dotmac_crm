@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.services.crm import comments as comments_service
 from app.services.crm.inbox.audit import log_comment_action
+from app.services.crm.inbox.permissions import can_reply_to_comments
 
 
 @dataclass(frozen=True)
 class CommentReplyResult:
-    kind: Literal["not_found", "error", "success"]
+    kind: Literal["forbidden", "not_found", "error", "success"]
     error_detail: str | None = None
 
 
@@ -23,7 +24,14 @@ async def reply_to_social_comment(
     comment_id: str,
     message: str,
     actor_id: str | None = None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> CommentReplyResult:
+    if (roles is not None or scopes is not None) and not can_reply_to_comments(roles, scopes):
+        return CommentReplyResult(
+            kind="forbidden",
+            error_detail="Not authorized to reply to comments",
+        )
     comment = comments_service.get_social_comment(db, comment_id)
     if not comment:
         return CommentReplyResult(kind="not_found")

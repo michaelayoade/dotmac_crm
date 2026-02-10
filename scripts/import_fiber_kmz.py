@@ -1,11 +1,32 @@
 import argparse
+import itertools
 import json
 import math
 import zipfile
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
 from xml.etree import ElementTree as ET
+
+from sqlalchemy import func
+
+from app.db import SessionLocal
+from app.models.gis import ServiceBuilding
+from app.models.network import (
+    FdhCabinet,
+    FiberAccessPoint,
+    FiberCableType,
+    FiberSegment,
+    FiberSegmentType,
+    FiberSplice,
+    FiberSpliceClosure,
+    FiberSpliceTray,
+    PonPortSplitterLink,
+    Splitter,
+    SplitterPort,
+)
+from app.models.vendor import AsBuiltRoute
+from app.models.wireless_mast import WirelessMast
 
 load_dotenv: Callable[..., bool] | None
 try:
@@ -14,26 +35,6 @@ except ImportError:  # pragma: no cover - optional dependency for local env file
     load_dotenv = None
 else:
     load_dotenv = _load_dotenv
-from sqlalchemy import func
-
-from app.db import SessionLocal
-from app.models.gis import ServiceBuilding
-from app.models.network import (
-    FiberAccessPoint,
-    FiberCableType,
-    FiberSegment,
-    FiberSegmentType,
-    FiberSplice,
-    FiberSpliceClosure,
-    FiberSpliceTray,
-    FdhCabinet,
-    PonPortSplitterLink,
-    Splitter,
-    SplitterPort,
-)
-from app.models.vendor import AsBuiltRoute
-from app.models.wireless_mast import WirelessMast
-
 
 KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
 
@@ -145,11 +146,11 @@ def _iter_placemarks(root: ET.Element, limit: int | None = None) -> Iterable[Pla
 
 def _polygon_centroid(coords: list[tuple[float, float]]) -> tuple[float, float]:
     if coords[0] != coords[-1]:
-        coords = coords + [coords[0]]
+        coords = [*coords, coords[0]]
     area = 0.0
     cx = 0.0
     cy = 0.0
-    for (x0, y0), (x1, y1) in zip(coords, coords[1:]):
+    for (x0, y0), (x1, y1) in itertools.pairwise(coords):
         cross = x0 * y1 - x1 * y0
         area += cross
         cx += (x0 + x1) * cross
@@ -174,7 +175,7 @@ def _haversine_m(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
 
 def _line_length_m(coords: list[tuple[float, float]]) -> float:
     total = 0.0
-    for (lon1, lat1), (lon2, lat2) in zip(coords, coords[1:]):
+    for (lon1, lat1), (lon2, lat2) in itertools.pairwise(coords):
         total += _haversine_m(lon1, lat1, lon2, lat2)
     return total
 
@@ -461,7 +462,7 @@ def import_buildings(db, paths: list[Path], upsert: bool, limit: int | None):
             if placemark.geometry_type == "Polygon" and len(placemark.coordinates) >= 3:
                 coords = placemark.coordinates
                 if coords[0] != coords[-1]:
-                    coords = coords + [coords[0]]
+                    coords = [*coords, coords[0]]
                 geojson = {"type": "Polygon", "coordinates": [coords]}
                 boundary_geom = _geojson_to_geom(geojson)
             if existing:
@@ -585,12 +586,9 @@ def main():
 
         if args.dry_run:
             db.rollback()
-            print("Dry run complete. No changes written.")
         else:
             db.commit()
-            print("Import complete.")
 
-        print(f"Created: {total_created} Updated: {total_updated} Skipped: {total_skipped}")
     finally:
         db.close()
 

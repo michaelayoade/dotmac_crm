@@ -8,25 +8,13 @@ from app.models.workforce import (
     WorkOrder,
     WorkOrderAssignment,
     WorkOrderNote,
-    WorkOrderPriority,
     WorkOrderStatus,
-    WorkOrderType,
 )
 from app.queries.workforce import (
-    WorkOrderQuery,
     WorkOrderAssignmentQuery,
     WorkOrderNoteQuery,
+    WorkOrderQuery,
 )
-from app.services.common import (
-    apply_ordering,
-    apply_pagination,
-    coerce_uuid,
-    ensure_exists,
-    validate_enum,
-)
-from app.services.response import ListResponseMixin
-from app.services.events import emit_event
-from app.services.events.types import EventType
 from app.schemas.workforce import (
     WorkOrderAssignmentCreate,
     WorkOrderAssignmentUpdate,
@@ -35,6 +23,12 @@ from app.schemas.workforce import (
     WorkOrderNoteUpdate,
     WorkOrderUpdate,
 )
+from app.services.common import (
+    coerce_uuid,
+)
+from app.services.events import emit_event
+from app.services.events.types import EventType
+from app.services.response import ListResponseMixin
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -142,11 +136,11 @@ class WorkOrders(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Work order not found")
         previous_status = work_order.status
         data = payload.model_dump(exclude_unset=True)
-        if "ticket_id" in data and data["ticket_id"]:
+        if data.get("ticket_id"):
             _ensure_ticket(db, str(data["ticket_id"]))
-        if "project_id" in data and data["project_id"]:
+        if data.get("project_id"):
             _ensure_project(db, str(data["project_id"]))
-        if "assigned_to_person_id" in data and data["assigned_to_person_id"]:
+        if data.get("assigned_to_person_id"):
             _ensure_person(db, str(data["assigned_to_person_id"]))
         for key, value in data.items():
             setattr(work_order, key, value)

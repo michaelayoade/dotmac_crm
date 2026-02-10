@@ -2,8 +2,9 @@
 
 import json
 import re
-from math import ceil
 from datetime import UTC
+from math import ceil
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -13,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
+from app.logging import get_logger
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.domain_settings import SettingDomain
@@ -26,7 +28,6 @@ from app.services import tickets as tickets_service
 from app.services.audit_helpers import diff_dicts, extract_changes, format_changes, log_audit_event, model_to_dict
 from app.services.common import coerce_uuid
 from app.services.subscriber import subscriber as subscriber_service
-from app.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -321,6 +322,7 @@ def tickets_list(
 ):
     """List all tickets with filters."""
     offset = (page - 1) * per_page
+    from app.csrf import get_csrf_token
 
     subscriber_display = None
     subscriber_url = None
@@ -365,15 +367,11 @@ def tickets_list(
         total = base_query.count()
         total_pages = max(1, ceil(total / per_page)) if per_page else 1
 
-        tickets = (
-            base_query.with_relations()
-            .order_by("created_at", "desc")
-            .paginate(per_page, offset)
-            .all()
-        )
+        tickets = base_query.with_relations().order_by("created_at", "desc").paginate(per_page, offset).all()
 
     # Get stats by status
     stats = tickets_service.tickets.status_stats(db)
+    csrf_token = get_csrf_token(request)
 
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
@@ -381,6 +379,7 @@ def tickets_list(
             {
                 "request": request,
                 "tickets": tickets,
+                "csrf_token": csrf_token,
                 "search": search,
                 "status": status,
                 "priority": priority,
@@ -402,6 +401,7 @@ def tickets_list(
             "request": request,
             "tickets": tickets,
             "stats": stats,
+            "csrf_token": csrf_token,
             "search": search,
             "status": status,
             "priority": priority,
@@ -439,6 +439,7 @@ def ticket_create(
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin.projects import REGION_OPTIONS
 
     prefill = {
         "conversation_id": None,
@@ -451,6 +452,7 @@ def ticket_create(
         "customer_label": "",
         "channel": None,
         "customer": None,
+        "region": None,
     }
 
     if conversation_id:
@@ -511,6 +513,8 @@ def ticket_create(
         prefill["subscriber_id"] = subscriber_id
         subscriber_obj = _select_subscriber_by_id(db, subscriber_id)
         prefill["subscriber_label"] = _build_subscriber_label(subscriber_obj)
+        if subscriber_obj and subscriber_obj.service_region:
+            prefill["region"] = subscriber_obj.service_region
     if customer_person_id:
         prefill["customer_person_id"] = customer_person_id
     if lead_id:
@@ -520,6 +524,8 @@ def ticket_create(
         if subscriber_obj:
             prefill["subscriber_id"] = str(subscriber_obj.id)
             prefill["subscriber_label"] = _build_subscriber_label(subscriber_obj)
+            if subscriber_obj.service_region:
+                prefill["region"] = subscriber_obj.service_region
     if channel and channel in {c.value for c in TicketChannel}:
         prefill["channel"] = channel
 
@@ -555,6 +561,7 @@ def ticket_create(
             "ticket": None,
             "accounts": accounts,
             "technicians": technicians,
+            "region_options": REGION_OPTIONS,
             "ticket_types": ticket_types,
             "ticket_type_priority_map": ticket_type_priority_map,
             "action_url": "/admin/support/tickets",
@@ -615,10 +622,12 @@ def ticket_customer_lookup(
             "phone": person.phone,
             "address": _format_person_address(person),
             "organization": person.organization.name if person.organization else None,
+            "region": person.region,
         }
 
+    subscriber_data = None
     if subscriber:
-        subscriber = {
+        subscriber_data = {
             "id": str(subscriber.id),
             "subscriber_number": subscriber.subscriber_number,
             "account_number": subscriber.account_number,
@@ -626,12 +635,13 @@ def ticket_customer_lookup(
             "service_plan": subscriber.service_plan,
             "service_speed": subscriber.service_speed,
             "service_address": subscriber.service_address,
+            "service_region": subscriber.service_region,
         }
 
     return JSONResponse(
         {
             "customer": customer,
-            "subscriber": subscriber,
+            "subscriber": subscriber_data,
         }
     )
 
@@ -646,6 +656,10 @@ async def ticket_create_post(
     customer_search: str | None = Form(None),
     lead_id: str | None = Form(None),
     assigned_to_person_id: str | None = Form(None),
+    assigned_to_person_ids: list[str] | None = Form(None),
+    ticket_manager_person_id: str | None = Form(None),
+    assistant_manager_person_id: str | None = Form(None),
+    region: str | None = Form(None),
     ticket_type: str | None = Form(None),
     priority: str = Form("normal"),
     channel: str = Form("web"),
@@ -659,13 +673,14 @@ async def ticket_create_post(
     """Create a new ticket."""
     from datetime import datetime
 
-    from app.models.tickets import TicketChannel, TicketPriority, TicketStatus
+    from app.models.tickets import TicketChannel
     from app.schemas.tickets import TicketCreate
 
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
     from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin.projects import REGION_OPTIONS
 
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
@@ -676,9 +691,7 @@ async def ticket_create_post(
         else:
             try:
                 form = await request.form()
-                upload_list = [
-                    item for item in form.getlist("attachments") if isinstance(item, UploadFile)
-                ]
+                upload_list = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
             except Exception:
                 upload_list = []
         if upload_list:
@@ -745,22 +758,42 @@ async def ticket_create_post(
             customer_person_id,
             customer_search,
         )
-        payload = TicketCreate(
-            title=title,
-            description=description if description else None,
-            subscriber_id=_coerce_uuid_optional(subscriber_id, "subscriber"),
-            lead_id=_coerce_uuid_optional(lead_id, "lead"),
-            customer_person_id=resolved_customer_person_id,
-            assigned_to_person_id=_coerce_uuid_optional(assigned_to_person_id, "technician"),
-            created_by_person_id=_coerce_uuid_optional(current_user.get("person_id") if current_user else None, "user"),
-            priority=priority_map.get(priority, TicketPriority.medium),
-            ticket_type=ticket_type.strip() if ticket_type else None,
-            channel=channel_map.get(channel, TicketChannel.web),
-            status=status_map.get(status, TicketStatus.new),
-            due_at=due_datetime,
-            tags=tag_list,
-            metadata_=metadata_value,
-        )
+        try:
+            form = await request.form()
+            form_assignees = form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids")
+            if form_assignees is not None:
+                assigned_to_person_ids = form_assignees
+        except Exception:
+            form_assignees = []
+        normalized_assignees = [item for item in (assigned_to_person_ids or []) if item]
+        primary_assignee = normalized_assignees[0] if normalized_assignees else assigned_to_person_id
+        payload_data = {
+            "title": title,
+            "description": description if description else None,
+            "subscriber_id": _coerce_uuid_optional(subscriber_id, "subscriber"),
+            "lead_id": _coerce_uuid_optional(lead_id, "lead"),
+            "customer_person_id": resolved_customer_person_id,
+            "assigned_to_person_id": _coerce_uuid_optional(primary_assignee, "technician"),
+            "ticket_manager_person_id": _coerce_uuid_optional(ticket_manager_person_id, "ticket_manager"),
+            "assistant_manager_person_id": _coerce_uuid_optional(assistant_manager_person_id, "assistant_manager"),
+            "region": region.strip() if region else None,
+            "created_by_person_id": _coerce_uuid_optional(
+                current_user.get("person_id") if current_user else None,
+                "user",
+            ),
+            "priority": priority_map.get(priority, TicketPriority.medium),
+            "ticket_type": ticket_type.strip() if ticket_type else None,
+            "channel": channel_map.get(channel, TicketChannel.web),
+            "status": status_map.get(status, TicketStatus.new),
+            "due_at": due_datetime,
+            "tags": tag_list,
+            "metadata_": metadata_value,
+        }
+        if assigned_to_person_ids is not None:
+            payload_data["assigned_to_person_ids"] = [
+                _coerce_uuid_optional(item, "technician") for item in normalized_assignees
+            ]
+        payload = TicketCreate(**payload_data)
         ticket = tickets_service.tickets.create(db=db, payload=payload)
         if conversation_id:
             try:
@@ -815,6 +848,7 @@ async def ticket_create_post(
                 "ticket": None,
                 "accounts": accounts,
                 "technicians": technicians,
+                "region_options": REGION_OPTIONS,
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
                 "action_url": "/admin/support/tickets",
@@ -835,8 +869,10 @@ def ticket_edit(
 ):
     """Edit support ticket form."""
     # subscriber_service removed
+    from app.models.tickets import TicketStatus
     from app.services import dispatch as dispatch_service
     from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin.projects import REGION_OPTIONS
 
     try:
         ticket, should_redirect = _resolve_ticket_reference(db, ticket_ref)
@@ -872,9 +908,12 @@ def ticket_edit(
     )
     ticket_types, ticket_type_priority_map = _load_ticket_types(db)
     ticket_types = [item for item in ticket_types if item.get("is_active")]
-    if ticket and ticket.ticket_type:
-        if not any(item.get("name") == ticket.ticket_type for item in ticket_types):
-            ticket_types = [{"name": ticket.ticket_type, "priority": None, "is_active": False}] + ticket_types
+    if ticket and ticket.ticket_type and not any(item.get("name") == ticket.ticket_type for item in ticket_types):
+        ticket_types = [{"name": ticket.ticket_type, "priority": None, "is_active": False}, *ticket_types]
+
+    error_message = None
+    if ticket.status in {TicketStatus.closed, TicketStatus.canceled}:
+        error_message = "This ticket is closed or canceled and cannot be edited."
 
     return templates.TemplateResponse(
         "admin/tickets/form.html",
@@ -883,9 +922,11 @@ def ticket_edit(
             "ticket": ticket,
             "accounts": accounts,
             "technicians": technicians,
+            "region_options": REGION_OPTIONS,
             "ticket_types": ticket_types,
             "ticket_type_priority_map": ticket_type_priority_map,
             "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
+            "error": error_message,
             "active_page": "tickets",
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
@@ -903,6 +944,10 @@ async def ticket_edit_post(
     customer_person_id: str | None = Form(None),
     customer_search: str | None = Form(None),
     assigned_to_person_id: str | None = Form(None),
+    assigned_to_person_ids: list[str] | None = Form(None),
+    ticket_manager_person_id: str | None = Form(None),
+    assistant_manager_person_id: str | None = Form(None),
+    region: str | None = Form(None),
     ticket_type: str | None = Form(None),
     priority: str = Form("normal"),
     channel: str = Form("web"),
@@ -915,7 +960,7 @@ async def ticket_edit_post(
     """Update a support ticket."""
     from datetime import datetime
 
-    from app.models.tickets import TicketChannel, TicketPriority, TicketStatus
+    from app.models.tickets import TicketChannel, TicketStatus
     from app.schemas.tickets import TicketUpdate
 
     # subscriber_service removed
@@ -934,7 +979,58 @@ async def ticket_edit_post(
             status_code=404,
         )
 
+    if ticket.status in {TicketStatus.closed, TicketStatus.canceled}:
+        accounts: list[dict[str, str]] = []  # subscriber_service removed
+        technicians = dispatch_service.technicians.list(
+            db=db,
+            person_id=None,
+            region=None,
+            is_active=True,
+            order_by="created_at",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        technicians = sorted(
+            technicians,
+            key=lambda tech: (
+                (tech.person.last_name or "").lower() if tech.person else "",
+                (tech.person.first_name or "").lower() if tech.person else "",
+            ),
+        )
+        ticket_types, ticket_type_priority_map = _load_ticket_types(db)
+        ticket_types = [item for item in ticket_types if item.get("is_active")]
+        if ticket.ticket_type and not any(item.get("name") == ticket.ticket_type for item in ticket_types):
+            ticket_types = [{"name": ticket.ticket_type, "priority": None, "is_active": False}, *ticket_types]
+        return templates.TemplateResponse(
+            "admin/tickets/form.html",
+            {
+                "request": request,
+                "ticket": ticket,
+                "accounts": accounts,
+                "technicians": technicians,
+                "region_options": REGION_OPTIONS,
+                "ticket_types": ticket_types,
+                "ticket_type_priority_map": ticket_type_priority_map,
+                "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
+                "error": "This ticket is closed or canceled and cannot be edited.",
+                "active_page": "tickets",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+            },
+            status_code=400,
+        )
+
     try:
+
+        def _assignee_ids(current_ticket):
+            if current_ticket.assignees:
+                return [str(assignee.person_id) for assignee in current_ticket.assignees]
+            if current_ticket.assigned_to_person_id:
+                return [str(current_ticket.assigned_to_person_id)]
+            return []
+
+        before_assignee_ids = _assignee_ids(ticket)
         before_state = model_to_dict(
             ticket,
             include={
@@ -942,6 +1038,9 @@ async def ticket_edit_post(
                 "customer_person_id",
                 "created_by_person_id",
                 "assigned_to_person_id",
+                "ticket_manager_person_id",
+                "assistant_manager_person_id",
+                "region",
                 "title",
                 "description",
                 "status",
@@ -962,9 +1061,7 @@ async def ticket_edit_post(
         else:
             try:
                 form = await request.form()
-                upload_list = [
-                    item for item in form.getlist("attachments") if isinstance(item, UploadFile)
-                ]
+                upload_list = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
             except Exception:
                 upload_list = []
 
@@ -1030,12 +1127,24 @@ async def ticket_edit_post(
             customer_person_id,
             customer_search,
         )
-        update_data = {
+        try:
+            form = await request.form()
+            form_assignees = form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids")
+            if form_assignees is not None:
+                assigned_to_person_ids = form_assignees
+        except Exception:
+            form_assignees = []
+        normalized_assignees = [item for item in (assigned_to_person_ids or []) if item]
+        primary_assignee = normalized_assignees[0] if normalized_assignees else assigned_to_person_id
+        update_data: dict[str, Any] = {
             "title": title,
             "description": description if description else None,
             "subscriber_id": _coerce_uuid_optional(subscriber_id, "subscriber"),
             "customer_person_id": resolved_customer_person_id,
-            "assigned_to_person_id": _coerce_uuid_optional(assigned_to_person_id, "technician"),
+            "assigned_to_person_id": _coerce_uuid_optional(primary_assignee, "technician"),
+            "ticket_manager_person_id": _coerce_uuid_optional(ticket_manager_person_id, "ticket_manager"),
+            "assistant_manager_person_id": _coerce_uuid_optional(assistant_manager_person_id, "assistant_manager"),
+            "region": region.strip() if region else None,
             "priority": priority_map.get(priority, ticket.priority),
             "ticket_type": ticket_type.strip() if ticket_type else None,
             "channel": channel_map.get(channel, ticket.channel),
@@ -1043,6 +1152,10 @@ async def ticket_edit_post(
             "due_at": due_datetime,
             "tags": tag_list,
         }
+        if assigned_to_person_ids is not None:
+            update_data["assigned_to_person_ids"] = [
+                _coerce_uuid_optional(item, "technician") for item in normalized_assignees
+            ]
 
         if new_status == TicketStatus.resolved and not ticket.resolved_at:
             update_data["resolved_at"] = datetime.now(UTC)
@@ -1055,6 +1168,7 @@ async def ticket_edit_post(
         payload = TicketUpdate(**update_data)
         tickets_service.tickets.update(db=db, ticket_id=str(ticket.id), payload=payload)
         updated_ticket = tickets_service.tickets.get(db=db, ticket_id=str(ticket.id))
+        after_assignee_ids = _assignee_ids(updated_ticket)
         after_state = model_to_dict(
             updated_ticket,
             include={
@@ -1062,6 +1176,9 @@ async def ticket_edit_post(
                 "customer_person_id",
                 "created_by_person_id",
                 "assigned_to_person_id",
+                "ticket_manager_person_id",
+                "assistant_manager_person_id",
+                "region",
                 "title",
                 "description",
                 "status",
@@ -1076,6 +1193,29 @@ async def ticket_edit_post(
             },
         )
         changes = diff_dicts(before_state, after_state)
+        if set(before_assignee_ids) != set(after_assignee_ids):
+            all_ids = set(before_assignee_ids) | set(after_assignee_ids)
+            people_map = {}
+            if all_ids:
+                people_map = {
+                    str(person.id): person for person in db.query(Person).filter(Person.id.in_(all_ids)).all()
+                }
+
+            def _labels(ids):
+                labels = []
+                for pid in ids:
+                    person = people_map.get(pid)
+                    if person:
+                        label = person.display_name or f"{person.first_name} {person.last_name}".strip() or person.email
+                        labels.append(label)
+                return labels
+
+            before_labels = _labels(before_assignee_ids)
+            after_labels = _labels(after_assignee_ids)
+            changes["assignees"] = {
+                "from": ", ".join(before_labels) if before_labels else "Unassigned",
+                "to": ", ".join(after_labels) if after_labels else "Unassigned",
+            }
         metadata_payload = {"changes": changes} if changes else None
         current_user = get_current_user(request)
         _log_activity(
@@ -1110,9 +1250,8 @@ async def ticket_edit_post(
         )
         ticket_types, ticket_type_priority_map = _load_ticket_types(db)
         ticket_types = [item for item in ticket_types if item.get("is_active")]
-        if ticket and ticket.ticket_type:
-            if not any(item.get("name") == ticket.ticket_type for item in ticket_types):
-                ticket_types = [{"name": ticket.ticket_type, "priority": None, "is_active": False}] + ticket_types
+        if ticket and ticket.ticket_type and not any(item.get("name") == ticket.ticket_type for item in ticket_types):
+            ticket_types = [{"name": ticket.ticket_type, "priority": None, "is_active": False}, *ticket_types]
         return templates.TemplateResponse(
             "admin/tickets/form.html",
             {
@@ -1120,13 +1259,14 @@ async def ticket_edit_post(
                 "ticket": ticket,
                 "accounts": accounts,
                 "technicians": technicians,
+                "region_options": REGION_OPTIONS,
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
-            "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
-            "error": str(e),
-            "active_page": "tickets",
-            "current_user": get_current_user(request),
-            "sidebar_stats": get_sidebar_stats(db),
+                "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
+                "error": str(e),
+                "active_page": "tickets",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
             },
             status_code=400,
         )
@@ -1195,6 +1335,17 @@ def ticket_detail(
     except Exception:
         pass  # ERP sync not configured or failed
 
+    # Fetch material requests linked to this ticket
+    ticket_material_requests = []
+    try:
+        from app.services.material_requests import material_requests as mr_service
+
+        ticket_material_requests = mr_service.list(
+            db, ticket_id=str(ticket.id), order_by="created_at", order_dir="desc", limit=20, offset=0
+        )
+    except Exception:
+        pass
+
     ticket_attachments = []
     try:
         metadata = ticket.metadata_ if isinstance(ticket.metadata_, dict) else {}
@@ -1261,6 +1412,7 @@ def ticket_detail(
             "comments": comments,
             "activities": activities,
             "expense_totals": expense_totals,
+            "material_requests": ticket_material_requests,
             "ticket_attachments": ticket_attachments,
             "customer_details": customer_details,
             "subscriber_details": subscriber_details,
@@ -1316,7 +1468,6 @@ def update_ticket_status(
     """Update ticket status."""
     from datetime import datetime
 
-    from app.models.tickets import TicketStatus
     from app.schemas.tickets import TicketUpdate
     from app.web.admin import get_current_user
 
@@ -1378,7 +1529,6 @@ def update_ticket_priority(
     db: Session = Depends(get_db),
 ):
     """Update ticket priority."""
-    from app.models.tickets import TicketPriority
     from app.schemas.tickets import TicketUpdate
     from app.web.admin import get_current_user
 
@@ -1450,9 +1600,7 @@ async def add_ticket_comment(
         else:
             try:
                 form = await request.form()
-                upload_list = [
-                    item for item in form.getlist("attachments") if isinstance(item, UploadFile)
-                ]
+                upload_list = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
             except Exception:
                 upload_list = []
 

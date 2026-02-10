@@ -3,14 +3,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import http.cookies
+import json
 import os
 import sys
-from dataclasses import dataclass
-
-import json
-import http.cookies
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 
 
 def _normalize_whitespace(value: str) -> str:
@@ -84,7 +83,7 @@ class DotmacClient:
             query = urllib.parse.urlencode(params)
             url = f"{url}?{query}"
         if self.debug:
-            print(f"[DEBUG] {method} {url}")
+            pass
         data = None
         headers = dict(self.headers)
         if content_type:
@@ -100,14 +99,14 @@ class DotmacClient:
             else:
                 data = json.dumps(payload).encode("utf-8")
             if self.debug:
-                print(f"[DEBUG] payload={payload}")
+                pass
         req = urllib.request.Request(url, data=data, method=method, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = resp.read().decode("utf-8")
                 self._store_cookies(resp)
                 if self.debug:
-                    print(f"[DEBUG] status={resp.status} body={body}")
+                    pass
                 if not body:
                     return {} if parse_json else ""
                 if parse_json:
@@ -117,7 +116,7 @@ class DotmacClient:
             body = exc.read().decode("utf-8")
             self._store_cookies(exc)
             if self.debug:
-                print(f"[DEBUG] status={exc.code} body={body}")
+                pass
             msg = body or str(exc)
             raise DotmacError(exc.code, exc.reason, msg) from exc
 
@@ -278,7 +277,6 @@ def main() -> int:
 
     rows = load_rows(args.csv)
     if not rows:
-        print("No rows found.")
         return 0
 
     client = DotmacClient(args.base_url, args.token, debug=args.debug)
@@ -307,7 +305,6 @@ def main() -> int:
             }
 
             if args.dry_run:
-                print(f"DRY RUN: would create {row.email} ({row.first_name} {row.last_name})")
                 created += 1
                 report_rows.append({"email": row.email, "status": "dry_run", "note": ""})
                 continue
@@ -322,14 +319,12 @@ def main() -> int:
                 try:
                     body = client.create_system_user(form_payload)
                 except DotmacError as exc:
-                    print(f"Failed to create {row.email}: {exc}")
                     failures += 1
                     report_rows.append({"email": row.email, "status": "error", "note": str(exc)})
                     continue
 
                 body_lower = body.lower()
                 if "user already exists" in body_lower or "username already in use" in body_lower:
-                    print(f"Already exists, skipped create for {row.email}")
                     skipped_existing += 1
                     report_rows.append({"email": row.email, "status": "exists", "note": ""})
                     continue
@@ -339,7 +334,6 @@ def main() -> int:
                     report_rows.append({"email": row.email, "status": "created", "note": ""})
                     continue
                 if "error" in body_lower:
-                    print(f"Create returned error for {row.email}")
                     failures += 1
                     report_rows.append({"email": row.email, "status": "error", "note": "unknown error response"})
                     continue
@@ -353,8 +347,7 @@ def main() -> int:
             lookup_failed = False
             try:
                 existing_people = client.list_people_by_email(row.email)
-            except DotmacError as exc:
-                print(f"Failed to check {row.email}: {exc}")
+            except DotmacError:
                 failures += 1
                 lookup_failed = True
             matched = None
@@ -370,8 +363,7 @@ def main() -> int:
                     try:
                         ensure_role(client, str(matched.get("id")), role_id, args.dry_run)
                         role_assigned += 1
-                    except DotmacError as exc:
-                        print(f"Failed to assign role for {row.email}: {exc}")
+                    except DotmacError:
                         failures += 1
                 continue
 
@@ -381,38 +373,27 @@ def main() -> int:
                 report_rows.append({"email": row.email, "status": "created", "note": ""})
             except DotmacError as exc:
                 if exc.status == 409:
-                    print(f"Already exists, skipped create for {row.email}")
                     skipped_existing += 1
                     report_rows.append({"email": row.email, "status": "exists", "note": ""})
                     continue
                 if lookup_failed and exc.status in {400, 422}:
-                    print(f"Create rejected for {row.email}: {exc}")
                     failures += 1
                     report_rows.append({"email": row.email, "status": "error", "note": str(exc)})
                     continue
-                print(f"Failed to create {row.email}: {exc}")
                 failures += 1
                 report_rows.append({"email": row.email, "status": "error", "note": str(exc)})
                 continue
             try:
                 ensure_role(client, str(created_person.get("id")), role_id, args.dry_run)
                 role_assigned += 1
-            except DotmacError as exc:
-                print(f"Failed to assign role for {row.email}: {exc}")
+            except DotmacError:
                 failures += 1
 
-        print("Done.")
-        print(f"Created: {created}")
-        print(f"Skipped existing: {skipped_existing}")
-        print(f"Skipped missing last name: {skipped_missing_last}")
-        print(f"Role assigned: {role_assigned}")
-        print(f"Failures: {failures}")
         if report_rows:
             with open(args.report, "w", newline="", encoding="utf-8") as handle:
                 writer = csv.DictWriter(handle, fieldnames=["email", "status", "note"])
                 writer.writeheader()
                 writer.writerows(report_rows)
-            print(f"Report: {args.report}")
     finally:
         client.close()
 

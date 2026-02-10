@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -14,14 +14,14 @@ from app.models.integration import (
     IntegrationTarget,
     IntegrationTargetType,
 )
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
-from app.services.response import ListResponseMixin
 from app.schemas.integration import (
     IntegrationJobCreate,
     IntegrationJobUpdate,
     IntegrationTargetCreate,
     IntegrationTargetUpdate,
 )
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.response import ListResponseMixin
 
 logger = get_logger(__name__)
 
@@ -103,7 +103,7 @@ class IntegrationTargets(ListResponseMixin):
         if not target:
             raise HTTPException(status_code=404, detail="Integration target not found")
         data = payload.model_dump(exclude_unset=True)
-        if "connector_config_id" in data and data["connector_config_id"]:
+        if data.get("connector_config_id"):
             config = db.get(ConnectorConfig, data["connector_config_id"])
             if not config:
                 raise HTTPException(status_code=404, detail="Connector config not found")
@@ -342,7 +342,7 @@ class IntegrationJobs(ListResponseMixin):
             run.error = str(exc)
             raise
         finally:
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(UTC)
             job.last_run_at = run.finished_at
             db.commit()
             db.refresh(run)
@@ -438,7 +438,7 @@ def reset_stuck_runs(db: Session, target_id: str) -> int:
         .update(
             {
                 "status": IntegrationRunStatus.failed,
-                "finished_at": datetime.now(timezone.utc),
+                "finished_at": datetime.now(UTC),
                 "error": "reset via inbox settings",
             },
             synchronize_session=False,

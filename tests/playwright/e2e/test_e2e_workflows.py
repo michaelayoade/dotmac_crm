@@ -6,7 +6,6 @@ pages and systems.
 
 from __future__ import annotations
 
-import pytest
 from playwright.sync_api import Page, expect
 
 
@@ -149,9 +148,9 @@ class TestCustomerOnboarding:
 
     def test_full_onboarding_visibility(self, admin_page: Page, settings):
         """All steps for customer onboarding should be accessible."""
-        from tests.playwright.pages.admin.subscribers_page import SubscribersPage
         from tests.playwright.pages.admin.billing.invoices_page import InvoicesPage
         from tests.playwright.pages.admin.operations.service_orders_page import ServiceOrdersPage
+        from tests.playwright.pages.admin.subscribers_page import SubscribersPage
 
         # Step 1: Subscribers accessible
         subscribers = SubscribersPage(admin_page, settings.base_url)

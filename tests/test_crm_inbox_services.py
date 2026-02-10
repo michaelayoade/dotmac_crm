@@ -1,7 +1,7 @@
 """Tests for CRM inbox service."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,7 +10,6 @@ from fastapi import HTTPException
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
 from app.models.integration import (
-    IntegrationJob,
     IntegrationJobType,
     IntegrationScheduleType,
     IntegrationTarget,
@@ -22,7 +21,6 @@ from app.schemas.crm.inbox import (
     WhatsAppWebhookPayload,
 )
 from app.services.crm import inbox as inbox_service
-
 
 # =============================================================================
 # Helper Functions Tests
@@ -112,7 +110,7 @@ def test_receive_whatsapp_message_with_metadata(db_session):
 
 def test_receive_whatsapp_message_with_timestamp(db_session):
     """Test receiving WhatsApp message with explicit timestamp."""
-    received_at = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+    received_at = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
     payload = WhatsAppWebhookPayload(
         contact_address="+15553334444",
         body="Timestamped message",
@@ -195,7 +193,7 @@ def test_inbound_messages_use_channel_scoped_conversations(db_session, subscribe
         contact_address="cross-channel@example.com",
         subject="Email subject",
         body="Email body",
-        received_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        received_at=datetime(2024, 1, 1, tzinfo=UTC),
         metadata={"account_id": str(subscriber_account.id)},
     )
     email_message = inbox_service.receive_email_message(db_session, email_payload)
@@ -203,7 +201,7 @@ def test_inbound_messages_use_channel_scoped_conversations(db_session, subscribe
     whatsapp_payload = WhatsAppWebhookPayload(
         contact_address="+15551234567",
         body="WhatsApp body",
-        received_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        received_at=datetime(2024, 1, 1, tzinfo=UTC),
         metadata={"account_id": str(subscriber_account.id)},
     )
     whatsapp_message = inbox_service.receive_whatsapp_message(db_session, whatsapp_payload)
@@ -228,9 +226,10 @@ def test_receive_email_message_with_metadata(db_session):
 
 def test_receive_email_message_dedupes_across_targets(db_session):
     """Test duplicate email dedupes across differing channel_target_id values."""
+    from datetime import datetime
+
     from app.models.connector import ConnectorConfig, ConnectorType
     from app.models.integration import IntegrationTarget, IntegrationTargetType
-    from datetime import datetime, timezone
 
     config_old = ConnectorConfig(name="email-old", connector_type=ConnectorType.email)
     config_new = ConnectorConfig(name="email-new", connector_type=ConnectorType.email)
@@ -243,13 +242,13 @@ def test_receive_email_message_dedupes_across_targets(db_session):
         name="email-old-target",
         target_type=IntegrationTargetType.crm,
         connector_config_id=config_old.id,
-        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
     target_new = IntegrationTarget(
         name="email-new-target",
         target_type=IntegrationTargetType.crm,
         connector_config_id=config_new.id,
-        created_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 2, tzinfo=UTC),
     )
     db_session.add_all([target_old, target_new])
     db_session.commit()
@@ -337,7 +336,7 @@ def test_send_email_message_with_personalization(db_session, crm_contact, crm_co
         personalization={"name": "Customer"},
     )
 
-    with patch("app.services.email.send_email", return_value=True) as mock_send:
+    with patch("app.services.email.send_email", return_value=True):
         message = inbox_service.send_message(db_session, payload)
 
         assert message.body == "Hello Customer!"
@@ -405,7 +404,8 @@ def test_send_message_channel_mismatch_with_inbound(
     db_session, crm_contact, crm_contact_channel
 ):
     """Test send_message rejects replies on a different channel than inbound."""
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate, MessageCreate
     from app.services.crm import conversation as conversation_service
 
@@ -430,7 +430,7 @@ def test_send_message_channel_mismatch_with_inbound(
             direction=MessageDirection.inbound,
             status=MessageStatus.received,
             body="Inbound on WhatsApp",
-            received_at=datetime.now(timezone.utc),
+            received_at=datetime.now(UTC),
         ),
     )
 
@@ -448,7 +448,8 @@ def test_send_message_channel_mismatch_with_inbound(
 
 def test_send_whatsapp_message_no_connector(db_session, crm_contact):
     """Test sending WhatsApp message without connector raises 400."""
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate
     from app.services.crm import conversation as conversation_service
 
@@ -1029,7 +1030,8 @@ def test_poll_email_targets_skips_no_config(db_session):
 
 def test_send_whatsapp_message_missing_token(db_session, crm_contact):
     """Test sending WhatsApp message without access token raises 400."""
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate
     from app.services.crm import conversation as conversation_service
 
@@ -1080,7 +1082,8 @@ def test_send_whatsapp_message_missing_token(db_session, crm_contact):
 
 def test_send_whatsapp_message_missing_phone_number_id(db_session, crm_contact):
     """Test sending WhatsApp message without phone_number_id raises 400."""
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate
     from app.services.crm import conversation as conversation_service
 
@@ -1132,8 +1135,8 @@ def test_send_whatsapp_message_missing_phone_number_id(db_session, crm_contact):
 
 def test_send_whatsapp_message_success(db_session, crm_contact):
     """Test sending WhatsApp message successfully."""
-    import httpx
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate
     from app.services.crm import conversation as conversation_service
 
@@ -1194,7 +1197,9 @@ def test_send_whatsapp_message_success(db_session, crm_contact):
 def test_send_whatsapp_message_http_error(db_session, crm_contact):
     """Test sending WhatsApp message with HTTP error marks message as failed."""
     import httpx
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
+
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate
     from app.services.crm import conversation as conversation_service
 
@@ -1252,8 +1257,9 @@ def test_send_whatsapp_message_http_error(db_session, crm_contact):
 
 
 def test_send_facebook_message_auth_error_records_metadata(db_session, crm_contact):
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
     from app.models.crm.conversation import Message
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate
     from app.services.crm import conversation as conversation_service
 
@@ -1276,7 +1282,7 @@ def test_send_facebook_message_auth_error_records_metadata(db_session, crm_conta
         direction=MessageDirection.inbound,
         status=MessageStatus.received,
         body="Inbound",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     db_session.add(inbound_message)
     db_session.flush()
@@ -1299,8 +1305,9 @@ def test_send_facebook_message_auth_error_records_metadata(db_session, crm_conta
 
 
 def test_send_instagram_message_auth_error_records_metadata(db_session, crm_contact):
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
     from app.models.crm.conversation import Message
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate
     from app.services.crm import conversation as conversation_service
 
@@ -1323,7 +1330,7 @@ def test_send_instagram_message_auth_error_records_metadata(db_session, crm_cont
         direction=MessageDirection.inbound,
         status=MessageStatus.received,
         body="Inbound",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
     )
     db_session.add(inbound_message)
     db_session.flush()
@@ -1346,7 +1353,8 @@ def test_send_instagram_message_auth_error_records_metadata(db_session, crm_cont
 
 def test_send_email_missing_recipient(db_session, crm_contact):
     """Test sending email with empty recipient address raises 400."""
-    from app.models.person import PersonChannel, ChannelType as PersonChannelType
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
     from app.schemas.crm.conversation import ConversationCreate
     from app.services.crm import conversation as conversation_service
 

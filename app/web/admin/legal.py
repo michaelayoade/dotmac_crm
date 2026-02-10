@@ -1,11 +1,10 @@
 """Admin legal document management web routes."""
 
-import os
-from datetime import datetime, timezone
-from typing import Optional
+import contextlib
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -27,7 +26,7 @@ def get_db():
 
 
 def _base_context(request: Request, db: Session, active_page: str = "legal"):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     return {
         "request": request,
@@ -41,8 +40,8 @@ def _base_context(request: Request, db: Session, active_page: str = "legal"):
 @router.get("", response_class=HTMLResponse)
 def legal_documents_list(
     request: Request,
-    document_type: Optional[str] = None,
-    is_published: Optional[str] = None,
+    document_type: str | None = None,
+    is_published: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
@@ -53,10 +52,8 @@ def legal_documents_list(
     # Parse filters
     doc_type = None
     if document_type:
-        try:
+        with contextlib.suppress(ValueError):
             doc_type = LegalDocumentType(document_type)
-        except ValueError:
-            pass
 
     published = None
     if is_published == "true":
@@ -125,10 +122,10 @@ def legal_document_create(
     title: str = Form(...),
     slug: str = Form(...),
     version: str = Form("1.0"),
-    summary: Optional[str] = Form(None),
-    content: Optional[str] = Form(None),
-    is_published: Optional[str] = Form(None),
-    effective_date: Optional[str] = Form(None),
+    summary: str | None = Form(None),
+    content: str | None = Form(None),
+    is_published: str | None = Form(None),
+    effective_date: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Create a new legal document."""
@@ -213,11 +210,11 @@ def legal_document_update(
     title: str = Form(...),
     slug: str = Form(...),
     version: str = Form("1.0"),
-    summary: Optional[str] = Form(None),
-    content: Optional[str] = Form(None),
-    is_current: Optional[str] = Form(None),
-    is_published: Optional[str] = Form(None),
-    effective_date: Optional[str] = Form(None),
+    summary: str | None = Form(None),
+    content: str | None = Form(None),
+    is_current: str | None = Form(None),
+    is_published: str | None = Form(None),
+    effective_date: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Update a legal document."""
@@ -283,7 +280,7 @@ async def legal_document_upload(
         ]
         if file.content_type not in allowed_types:
             raise ValueError(
-                f"File type not allowed. Allowed types: PDF, HTML, TXT, DOC, DOCX"
+                "File type not allowed. Allowed types: PDF, HTML, TXT, DOC, DOCX"
             )
 
         # Read file content

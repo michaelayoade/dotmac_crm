@@ -19,33 +19,48 @@ Submodule Structure:
     └── reports.py     - CRM analytics and reporting
 """
 
+from collections.abc import Callable
+from typing import Any
+
+# Inbox submodule (keep as namespace import for complex operations)
+from app.services.crm import inbox, smtp_inbound
+
 # Contacts submodule
+# Campaigns submodule
+from app.services.crm.campaigns import (
+    CampaignRecipients,
+    Campaigns,
+    CampaignSteps,
+    campaign_recipients,
+    campaign_steps,
+    campaigns,
+)
 from app.services.crm.contacts import (
-    Contacts,
     ContactChannels,
-    contacts,
+    Contacts,
     contact_channels,
+    contacts,
 )
 from app.services.crm.contacts.service import get_or_create_contact_by_channel
 
 # Conversations submodule
 from app.services.crm.conversations import (
-    Conversations,
     ConversationAssignments,
+    Conversations,
     ConversationTags,
-    Messages,
     MessageAttachments,
+    Messages,
     PrivateNotes,
-    SocialComments,
     SocialCommentReplies,
-    conversations,
+    SocialComments,
     conversation_assignments,
     conversation_tags,
-    messages,
+    conversations,
     message_attachments,
+    messages,
     private_notes,
-    social_comments,
     social_comment_replies,
+    social_comments,
 )
 from app.services.crm.conversations import comments as comments
 from app.services.crm.conversations.service import (
@@ -53,48 +68,38 @@ from app.services.crm.conversations.service import (
     resolve_open_conversation,
 )
 
-# Teams submodule
-from app.services.crm.teams import (
-    Teams,
-    Agents,
-    AgentTeams,
-    TeamChannels,
-    RoutingRules,
-    teams,
-    agents,
-    agent_teams,
-    team_channels,
-    routing_rules,
-)
-from app.services.crm.teams import service as team
-from app.services.crm.teams.service import get_agent_labels, get_agent_team_options
-
 # Presence submodule
 from app.services.crm.presence import AgentPresenceManager, agent_presence
 
 # Sales submodule
 from app.services.crm.sales import (
+    CrmQuoteLineItems,
+    Leads,
     Pipelines,
     PipelineStages,
-    Leads,
     Quotes,
-    CrmQuoteLineItems,
-    pipelines,
-    pipeline_stages,
     leads,
-    quotes,
+    pipeline_stages,
+    pipelines,
     quote_line_items,
+    quotes,
 )
 
-# Campaigns submodule
-from app.services.crm.campaigns import (
-    Campaigns,
-    CampaignSteps,
-    CampaignRecipients,
-    campaigns,
-    campaign_steps,
-    campaign_recipients,
+# Teams submodule
+from app.services.crm.teams import (
+    Agents,
+    AgentTeams,
+    RoutingRules,
+    TeamChannels,
+    Teams,
+    agent_teams,
+    agents,
+    routing_rules,
+    team_channels,
+    teams,
 )
+from app.services.crm.teams import service as team
+from app.services.crm.teams.service import get_agent_labels, get_agent_team_options
 
 # Widget submodule
 from app.services.crm.widget import (
@@ -103,15 +108,10 @@ from app.services.crm.widget import (
     chat_widget_configs,
     widget_visitor_sessions,
 )
+
 # Backward compatibility aliases
 widget_configs = chat_widget_configs
 widget_visitors = widget_visitor_sessions
-
-# Inbox submodule (keep as namespace import for complex operations)
-from app.services.crm import inbox
-from app.services.crm import smtp_inbound
-
-from typing import Callable, Any
 
 # Widget message functions (if they exist in widget service)
 receive_widget_message: Callable[..., Any] | None
@@ -123,76 +123,69 @@ except ImportError:
     send_widget_message = None
 
 __all__ = [
-    # Contacts
-    "Contacts",
+    "AgentPresenceManager",
+    "AgentTeams",
+    "Agents",
+    "CampaignRecipients",
+    "CampaignSteps",
+    "Campaigns",
+    "ChatWidgetConfigs",
     "ContactChannels",
-    "contacts",
-    "contact_channels",
-    "get_or_create_contact_by_channel",
-    # Conversations
-    "Conversations",
+    "Contacts",
     "ConversationAssignments",
     "ConversationTags",
-    "Messages",
+    "Conversations",
+    "CrmQuoteLineItems",
+    "Leads",
     "MessageAttachments",
+    "Messages",
+    "PipelineStages",
+    "Pipelines",
     "PrivateNotes",
-    "SocialComments",
+    "Quotes",
+    "RoutingRules",
     "SocialCommentReplies",
-    "conversations",
+    "SocialComments",
+    "TeamChannels",
+    "Teams",
+    "WidgetVisitorSessions",
+    "agent_presence",
+    "agent_teams",
+    "agents",
+    "campaign_recipients",
+    "campaign_steps",
+    "campaigns",
+    "chat_widget_configs",
+    "comments",
+    "contact_channels",
+    "contacts",
     "conversation_assignments",
     "conversation_tags",
-    "messages",
-    "message_attachments",
-    "private_notes",
-    "social_comments",
-    "social_comment_replies",
-    "comments",
-    "resolve_conversation_contact",
-    "resolve_open_conversation",
-    # Teams
-    "Teams",
-    "Agents",
-    "AgentTeams",
-    "TeamChannels",
-    "RoutingRules",
-    "teams",
-    "agents",
-    "agent_teams",
-    "team_channels",
-    "routing_rules",
+    "conversations",
     "get_agent_labels",
     "get_agent_team_options",
-    # Presence
-    "AgentPresenceManager",
-    "agent_presence",
-    # Sales
-    "Pipelines",
-    "PipelineStages",
-    "Leads",
-    "Quotes",
-    "CrmQuoteLineItems",
-    "pipelines",
-    "pipeline_stages",
-    "leads",
-    "quotes",
-    "quote_line_items",
-    # Campaigns
-    "Campaigns",
-    "CampaignSteps",
-    "CampaignRecipients",
-    "campaigns",
-    "campaign_steps",
-    "campaign_recipients",
-    # Widget
-    "ChatWidgetConfigs",
-    "WidgetVisitorSessions",
-    "chat_widget_configs",
-    "widget_visitor_sessions",
-    "widget_configs",  # Backward compatibility
-    "widget_visitors",  # Backward compatibility
-    "receive_widget_message",
-    "send_widget_message",
-    # Inbox
+    "get_or_create_contact_by_channel",
     "inbox",
+    "leads",
+    "message_attachments",
+    "messages",
+    "pipeline_stages",
+    "pipelines",
+    "private_notes",
+    "quote_line_items",
+    "quotes",
+    "receive_widget_message",
+    "resolve_conversation_contact",
+    "resolve_open_conversation",
+    "routing_rules",
+    "send_widget_message",
     "smtp_inbound",
+    "social_comment_replies",
+    "social_comments",
+    "team",
+    "team_channels",
+    "teams",
+    "widget_configs",
+    "widget_visitor_sessions",
+    "widget_visitors",
 ]

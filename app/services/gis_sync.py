@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Mapping
 import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.gis import GeoLocation, GeoLocationType
-from app.models.network import OLTDevice, FdhCabinet
+from app.models.network import FdhCabinet, OLTDevice
 from app.services.response import ListResponseMixin
 
 

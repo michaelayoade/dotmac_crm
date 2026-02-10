@@ -7,6 +7,7 @@ messaging channels (email, WhatsApp, etc.).
 """
 
 from app.models.connector import ConnectorConfig
+from app.models.crm.enums import ChannelType
 from app.schemas.crm.inbox import EmailWebhookPayload, WhatsAppWebhookPayload
 from app.services.crm.inbox_normalizers import _normalize_email_address, _normalize_phone_address
 
@@ -76,9 +77,7 @@ def _metadata_indicates_self(metadata: dict | None) -> bool:
     }:
         return True
     direction = metadata.get("direction")
-    if isinstance(direction, str) and direction.lower() in {"outbound", "sent", "business"}:
-        return True
-    return False
+    return bool(isinstance(direction, str) and direction.lower() in {"outbound", "sent", "business"})
 
 
 def _metadata_indicates_comment(metadata: dict | None) -> bool:
@@ -102,9 +101,7 @@ def _metadata_indicates_comment(metadata: dict | None) -> bool:
     if isinstance(source, str) and source.lower() == "comment":
         return True
     msg_type = metadata.get("type")
-    if isinstance(msg_type, str) and msg_type.lower() == "comment":
-        return True
-    return False
+    return bool(isinstance(msg_type, str) and msg_type.lower() == "comment")
 
 
 def _extract_whatsapp_business_number(
@@ -206,3 +203,51 @@ def _is_self_whatsapp_message(
     if not sender or not owner:
         return False
     return sender == owner
+
+
+class SelfDetectionService:
+    """Unified self-message detection across channels."""
+
+    def is_self_message(
+        self,
+        *,
+        channel_type: ChannelType,
+        sender_address: str | None,
+        metadata: dict | None,
+        config: ConnectorConfig | None,
+    ) -> bool:
+        if _metadata_indicates_self(metadata):
+            return True
+        if channel_type == ChannelType.email:
+            return self._is_self_email(sender_address, config)
+        if channel_type == ChannelType.whatsapp:
+            return self._is_self_whatsapp(sender_address, metadata, config)
+        return False
+
+    def _is_self_email(
+        self,
+        sender_address: str | None,
+        config: ConnectorConfig | None,
+    ) -> bool:
+        sender = _normalize_email_address(sender_address)
+        if not sender:
+            return False
+        self_addresses = _extract_self_email_addresses(config)
+        if not self_addresses:
+            return False
+        return sender in self_addresses
+
+    def _is_self_whatsapp(
+        self,
+        sender_address: str | None,
+        metadata: dict | None,
+        config: ConnectorConfig | None,
+    ) -> bool:
+        business_number = _extract_whatsapp_business_number(metadata, config)
+        if not business_number:
+            return False
+        sender = _normalize_phone_address(sender_address)
+        owner = _normalize_phone_address(business_number)
+        if not sender or not owner:
+            return False
+        return sender == owner

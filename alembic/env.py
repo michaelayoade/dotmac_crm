@@ -5,8 +5,9 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import settings
 from app.db import Base
+
 # Import all models to ensure they are registered with Base.metadata
-from app.models import *  # noqa: F401, F403
+from app.models import *  # noqa: F403
 
 config = context.config
 
@@ -20,9 +21,7 @@ target_metadata = Base.metadata
 
 def include_object(object, name, type_, reflected, compare_to):
     """Exclude PostGIS system tables from autogenerate."""
-    if type_ == "table" and name in ("spatial_ref_sys",):
-        return False
-    return True
+    return not (type_ == "table" and name in ("spatial_ref_sys",))
 
 
 def run_migrations_offline() -> None:

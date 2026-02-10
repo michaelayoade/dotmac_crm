@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter
 
-from app.web.auth import router as auth_router
 from app.web.admin import router as admin_router
+from app.web.auth import router as auth_router
 from app.web.public import router as public_router
 from app.web.vendor import router as vendor_router
 

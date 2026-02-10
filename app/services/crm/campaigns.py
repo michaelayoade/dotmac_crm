@@ -5,19 +5,20 @@ Handles audience segmentation, variable substitution, and
 campaign lifecycle (draft -> scheduled -> sending -> completed).
 """
 
+import contextlib
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import cast, func, or_, String
+from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.crm.campaign import Campaign, CampaignRecipient, CampaignStep
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
 from app.models.crm.enums import CampaignRecipientStatus, CampaignStatus, CampaignType
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
-from app.models.person import Person, PartyStatus
+from app.models.person import PartyStatus, Person
 from app.models.subscriber import Organization
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
@@ -74,10 +75,8 @@ def _build_segment_query(db: Session, segment_filter: dict | None):
     if segment_filter.get("party_status"):
         statuses = []
         for s in segment_filter["party_status"]:
-            try:
+            with contextlib.suppress(ValueError):
                 statuses.append(PartyStatus(s))
-            except ValueError:
-                pass
         if statuses:
             query = query.filter(Person.party_status.in_(statuses))
 
@@ -231,7 +230,7 @@ class Campaigns(ListResponseMixin):
         Campaigns.build_recipient_list(db, str(campaign.id))
 
         campaign.status = CampaignStatus.sending
-        campaign.sending_started_at = datetime.now(timezone.utc)
+        campaign.sending_started_at = datetime.now(UTC)
         db.commit()
         db.refresh(campaign)
 
@@ -475,7 +474,7 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
     if not pending:
         # All done
         campaign.status = CampaignStatus.completed
-        campaign.completed_at = datetime.now(timezone.utc)
+        campaign.completed_at = datetime.now(UTC)
         db.commit()
         return 0
 
@@ -534,7 +533,7 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
 
         recipient.notification_id = notification.id
         recipient.status = CampaignRecipientStatus.sent
-        recipient.sent_at = datetime.now(timezone.utc)
+        recipient.sent_at = datetime.now(UTC)
         campaign.sent_count += 1
         processed += 1
 

@@ -5,11 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.crm.reports import (
+    FieldServiceMetricsResponse,
     InboxKpisResponse,
     PipelineStageMetricsResponse,
-    SupportMetricsResponse,
-    FieldServiceMetricsResponse,
     ProjectMetricsResponse,
+    SupportMetricsResponse,
 )
 from app.services.crm import reports as crm_reports
 

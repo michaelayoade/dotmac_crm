@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 from app.models.subscriber import SubscriberStatus
 
-
 # ============================================================================
 # Subscriber Schemas (for external sync)
 # ============================================================================

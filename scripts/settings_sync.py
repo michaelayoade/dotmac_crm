@@ -6,13 +6,13 @@ from dotenv import load_dotenv
 
 from app.db import SessionLocal
 from app.schemas.settings import DomainSettingUpdate
+from app.services.secrets import is_openbao_ref
 from app.services.settings_spec import (
     DOMAIN_SETTINGS_SERVICE,
     SETTINGS_SPECS,
     coerce_value,
     normalize_for_db,
 )
-from app.services.secrets import is_openbao_ref
 
 
 def _env_value(name: str) -> str | None:
@@ -66,9 +66,6 @@ def main() -> None:
                 is_active=True,
             )
             if args.dry_run:
-                print(
-                    f"dry-run: {spec.domain.value}.{spec.key} <= {spec.env_var}={env_raw}"
-                )
                 updated += 1
                 continue
             service = DOMAIN_SETTINGS_SERVICE.get(spec.domain)
@@ -81,11 +78,9 @@ def main() -> None:
         db.close()
 
     if errors:
-        print("Settings sync failed:")
-        for item in errors:
-            print(f"- {item}")
+        for _item in errors:
+            pass
         raise SystemExit(1)
-    print(f"Settings sync complete. updated={updated} skipped={skipped}")
 
 
 if __name__ == "__main__":

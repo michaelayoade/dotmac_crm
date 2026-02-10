@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -8,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from app.logic import private_note_logic
 from app.logic.private_note_logic import LogicService, PrivateNoteContext, Visibility
-from typing import cast
 from app.models.crm.conversation import Conversation, Message, MessageAttachment
 from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
 from app.models.rbac import PersonRole, Role
@@ -20,7 +20,7 @@ _logic_service = LogicService()
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _author_is_admin(db: Session, author_id: str | None) -> bool:

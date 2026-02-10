@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 ChannelType = Literal["email", "whatsapp", "facebook_messenger", "instagram_dm"]
@@ -111,9 +111,9 @@ class LogicService:
                     reason="Meta reply window expired",
                 )
             if last_inbound.tzinfo is None:
-                last_inbound = last_inbound.replace(tzinfo=timezone.utc)
+                last_inbound = last_inbound.replace(tzinfo=UTC)
             if now.tzinfo is None:
-                now = now.replace(tzinfo=timezone.utc)
+                now = now.replace(tzinfo=UTC)
             if (now - last_inbound).total_seconds() > 24 * 3600:
                 return SendMessageDecision(
                     status="deny",
@@ -258,6 +258,4 @@ class LogicService:
         }:
             return True
         direction = metadata.get("direction")
-        if isinstance(direction, str) and direction.lower() in {"outbound", "sent", "business"}:
-            return True
-        return False
+        return bool(isinstance(direction, str) and direction.lower() in {"outbound", "sent", "business"})

@@ -1,0 +1,79 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import submit_button %}
+
+{% block title %}{{ 'Edit' if mr else 'New' }} Material Request - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="animate-fade-in-up">
+        <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <a href="/admin/operations/material-requests" class="hover:text-teal-600 dark:hover:text-teal-400">Material Requests</a>
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <span class="font-medium text-slate-900 dark:text-white">New Request</span>
+        </nav>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">New Material Request</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Request materials and equipment for a ticket or project</p>
+    </div>
+
+    <form method="POST" action="/admin/operations/material-requests/new" class="space-y-6">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+        <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 50ms;">
+            <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-emerald-600 shadow-sm">
+                    <svg class="h-4.5 w-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+                </div>
+                <h2 class="font-semibold text-slate-900 dark:text-white">Request Details</h2>
+            </div>
+            <div class="p-6 space-y-6">
+                <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    <!-- Priority -->
+                    <div>
+                        <label for="priority" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Priority</label>
+                        <select name="priority" id="priority"
+                                class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            {% for p in priorities %}
+                            <option value="{{ p }}" {{ 'selected' if p == 'medium' }}>{{ p|capitalize }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Linked Ticket -->
+                    <div>
+                        <label for="ticket_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Linked Ticket</label>
+                        <input type="text" name="ticket_id" id="ticket_id"
+                               value="{{ ticket_id or '' }}"
+                               placeholder="Ticket UUID (optional)"
+                               class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                    </div>
+
+                    <!-- Linked Project -->
+                    <div>
+                        <label for="project_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Linked Project</label>
+                        <input type="text" name="project_id" id="project_id"
+                               value="{{ project_id or '' }}"
+                               placeholder="Project UUID (optional)"
+                               class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                    </div>
+
+                    <!-- Notes -->
+                    <div class="sm:col-span-2">
+                        <label for="notes" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Notes</label>
+                        <textarea name="notes" id="notes" rows="3"
+                                  placeholder="Describe what materials are needed and why..."
+                                  class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-3">
+            <a href="/admin/operations/material-requests"
+               class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors">
+                Cancel
+            </a>
+            {{ submit_button("Create Request", loading_label="Creating...", color="teal") }}
+        </div>
+    </form>
+</div>
+{% endblock %}

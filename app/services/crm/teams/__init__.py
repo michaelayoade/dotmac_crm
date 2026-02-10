@@ -4,27 +4,27 @@ Handles teams, agents, routing rules, and team channels.
 """
 
 from app.services.crm.teams.service import (
-    Teams,
     Agents,
     AgentTeams,
-    TeamChannels,
     RoutingRules,
-    teams,
-    agents,
+    TeamChannels,
+    Teams,
     agent_teams,
-    team_channels,
+    agents,
     routing_rules,
+    team_channels,
+    teams,
 )
 
 __all__ = [
-    "Teams",
-    "Agents",
     "AgentTeams",
-    "TeamChannels",
+    "Agents",
     "RoutingRules",
-    "teams",
-    "agents",
+    "TeamChannels",
+    "Teams",
     "agent_teams",
-    "team_channels",
+    "agents",
     "routing_rules",
+    "team_channels",
+    "teams",
 ]

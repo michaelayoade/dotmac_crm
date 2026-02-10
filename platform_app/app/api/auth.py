@@ -1,14 +1,13 @@
 import os
 import time
-
-import redis
-from app.schemas.common import ListResponse
 from typing import cast
 
+import redis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.models.domain_settings import DomainSetting, SettingDomain
 from app.schemas.auth import (
     ApiKeyCreate,
     ApiKeyGenerateRequest,
@@ -25,8 +24,8 @@ from app.schemas.auth import (
     UserCredentialRead,
     UserCredentialUpdate,
 )
+from app.schemas.common import ListResponse
 from app.services import auth as auth_service
-from app.models.domain_settings import DomainSetting, SettingDomain
 
 router = APIRouter()
 

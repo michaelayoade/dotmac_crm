@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -161,7 +161,7 @@ class Technicians(ListResponseMixin):
         if not technician:
             raise HTTPException(status_code=404, detail="Technician not found")
         data = payload.model_dump(exclude_unset=True)
-        if "person_id" in data and data["person_id"]:
+        if data.get("person_id"):
             _ensure_person(db, str(data["person_id"]))
         for key, value in data.items():
             setattr(technician, key, value)
@@ -227,9 +227,9 @@ class TechnicianSkills(ListResponseMixin):
         if not skill:
             raise HTTPException(status_code=404, detail="Technician skill not found")
         data = payload.model_dump(exclude_unset=True)
-        if "technician_id" in data and data["technician_id"]:
+        if data.get("technician_id"):
             _ensure_technician(db, str(data["technician_id"]))
-        if "skill_id" in data and data["skill_id"]:
+        if data.get("skill_id"):
             _ensure_skill(db, str(data["skill_id"]))
         for key, value in data.items():
             setattr(skill, key, value)
@@ -291,7 +291,7 @@ class Shifts(ListResponseMixin):
         if not shift:
             raise HTTPException(status_code=404, detail="Shift not found")
         data = payload.model_dump(exclude_unset=True)
-        if "technician_id" in data and data["technician_id"]:
+        if data.get("technician_id"):
             _ensure_technician(db, str(data["technician_id"]))
         for key, value in data.items():
             setattr(shift, key, value)
@@ -353,7 +353,7 @@ class AvailabilityBlocks(ListResponseMixin):
         if not block:
             raise HTTPException(status_code=404, detail="Availability block not found")
         data = payload.model_dump(exclude_unset=True)
-        if "technician_id" in data and data["technician_id"]:
+        if data.get("technician_id"):
             _ensure_technician(db, str(data["technician_id"]))
         for key, value in data.items():
             setattr(block, key, value)
@@ -609,7 +609,7 @@ def score_technician(
             score += (avg_proficiency / 100) * 30
 
     # Workload score (0-30 points) - fewer assignments = higher score
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     tomorrow = today + timedelta(days=1)
 
     active_work_orders = db.query(WorkOrder).filter(
@@ -619,8 +619,8 @@ def score_technician(
             WorkOrderStatus.dispatched,
             WorkOrderStatus.in_progress
         ]),
-        WorkOrder.scheduled_start >= datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc),
-        WorkOrder.scheduled_start < datetime.combine(tomorrow, datetime.min.time()).replace(tzinfo=timezone.utc),
+        WorkOrder.scheduled_start >= datetime.combine(today, datetime.min.time()).replace(tzinfo=UTC),
+        WorkOrder.scheduled_start < datetime.combine(tomorrow, datetime.min.time()).replace(tzinfo=UTC),
         WorkOrder.is_active.is_(True)
     ).count()
 
@@ -658,7 +658,7 @@ def calculate_eta(
         eta = work_order.scheduled_start
     else:
         # Default to now + travel time
-        eta = datetime.now(timezone.utc) + timedelta(minutes=travel_time_minutes)
+        eta = datetime.now(UTC) + timedelta(minutes=travel_time_minutes)
 
     work_order.estimated_arrival_at = eta
     db.commit()

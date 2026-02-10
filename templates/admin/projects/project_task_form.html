@@ -90,18 +90,38 @@
                     </div>
 
                     <div>
-                        <label for="assigned_to_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Assigned To</label>
-                        <select name="assigned_to_person_id" id="assigned_to_person_id"
-                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                            <option value="">Unassigned</option>
-                            {% for technician in technicians or [] %}
-                            {% if technician.person %}
-                            <option value="{{ technician.person.id }}" {% if task.assigned_to_person_id == technician.person.id|string %}selected{% endif %}>
-                                {{ technician.person.first_name }} {{ technician.person.last_name }}
-                            </option>
-                            {% endif %}
-                            {% endfor %}
-                        </select>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Technicians</label>
+                        {% set assigned_ids = [] %}
+                        {% if task.assigned_to_person_ids %}
+                            {% set assigned_ids = task.assigned_to_person_ids | map('string') | list %}
+                        {% elif task.assigned_to_person_id %}
+                            {% set assigned_ids = [task.assigned_to_person_id|string] %}
+                        {% endif %}
+                        <div id="project-task-technician-typeahead"
+                             class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-700">
+                            <div class="flex flex-wrap gap-2" data-selected-wrap>
+                                {% for tech in technicians %}
+                                    {% set tech_person = tech.person %}
+                                    {% if tech_person %}
+                                        {% set tech_label = tech_person.display_name or (tech_person.first_name ~ ' ' ~ tech_person.last_name) %}
+                                    {% else %}
+                                        {% set tech_label = 'Technician ' ~ tech.id|string|truncate(8, True, '') %}
+                                    {% endif %}
+                                    {% if tech.person_id|string in assigned_ids %}
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-600 dark:text-slate-100" data-chip="{{ tech.person_id|string }}">
+                                        {{ tech_label }}
+                                        <button type="button" class="ml-1 text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white" data-remove="{{ tech.person_id|string }}">x</button>
+                                    </span>
+                                    <input type="hidden" name="assigned_to_person_ids[]" value="{{ tech.person_id|string }}" data-hidden="{{ tech.person_id|string }}">
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                            <input type="text"
+                                   placeholder="Search technicians..."
+                                   class="mt-2 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                                   data-search-input>
+                            <div class="mt-2" data-results></div>
+                        </div>
                     </div>
 
                     <div>
@@ -150,4 +170,146 @@
         </div>
     </form>
 </div>
+<script>
+    (function () {
+        const root = document.getElementById("project-task-technician-typeahead");
+        if (!root) return;
+        const input = root.querySelector("[data-search-input]");
+        const results = root.querySelector("[data-results]");
+        const selectedWrap = root.querySelector("[data-selected-wrap]");
+        const selected = new Map();
+        const hiddenById = new Map();
+
+        const seedHidden = () => {
+            const hiddenInputs = root.querySelectorAll("input[type='hidden'][name='assigned_to_person_ids[]']");
+            hiddenInputs.forEach((el) => {
+                selected.set(el.value, true);
+                hiddenById.set(el.value, el);
+            });
+        };
+
+        const createHidden = (id) => {
+            const hidden = document.createElement("input");
+            hidden.type = "hidden";
+            hidden.name = "assigned_to_person_ids[]";
+            hidden.value = id;
+            hidden.dataset.hidden = id;
+            root.appendChild(hidden);
+            hiddenById.set(id, hidden);
+        };
+
+        const removeHidden = (id) => {
+            const hidden = hiddenById.get(id);
+            if (hidden && hidden.parentNode) {
+                hidden.parentNode.removeChild(hidden);
+            }
+            hiddenById.delete(id);
+        };
+
+        const createChip = (item) => {
+            const chip = document.createElement("span");
+            chip.className = "inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-600 dark:text-slate-100";
+            chip.dataset.chip = item.id;
+            chip.textContent = item.label;
+
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "ml-1 text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white";
+            btn.dataset.remove = item.id;
+            btn.textContent = "x";
+            btn.addEventListener("click", () => removeTech(item.id));
+
+            chip.appendChild(btn);
+            selectedWrap.appendChild(chip);
+        };
+
+        const removeChip = (id) => {
+            const chip = selectedWrap.querySelector(`[data-chip=\"${id}\"]`);
+            if (chip && chip.parentNode) {
+                chip.parentNode.removeChild(chip);
+            }
+        };
+
+        const addTech = (item) => {
+            if (selected.has(item.id)) return;
+            selected.set(item.id, true);
+            createChip(item);
+            createHidden(item.id);
+            input.value = "";
+            renderResults();
+        };
+
+        const removeTech = (id) => {
+            selected.delete(id);
+            removeChip(id);
+            removeHidden(id);
+            renderResults();
+        };
+
+        const renderResults = (items) => {
+            results.innerHTML = "";
+            if (!items || !items.length) {
+                return;
+            }
+            const menu = document.createElement("div");
+            menu.className = "relative mt-2 w-full rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800";
+            items.forEach((item) => {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700";
+                btn.textContent = item.label || item.name || "";
+                btn.addEventListener("click", () => addTech({ id: item.id || item.ref, label: item.label || item.name }));
+                menu.appendChild(btn);
+            });
+            results.appendChild(menu);
+        };
+
+        const fetchResults = (query) => {
+            const url = `/api/v1/search/technicians?q=${encodeURIComponent(query)}&limit=10`;
+            fetch(url)
+                .then((response) => {
+                    if (!response.ok) throw new Error("typeahead request failed");
+                    return response.json();
+                })
+                .then((data) => {
+                    const items = (data && data.items) || [];
+                    const filtered = items.filter((item) => {
+                        const id = String(item.id || item.ref || "");
+                        return id && !selected.has(id);
+                    });
+                    renderResults(filtered);
+                })
+                .catch(() => {
+                    results.innerHTML = "";
+                });
+        };
+
+        let timer = null;
+        input.addEventListener("input", () => {
+            const query = input.value.trim();
+            if (timer) window.clearTimeout(timer);
+            timer = window.setTimeout(() => {
+                if (query.length < 1) {
+                    results.innerHTML = "";
+                    return;
+                }
+                fetchResults(query);
+            }, 250);
+        });
+
+        input.addEventListener("focus", () => {
+            const query = input.value.trim();
+            fetchResults(query);
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!root.contains(event.target)) {
+                results.innerHTML = "";
+            }
+        });
+
+        seedHidden();
+        results.innerHTML = "";
+    })();
+</script>
 {% endblock %}

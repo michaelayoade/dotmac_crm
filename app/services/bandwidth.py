@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import builtins
 import logging
-from typing import Any, List
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -11,11 +12,10 @@ from sqlalchemy.orm import Session
 
 from app.models.bandwidth import BandwidthSample
 from app.models.subscriber import Subscriber, SubscriberStatus
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid
 from app.schemas.bandwidth import BandwidthSampleCreate, BandwidthSampleUpdate
-from app.services.response import list_response
-from app.services.response import ListResponseMixin
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid
 from app.services.metrics_store import get_metrics_store
+from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ class BandwidthSamples(ListResponseMixin):
         end_at: datetime | None,
         interval: str,
     ) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         end_at = end_at or now
         if start_at is None:
             start_at = end_at - timedelta(hours=24)
@@ -159,7 +159,7 @@ class BandwidthSamples(ListResponseMixin):
             "7d": 7 * 86400,
             "30d": 30 * 86400,
         }.get(period, 86400)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         start_at = now - timedelta(seconds=period_seconds)
         query = (
             db.query(BandwidthSample)
@@ -186,7 +186,7 @@ class BandwidthSamples(ListResponseMixin):
         }
 
     @staticmethod
-    async def get_top_users(db: Session, limit: int, duration: str) -> List[dict[str, Any]]:
+    async def get_top_users(db: Session, limit: int, duration: str) -> builtins.list[dict[str, Any]]:
         metrics_store = get_metrics_store()
         return await metrics_store.get_top_users(limit, duration)
 
@@ -200,7 +200,7 @@ class BandwidthSamples(ListResponseMixin):
         end_at: datetime,
         interval: str = "minute",
         agg: str = "avg",
-    ) -> List[dict]:
+    ) -> builtins.list[dict]:
         """Get time series data for bandwidth samples."""
         # Build time bucket expression based on interval
         if interval == "hour":
@@ -242,7 +242,7 @@ class BandwidthSamples(ListResponseMixin):
 
         query = query.group_by(bucket).order_by(bucket)
 
-        results: List[dict] = []
+        results: list[dict] = []
         for row in query.all():
             results.append({
                 "timestamp": row.bucket.isoformat() if row.bucket else None,

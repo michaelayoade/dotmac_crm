@@ -9,8 +9,6 @@ from app.models.webhook import (
     WebhookEventType,
     WebhookSubscription,
 )
-from app.services.common import validate_enum, apply_pagination, apply_ordering, coerce_uuid
-from app.services.response import ListResponseMixin
 from app.schemas.webhook import (
     WebhookDeliveryCreate,
     WebhookDeliveryUpdate,
@@ -19,6 +17,8 @@ from app.schemas.webhook import (
     WebhookSubscriptionCreate,
     WebhookSubscriptionUpdate,
 )
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.response import ListResponseMixin
 
 
 class WebhookEndpoints(ListResponseMixin):
@@ -86,7 +86,7 @@ class WebhookEndpoints(ListResponseMixin):
         if not endpoint:
             raise HTTPException(status_code=404, detail="Webhook endpoint not found")
         data = payload.model_dump(exclude_unset=True)
-        if "connector_config_id" in data and data["connector_config_id"]:
+        if data.get("connector_config_id"):
             config = db.get(ConnectorConfig, coerce_uuid(data["connector_config_id"]))
             if not config:
                 raise HTTPException(status_code=404, detail="Connector config not found")

@@ -63,11 +63,14 @@ class SalesOrderUpdate(BaseModel):
     is_active: bool | None = None
 
     @model_validator(mode="after")
-    def _validate_status_timestamps(self) -> "SalesOrderUpdate":
+    def _validate_status_timestamps(self) -> SalesOrderUpdate:
         fields_set = self.model_fields_set
-        if "payment_status" in fields_set and self.payment_status == SalesOrderPaymentStatus.paid:
-            if "paid_at" not in fields_set or self.paid_at is None:
-                raise ValueError("paid_at is required when payment_status is paid")
+        if (
+            "payment_status" in fields_set
+            and self.payment_status == SalesOrderPaymentStatus.paid
+            and ("paid_at" not in fields_set or self.paid_at is None)
+        ):
+            raise ValueError("paid_at is required when payment_status is paid")
         return self
 
 

@@ -1,17 +1,18 @@
 """Fiber plant service for GeoJSON and statistics."""
 
 import json
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.network import (
     FdhCabinet,
-    Splitter,
-    FiberSpliceClosure,
-    FiberSplice,
-    FiberSpliceTray,
     FiberSegment,
+    FiberSplice,
+    FiberSpliceClosure,
+    FiberSpliceTray,
     OLTDevice,
+    Splitter,
 )
 
 

@@ -3,14 +3,13 @@
 import uuid
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.models.rbac import PersonRole, Role
 from app.services import vendor as vendor_service
 from app.services import vendor_portal
-from app.models.rbac import PersonRole, Role
 
 templates = Jinja2Templates(directory="templates")
 
@@ -20,7 +19,7 @@ _VENDOR_ROLE_NAME = "vendors"
 def _coerce_float(value: object | None, default: float) -> float:
     if isinstance(value, bool):
         return default
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     if isinstance(value, str):
         try:
@@ -167,10 +166,12 @@ def vendor_fiber_map(request: Request, db: Session):
         return HTMLResponse(content="Forbidden", status_code=403)
 
     import json
+
     from sqlalchemy import func
-    from app.models.network import FdhCabinet, FiberSpliceClosure, FiberSegment, Splitter, FiberSplice, FiberSpliceTray
-    from app.services import settings_spec
+
     from app.models.domain_settings import SettingDomain
+    from app.models.network import FdhCabinet, FiberSegment, FiberSplice, FiberSpliceClosure, FiberSpliceTray, Splitter
+    from app.services import settings_spec
 
     features = []
 
@@ -334,8 +335,8 @@ async def vendor_fiber_map_update_position(request: Request, db: Session):
         return JSONResponse({"error": "Authentication required"}, status_code=401)
     if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    from app.services import fiber_change_requests as change_request_service
     from app.models.fiber_change_request import FiberChangeRequestOperation
+    from app.services import fiber_change_requests as change_request_service
 
     try:
         data = await request.json()

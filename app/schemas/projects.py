@@ -25,6 +25,7 @@ class ProjectBase(BaseModel):
     manager_person_id: UUID | None = None
     project_manager_person_id: UUID | None = None
     assistant_manager_person_id: UUID | None = None
+    service_team_id: UUID | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
     completed_at: datetime | None = None
@@ -57,6 +58,7 @@ class ProjectUpdate(BaseModel):
     manager_person_id: UUID | None = None
     project_manager_person_id: UUID | None = None
     assistant_manager_person_id: UUID | None = None
+    service_team_id: UUID | None = None
     start_at: datetime | None = None
     due_at: datetime | None = None
     completed_at: datetime | None = None
@@ -70,9 +72,8 @@ class ProjectUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_dates(self) -> ProjectUpdate:
-        if self.start_at and self.due_at:
-            if self.start_at >= self.due_at:
-                raise ValueError("start_at must be before due_at")
+        if self.start_at and self.due_at and self.start_at >= self.due_at:
+            raise ValueError("start_at must be before due_at")
         return self
 
 
@@ -198,6 +199,7 @@ class ProjectTaskBase(BaseModel):
     status: TaskStatus = TaskStatus.todo
     priority: TaskPriority = TaskPriority.normal
     assigned_to_person_id: UUID | None = None
+    assigned_to_person_ids: list[UUID] | None = None
     created_by_person_id: UUID | None = None
     ticket_id: UUID | None = None
     work_order_id: UUID | None = None
@@ -225,6 +227,7 @@ class ProjectTaskUpdate(BaseModel):
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
     assigned_to_person_id: UUID | None = None
+    assigned_to_person_ids: list[UUID] | None = None
     created_by_person_id: UUID | None = None
     ticket_id: UUID | None = None
     work_order_id: UUID | None = None

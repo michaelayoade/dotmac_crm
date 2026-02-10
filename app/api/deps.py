@@ -103,22 +103,22 @@ def get_ownership_checker(auth=Depends(require_user_auth)):
 
 
 __all__ = [
-    "get_db",
     "get_current_user",
+    "get_db",
+    # Ownership checking
+    "get_ownership_checker",
+    "get_project_query",
+    "get_project_tasks_service",
+    "get_projects_service",
+    "get_ticket_comments_service",
+    # Query builders
+    "get_ticket_query",
+    # Container-based dependencies
+    "get_ticket_service",
+    "get_work_order_query",
+    "get_work_orders_service",
     "require_audit_auth",
     "require_permission",
     "require_role",
     "require_user_auth",
-    # Container-based dependencies
-    "get_ticket_service",
-    "get_ticket_comments_service",
-    "get_work_orders_service",
-    "get_projects_service",
-    "get_project_tasks_service",
-    # Query builders
-    "get_ticket_query",
-    "get_work_order_query",
-    "get_project_query",
-    # Ownership checking
-    "get_ownership_checker",
 ]

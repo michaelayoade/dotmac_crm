@@ -5,7 +5,7 @@ Provides handlers for processing events:
 - NotificationHandler: Queues customer notifications
 """
 
-from app.services.events.handlers.webhook import WebhookHandler
 from app.services.events.handlers.notification import NotificationHandler
+from app.services.events.handlers.webhook import WebhookHandler
 
-__all__ = ["WebhookHandler", "NotificationHandler"]
+__all__ = ["NotificationHandler", "WebhookHandler"]

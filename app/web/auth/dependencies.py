@@ -1,14 +1,14 @@
 """Web authentication dependencies for cookie-based auth with redirects."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 from fastapi import Depends, Request
-from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.auth import Session as AuthSession, SessionStatus
+from app.models.auth import Session as AuthSession
+from app.models.auth import SessionStatus
 from app.models.person import Person
 from app.services.auth_flow import _load_rbac_claims, decode_access_token
 
@@ -68,7 +68,7 @@ def validate_session_token(
     if not person_id or not session_id:
         return None
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     session = (
         db.query(AuthSession)
         .filter(AuthSession.id == session_id)

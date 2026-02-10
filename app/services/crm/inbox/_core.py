@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import hashlib
 import re
 import uuid
+from datetime import UTC, datetime, timedelta
 from email.utils import getaddresses
 
 import httpx
 from fastapi import HTTPException
 from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
-from sqlalchemy.orm import selectinload
 
+from app.logging import get_logger
 from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.crm.conversation import Conversation, Message
+from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
 from app.models.domain_settings import SettingDomain
 from app.models.integration import (
     IntegrationJob,
@@ -21,19 +23,16 @@ from app.models.integration import (
     IntegrationTarget,
     IntegrationTargetType,
 )
-from app.models.person import ChannelType as PersonChannelType, Person, PersonChannel
-from app.models.crm.conversation import Conversation, Message
-from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
-from app.schemas.crm.conversation import ConversationCreate, MessageCreate
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Person, PersonChannel
+from app.schemas.crm.conversation import MessageCreate
 from app.schemas.crm.inbox import EmailWebhookPayload, InboxSendRequest, WhatsAppWebhookPayload
 from app.services import email as email_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm import email_polling
-from app.logging import get_logger
 from app.services.settings_spec import resolve_value
-from app.services.crm.inbox.status_flow import apply_status_transition
 
 _DEFAULT_WHATSAPP_TIMEOUT = 10  # fallback when settings unavailable
 
@@ -51,7 +50,7 @@ def _get_whatsapp_api_timeout(db: Session) -> int:
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _normalize_external_id(raw_id: str | None) -> str | None:
@@ -93,7 +92,7 @@ def _extract_message_ids(value) -> list[str]:
     if not value:
         return []
     candidates: list[str] = []
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, list | tuple | set):
         for item in value:
             if item:
                 candidates.append(str(item))
@@ -163,7 +162,7 @@ def _resolve_conversation_from_email_metadata(
             address_fields.append(value)
     addresses = []
     for raw in address_fields:
-        if isinstance(raw, (list, tuple, set)):
+        if isinstance(raw, list | tuple | set):
             raw_values = [str(item) for item in raw if item]
         else:
             raw_values = [str(raw)]
@@ -392,9 +391,7 @@ def _metadata_indicates_self(metadata: dict | None) -> bool:
     }:
         return True
     direction = metadata.get("direction")
-    if isinstance(direction, str) and direction.lower() in {"outbound", "sent", "business"}:
-        return True
-    return False
+    return bool(isinstance(direction, str) and direction.lower() in {"outbound", "sent", "business"})
 
 
 def _metadata_indicates_comment(metadata: dict | None) -> bool:
@@ -406,9 +403,7 @@ def _metadata_indicates_comment(metadata: dict | None) -> bool:
     if isinstance(source, str) and source.lower() == "comment":
         return True
     msg_type = metadata.get("type")
-    if isinstance(msg_type, str) and msg_type.lower() == "comment":
-        return True
-    return False
+    return bool(isinstance(msg_type, str) and msg_type.lower() == "comment")
 
 
 def _extract_whatsapp_business_number(
@@ -561,16 +556,22 @@ def _resolve_person_for_inbound(
             channel_type,
             normalized_address or address,
         )
-        if channel_type == ChannelType.whatsapp and normalized_address:
-            if not person.phone or not person.phone.startswith("+"):
-                person.phone = normalized_address
-                db.commit()
-                db.refresh(person)
-        if channel_type == ChannelType.email and normalized_address:
-            if not person.email or person.email.endswith("@example.invalid"):
-                person.email = normalized_address
-                db.commit()
-                db.refresh(person)
+        if (
+            channel_type == ChannelType.whatsapp
+            and normalized_address
+            and (not person.phone or not person.phone.startswith("+"))
+        ):
+            person.phone = normalized_address
+            db.commit()
+            db.refresh(person)
+        if (
+            channel_type == ChannelType.email
+            and normalized_address
+            and (not person.email or person.email.endswith("@example.invalid"))
+        ):
+            person.email = normalized_address
+            db.commit()
+            db.refresh(person)
         if display_name and not person.display_name:
             person.display_name = display_name
             db.commit()
@@ -666,266 +667,16 @@ def _get_last_inbound_message(db: Session, conversation_id) -> Message | None:
     )
 
 
-def _build_conversation_summary(db: Session, conversation, message: Message) -> dict:
-    unread_count = (
-        db.query(Message)
-        .filter(Message.conversation_id == conversation.id)
-        .filter(Message.direction == MessageDirection.inbound)
-        .filter(Message.status == MessageStatus.received)
-        .filter(Message.read_at.is_(None))
-        .count()
-    )
-    last_message_at = message.received_at or message.sent_at or message.created_at
-    preview = message.body or ""
-    if len(preview) > 100:
-        preview = preview[:100] + "..."
-    return {
-        "preview": preview,
-        "last_message_at": last_message_at.isoformat() if last_message_at else None,
-        "channel": message.channel_type.value if message.channel_type else None,
-        "unread_count": unread_count,
-    }
-
-
 def receive_whatsapp_message(db: Session, payload: WhatsAppWebhookPayload):
-    received_at = payload.received_at or _now()
-    target = None
-    if payload.channel_target_id:
-        target = _resolve_integration_target(
-            db,
-            ChannelType.whatsapp,
-            str(payload.channel_target_id),
-        )
-    else:
-        target = _resolve_integration_target(db, ChannelType.whatsapp, None)
+    from app.services.crm.inbox.inbound import receive_whatsapp_message as inbound_receive
 
-    config = _resolve_connector_config(db, target, ChannelType.whatsapp) if target else None
-    if _is_self_whatsapp_message(payload, config):
-        logger.info(
-            "whatsapp_inbound_skip_self contact_address=%s",
-            payload.contact_address,
-        )
-        return None
-
-    person, channel = _resolve_person_for_inbound(
-        db,
-        ChannelType.whatsapp,
-        payload.contact_address,
-        payload.contact_name,
-    )
-    existing = _find_duplicate_inbound_message(
-        db,
-        ChannelType.whatsapp,
-        channel.id,
-        target.id if target else None,
-        payload.message_id,
-        None,
-        payload.body,
-        received_at,
-    )
-    if existing:
-        return existing
-    person_id = _resolve_person_for_contact(person)
-    person_uuid = coerce_uuid(person_id)
-    conversation = conversation_service.resolve_open_conversation_for_channel(
-        db,
-        person_id,
-        ChannelType.whatsapp,
-    )
-    if not conversation:
-        conversation = conversation_service.Conversations.create(
-            db,
-            ConversationCreate(
-                person_id=person_uuid,
-                is_active=True,  # Ensure new conversations are visible in the inbox UI.
-            ),
-        )
-    elif not conversation.is_active:
-        conversation.is_active = True
-        apply_status_transition(conversation, ConversationStatus.open)
-        db.commit()
-        db.refresh(conversation)
-    message = conversation_service.Messages.create(
-        db,
-        MessageCreate(
-            conversation_id=conversation.id,
-            person_channel_id=channel.id,
-            channel_target_id=target.id if target else None,
-            channel_type=ChannelType.whatsapp,
-            direction=MessageDirection.inbound,
-            status=MessageStatus.received,
-            body=payload.body,
-            external_id=payload.message_id,
-            received_at=received_at,
-            metadata_=payload.metadata,
-        ),
-    )
-    from app.websocket.broadcaster import broadcast_new_message
-    broadcast_new_message(message, conversation)
-    from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
-    notify_assigned_agent_new_reply(db, conversation, message)
-    from app.websocket.broadcaster import broadcast_conversation_summary
-    broadcast_conversation_summary(
-        str(conversation.id),
-        _build_conversation_summary(db, conversation, message),
-    )
-    return message
+    return inbound_receive(db, payload)
 
 
 def receive_email_message(db: Session, payload: EmailWebhookPayload):
-    logger.debug(
-        "receive_email_message_start subject=%s from=%s metadata_keys=%s",
-        payload.subject,
-        payload.contact_address,
-        list(payload.metadata.keys()) if isinstance(payload.metadata, dict) else [],
-    )
-    received_at = payload.received_at or _now()
-    metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
-    target = None
-    if payload.channel_target_id:
-        target = _resolve_integration_target(
-            db,
-            ChannelType.email,
-            str(payload.channel_target_id),
-        )
-    else:
-        target = _resolve_integration_target(db, ChannelType.email, None)
+    from app.services.crm.inbox.inbound import receive_email_message as inbound_receive
 
-    config = _resolve_connector_config(db, target, ChannelType.email) if target else None
-    if _is_self_email_message(payload, config):
-        logger.info("email_inbound_skip_self from=%s", payload.contact_address)
-        return None
-
-    person, channel = _resolve_person_for_inbound(
-        db,
-        ChannelType.email,
-        payload.contact_address,
-        payload.contact_name,
-    )
-    external_id = _normalize_external_id(payload.message_id)
-    if not external_id:
-        external_id = _build_inbound_dedupe_id(
-            ChannelType.email,
-            payload.contact_address,
-            payload.subject,
-            payload.body,
-            payload.received_at,
-        )
-    existing = _find_duplicate_inbound_message(
-        db,
-        ChannelType.email,
-        channel.id,
-        target.id if target else None,
-        external_id,
-        payload.subject,
-        payload.body,
-        received_at,
-        dedupe_across_targets=True,
-    )
-    logger.info(
-        "EMAIL_MESSAGE_RECEIVED subject=%s message_id=%s duplicate=%s",
-        payload.subject,
-        payload.message_id,
-        existing is not None,
-    )
-    if existing:
-        return existing
-    person_id = _resolve_person_for_contact(person)
-    in_reply_to = _get_metadata_value(metadata, "in_reply_to")
-    references = _get_metadata_value(metadata, "references")
-    crm_header = _get_metadata_value(metadata, "x-crm-id") or _get_metadata_value(
-        metadata, "x-crm-conversation-id"
-    )
-    has_thread_headers = bool(
-        payload.message_id
-        or in_reply_to
-        or references
-        or crm_header
-        or _extract_conversation_tokens(payload.subject)
-    )
-
-    conversation = _resolve_conversation_from_email_metadata(
-        db,
-        payload.subject,
-        metadata,
-    )
-    person_uuid = coerce_uuid(person_id)
-    if not conversation and _metadata_indicates_comment(metadata) and payload.subject:
-        conversation = (
-            db.query(Conversation)
-            .filter(Conversation.person_id == person_uuid)
-            .filter(Conversation.subject.ilike(payload.subject))
-            .order_by(Conversation.updated_at.desc())
-            .first()
-        )
-    if not conversation:
-        conversation = conversation_service.resolve_open_conversation_for_channel(
-            db,
-            person_id,
-            ChannelType.email,
-        )
-        if conversation and not has_thread_headers:
-            conv_meta = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
-            warnings = conv_meta.get("warnings")
-            if not isinstance(warnings, list):
-                warnings = []
-            warnings.append(
-                {
-                    "type": "email_reply_without_headers",
-                    "message_id": payload.message_id,
-                    "received_at": received_at.isoformat() if received_at else None,
-                }
-            )
-            conv_meta["warnings"] = warnings
-            conversation.metadata_ = conv_meta
-            db.commit()
-    if not conversation:
-        conversation = conversation_service.Conversations.create(
-            db,
-            ConversationCreate(
-                person_id=person_uuid,
-                subject=payload.subject,
-                is_active=True,  # Ensure new conversations are visible in the inbox UI.
-            ),
-        )
-    elif not conversation.is_active:
-        conversation.is_active = True
-        apply_status_transition(conversation, ConversationStatus.open)
-        db.commit()
-        db.refresh(conversation)
-    elif conversation.person_id != person_uuid:
-        logger.warning(
-            "email_reply_conversation_mismatch conversation_id=%s sender_person_id=%s conversation_person_id=%s",
-            conversation.id,
-            person_id,
-            conversation.person_id,
-        )
-    message = conversation_service.Messages.create(
-        db,
-        MessageCreate(
-            conversation_id=conversation.id,
-            person_channel_id=channel.id,
-            channel_target_id=target.id if target else None,
-            channel_type=ChannelType.email,
-            direction=MessageDirection.inbound,
-            status=MessageStatus.received,
-            subject=payload.subject,
-            body=payload.body,
-            external_id=external_id,
-            received_at=received_at,
-            metadata_=metadata,
-        ),
-    )
-    from app.websocket.broadcaster import broadcast_new_message
-    broadcast_new_message(message, conversation)
-    from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
-    notify_assigned_agent_new_reply(db, conversation, message)
-    from app.websocket.broadcaster import broadcast_conversation_summary
-    broadcast_conversation_summary(
-        str(conversation.id),
-        _build_conversation_summary(db, conversation, message),
-    )
-    return message
+    return inbound_receive(db, payload)
 
 
 def send_message(db: Session, payload: InboxSendRequest, author_id: str | None = None):
@@ -1003,7 +754,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
     )
     config = _resolve_connector_config(db, target, payload.channel_type) if target else None
 
-    rendered_body = _render_personalization(payload.body, payload.personalization)
+    rendered_body = _render_personalization(payload.body or "", payload.personalization)
 
     if payload.channel_type == ChannelType.email:
         if not person_channel.address:
@@ -1027,7 +778,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         if config:
             smtp_config = _smtp_config_from_connector(config)
             if smtp_config:
-                sent = email_service.send_email_with_config(
+                sent, _ = email_service.send_email_with_config(
                     smtp_config,
                     person_channel.address,
                     payload.subject or "Message",
@@ -1035,7 +786,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
                     rendered_body,
                 )
         if not sent:
-            sent = email_service.send_email(
+            sent, _ = email_service.send_email(
                 db,
                 person_channel.address,
                 payload.subject or "Message",
@@ -1142,7 +893,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         account_id = _resolve_meta_account_id(db, conversation.id, payload.channel_type)
         if not last_inbound or not last_inbound.received_at:
             raise HTTPException(status_code=400, detail="Meta reply window expired")
-        if (datetime.now(timezone.utc) - last_inbound.received_at).total_seconds() > 24 * 3600:
+        if (datetime.now(UTC) - last_inbound.received_at).total_seconds() > 24 * 3600:
             raise HTTPException(status_code=400, detail="Meta reply window expired")
 
         message = conversation_service.Messages.create(
@@ -1187,7 +938,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         account_id = _resolve_meta_account_id(db, conversation.id, payload.channel_type)
         if not last_inbound or not last_inbound.received_at:
             raise HTTPException(status_code=400, detail="Meta reply window expired")
-        if (datetime.now(timezone.utc) - last_inbound.received_at).total_seconds() > 24 * 3600:
+        if (datetime.now(UTC) - last_inbound.received_at).total_seconds() > 24 * 3600:
             raise HTTPException(status_code=400, detail="Meta reply window expired")
 
         message = conversation_service.Messages.create(
@@ -1236,12 +987,20 @@ def create_email_connector_target(
     imap: dict | None = None,
     pop3: dict | None = None,
     auth_config: dict | None = None,
+    metadata: dict | None = None,
 ):
+    merged_metadata = dict(metadata or {})
+    if smtp:
+        merged_metadata["smtp"] = smtp
+    if imap:
+        merged_metadata["imap"] = imap
+    if pop3:
+        merged_metadata["pop3"] = pop3
     config = ConnectorConfig(
         name=name,
         connector_type=ConnectorType.email,
         auth_config=auth_config,
-        metadata_={"smtp": smtp, "imap": imap, "pop3": pop3},
+        metadata_=merged_metadata,
     )
     db.add(config)
     db.commit()
@@ -1264,16 +1023,17 @@ def create_whatsapp_connector_target(
     phone_number_id: str | None = None,
     auth_config: dict | None = None,
     base_url: str | None = None,
+    metadata: dict | None = None,
 ):
-    metadata = {}
+    merged_metadata = dict(metadata or {})
     if phone_number_id:
-        metadata["phone_number_id"] = phone_number_id
+        merged_metadata["phone_number_id"] = phone_number_id
     config = ConnectorConfig(
         name=name,
         connector_type=ConnectorType.whatsapp,
         auth_config=auth_config,
         base_url=base_url,
-        metadata_=metadata or None,
+        metadata_=merged_metadata or None,
     )
     db.add(config)
     db.commit()
@@ -1401,7 +1161,7 @@ def poll_email_targets(db: Session, target_id: str | None = None) -> dict:
 
     logger.info(
         "EMAIL_POLL_START ts=%s targets=%s connectors=%s",
-        datetime.now(timezone.utc).isoformat(),
+        datetime.now(UTC).isoformat(),
         len(targets),
         len(email_connectors),
     )

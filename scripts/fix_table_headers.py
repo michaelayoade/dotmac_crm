@@ -24,7 +24,6 @@ stats = {
 
 def fix_th_classes(class_str):
     """Fix a <th> class string to include required design system classes."""
-    original = class_str
     changes = []
 
     # Skip sr-only headers (screen reader only, e.g. "Actions" column)
@@ -37,11 +36,11 @@ def fix_th_classes(class_str):
         changes.append("font-medium→font-semibold")
 
     # Fix 2: Add text-xs if missing
-    if not re.search(r"\btext-xs\b", class_str):
-        # Don't add if there's another text-* size
-        if not re.search(r"\btext-(?:sm|base|lg|xl|2xl)\b", class_str):
-            class_str = class_str.rstrip() + " text-xs"
-            changes.append("+text-xs")
+    if not re.search(r"\btext-xs\b", class_str) and not re.search(
+        r"\btext-(?:sm|base|lg|xl|2xl)\b", class_str
+    ):
+        class_str = class_str.rstrip() + " text-xs"
+        changes.append("+text-xs")
 
     # Fix 3: Add font-semibold if no font weight at all
     if not re.search(r"\bfont-(?:medium|semibold|bold)\b", class_str):
@@ -59,18 +58,20 @@ def fix_th_classes(class_str):
         changes.append("+tracking-wider")
 
     # Fix 6: Add text color if completely missing
-    if not re.search(r"\btext-slate-[345]\d\d\b", class_str) and "text-left" not in class_str.split():
-        # Only add if there's no text color at all (don't override existing)
-        if not re.search(r"\btext-(?!left|right|center|xs|sm)\S+", class_str):
-            class_str = class_str.rstrip() + " text-slate-500 dark:text-slate-400"
-            changes.append("+text-color")
+    if (
+        not re.search(r"\btext-slate-[345]\d\d\b", class_str)
+        and "text-left" not in class_str.split()
+        and not re.search(r"\btext-(?!left|right|center|xs|sm)\S+", class_str)
+    ):
+        class_str = class_str.rstrip() + " text-slate-500 dark:text-slate-400"
+        changes.append("+text-color")
 
     return class_str, changes
 
 
 def process_file(filepath):
     """Process a single file, fixing <th> class attributes."""
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         content = f.read()
 
     if "<th" not in content:
@@ -132,31 +133,22 @@ def process_file(filepath):
         with open(filepath, "w") as f:
             f.write(new_content)
         stats["files_modified"] += 1
-        rel = os.path.relpath(filepath, "/root/dotmac/dotmac_omni")
+        os.path.relpath(filepath, "/root/dotmac/dotmac_omni")
         # Count changes
-        n_changes = sum(
+        sum(
             1
-            for a, b in zip(original.split("\n"), new_content.split("\n"))
+            for a, b in zip(original.split("\n"), new_content.split("\n"), strict=False)
             if a != b
         )
-        print(f"  {rel}: {n_changes} lines changed")
 
 
 def main():
-    print("Scanning templates for <th> styling fixes...\n")
 
-    for root, dirs, files in os.walk(TEMPLATES_DIR):
+    for root, _dirs, files in os.walk(TEMPLATES_DIR):
         for fname in sorted(files):
             if fname.endswith(".html"):
                 process_file(os.path.join(root, fname))
 
-    print(f"\nDone!")
-    print(f"  Files checked: {stats['files_checked']}")
-    print(f"  Files modified: {stats['files_modified']}")
-    print(f"  uppercase added: {stats['uppercase_added']}")
-    print(f"  tracking-wider added: {stats['tracking_added']}")
-    print(f"  font-weight fixed: {stats['font_weight_fixed']}")
-    print(f"  text-xs added: {stats['text_xs_added']}")
 
 
 if __name__ == "__main__":

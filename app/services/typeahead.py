@@ -2,6 +2,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.person import Person
+from app.models.dispatch import TechnicianProfile
 from app.models.subscriber import Organization, Reseller, Subscriber
 from app.models.vendor import Vendor
 from app.services.response import list_response
@@ -42,6 +43,45 @@ def people(db: Session, query: str, limit: int) -> list[dict]:
 
 def people_response(db: Session, query: str, limit: int) -> dict:
     return list_response(people(db, query, limit), limit, 0)
+
+
+def technicians(db: Session, query: str, limit: int) -> list[dict]:
+    term = (query or "").strip()
+    like_term = f"%{term}%"
+    query_builder = (
+        db.query(TechnicianProfile)
+        .join(Person, TechnicianProfile.person_id == Person.id)
+        .filter(TechnicianProfile.is_active.is_(True))
+    )
+    if term:
+        query_builder = query_builder.filter(
+            or_(
+                Person.first_name.ilike(like_term),
+                Person.last_name.ilike(like_term),
+                Person.display_name.ilike(like_term),
+                Person.email.ilike(like_term),
+                Person.phone.ilike(like_term),
+            )
+        )
+    results = query_builder.order_by(Person.first_name.asc(), Person.last_name.asc()).limit(limit).all()
+    items = []
+    for tech in results:
+        person = tech.person
+        if not person:
+            continue
+        label = " ".join(part for part in [person.first_name, person.last_name] if part)
+        if not label and person.display_name:
+            label = person.display_name
+        if person.email:
+            label = f"{label} ({person.email})"
+        elif person.phone:
+            label = f"{label} ({person.phone})"
+        items.append({"id": person.id, "label": label})
+    return items
+
+
+def technicians_response(db: Session, query: str, limit: int) -> dict:
+    return list_response(technicians(db, query, limit), limit, 0)
 
 
 def subscribers(db: Session, query: str, limit: int) -> list[dict]:
@@ -103,7 +143,7 @@ def vendors(db: Session, query: str, limit: int) -> list[dict]:
                 Vendor.contact_name.ilike(like_term),
             )
         )
-        .filter(Vendor.is_active == True)
+        .filter(Vendor.is_active.is_(True))
         .limit(limit)
         .all()
     )
@@ -128,7 +168,7 @@ def resellers(db: Session, query: str, limit: int) -> list[dict]:
                 Reseller.code.ilike(like_term),
             )
         )
-        .filter(Reseller.is_active == True)
+        .filter(Reseller.is_active.is_(True))
         .limit(limit)
         .all()
     )

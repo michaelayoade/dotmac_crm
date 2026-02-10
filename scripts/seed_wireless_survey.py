@@ -8,11 +8,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from app.db import SessionLocal
-from app.models.person import Person
-from app.models.wireless_survey import SurveyPointType
-from app.schemas.wireless_survey import SurveyPointCreate, WirelessSiteSurveyCreate
-from app.services import wireless_survey as ws_service
+from app.db import SessionLocal  # noqa: E402
+from app.models.person import Person  # noqa: E402
+from app.models.wireless_survey import SurveyPointType  # noqa: E402
+from app.schemas.wireless_survey import SurveyPointCreate, WirelessSiteSurveyCreate  # noqa: E402
+from app.services import wireless_survey as ws_service  # noqa: E402
 
 
 def parse_args():
@@ -63,7 +63,6 @@ def main():
         customer = ws_service.survey_points.create(db, survey.id, customer_point)
         ws_service.survey_los.analyze_path(db, survey.id, base.id, customer.id)
 
-        print(f"Created survey: {survey.id}")
     finally:
         db.close()
 

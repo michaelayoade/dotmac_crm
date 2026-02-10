@@ -20,4 +20,4 @@ Usage:
 from app.services.events.dispatcher import emit_event
 from app.services.events.types import Event, EventType
 
-__all__ = ["emit_event", "Event", "EventType"]
+__all__ = ["Event", "EventType", "emit_event"]

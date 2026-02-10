@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.celery_app import celery_app
 from app.db import SessionLocal
@@ -41,7 +41,7 @@ def process_scheduled_campaigns():
     """Find campaigns where scheduled_at <= now, build recipients, and trigger execution."""
     session = SessionLocal()
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         scheduled = (
             session.query(Campaign)
             .filter(
@@ -72,7 +72,7 @@ def process_nurture_steps():
     """Check due nurture steps based on delay_days and create recipient rows."""
     session = SessionLocal()
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Find active nurture campaigns that are sending or completed
         nurture_campaigns = (

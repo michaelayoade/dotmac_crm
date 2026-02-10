@@ -154,6 +154,12 @@ function confirmModal() {
         submitting: false,
         csrfToken: '',
 
+        getCsrfToken() {
+            const match = document.cookie.match(/csrf_token=([^;]+)/);
+            if (match && match[1]) return match[1];
+            return document.querySelector('meta[name="csrf-token"]')?.content || '';
+        },
+
         open(detail) {
             this.title = detail.title || 'Confirm Action';
             this.message = detail.message || 'Are you sure you want to proceed?';
@@ -161,7 +167,7 @@ function confirmModal() {
             this.method = detail.method || 'POST';
             this.variant = detail.variant || 'danger';
             this.submitting = false;
-            this.csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            this.csrfToken = this.getCsrfToken();
             this.isOpen = true;
         },
 

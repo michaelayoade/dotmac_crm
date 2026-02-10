@@ -25,7 +25,7 @@ class DomainSettingCreate(DomainSettingBase):
         else:
             if self.value_text is None:
                 raise ValueError("non-json settings require value_text.")
-            if isinstance(self.value_json, (dict, list)):
+            if isinstance(self.value_json, dict | list):
                 raise ValueError("non-json settings require primitive value_json.")
         return self
 
@@ -49,12 +49,12 @@ class DomainSettingUpdate(BaseModel):
             elif self.value_type is not None:
                 if self.value_text is None:
                     raise ValueError("non-json settings require value_text.")
-                if isinstance(self.value_json, (dict, list)):
+                if isinstance(self.value_json, dict | list):
                     raise ValueError("non-json settings require primitive value_json.")
             else:
                 if self.value_text is not None and self.value_json is not None:
                     raise ValueError("Provide only one of value_text or value_json.")
-                if isinstance(self.value_json, (dict, list)):
+                if isinstance(self.value_json, dict | list):
                     raise ValueError("value_type is required when setting value_json.")
         return self
 

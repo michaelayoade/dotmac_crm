@@ -13,12 +13,13 @@ class NextcloudTalkAuth(BaseModel):
     timeout_sec: int | None = Field(default=None, ge=1, le=120)
 
     @model_validator(mode="after")
-    def _validate_auth(self) -> "NextcloudTalkAuth":
-        if self.connector_config_id is None:
-            if not self.base_url or not self.username or not self.app_password:
-                raise ValueError(
-                    "Provide base_url, username, and app_password when connector_config_id is not set."
-                )
+    def _validate_auth(self) -> NextcloudTalkAuth:
+        if self.connector_config_id is None and (
+            not self.base_url or not self.username or not self.app_password
+        ):
+            raise ValueError(
+                "Provide base_url, username, and app_password when connector_config_id is not set."
+            )
         return self
 
 

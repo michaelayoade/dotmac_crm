@@ -1,11 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.logic.crm_inbox_logic import LogicService, MessageContext
 
 
 def test_email_allowed_without_last_inbound():
     logic = LogicService()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ctx = MessageContext(
         conversation_id="c1",
         person_id="p1",
@@ -23,7 +23,7 @@ def test_email_allowed_without_last_inbound():
 
 def test_email_denied_on_channel_mismatch():
     logic = LogicService()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ctx = MessageContext(
         conversation_id="c2",
         person_id="p2",
@@ -41,7 +41,7 @@ def test_email_denied_on_channel_mismatch():
 
 def test_mock_whatsapp_allowed_without_last_inbound():
     logic = LogicService()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ctx = MessageContext(
         conversation_id="c3",
         person_id="p3",
@@ -59,7 +59,7 @@ def test_mock_whatsapp_allowed_without_last_inbound():
 
 def test_mock_facebook_denied_outside_24h():
     logic = LogicService()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ctx = MessageContext(
         conversation_id="c4",
         person_id="p4",

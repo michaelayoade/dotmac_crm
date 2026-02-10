@@ -6,7 +6,6 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.audit import AuditEvent
 from app.models.auth import ApiKey, UserCredential
 from app.models.integration import IntegrationJob
 from app.models.rbac import Role
@@ -25,7 +24,7 @@ def get_db():
 
 
 def _base_context(request: Request, db: Session, active_page: str):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     return {
         "request": request,

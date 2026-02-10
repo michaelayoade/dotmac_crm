@@ -17,6 +17,13 @@ Implementation is split across multiple submodules for maintainability:
 """
 from __future__ import annotations
 
+# Re-export internal functions used by other modules (e.g., web/admin/crm.py)
+from app.services.crm.inbox.connectors import _smtp_config_from_connector
+from app.services.crm.inbox.connectors_create import (
+    create_email_connector_target,
+    create_whatsapp_connector_target,
+)
+
 # Re-export public API functions
 from app.services.crm.inbox.inbound import (
     receive_email_message,
@@ -24,43 +31,36 @@ from app.services.crm.inbox.inbound import (
 )
 from app.services.crm.inbox.outbound import send_message, send_message_with_retry
 from app.services.crm.inbox.outbox import enqueue_outbound_message
+from app.services.crm.inbox.polling import (
+    ensure_email_polling_job,
+    poll_email_targets,
+)
 from app.services.crm.inbox.queries import (
     get_channel_stats,
     get_inbox_stats,
     list_inbox_conversations,
 )
-from app.services.crm.inbox.polling import (
-    ensure_email_polling_job,
-    poll_email_targets,
-)
-from app.services.crm.inbox.connectors_create import (
-    create_email_connector_target,
-    create_whatsapp_connector_target,
-)
-
-# Re-export internal functions used by other modules (e.g., web/admin/crm.py)
-from app.services.crm.inbox.connectors import _smtp_config_from_connector
 
 __all__ = [
+    # Internal (for backwards compatibility)
+    "_smtp_config_from_connector",
+    # Connector creation
+    "create_email_connector_target",
+    "create_whatsapp_connector_target",
+    "enqueue_outbound_message",
+    # Polling
+    "ensure_email_polling_job",
+    # Queries and statistics
+    "get_channel_stats",
+    "get_inbox_stats",
+    "list_inbox_conversations",
+    "poll_email_targets",
     # Inbound message processing
     "receive_email_message",
     "receive_whatsapp_message",
     # Outbound message sending
     "send_message",
     "send_message_with_retry",
-    "enqueue_outbound_message",
-    # Queries and statistics
-    "get_channel_stats",
-    "get_inbox_stats",
-    "list_inbox_conversations",
-    # Polling
-    "ensure_email_polling_job",
-    "poll_email_targets",
-    # Connector creation
-    "create_email_connector_target",
-    "create_whatsapp_connector_target",
-    # Internal (for backwards compatibility)
-    "_smtp_config_from_connector",
 ]
 
 

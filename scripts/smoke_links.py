@@ -3,13 +3,11 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from collections import deque
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
-
 
 DEFAULT_EXCLUDED_PATH_SNIPPETS = {
     "/logout",
@@ -155,7 +153,7 @@ def _crawl_links(
                 queue.append((normalized, url))
 
     if queue and len(visited) >= max_pages:
-        print(f"Reached max pages ({max_pages}); {len(queue)} URLs remain in queue.")
+        pass
 
 
 def _parse_args() -> argparse.Namespace:
@@ -228,7 +226,6 @@ def main() -> int:
             args.show_response,
         )
 
-    print("Smoke link check complete.")
     return 0
 
 

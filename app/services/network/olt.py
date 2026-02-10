@@ -5,9 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
 from app.models.network import (
-    OLTDevice,
     OltCard,
     OltCardPort,
+    OLTDevice,
     OltPortType,
     OltPowerUnit,
     OltSfpModule,
@@ -17,12 +17,12 @@ from app.models.network import (
     PonPort,
 )
 from app.schemas.network import (
-    OLTDeviceCreate,
-    OLTDeviceUpdate,
     OltCardCreate,
     OltCardPortCreate,
     OltCardPortUpdate,
     OltCardUpdate,
+    OLTDeviceCreate,
+    OLTDeviceUpdate,
     OltPowerUnitCreate,
     OltPowerUnitUpdate,
     OltSfpModuleCreate,
@@ -171,7 +171,7 @@ class PonPorts(ListResponseMixin):
             olt = db.get(OLTDevice, data["olt_id"])
             if not olt:
                 raise HTTPException(status_code=404, detail="OLT device not found")
-        if "olt_card_port_id" in data and data["olt_card_port_id"]:
+        if data.get("olt_card_port_id"):
             card_port = db.get(OltCardPort, data["olt_card_port_id"])
             if not card_port:
                 raise HTTPException(status_code=404, detail="OLT card port not found")

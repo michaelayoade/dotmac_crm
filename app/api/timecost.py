@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.services.response import list_response
 from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.timecost import (
@@ -20,6 +19,7 @@ from app.schemas.timecost import (
     WorkLogUpdate,
 )
 from app.services import timecost as timecost_service
+from app.services.response import list_response
 
 router = APIRouter(prefix="/timecost", tags=["timecost"])
 

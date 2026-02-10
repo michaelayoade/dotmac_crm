@@ -5,14 +5,15 @@ Provides common query operations that all query builders inherit.
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar, TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Self, TypeVar
 
 from sqlalchemy import asc, desc
 from sqlalchemy.orm import Query
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
     from uuid import UUID
+
+    from sqlalchemy.orm import Session
 
 T = TypeVar("T")
 
@@ -33,9 +34,9 @@ class BaseQuery(Generic[T]):
     """
 
     model_class: type[T]
-    ordering_fields: dict[str, Any] = {}
+    ordering_fields: ClassVar[dict[str, Any]] = {}
 
-    def __init__(self, db: "Session"):
+    def __init__(self, db: Session):
         self.db = db
         self._query: Query = db.query(self.model_class)
 
@@ -50,7 +51,7 @@ class BaseQuery(Generic[T]):
     # Common filters
     # -------------------------------------------------------------------------
 
-    def by_id(self, id: "UUID | str") -> Self:
+    def by_id(self, id: UUID | str) -> Self:
         """Filter by primary key ID."""
         from app.services.common import coerce_uuid
 
@@ -60,7 +61,7 @@ class BaseQuery(Generic[T]):
             clone._query = clone._query.filter(id_column == coerce_uuid(id))
         return clone
 
-    def by_ids(self, ids: list["UUID | str"]) -> Self:
+    def by_ids(self, ids: list[UUID | str]) -> Self:
         """Filter by multiple IDs."""
         from app.services.common import coerce_uuid
 

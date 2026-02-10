@@ -7,16 +7,16 @@ from fastapi import APIRouter, Depends, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
 from app.models.person import Person
 from app.models.projects import (
-    ProjectComment,
+    Project,
     ProjectPriority,
     ProjectStatus,
-    Project,
     ProjectTask,
+    ProjectTaskAssignee,
     ProjectTemplateTask,
     ProjectTemplateTaskDependency,
     ProjectType,
@@ -26,7 +26,6 @@ from app.models.projects import (
 )
 from app.schemas.projects import (
     ProjectCommentCreate,
-    ProjectCommentUpdate,
     ProjectCreate,
     ProjectTaskCommentCreate,
     ProjectTaskCreate,
@@ -108,11 +107,23 @@ def _resolve_project_reference(db: Session, project_ref: str):
 def _resolve_project_task_reference(db: Session, task_ref: str):
     if not task_ref:
         raise ValueError("Project task not found")
-    task = db.query(ProjectTask).filter(ProjectTask.number == task_ref).first()
+    task = (
+        db.query(ProjectTask)
+        .options(selectinload(ProjectTask.assignees).selectinload(ProjectTaskAssignee.person))
+        .filter(ProjectTask.number == task_ref)
+        .first()
+    )
     if task:
         return task, False
     task_uuid = coerce_uuid(task_ref)
-    task = projects_service.project_tasks.get(db=db, task_id=str(task_uuid))
+    task = (
+        db.query(ProjectTask)
+        .options(selectinload(ProjectTask.assignees).selectinload(ProjectTaskAssignee.person))
+        .filter(ProjectTask.id == task_uuid)
+        .first()
+    )
+    if not task:
+        task = projects_service.project_tasks.get(db=db, task_id=str(task_uuid))
     should_redirect = bool(task.number)
     return task, should_redirect
 
@@ -309,6 +320,7 @@ def projects_list(
 ):
     """List all projects."""
     offset = (page - 1) * per_page
+    from app.csrf import get_csrf_token
 
     projects = projects_service.projects.list(
         db=db,
@@ -363,6 +375,7 @@ def projects_list(
 
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
+    csrf_token = get_csrf_token(request)
 
     return templates.TemplateResponse(
         "admin/projects/index.html",
@@ -377,6 +390,7 @@ def projects_list(
             "total_pages": total_pages,
             "status_counts": status_counts,
             "total_count": total_count,
+            "csrf_token": csrf_token,
             "current_user": current_user,
             "sidebar_stats": sidebar_stats,
         },
@@ -538,6 +552,7 @@ def project_tasks_list(
     """List project tasks across all projects."""
     offset = (page - 1) * per_page
 
+    from app.csrf import get_csrf_token
     from app.web.admin import get_current_user, get_sidebar_stats
 
     sidebar_stats = get_sidebar_stats(db)
@@ -612,6 +627,7 @@ def project_tasks_list(
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
+            "csrf_token": get_csrf_token(request),
             "current_user": current_user,
             "sidebar_stats": sidebar_stats,
         },
@@ -627,6 +643,7 @@ def project_task_new(request: Request, db: Session = Depends(get_db)):
         "status": TaskStatus.todo.value,
         "priority": TaskPriority.normal.value,
         "assigned_to_person_id": "",
+        "assigned_to_person_ids": [],
         "created_by_person_id": "",
         "start_at": "",
         "due_at": "",
@@ -650,11 +667,15 @@ async def project_task_create(request: Request, db: Session = Depends(get_db)):
         "status": _form_str(form.get("status")).strip(),
         "priority": _form_str(form.get("priority")).strip(),
         "assigned_to_person_id": _form_str(form.get("assigned_to_person_id")).strip(),
+        "assigned_to_person_ids": [],
         "created_by_person_id": _form_str(form.get("created_by_person_id")).strip(),
         "start_at": _form_str(form.get("start_at")).strip(),
         "due_at": _form_str(form.get("due_at")).strip(),
         "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
+    form_assignees = form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids")
+    if form_assignees is not None:
+        task["assigned_to_person_ids"] = [item for item in form_assignees if item]
     if not task["project_id"]:
         context = _task_form_context(request, db, task, "/admin/projects/tasks", "Project is required.")
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
@@ -670,8 +691,12 @@ async def project_task_create(request: Request, db: Session = Depends(get_db)):
     }
     if task["description"]:
         payload_data["description"] = task["description"]
-    if task["assigned_to_person_id"]:
-        payload_data["assigned_to_person_id"] = task["assigned_to_person_id"]
+    normalized_assignees = [item for item in (task.get("assigned_to_person_ids") or []) if item]
+    primary_assignee = normalized_assignees[0] if normalized_assignees else task["assigned_to_person_id"]
+    if primary_assignee:
+        payload_data["assigned_to_person_id"] = primary_assignee
+    if task.get("assigned_to_person_ids") is not None:
+        payload_data["assigned_to_person_ids"] = normalized_assignees
     if task["created_by_person_id"]:
         payload_data["created_by_person_id"] = task["created_by_person_id"]
     elif current_user and current_user.get("person_id"):
@@ -899,6 +924,8 @@ async def project_template_create(request: Request, db: Session = Depends(get_db
 
 @router.get("/templates/{template_id}", response_class=HTMLResponse)
 def project_template_detail(request: Request, template_id: str, db: Session = Depends(get_db)):
+    from app.csrf import get_csrf_token
+
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
     except Exception:
@@ -929,6 +956,7 @@ def project_template_detail(request: Request, template_id: str, db: Session = De
             "request": request,
             "template": template,
             "tasks": tasks,
+            "csrf_token": get_csrf_token(request),
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         },
@@ -1423,6 +1451,7 @@ def project_template_task_delete(request: Request, template_id: str, task_id: st
 
 @router.get("/{project_ref}", response_class=HTMLResponse)
 def project_detail(request: Request, project_ref: str, db: Session = Depends(get_db)):
+    from app.csrf import get_csrf_token
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
@@ -1513,6 +1542,17 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
     except Exception:
         pass  # ERP sync not configured or failed
 
+    # Fetch material requests linked to this project
+    project_material_requests = []
+    try:
+        from app.services.material_requests import material_requests as mr_service
+
+        project_material_requests = mr_service.list(
+            db, project_id=str(project.id), order_by="created_at", order_dir="desc", limit=20, offset=0
+        )
+    except Exception:
+        pass
+
     return templates.TemplateResponse(
         "admin/projects/project_detail.html",
         {
@@ -1523,8 +1563,10 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
             "activities": activities,
             "assigned_vendor": assigned_vendor,
             "expense_totals": expense_totals,
+            "material_requests": project_material_requests,
             "customer_name": customer_name,
             "customer_address": customer_address,
+            "csrf_token": get_csrf_token(request),
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         },
@@ -1860,6 +1902,7 @@ def project_delete(request: Request, project_ref: str, db: Session = Depends(get
 
 @router.get("/tasks/{task_ref}", response_class=HTMLResponse)
 def project_task_detail(request: Request, task_ref: str, db: Session = Depends(get_db)):
+    from app.csrf import get_csrf_token
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
@@ -1909,6 +1952,7 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
             "project": project,
             "comments": comments,
             "activities": activities,
+            "csrf_token": get_csrf_token(request),
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         },
@@ -1988,6 +2032,10 @@ def project_task_edit(request: Request, task_ref: str, db: Session = Depends(get
         "status": task.status.value if task.status else TaskStatus.todo.value,
         "priority": task.priority.value if task.priority else TaskPriority.normal.value,
         "assigned_to_person_id": str(task.assigned_to_person_id) if task.assigned_to_person_id else "",
+        "assigned_to_person_ids": (
+            [str(assignee.person_id) for assignee in (task.assignees or [])]
+            or ([str(task.assigned_to_person_id)] if task.assigned_to_person_id else [])
+        ),
         "created_by_person_id": str(task.created_by_person_id) if task.created_by_person_id else "",
         "start_at": _fmt_dt(task.start_at),
         "due_at": _fmt_dt(task.due_at),
@@ -2019,11 +2067,15 @@ async def project_task_update(request: Request, task_ref: str, db: Session = Dep
         "status": _form_str(form.get("status")).strip(),
         "priority": _form_str(form.get("priority")).strip(),
         "assigned_to_person_id": _form_str(form.get("assigned_to_person_id")).strip(),
+        "assigned_to_person_ids": [],
         "created_by_person_id": _form_str(form.get("created_by_person_id")).strip(),
         "start_at": _form_str(form.get("start_at")).strip(),
         "due_at": _form_str(form.get("due_at")).strip(),
         "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
+    form_assignees = form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids")
+    if form_assignees is not None:
+        task["assigned_to_person_ids"] = [item for item in form_assignees if item]
     if not task["project_id"]:
         context = _task_form_context(
             request,
@@ -2051,8 +2103,12 @@ async def project_task_update(request: Request, task_ref: str, db: Session = Dep
     }
     if task["description"]:
         payload_data["description"] = task["description"]
-    if task["assigned_to_person_id"]:
-        payload_data["assigned_to_person_id"] = task["assigned_to_person_id"]
+    normalized_assignees = [item for item in (task.get("assigned_to_person_ids") or []) if item]
+    primary_assignee = normalized_assignees[0] if normalized_assignees else task["assigned_to_person_id"]
+    if primary_assignee:
+        payload_data["assigned_to_person_id"] = primary_assignee
+    if task.get("assigned_to_person_ids") is not None:
+        payload_data["assigned_to_person_ids"] = normalized_assignees
     if task["created_by_person_id"]:
         payload_data["created_by_person_id"] = task["created_by_person_id"]
     if task["start_at"]:

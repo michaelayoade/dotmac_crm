@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -14,22 +15,33 @@ from app.services.crm.inbox import outbox as outbox_service
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def summarize_conversation_status_rows(rows: list[tuple[object, object]]) -> dict[str, int]:
+def _coerce_count(value: object) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, int | float):
+        return int(value)
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def summarize_conversation_status_rows(rows: Sequence[tuple[object, object]]) -> dict[str, int]:
     counts = {status.value: 0 for status in ConversationStatus}
     total = 0
     for status, count in rows or []:
         key = status.value if isinstance(status, ConversationStatus) else str(status)
-        value = int(count or 0)
+        value = _coerce_count(count)
         counts[key] = value
         total += value
     counts["total"] = total
     return counts
 
 
-def summarize_outbox_status_rows(rows: list[tuple[object, object]]) -> dict[str, int]:
+def summarize_outbox_status_rows(rows: Sequence[tuple[object, object]]) -> dict[str, int]:
     statuses = {
         outbox_service.STATUS_QUEUED,
         outbox_service.STATUS_SENDING,
@@ -41,7 +53,7 @@ def summarize_outbox_status_rows(rows: list[tuple[object, object]]) -> dict[str,
     total = 0
     for status, count in rows or []:
         key = str(status)
-        value = int(count or 0)
+        value = _coerce_count(count)
         counts[key] = value
         total += value
     counts["total"] = total
@@ -49,21 +61,23 @@ def summarize_outbox_status_rows(rows: list[tuple[object, object]]) -> dict[str,
 
 
 def get_conversation_status_counts(db: Session) -> dict[str, int]:
-    rows = (
+    raw_rows = (
         db.query(Conversation.status, func.count(Conversation.id))
         .filter(Conversation.is_active.is_(True))
         .group_by(Conversation.status)
         .all()
     )
+    rows = [(row[0], row[1]) for row in raw_rows]
     return summarize_conversation_status_rows(rows)
 
 
 def get_outbox_status_counts(db: Session) -> dict[str, int]:
-    rows = (
+    raw_rows = (
         db.query(OutboxMessage.status, func.count(OutboxMessage.id))
         .group_by(OutboxMessage.status)
         .all()
     )
+    rows = [(row[0], row[1]) for row in raw_rows]
     return summarize_outbox_status_rows(rows)
 
 

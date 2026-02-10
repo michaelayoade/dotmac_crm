@@ -7,7 +7,7 @@ using VictoriaMetrics' Prometheus-compatible API.
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -68,7 +68,7 @@ class MetricsStore:
             return self._timeout
         # Try to get from settings (no db available in async context, use env fallback)
         timeout = resolve_value(None, SettingDomain.bandwidth, "victoriametrics_timeout_seconds")
-        if isinstance(timeout, (int, float)):
+        if isinstance(timeout, int | float):
             return float(timeout)
         if isinstance(timeout, str):
             try:
@@ -218,7 +218,7 @@ class MetricsStore:
             for result in data.get("data", {}).get("result", []):
                 values = [
                     TimeSeriesPoint(
-                        timestamp=datetime.fromtimestamp(ts, tz=timezone.utc),
+                        timestamp=datetime.fromtimestamp(ts, tz=UTC),
                         value=float(val),
                     )
                     for ts, val in result.get("values", [])

@@ -12,15 +12,14 @@ Maps ERPNext doctypes to DotMac model schemas:
 
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Any, TypeVar
-from uuid import UUID
 
-from app.models.tickets import TicketStatus, TicketPriority, TicketChannel
-from app.models.projects import ProjectStatus, ProjectPriority, TaskStatus, TaskPriority
-from app.models.person import Gender
-from app.models.crm.sales import LeadStatus
 from app.logging import get_logger
+from app.models.crm.sales import LeadStatus
+from app.models.person import Gender
+from app.models.projects import ProjectPriority, ProjectStatus, TaskPriority, TaskStatus
+from app.models.tickets import TicketChannel, TicketPriority, TicketStatus
 
 logger = get_logger(__name__)
 

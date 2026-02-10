@@ -1,7 +1,7 @@
 """Admin reports web routes."""
 import csv
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -11,8 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.workforce import WorkOrder, WorkOrderStatus
-from app.models.dispatch import TechnicianProfile
-from app.services import workforce as workforce_service
 from app.services import dispatch as dispatch_service
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
@@ -28,13 +26,13 @@ def _parse_date_range(
     end_date: str | None,
 ) -> tuple[datetime, datetime]:
     """Parse date range from days or custom dates."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     end_dt = now
 
     if start_date and end_date:
         try:
-            start_dt = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
-            end_dt = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
+            start_dt = datetime.fromisoformat(start_date).replace(tzinfo=UTC)
+            end_dt = datetime.fromisoformat(end_date).replace(tzinfo=UTC)
             # Ensure end_date is end of day
             end_dt = end_dt.replace(hour=23, minute=59, second=59)
             return start_dt, end_dt
@@ -113,7 +111,7 @@ def network_report(
 
     # Placeholder chart data
     chart_data = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for i in range(24):
         hour = now - timedelta(hours=23 - i)
         chart_data.append({
@@ -314,7 +312,7 @@ def crm_performance_report(
     from app.models.crm.enums import ChannelType
 
     user = get_current_user(request)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start_date = now - timedelta(days=days)
 
     # Get inbox KPIs

@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 
-from app.models.sequence import DocumentSequence
 from app.models.domain_settings import SettingDomain
 from app.models.projects import Project, ProjectTask
+from app.models.sequence import DocumentSequence
 from app.models.tickets import Ticket
 from app.services import settings_spec
 

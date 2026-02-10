@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.services.response import list_response
 from app.schemas.common import ListResponse
 from app.schemas.inventory import (
     InventoryItemCreate,
@@ -22,6 +21,7 @@ from app.schemas.inventory import (
     WorkOrderMaterialUpdate,
 )
 from app.services import inventory as inventory_service
+from app.services.response import list_response
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -39,6 +39,7 @@ def get_item(item_id: str, db: Session = Depends(get_db)):
 @router.get("/items", response_model=ListResponse[InventoryItemRead])
 def list_items(
     is_active: bool | None = None,
+    search: str | None = None,
     order_by: str = Query(default="created_at"),
     order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     limit: int = Query(default=50, ge=1, le=200),
@@ -46,7 +47,7 @@ def list_items(
     db: Session = Depends(get_db),
 ):
     items = inventory_service.inventory_items.list(
-        db, is_active, order_by, order_dir, limit, offset
+        db, is_active, search, order_by, order_dir, limit, offset
     )
     return list_response(items, limit, offset)
 
