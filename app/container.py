@@ -35,17 +35,17 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
-def _ticket_query_factory(db: "Session"):
+def _ticket_query_factory(db: Session):
     from app.queries.tickets import TicketQuery
     return TicketQuery(db)
 
 
-def _work_order_query_factory(db: "Session"):
+def _work_order_query_factory(db: Session):
     from app.queries.workforce import WorkOrderQuery
     return WorkOrderQuery(db)
 
 
-def _project_query_factory(db: "Session"):
+def _project_query_factory(db: Session):
     from app.queries.projects import ProjectQuery
     return ProjectQuery(db)
 

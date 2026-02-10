@@ -32,10 +32,7 @@ stats = {"files_modified": 0, "replacements": 0, "imports_added": 0, "skipped": 
 def should_skip_file(filepath: Path) -> bool:
     """Check if file should be skipped."""
     rel = str(filepath.relative_to(TEMPLATES_DIR))
-    for skip in SKIP_PATHS:
-        if rel.startswith(skip) or skip in rel:
-            return True
-    return False
+    return any(rel.startswith(skip) or skip in rel for skip in SKIP_PATHS)
 
 
 def detect_color(classes: str) -> str:
@@ -326,12 +323,12 @@ def ensure_macro_import(content: str, macros_needed: set) -> str:
             return content
 
         all_imports = sorted(existing | macros_needed)
-        new_import = '{%% from "components/ui/macros.html" import %s %%}' % ", ".join(all_imports)
+        new_import = '{{% from "components/ui/macros.html" import {} %}}'.format(", ".join(all_imports))
         stats["imports_added"] += 1
         return content[:match.start()] + new_import + content[match.end():]
     else:
         new_import_parts = sorted(macros_needed)
-        new_import = '{%% from "components/ui/macros.html" import %s %%}' % ", ".join(new_import_parts)
+        new_import = '{{% from "components/ui/macros.html" import {} %}}'.format(", ".join(new_import_parts))
 
         extends_match = re.search(r'{%\s*extends\s+[^%]+%}\s*\n', content)
         if extends_match:
@@ -351,11 +348,11 @@ def dry_run_file(filepath: Path):
     if not matches:
         return
 
-    rel = filepath.relative_to(TEMPLATES_DIR)
+    filepath.relative_to(TEMPLATES_DIR)
 
     for m in matches:
         button_pos = m.start()
-        line = content[:button_pos].count("\n") + 1
+        content[:button_pos].count("\n") + 1
 
         block_info = find_button_block(content, button_pos)
         if not block_info:
@@ -365,7 +362,6 @@ def dry_run_file(filepath: Path):
 
         skip_reason = should_skip_button(full_block, content, button_pos)
         if skip_reason:
-            print(f"  {rel}:{line} SKIP: {skip_reason}")
             continue
 
         class_match = re.search(r'class="([^"]*)"', full_block)
@@ -376,7 +372,6 @@ def dry_run_file(filepath: Path):
                                               "from-primary", "from-amber", "from-emerald",
                                               "from-green"])
         if not has_bg:
-            print(f"  {rel}:{line} SKIP: no recognized bg color")
             continue
 
         color = detect_color(classes)
@@ -389,30 +384,20 @@ def dry_run_file(filepath: Path):
         label = extract_label(inner_content)
 
         if not label:
-            print(f"  {rel}:{line} SKIP: empty label")
             continue
 
-        print(f"  {rel}:{line}")
-        print(f"    label:  {label}")
-        fw = ", full_width" if full_width else ""
-        print(f"    color:  {color}, size: {size}, icon: {icon}{fw}")
-        macro = build_macro_call(label, color, size, icon, "    ", full_width)
-        print(f"    ->  {macro.strip()}")
-        print()
+        build_macro_call(label, color, size, icon, "    ", full_width)
 
 
 def main():
     dry = "--dry-run" in sys.argv
 
-    print("=" * 60)
     if dry:
-        print("DRY RUN: submit button migration preview")
+        pass
     else:
-        print("Migrating raw submit buttons to submit_button macro")
-    print("=" * 60)
+        pass
 
     template_files = sorted(TEMPLATES_DIR.rglob("*.html"))
-    print(f"\nScanning {len(template_files)} template files...\n")
 
     for filepath in template_files:
         if should_skip_file(filepath):
@@ -423,21 +408,12 @@ def main():
         else:
             before_count = stats["replacements"]
             if process_file(filepath):
-                count = stats["replacements"] - before_count
-                rel = filepath.relative_to(TEMPLATES_DIR)
-                print(f"  Modified: {rel} ({count} replacements)")
+                stats["replacements"] - before_count
+                filepath.relative_to(TEMPLATES_DIR)
 
-    if not dry:
-        print(f"\n{'=' * 60}")
-        print(f"Results:")
-        print(f"  Files modified:     {stats['files_modified']}")
-        print(f"  Total replacements: {stats['replacements']}")
-        print(f"  Imports added:      {stats['imports_added']}")
-        if stats["skipped"]:
-            print(f"\n  Skipped ({len(stats['skipped'])}):")
-            for s in stats["skipped"]:
-                print(f"    - {s}")
-        print(f"{'=' * 60}")
+    if not dry and stats["skipped"]:
+        for _s in stats["skipped"]:
+            pass
 
 
 if __name__ == "__main__":

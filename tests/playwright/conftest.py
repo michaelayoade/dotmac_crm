@@ -5,8 +5,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
 
+from playwright.sync_api import expect, sync_playwright
 from tests.playwright.helpers.api import api_post_form, bearer_headers
 from tests.playwright.helpers.auth import (
     ensure_person,
@@ -82,7 +82,7 @@ def admin_token(settings: E2ESettings, api_context) -> str:
 
 @pytest.fixture(scope="session")
 def test_identities(settings: E2ESettings, api_context, admin_token: str) -> dict:
-    headers = bearer_headers(admin_token)
+    bearer_headers(admin_token)
 
     agent_email = _email_for_username(settings.agent_username)
     agent_person = ensure_person(api_context, admin_token, "Agent", "Support", agent_email)

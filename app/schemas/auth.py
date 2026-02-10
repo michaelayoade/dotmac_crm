@@ -24,10 +24,9 @@ class UserCredentialCreate(UserCredentialBase):
     password_hash: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
-    def _validate_local_credentials(self) -> "UserCredentialCreate":
-        if self.provider == AuthProvider.local:
-            if not self.username or not self.password_hash:
-                raise ValueError("Local credentials require username and password_hash.")
+    def _validate_local_credentials(self) -> UserCredentialCreate:
+        if self.provider == AuthProvider.local and (not self.username or not self.password_hash):
+            raise ValueError("Local credentials require username and password_hash.")
         return self
 
 
@@ -44,19 +43,25 @@ class UserCredentialUpdate(BaseModel):
     is_active: bool | None = None
 
     @model_validator(mode="after")
-    def _validate_local_credentials(self) -> "UserCredentialUpdate":
+    def _validate_local_credentials(self) -> UserCredentialUpdate:
         fields_set = self.model_fields_set
         if "provider" in fields_set and self.provider == AuthProvider.local:
             if "username" not in fields_set or not self.username:
                 raise ValueError("Local credentials require username.")
             if "password_hash" not in fields_set or not self.password_hash:
                 raise ValueError("Local credentials require password_hash.")
-        if "username" in fields_set and not self.username:
-            if self.provider == AuthProvider.local or "provider" not in fields_set:
-                raise ValueError("Cannot clear username for local credentials.")
-        if "password_hash" in fields_set and not self.password_hash:
-            if self.provider == AuthProvider.local or "provider" not in fields_set:
-                raise ValueError("Cannot clear password_hash for local credentials.")
+        if (
+            "username" in fields_set
+            and not self.username
+            and (self.provider == AuthProvider.local or "provider" not in fields_set)
+        ):
+            raise ValueError("Cannot clear username for local credentials.")
+        if (
+            "password_hash" in fields_set
+            and not self.password_hash
+            and (self.provider == AuthProvider.local or "provider" not in fields_set)
+        ):
+            raise ValueError("Cannot clear password_hash for local credentials.")
         return self
 
 

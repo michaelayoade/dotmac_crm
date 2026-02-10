@@ -19,6 +19,7 @@ from app.web.admin.gis import router as gis_router
 from app.web.admin.integrations import router as integrations_router
 from app.web.admin.inventory import router as inventory_router
 from app.web.admin.legal import router as legal_router
+from app.web.admin.material_requests import router as material_requests_router
 from app.web.admin.meta_oauth import router as meta_oauth_router
 from app.web.admin.network import router as network_router
 from app.web.admin.notifications import router as notifications_router
@@ -26,6 +27,7 @@ from app.web.admin.operations import router as operations_router
 from app.web.admin.projects import router as projects_router
 from app.web.admin.reports import router as reports_router
 from app.web.admin.resellers import router as resellers_router
+from app.web.admin.service_teams import router as service_teams_router
 from app.web.admin.surveys import router as surveys_router
 from app.web.admin.system import router as system_router
 from app.web.admin.tickets import router as tickets_router
@@ -73,6 +75,7 @@ def admin_tickets_alias():
 def admin_tickets_new_alias():
     return RedirectResponse(url="/admin/support/tickets/create", status_code=302)
 
+
 # Include all admin sub-routers
 router.include_router(dashboard_router)
 router.include_router(system_router)
@@ -92,7 +95,9 @@ router.include_router(legal_router, prefix="/system")
 router.include_router(meta_oauth_router)
 router.include_router(admin_hub_router, prefix="/system")
 router.include_router(operations_router)
+router.include_router(material_requests_router)
+router.include_router(service_teams_router)
 router.include_router(reports_router)
 router.include_router(automations_router)
 
-__all__ = ["router"]
+__all__ = ["get_current_user", "get_sidebar_stats", "router"]

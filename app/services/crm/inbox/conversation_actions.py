@@ -9,16 +9,20 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation
 from app.models.crm.enums import ChannelType
+from app.services import person as person_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
-from app.services import person as person_service
 from app.services.crm.inbox.audit import log_conversation_action
+from app.services.crm.inbox.permissions import (
+    can_assign_conversation,
+    can_resolve_conversation,
+)
 
 
 @dataclass(frozen=True)
 class AssignConversationResult:
-    kind: Literal["not_found", "invalid_input", "error", "success"]
+    kind: Literal["forbidden", "not_found", "invalid_input", "error", "success"]
     conversation: Conversation | None = None
     contact: object | None = None
     error_detail: str | None = None
@@ -26,7 +30,7 @@ class AssignConversationResult:
 
 @dataclass(frozen=True)
 class ResolveConversationResult:
-    kind: Literal["not_found", "invalid_channel", "error", "success"]
+    kind: Literal["forbidden", "not_found", "invalid_channel", "error", "success"]
     conversation: Conversation | None = None
     contact: object | None = None
     error_detail: str | None = None
@@ -39,7 +43,14 @@ def assign_conversation(
     agent_id: str | None,
     team_id: str | None,
     assigned_by_id: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> AssignConversationResult:
+    if (roles is not None or scopes is not None) and not can_assign_conversation(roles, scopes):
+        return AssignConversationResult(
+            kind="forbidden",
+            error_detail="Not authorized to assign conversations",
+        )
     try:
         conversation_uuid = coerce_uuid(conversation_id)
     except Exception:
@@ -100,7 +111,14 @@ def resolve_conversation(
     channel_type: str | None,
     channel_address: str | None,
     merged_by_id: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> ResolveConversationResult:
+    if (roles is not None or scopes is not None) and not can_resolve_conversation(roles, scopes):
+        return ResolveConversationResult(
+            kind="forbidden",
+            error_detail="Not authorized to resolve conversations",
+        )
     try:
         conversation_uuid = coerce_uuid(conversation_id)
     except Exception:

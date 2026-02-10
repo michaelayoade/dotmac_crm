@@ -18,7 +18,7 @@
         </div>
     </div>
 
-    <form method="POST" action="{{ action_url }}" enctype="multipart/form-data" class="space-y-6">
+    <form method="POST" action="{{ action_url }}" enctype="multipart/form-data" class="space-y-6" data-prevent-double-submit="1">
         {% include "admin/tickets/_form_body.html" %}
 
         <div class="flex items-center justify-end gap-3">
@@ -29,4 +29,22 @@
         </div>
     </form>
 </div>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const form = document.querySelector('form[data-prevent-double-submit="1"]');
+    if (!form) return;
+    form.addEventListener("submit", (event) => {
+        if (form.dataset.submitting === "1") {
+            event.preventDefault();
+            return;
+        }
+        form.dataset.submitting = "1";
+        const buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+        buttons.forEach((btn) => {
+            btn.disabled = true;
+            btn.classList.add("opacity-60", "pointer-events-none");
+        });
+    });
+});
+</script>
 {% endblock %}

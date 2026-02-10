@@ -42,7 +42,6 @@ def main():
             .first()
         )
         if credential:
-            print("User credential already exists for this person.")
             return
 
         credential = UserCredential(
@@ -54,7 +53,6 @@ def main():
         )
         db.add(credential)
         db.commit()
-        print("Admin user created.")
     finally:
         db.close()
 

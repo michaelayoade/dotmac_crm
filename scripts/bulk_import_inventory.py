@@ -86,7 +86,6 @@ def main() -> int:
     args = parse_args()
     rows = load_rows(args.csv)
     if not rows:
-        print("No rows found in CSV file.")
         return 0
 
     db = SessionLocal()
@@ -110,7 +109,6 @@ def main() -> int:
             if existing:
                 if args.update_existing:
                     if args.dry_run:
-                        print(f"DRY RUN: would update '{row.name}' (SKU: {row.sku})")
                         report_rows.append({
                             "sku": row.sku,
                             "name": row.name,
@@ -159,7 +157,6 @@ def main() -> int:
 
             # Create new item
             if args.dry_run:
-                print(f"DRY RUN: would create '{row.name}' (SKU: {row.sku or '(none)'})")
                 report_rows.append({
                     "sku": row.sku or "(none)",
                     "name": row.name,
@@ -185,12 +182,6 @@ def main() -> int:
                 "note": str(item.id),
             })
 
-        print("\n=== Import Summary ===")
-        print(f"Created: {created}")
-        print(f"Updated: {updated}")
-        print(f"Skipped (existing SKU): {skipped_existing}")
-        print(f"Skipped (name match): {skipped_no_sku_match}")
-        print(f"Total processed: {len(rows)}")
 
         if report_rows:
             report_path = "scripts/inventory_import_results.csv"
@@ -198,7 +189,6 @@ def main() -> int:
                 writer = csv.DictWriter(handle, fieldnames=["sku", "name", "status", "note"])
                 writer.writeheader()
                 writer.writerows(report_rows)
-            print(f"\nReport saved to: {report_path}")
 
     finally:
         db.close()

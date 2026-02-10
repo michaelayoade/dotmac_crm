@@ -1,6 +1,8 @@
 from fastapi import HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.models.domain_settings import SettingDomain
 from app.models.inventory import (
     InventoryItem,
     InventoryLocation,
@@ -10,7 +12,6 @@ from app.models.inventory import (
     ReservationStatus,
     WorkOrderMaterial,
 )
-from app.models.domain_settings import SettingDomain
 from app.models.workforce import WorkOrder
 from app.schemas.inventory import (
     InventoryItemCreate,
@@ -24,9 +25,9 @@ from app.schemas.inventory import (
     WorkOrderMaterialCreate,
     WorkOrderMaterialUpdate,
 )
+from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
-from app.services import settings_spec
 
 
 def _ensure_item(db: Session, item_id: str):
@@ -64,6 +65,7 @@ class InventoryItems(ListResponseMixin):
     def list(
         db: Session,
         is_active: bool | None,
+        search: str | None,
         order_by: str,
         order_dir: str,
         limit: int,
@@ -74,6 +76,17 @@ class InventoryItems(ListResponseMixin):
             query = query.filter(InventoryItem.is_active.is_(True))
         else:
             query = query.filter(InventoryItem.is_active == is_active)
+        if search:
+            normalized = search.strip()
+            if normalized:
+                pattern = f"%{normalized}%"
+                query = query.filter(
+                    or_(
+                        InventoryItem.name.ilike(pattern),
+                        InventoryItem.sku.ilike(pattern),
+                        InventoryItem.description.ilike(pattern),
+                    )
+                )
         query = apply_ordering(
             query,
             order_by,
@@ -211,9 +224,9 @@ class InventoryStocks(ListResponseMixin):
         if not stock:
             raise HTTPException(status_code=404, detail="Inventory stock not found")
         data = payload.model_dump(exclude_unset=True)
-        if "item_id" in data and data["item_id"]:
+        if data.get("item_id"):
             _ensure_item(db, str(data["item_id"]))
-        if "location_id" in data and data["location_id"]:
+        if data.get("location_id"):
             _ensure_location(db, str(data["location_id"]))
         for key, value in data.items():
             setattr(stock, key, value)
@@ -371,9 +384,8 @@ class WorkOrderMaterials(ListResponseMixin):
         if not material:
             raise HTTPException(status_code=404, detail="Work order material not found")
         data = payload.model_dump(exclude_unset=True)
-        if "reservation_id" in data and data["reservation_id"]:
-            if not db.get(Reservation, coerce_uuid(data["reservation_id"])):
-                raise HTTPException(status_code=404, detail="Reservation not found")
+        if data.get("reservation_id") and not db.get(Reservation, coerce_uuid(data["reservation_id"])):
+            raise HTTPException(status_code=404, detail="Reservation not found")
         for key, value in data.items():
             setattr(material, key, value)
         db.commit()

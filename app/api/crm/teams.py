@@ -6,9 +6,9 @@ from app.schemas.common import ListResponse
 from app.schemas.crm.team import (
     AgentCreate,
     AgentRead,
-    AgentUpdate,
     AgentTeamCreate,
     AgentTeamRead,
+    AgentUpdate,
     RoutingRuleCreate,
     RoutingRuleRead,
     RoutingRuleUpdate,

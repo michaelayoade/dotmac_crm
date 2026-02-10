@@ -24,8 +24,8 @@ Usage:
 from __future__ import annotations
 
 import time
-from typing import Any, Iterator
-from urllib.parse import urlencode
+from collections.abc import Iterator
+from typing import Any
 
 import httpx
 
@@ -294,8 +294,7 @@ class ERPNextClient:
             if not batch:
                 break
 
-            for doc in batch:
-                yield doc
+            yield from batch
 
             if len(batch) < self.page_size:
                 break

@@ -8,18 +8,18 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
 from app.models.auth import AuthProvider
+from app.models.rbac import Role
 from app.models.subscriber import Reseller, ResellerUser
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.person import PersonCreate
-from app.schemas.subscriber import ResellerCreate, ResellerUpdate
 from app.schemas.rbac import PersonRoleCreate
+from app.schemas.subscriber import ResellerCreate, ResellerUpdate
 from app.services import auth as auth_service
 from app.services import person as person_service
 from app.services import rbac as rbac_service
 from app.services import reseller as reseller_service
 from app.services.auth_flow import hash_password
 from app.services.common import coerce_uuid
-from app.models.rbac import Role
 
 templates = Jinja2Templates(directory="templates")
 
@@ -43,7 +43,7 @@ def get_db():
 
 
 def _base_context(request: Request, db: Session, active_page: str):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return {
         "request": request,
         "active_page": active_page,

@@ -1,9 +1,10 @@
 """Service helpers for web auth routes."""
 
+import contextlib
 from urllib.parse import quote, urlparse, urlunparse
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -269,10 +270,8 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
 def logout(request: Request, db: Session):
     refresh_token = AuthFlow.resolve_refresh_token(request, None, db)
     if refresh_token:
-        try:
+        with contextlib.suppress(Exception):
             auth_flow_service.auth_flow.logout(db, refresh_token)
-        except Exception:
-            pass
     response = RedirectResponse(url="/auth/login", status_code=303)
     response.delete_cookie("session_token")
     response.delete_cookie("mfa_pending")

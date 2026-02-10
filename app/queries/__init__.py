@@ -19,16 +19,16 @@ Usage:
 """
 
 from app.queries.base import BaseQuery
-from app.queries.tickets import TicketQuery, TicketCommentQuery
-from app.queries.workforce import WorkOrderQuery, WorkOrderAssignmentQuery
 from app.queries.projects import ProjectQuery, ProjectTaskQuery
+from app.queries.tickets import TicketCommentQuery, TicketQuery
+from app.queries.workforce import WorkOrderAssignmentQuery, WorkOrderQuery
 
 __all__ = [
     "BaseQuery",
-    "TicketQuery",
-    "TicketCommentQuery",
-    "WorkOrderQuery",
-    "WorkOrderAssignmentQuery",
     "ProjectQuery",
     "ProjectTaskQuery",
+    "TicketCommentQuery",
+    "TicketQuery",
+    "WorkOrderAssignmentQuery",
+    "WorkOrderQuery",
 ]

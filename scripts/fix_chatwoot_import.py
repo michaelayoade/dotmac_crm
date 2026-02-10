@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import text
+
 from app.db import SessionLocal
 from app.services.chatwoot.client import ChatwootClient
 
@@ -72,7 +73,7 @@ def fix_conversation_channels_from_api(db, client):
             detail = client.get_conversation(int(cw_id))
             meta = detail.get("meta", {})
             channel = meta.get("channel")
-            team = meta.get("team", {})
+            meta.get("team", {})
             inbox_id = detail.get("inbox_id")
 
             if channel:

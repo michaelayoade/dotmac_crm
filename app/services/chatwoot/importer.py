@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -18,7 +18,7 @@ from app.models.crm import (
     MessageDirection,
     MessageStatus,
 )
-from app.models.person import Person, PartyStatus
+from app.models.person import PartyStatus, Person
 from app.services.chatwoot.client import ChatwootClient
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ def _parse_datetime(value: str | int | None) -> datetime | None:
     if not value:
         return None
     if isinstance(value, int):
-        return datetime.fromtimestamp(value, tz=timezone.utc)
+        return datetime.fromtimestamp(value, tz=UTC)
     try:
         # Try ISO format
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -219,7 +219,7 @@ class ChatwootImporter:
 
         except Exception as e:
             result.success = False
-            result.error_details.append(f"Import failed: {str(e)}")
+            result.error_details.append(f"Import failed: {e!s}")
             logger.exception("Chatwoot import failed")
             db.rollback()
 
@@ -546,7 +546,7 @@ class ChatwootImporter:
                         conversation_id=conversation.id,
                         agent_id=agent.id if agent else None,
                         team_id=team.id if team else None,
-                        assigned_at=assigned_at or datetime.now(timezone.utc),
+                        assigned_at=assigned_at or datetime.now(UTC),
                         is_active=True,
                     )
                     db.add(assignment)

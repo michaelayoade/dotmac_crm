@@ -1,8 +1,7 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.domain_settings import SettingValueType
+from app.models.domain_settings import DomainSetting, SettingDomain, SettingValueType
 from app.schemas.settings import DomainSettingCreate, DomainSettingUpdate
 
 

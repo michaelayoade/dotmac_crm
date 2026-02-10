@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_
@@ -7,13 +7,14 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import ChannelType as CrmChannelType
 from app.models.crm.sales import Lead
-from app.models.person import ChannelType as PersonChannelType, PartyStatus, Person, PersonChannel
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import PartyStatus, Person, PersonChannel
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _to_person_channel_type(channel_type: CrmChannelType) -> PersonChannelType:
@@ -466,7 +467,7 @@ class ContactChannels(ListResponseMixin):
         if not channel:
             raise HTTPException(status_code=404, detail="Contact channel not found")
         data = payload.model_dump(exclude_unset=True)
-        if "address" in data and data["address"]:
+        if data.get("address"):
             normalized_address = _normalize_channel_address(
                 CrmChannelType(channel.channel_type.value),
                 data["address"],
@@ -539,7 +540,7 @@ class ContactChannels(ListResponseMixin):
                         detail="Channel address already belongs to another contact",
                     )
             data["address"] = normalized_address
-        if "is_primary" in data and data["is_primary"]:
+        if data.get("is_primary"):
             db.query(PersonChannel).filter(
                 PersonChannel.person_id == channel.person_id,
                 PersonChannel.channel_type == channel.channel_type,
@@ -557,8 +558,9 @@ def get_contact_context(db: Session, contact: Person) -> dict:
     Returns a dict with recent_tickets, recent_projects, conversations_summary, and tags.
     """
     from sqlalchemy.orm import selectinload
-    from app.models.tickets import Ticket
+
     from app.models.projects import Project, ProjectStatus
+    from app.models.tickets import Ticket
 
     person_id = contact.id
 

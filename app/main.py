@@ -28,6 +28,7 @@ from app.api.geocoding import router as geocoding_router
 from app.api.gis import router as gis_router
 from app.api.integrations import router as integrations_router
 from app.api.inventory import router as inventory_router
+from app.api.material_requests import router as material_requests_router
 from app.api.nextcloud_talk import router as nextcloud_talk_router
 from app.api.notifications import router as notifications_router
 from app.api.persons import router as people_router
@@ -35,6 +36,7 @@ from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
 from app.api.rbac import router as rbac_router
 from app.api.sales import router as sales_router
+from app.api.service_teams import router as service_teams_router
 from app.api.sales_orders import router as sales_orders_router
 from app.api.scheduler import router as scheduler_router
 from app.api.search import router as search_router
@@ -474,12 +476,14 @@ _include_api_router(scheduler_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(workflow_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(dispatch_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(inventory_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(material_requests_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(timecost_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(comms_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(analytics_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(fiber_plant_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(crm_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(sales_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(service_teams_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(wireless_survey_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(wireless_masts_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(nextcloud_talk_router, dependencies=[Depends(require_user_auth)])

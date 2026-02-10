@@ -11,28 +11,28 @@ Environment Variables:
 import hashlib
 import hmac
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.logging import get_logger
 from app.config import settings
-from app.services.settings_spec import resolve_value
-from app.models.domain_settings import SettingDomain
+from app.logging import get_logger
 from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.crm.comments import SocialCommentPlatform
+from app.models.crm.conversation import Message
 from app.models.crm.enums import (
     ChannelType,
     ConversationStatus,
     MessageDirection,
     MessageStatus,
 )
-from app.models.crm.conversation import Message
-from app.models.person import ChannelType as PersonChannelType, Person, PersonChannel
-from app.models.crm.comments import SocialCommentPlatform
+from app.models.domain_settings import SettingDomain
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.oauth_token import OAuthToken
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Person, PersonChannel
 from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import (
     FacebookCommentPayload,
@@ -42,7 +42,6 @@ from app.schemas.crm.inbox import (
     MetaWebhookPayload,
     _attachments_have_story_mention,
 )
-from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm.conversations import comments as comments_service
@@ -51,6 +50,7 @@ from app.services.crm.inbox_dedup import (
     _build_inbound_dedupe_id,
     _find_duplicate_inbound_message,
 )
+from app.services.settings_spec import resolve_value
 
 logger = get_logger(__name__)
 
@@ -271,7 +271,6 @@ def _resolve_meta_person_and_channel(
     contact_name: str | None,
     metadata: dict | None,
 ):
-    account = None
     person = None
     if not person:
         person = _find_person_by_email_or_phone(db, metadata)
@@ -302,7 +301,7 @@ def _apply_meta_read_receipt(
     timestamp = float(watermark)
     if timestamp > 1_000_000_000_000:
         timestamp = timestamp / 1000
-    read_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    read_at = datetime.fromtimestamp(timestamp, tz=UTC)
     person_channel_type = PersonChannelType(channel_type.value)
     channel = (
         db.query(PersonChannel)
@@ -531,7 +530,7 @@ def process_messenger_webhook(
             if messaging_event.timestamp:
                 received_at = datetime.fromtimestamp(
                     messaging_event.timestamp / 1000,
-                    tz=timezone.utc,
+                    tz=UTC,
                 )
 
             external_id, external_ref = _normalize_external_id(message.get("mid"))
@@ -719,7 +718,7 @@ def process_instagram_webhook(
             if messaging_event.timestamp:
                 received_at = datetime.fromtimestamp(
                     messaging_event.timestamp / 1000,
-                    tz=timezone.utc,
+                    tz=UTC,
                 )
 
             external_id, external_ref = _normalize_external_id(message.get("mid"))
@@ -781,8 +780,8 @@ def _parse_webhook_timestamp(value) -> datetime | None:
     if value is None:
         return None
     try:
-        if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        if isinstance(value, int | float):
+            return datetime.fromtimestamp(float(value), tz=UTC)
         if isinstance(value, str):
             candidate = value.strip()
             if candidate.endswith("Z"):
@@ -790,7 +789,7 @@ def _parse_webhook_timestamp(value) -> datetime | None:
             if candidate.endswith("+0000"):
                 candidate = candidate[:-5] + "+00:00"
             parsed = datetime.fromisoformat(candidate)
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     except Exception:
         return None
     return None
@@ -824,7 +823,7 @@ def _process_facebook_comment_changes(
                 from_name=value.get("sender_name"),
                 message=value.get("message") or "",
                 created_time=_parse_webhook_timestamp(value.get("created_time"))
-                or datetime.now(timezone.utc),
+                or datetime.now(UTC),
                 page_id=entry.id,
             )
         except Exception as exc:
@@ -890,7 +889,7 @@ def _process_instagram_comment_changes(
                 from_username=(value.get("from") or {}).get("username"),
                 text=value.get("text") or "",
                 timestamp=_parse_webhook_timestamp(value.get("timestamp"))
-                or datetime.now(timezone.utc),
+                or datetime.now(UTC),
                 instagram_account_id=entry.id,
             )
         except Exception as exc:
@@ -947,7 +946,7 @@ def receive_facebook_message(
     Returns:
         Message record
     """
-    received_at = payload.received_at or datetime.now(timezone.utc)
+    received_at = payload.received_at or datetime.now(UTC)
 
     # Find Meta connector/target
     target, config = _resolve_meta_connector(db, ConnectorType.facebook)
@@ -1058,7 +1057,7 @@ def receive_instagram_message(
     Returns:
         Message record
     """
-    received_at = payload.received_at or datetime.now(timezone.utc)
+    received_at = payload.received_at or datetime.now(UTC)
     body = payload.body if payload.body is not None else "(story mention)"
 
     # Find Meta connector/target (Instagram uses same connector as Facebook)

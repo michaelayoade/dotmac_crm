@@ -70,7 +70,7 @@ def _extract_message_ids(value) -> list[str]:
     if not value:
         return []
     candidates: list[str] = []
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, list | tuple | set):
         for item in value:
             if item:
                 candidates.append(str(item))
@@ -194,7 +194,7 @@ def _resolve_conversation_from_email_metadata(
             address_fields.append(value)
     addresses = []
     for raw in address_fields:
-        if isinstance(raw, (list, tuple, set)):
+        if isinstance(raw, list | tuple | set):
             raw_values = [str(item) for item in raw if item]
         else:
             raw_values = [str(raw)]

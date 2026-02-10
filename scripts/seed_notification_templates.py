@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.db import SessionLocal
 from app.models.notification import NotificationChannel, NotificationTemplate
 
-
 TEMPLATES = [
     # Billing Journey
     {
@@ -542,7 +541,6 @@ def seed_templates():
             )
 
             if existing:
-                print(f"  Skipped: {template_data['code']} (already exists)")
                 skipped += 1
                 continue
 
@@ -555,20 +553,16 @@ def seed_templates():
                 is_active=True,
             )
             db.add(template)
-            print(f"  Created: {template_data['code']}")
             created += 1
 
         db.commit()
-        print(f"\nDone! Created: {created}, Skipped: {skipped}")
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        print(f"Error: {e}")
         raise
     finally:
         db.close()
 
 
 if __name__ == "__main__":
-    print("Seeding notification templates...\n")
     seed_templates()

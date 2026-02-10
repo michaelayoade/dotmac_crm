@@ -1,14 +1,13 @@
-from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.crm.team import CrmAgent, CrmAgentTeam
+from app.models.domain_settings import SettingDomain
 from app.models.projects import ProjectTask, TaskStatus
 from app.models.tickets import Ticket, TicketStatus
-from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
 from app.models.workflow import (
     ProjectTaskStatusTransition,
     SlaBreach,
@@ -18,10 +17,10 @@ from app.models.workflow import (
     SlaPolicy,
     SlaTarget,
     TicketStatusTransition,
-    WorkOrderStatusTransition,
     WorkflowEntityType,
+    WorkOrderStatusTransition,
 )
-from app.models.domain_settings import SettingDomain
+from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.schemas.workflow import (
     ProjectTaskStatusTransitionCreate,
     ProjectTaskStatusTransitionUpdate,
@@ -39,9 +38,9 @@ from app.schemas.workflow import (
     WorkOrderStatusTransitionCreate,
     WorkOrderStatusTransitionUpdate,
 )
-from app.services.common import validate_enum, apply_pagination, apply_ordering, coerce_uuid
-from app.services.response import ListResponseMixin
 from app.services import settings_spec
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.response import ListResponseMixin
 
 
 def _get_by_id(db: Session, model, value):
@@ -461,7 +460,7 @@ class SlaClocks(ListResponseMixin):
             raise HTTPException(status_code=404, detail="SLA policy not found")
         _ensure_entity(db, payload.entity_type, str(payload.entity_id))
         target = _resolve_sla_target(db, str(payload.policy_id), payload.priority)
-        started_at = payload.started_at or datetime.now(timezone.utc)
+        started_at = payload.started_at or datetime.now(UTC)
         due_at = started_at + timedelta(minutes=target.target_minutes)
         default_status = settings_spec.resolve_value(
             db, SettingDomain.workflow, "default_sla_clock_status"
@@ -552,7 +551,7 @@ class SlaBreaches(ListResponseMixin):
         clock = _get_by_id(db, SlaClock, payload.clock_id)
         if not clock:
             raise HTTPException(status_code=404, detail="SLA clock not found")
-        breached_at = payload.breached_at or datetime.now(timezone.utc)
+        breached_at = payload.breached_at or datetime.now(UTC)
         default_status = settings_spec.resolve_value(
             db, SettingDomain.workflow, "default_sla_breach_status"
         )
@@ -661,7 +660,7 @@ def transition_ticket(db: Session, ticket_id: str, payload: StatusTransitionRequ
     if rule and rule.requires_note and not payload.note:
         raise HTTPException(status_code=400, detail="Transition note required")
     ticket.status = to_status
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if to_status == TicketStatus.resolved:
         ticket.resolved_at = ticket.resolved_at or now
     if to_status == TicketStatus.closed:
@@ -685,7 +684,7 @@ def transition_work_order(
     if rule and rule.requires_note and not payload.note:
         raise HTTPException(status_code=400, detail="Transition note required")
     work_order.status = to_status
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if to_status == WorkOrderStatus.in_progress:
         work_order.started_at = work_order.started_at or now
     if to_status == WorkOrderStatus.completed:
@@ -709,7 +708,7 @@ def transition_project_task(
     if rule and rule.requires_note and not payload.note:
         raise HTTPException(status_code=400, detail="Transition note required")
     task.status = to_status
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if to_status == TaskStatus.done:
         task.completed_at = task.completed_at or now
     db.commit()

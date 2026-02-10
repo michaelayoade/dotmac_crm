@@ -25,7 +25,6 @@ from app.models.vpn import VpnAuthDigest, VpnCipher, VpnProtocol, VpnServer  # t
 from app.schemas.vpn import GenerateCertificatesRequest  # type: ignore[import-not-found]
 from app.services.vpn import VpnServerService  # type: ignore[import-not-found]
 
-
 MIKROTIK_VPN_CONFIG = {
     "name": "MikroTik VPN Service",
     "description": (
@@ -107,13 +106,10 @@ def create_mikrotik_vpn_server(db, args):
     ).first()
 
     if existing and not args.force:
-        print(f"MikroTik VPN Service already exists (ID: {existing.id})")
-        print("Use --force to update the configuration")
         return existing
 
     if existing:
         # Update existing server
-        print(f"Updating existing MikroTik VPN Service (ID: {existing.id})...")
         for key, value in MIKROTIK_VPN_CONFIG.items():
             if key not in ("ca_cert", "ca_key", "server_cert", "server_key", "dh_params", "tls_auth_key"):
                 setattr(existing, key, value)
@@ -125,11 +121,9 @@ def create_mikrotik_vpn_server(db, args):
 
         db.commit()
         db.refresh(existing)
-        print("Server configuration updated.")
         return existing
 
     # Create new server
-    print("Creating MikroTik VPN Service...")
 
     config = MIKROTIK_VPN_CONFIG.copy()
     if args.public_host:
@@ -142,7 +136,6 @@ def create_mikrotik_vpn_server(db, args):
     db.commit()
     db.refresh(server)
 
-    print(f"Created MikroTik VPN Service (ID: {server.id})")
     return server
 
 
@@ -150,11 +143,8 @@ def generate_certificates(db, server, args):
     """Generate CA and server certificates for the VPN server."""
 
     if server.ca_cert and server.server_cert:
-        print("Certificates already exist. Skipping generation.")
-        print("(Delete existing certs in the database to regenerate)")
         return
 
-    print("Generating certificates (this may take ~30 seconds for DH params)...")
 
     cert_request = GenerateCertificatesRequest(
         ca_common_name=f"{MIKROTIK_VPN_CONFIG['name']} CA",
@@ -175,68 +165,14 @@ def generate_certificates(db, server, args):
     db.commit()
     db.refresh(server)
 
-    print("Certificates generated successfully!")
-    print("  - CA Certificate: OK")
-    print("  - Server Certificate: OK")
-    print("  - DH Parameters: OK")
-    print("  - TLS Auth: Disabled (not supported by MikroTik)")
 
 
 def print_deployment_instructions(server):
     """Print instructions for deploying the OpenVPN server."""
 
-    print("\n" + "=" * 70)
-    print("DEPLOYMENT INSTRUCTIONS")
-    print("=" * 70)
-    print(f"""
-MikroTik VPN Service created successfully!
-
-Server Details:
-  - Name: {server.name}
-  - Port: {server.port}/TCP
-  - VPN Network: {server.vpn_network}/{server.vpn_netmask}
-  - Cipher: {server.cipher.value}
-  - Auth: {server.auth_digest.value}
-  - Public Host: {server.public_host or 'NOT SET (configure in admin UI)'}
-
-Next Steps:
-
-1. Download the server config from the admin UI:
-   Admin > Network > VPN > MikroTik VPN Service > Download Config
-
-2. Deploy as a separate OpenVPN instance:
-
-   Option A - systemd:
-   ─────────────────────────────────────────────────────────────────────
-   sudo cp mikrotik-vpn.conf /etc/openvpn/server/mikrotik.conf
-   sudo mkdir -p /var/log/openvpn
-   sudo systemctl enable --now openvpn-server@mikrotik
-   ─────────────────────────────────────────────────────────────────────
-
-   Option B - Docker:
-   ─────────────────────────────────────────────────────────────────────
-   docker run -d --name openvpn-mikrotik \\
-     --cap-add=NET_ADMIN \\
-     -p {server.port}:{server.port}/tcp \\
-     -v /path/to/mikrotik.conf:/etc/openvpn/server.conf:ro \\
-     kylemanna/openvpn \\
-     ovpn_run --config /etc/openvpn/server.conf
-   ─────────────────────────────────────────────────────────────────────
-
-3. Configure firewall to allow port {server.port}/TCP
-
-4. Create VPN clients for your MikroTik devices in the admin UI:
-   Admin > Network > VPN > MikroTik VPN Service > Add Client
-""")
 
     if not server.public_host:
-        print("""
-WARNING: Public host not configured!
-─────────────────────────────────────────────────────────────────────
-Set the public host in the admin UI or re-run this script with:
-  python scripts/seed_mikrotik_vpn.py --public-host YOUR_SERVER_IP
-─────────────────────────────────────────────────────────────────────
-""")
+        pass
 
 
 def main():

@@ -2,46 +2,35 @@
 
 import json
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any, cast
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import or_
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from typing import Any, Optional, cast
-from uuid import UUID
 from pydantic import ValidationError
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.auth import ApiKey, MFAMethod, UserCredential, Session as AuthSession
-from app.models.domain_settings import SettingDomain
-from app.models.person import Person
+from app.models.auth import ApiKey, MFAMethod, UserCredential
 from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.sales import Lead, Quote
 from app.models.crm.team import CrmAgent
-from app.models.projects import TaskStatus
-from app.models.projects import Project, ProjectTask, ProjectComment, ProjectTaskComment
-from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
-from app.models.vendor import VendorUser
-from app.models.subscriber import ResellerUser
+from app.models.domain_settings import SettingDomain
+from app.models.person import Person
+from app.models.projects import Project, ProjectComment, ProjectTask, ProjectTaskComment, TaskStatus
+from app.models.rbac import Permission, PersonRole, Role, RolePermission
 from app.models.tickets import Ticket, TicketComment, TicketStatus
+from app.models.webhook import WebhookDelivery, WebhookDeliveryStatus, WebhookEndpoint
 from app.models.workflow import WorkflowEntityType
 from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote, WorkOrderStatus
-from app.models.webhook import WebhookDelivery, WebhookDeliveryStatus, WebhookEndpoint, WebhookSubscription
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.crm.campaign_sender import CampaignSenderCreate, CampaignSenderUpdate
 from app.schemas.crm.campaign_smtp import CampaignSmtpCreate, CampaignSmtpUpdate
 from app.schemas.person import PersonCreate, PersonUpdate
-from app.schemas.settings import DomainSettingUpdate
-from app.schemas.workflow import (
-    ProjectTaskStatusTransitionCreate,
-    SlaPolicyCreate,
-    SlaTargetCreate,
-    TicketStatusTransitionCreate,
-    WorkOrderStatusTransitionCreate,
-)
 from app.schemas.rbac import (
     PermissionCreate,
     PermissionUpdate,
@@ -50,24 +39,44 @@ from app.schemas.rbac import (
     RolePermissionCreate,
     RoleUpdate,
 )
+from app.schemas.settings import DomainSettingUpdate
+from app.schemas.workflow import (
+    ProjectTaskStatusTransitionCreate,
+    SlaPolicyCreate,
+    SlaTargetCreate,
+    TicketStatusTransitionCreate,
+    WorkOrderStatusTransitionCreate,
+)
 from app.services import (
     audit as audit_service,
+)
+from app.services import (
     auth as auth_service,
+)
+from app.services import (
     auth_flow as auth_flow_service,
+)
+from app.services import branding_assets, settings_spec
+from app.services import (
     email as email_service,
-    rbac as rbac_service,
-    settings_api as settings_service,
-    scheduler as scheduler_service,
+)
+from app.services import (
     person as person_service,
+)
+from app.services import (
+    rbac as rbac_service,
+)
+from app.services import (
+    scheduler as scheduler_service,
+)
+from app.services import (
     workflow as workflow_service,
 )
-from app.services import settings_spec
+from app.services.auth_dependencies import require_permission
+from app.services.auth_flow import hash_password
+from app.services.common import coerce_uuid
 from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
-from app.services import branding_assets
-from app.services.auth_flow import hash_password
-from app.services.auth_dependencies import require_permission
-from app.services.common import coerce_uuid
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/system", tags=["web-admin-system"])
@@ -88,7 +97,7 @@ def _is_admin_request(request: Request) -> bool:
 
 
 def _placeholder_context(request: Request, db: Session, title: str, active_page: str):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return {
         "request": request,
         "active_page": active_page,
@@ -106,8 +115,9 @@ def _placeholder_context(request: Request, db: Session, title: str, active_page:
 @router.get("/health", response_class=HTMLResponse)
 def system_health_page(request: Request, db: Session = Depends(get_db)):
     from app.models.domain_settings import SettingDomain
-    from app.services import system_health as system_health_service, settings_spec
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.services import settings_spec
+    from app.services import system_health as system_health_service
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     health = system_health_service.get_system_health()
     thresholds: dict[str, float | None] = {
@@ -152,7 +162,7 @@ def system_health_page(request: Request, db: Session = Depends(get_db)):
         if value is None:
             thresholds[key] = None
             continue
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             thresholds[key] = float(value)
             continue
         if isinstance(value, str):
@@ -490,8 +500,8 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
         "settings_by_key": settings_by_key,
     }
     if selected_domain == SettingDomain.projects:
-        from app.web.admin.projects import REGION_OPTIONS
         from app.services import dispatch as dispatch_service
+        from app.web.admin.projects import REGION_OPTIONS
 
         technicians = dispatch_service.technicians.list(
             db=db,
@@ -520,15 +530,71 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
                 normalized[region] = {
                     "manager_person_id": entry.get("manager_person_id") or "",
                     "assistant_person_id": entry.get("assistant_person_id") or "",
+                    "spc_person_id": entry.get("spc_person_id") or "",
                 }
             elif isinstance(entry, str):
-                normalized[region] = {"manager_person_id": entry, "assistant_person_id": ""}
+                normalized[region] = {
+                    "manager_person_id": entry,
+                    "assistant_person_id": "",
+                    "spc_person_id": "",
+                }
             else:
-                normalized[region] = {"manager_person_id": "", "assistant_person_id": ""}
+                normalized[region] = {
+                    "manager_person_id": "",
+                    "assistant_person_id": "",
+                    "spc_person_id": "",
+                }
         context["region_pm_regions"] = REGION_OPTIONS
         context["region_pm_assignments"] = normalized
         context["technicians"] = technicians
     if selected_domain == SettingDomain.comms:
+        from app.services import dispatch as dispatch_service
+        from app.web.admin.projects import REGION_OPTIONS
+
+        technicians = dispatch_service.technicians.list(
+            db=db,
+            person_id=None,
+            region=None,
+            is_active=True,
+            order_by="created_at",
+            order_dir="desc",
+            limit=500,
+            offset=0,
+        )
+        technicians = sorted(
+            technicians,
+            key=lambda tech: (
+                tech.person.first_name if tech.person else "",
+                tech.person.last_name if tech.person else "",
+            ),
+        )
+        assignments = settings_by_key.get("region_ticket_assignments", {}).get("value")
+        if not isinstance(assignments, dict):
+            assignments = {}
+        normalized = {}
+        for region in REGION_OPTIONS:
+            entry = assignments.get(region)
+            if isinstance(entry, dict):
+                normalized[region] = {
+                    "manager_person_id": entry.get("manager_person_id") or "",
+                    "assistant_person_id": entry.get("assistant_person_id") or "",
+                    "spc_person_id": entry.get("spc_person_id") or "",
+                }
+            elif isinstance(entry, str):
+                normalized[region] = {
+                    "manager_person_id": entry,
+                    "assistant_person_id": "",
+                    "spc_person_id": "",
+                }
+            else:
+                normalized[region] = {
+                    "manager_person_id": "",
+                    "assistant_person_id": "",
+                    "spc_person_id": "",
+                }
+        context["region_ticket_regions"] = REGION_OPTIONS
+        context["region_ticket_assignments"] = normalized
+        context["technicians"] = technicians
         context["ticket_types_list"] = _normalize_ticket_types(
             settings_by_key.get("ticket_types", {}).get("value")
         )
@@ -581,7 +647,7 @@ def _extract_ticket_types_from_form(form) -> list[dict]:
         "urgent": "urgent",
     }
     indices: list[int] = []
-    for key in form.keys():
+    for key in form:
         if key.startswith("ticket_type_name_"):
             try:
                 indices.append(int(key.split("_")[-1]))
@@ -608,11 +674,33 @@ def _extract_region_pm_assignments_from_form(form) -> dict:
     for region in REGION_OPTIONS:
         manager_key = f"region_pm_manager_{region}"
         assistant_key = f"region_pm_assistant_{region}"
+        spc_key = f"region_pm_spc_{region}"
         manager = _form_str_opt(form.get(manager_key)) or ""
         assistant = _form_str_opt(form.get(assistant_key)) or ""
+        spc = _form_str_opt(form.get(spc_key)) or ""
         assignments[region] = {
             "manager_person_id": manager.strip(),
             "assistant_person_id": assistant.strip(),
+            "spc_person_id": spc.strip(),
+        }
+    return assignments
+
+
+def _extract_region_ticket_assignments_from_form(form) -> dict:
+    from app.web.admin.projects import REGION_OPTIONS
+
+    assignments: dict[str, dict[str, str]] = {}
+    for region in REGION_OPTIONS:
+        manager_key = f"region_ticket_manager_{region}"
+        assistant_key = f"region_ticket_assistant_{region}"
+        spc_key = f"region_ticket_spc_{region}"
+        manager = _form_str_opt(form.get(manager_key)) or ""
+        assistant = _form_str_opt(form.get(assistant_key)) or ""
+        spc = _form_str_opt(form.get(spc_key)) or ""
+        assignments[region] = {
+            "manager_person_id": manager.strip(),
+            "assistant_person_id": assistant.strip(),
+            "spc_person_id": spc.strip(),
         }
     return assignments
 
@@ -750,9 +838,10 @@ def _build_users(
             info["has_active"] = True
             if credential.must_change_password:
                 info["must_change_password"] = True
-        if credential.last_login_at:
-            if info["last_login"] is None or credential.last_login_at > info["last_login"]:
-                info["last_login"] = credential.last_login_at
+        if credential.last_login_at and (
+            info["last_login"] is None or credential.last_login_at > info["last_login"]
+        ):
+            info["last_login"] = credential.last_login_at
 
     mfa_enabled = {
         method.person_id
@@ -800,7 +889,7 @@ def _build_users(
 
 
 def _workflow_context(request: Request, db: Session, error: str | None = None):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     policies = workflow_service.sla_policies.list(
         db=db,
         entity_type=None,
@@ -873,7 +962,7 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
 @router.get("", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:read"))])
 def system_overview(request: Request, db: Session = Depends(get_db)):
     """System settings overview."""
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/index.html",
         {
@@ -889,11 +978,11 @@ def system_overview(request: Request, db: Session = Depends(get_db)):
 @router.get("/configuration", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:read"))])
 def system_configuration(request: Request, db: Session = Depends(get_db)):
     """System configuration overview."""
-    from app.web.admin import get_sidebar_stats, get_current_user
     from app.models.connector import ConnectorConfig
-    from app.models.webhook import WebhookEndpoint
-    from app.models.projects import ProjectTemplate
     from app.models.crm.team import CrmAgent
+    from app.models.projects import ProjectTemplate
+    from app.models.webhook import WebhookEndpoint
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     pop_sites_count = 0
     connectors_count = (
@@ -929,13 +1018,13 @@ def system_configuration(request: Request, db: Session = Depends(get_db)):
 @router.get("/users", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:roles:read"))])
 def users_list(
     request: Request,
-    search: Optional[str] = None,
-    role: Optional[str] = None,
-    status: Optional[str] = None,
+    search: str | None = None,
+    role: str | None = None,
+    status: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
-    offset: Optional[int] = Query(None, ge=0),
-    limit: Optional[int] = Query(None, ge=5, le=100),
+    offset: int | None = Query(None, ge=0),
+    limit: int | None = Query(None, ge=5, le=100),
     db: Session = Depends(get_db),
 ):
     """List system users."""
@@ -962,7 +1051,7 @@ def users_list(
             {"request": request, "users": users},
         )
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/users/index.html",
         {
@@ -990,9 +1079,9 @@ def users_list(
 @router.get("/users/search", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:roles:read"))])
 def users_search(
     request: Request,
-    search: Optional[str] = None,
-    role: Optional[str] = None,
-    status: Optional[str] = None,
+    search: str | None = None,
+    role: str | None = None,
+    status: str | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=5, le=100),
     db: Session = Depends(get_db),
@@ -1007,9 +1096,9 @@ def users_search(
 @router.get("/users/filter", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:roles:read"))])
 def users_filter(
     request: Request,
-    search: Optional[str] = None,
-    role: Optional[str] = None,
-    status: Optional[str] = None,
+    search: str | None = None,
+    role: str | None = None,
+    status: str | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=5, le=100),
     db: Session = Depends(get_db),
@@ -1023,7 +1112,7 @@ def users_filter(
 
 @router.get("/users/profile", response_class=HTMLResponse)
 def user_profile(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
 
@@ -1080,7 +1169,7 @@ def user_profile_update(
     phone: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
     error = None
@@ -1142,7 +1231,7 @@ def user_profile_update(
 
 @router.get("/users/{user_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:roles:read"))])
 def user_detail(request: Request, user_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     person = person_service.people.get(db, user_id)
     if not person:
@@ -1197,7 +1286,7 @@ def user_detail(request: Request, user_id: str, db: Session = Depends(get_db)):
 
 @router.get("/users/{user_id}/edit", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:assign"))])
 def user_edit(request: Request, user_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     person = person_service.people.get(db, user_id)
     if not person:
@@ -1262,7 +1351,7 @@ async def user_edit_submit(
     user_id: str,
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     person = person_service.people.get(db, user_id)
     if not person:
@@ -1282,7 +1371,7 @@ async def user_edit_submit(
     is_active = form_data.get("is_active")
     new_password = _form_str_opt(form_data.get("new_password"))
     confirm_password = _form_str_opt(form_data.get("confirm_password"))
-    require_password_change = _form_str_opt(form_data.get("require_password_change"))
+    _form_str_opt(form_data.get("require_password_change"))
 
     # Get multiple values for role_ids and direct_permission_ids
     role_ids = [
@@ -1437,7 +1526,7 @@ def user_reset_password(request: Request, user_id: str, db: Session = Depends(ge
         {
             "password_hash": hash_password(temp_password),
             "must_change_password": True,
-            "password_updated_at": datetime.now(timezone.utc),
+            "password_updated_at": datetime.now(UTC),
         }
     )
     db.commit()
@@ -1459,7 +1548,7 @@ def user_create(
     last_name: str = Form(...),
     email: str = Form(...),
     role_id: str = Form(...),
-    send_invite: Optional[str] = Form(None),
+    send_invite: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     role = rbac_service.roles.get(db, role_id)
@@ -1645,7 +1734,7 @@ def roles_list(
     )
     user_counts = {str(role_id): count for role_id, count in user_counts_query}
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/roles.html",
         {
@@ -1674,7 +1763,7 @@ def role_new(request: Request, db: Session = Depends(get_db)):
         limit=1000,
         offset=0,
     )
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/roles_form.html",
         {
@@ -1735,7 +1824,7 @@ def role_create(
                 selected_permission_ids.add(str(UUID(permission_id)))
             except ValueError:
                 continue
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
         return templates.TemplateResponse(
             "admin/system/roles_form.html",
             {
@@ -1781,7 +1870,7 @@ def role_edit(request: Request, role_id: str, db: Session = Depends(get_db)):
         .all()
     )
     selected_permission_ids = {str(link.permission_id) for link in role_permissions}
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/roles_form.html",
         {
@@ -1862,7 +1951,7 @@ def role_update(
                 selected_permission_ids.add(str(UUID(permission_id)))
             except ValueError:
                 continue
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
         return templates.TemplateResponse(
             "admin/system/roles_form.html",
             {
@@ -1919,7 +2008,7 @@ def permissions_list(
     total = len(all_permissions)
     total_pages = (total + per_page - 1) // per_page
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/permissions.html",
         {
@@ -1939,7 +2028,7 @@ def permissions_list(
 
 @router.get("/permissions/new", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:permissions:write"))])
 def permission_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/permissions_form.html",
         {
@@ -1973,7 +2062,7 @@ def permission_create(
         )
         rbac_service.permissions.create(db, payload)
     except ValidationError as exc:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
         return templates.TemplateResponse(
             "admin/system/permissions_form.html",
             {
@@ -1995,7 +2084,7 @@ def permission_create(
             status_code=400,
         )
     except Exception as exc:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
         return templates.TemplateResponse(
             "admin/system/permissions_form.html",
             {
@@ -2029,7 +2118,7 @@ def permission_edit(request: Request, permission_id: str, db: Session = Depends(
             {"request": request, "message": "Permission not found"},
             status_code=404,
         )
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/permissions_form.html",
         {
@@ -2064,7 +2153,7 @@ def permission_update(
         )
         rbac_service.permissions.update(db, permission_id, payload)
     except ValidationError as exc:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
         return templates.TemplateResponse(
             "admin/system/permissions_form.html",
             {
@@ -2087,7 +2176,7 @@ def permission_update(
             status_code=400,
         )
     except Exception as exc:
-        from app.web.admin import get_sidebar_stats, get_current_user
+        from app.web.admin import get_current_user, get_sidebar_stats
         return templates.TemplateResponse(
             "admin/system/permissions_form.html",
             {
@@ -2122,7 +2211,7 @@ def permission_delete(
 
 @router.get("/api-keys", response_class=HTMLResponse)
 def api_keys_list(request: Request, new_key: str | None = None, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
     api_keys = []
@@ -2141,14 +2230,14 @@ def api_keys_list(request: Request, new_key: str | None = None, db: Session = De
         "sidebar_stats": get_sidebar_stats(db),
         "api_keys": api_keys,
         "new_key": new_key,
-        "now": datetime.now(timezone.utc),
+        "now": datetime.now(UTC),
     }
     return templates.TemplateResponse("admin/system/api_keys.html", context)
 
 
 @router.get("/api-keys/new", response_class=HTMLResponse)
 def api_key_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     context: dict[str, object] = {
         "request": request,
@@ -2168,8 +2257,9 @@ def api_key_create(
     expires_in: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
     from datetime import timedelta
+
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
 
@@ -2185,7 +2275,7 @@ def api_key_create(
         expires_at = None
         if expires_in:
             days = int(expires_in)
-            expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+            expires_at = datetime.now(UTC) + timedelta(days=days)
 
         # Create the API key
         api_key = ApiKey(
@@ -2219,7 +2309,7 @@ def api_key_create(
 def api_key_revoke(request: Request, key_id: str, db: Session = Depends(get_db)):
     api_key = db.get(ApiKey, coerce_uuid(key_id))
     if api_key:
-        api_key.revoked_at = datetime.now(timezone.utc)
+        api_key.revoked_at = datetime.now(UTC)
         api_key.is_active = False
         db.commit()
     return RedirectResponse(url="/admin/system/api-keys", status_code=303)
@@ -2227,15 +2317,16 @@ def api_key_revoke(request: Request, key_id: str, db: Session = Depends(get_db))
 
 @router.get("/webhooks", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:read"))])
 def webhooks_list(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
     from datetime import timedelta
+
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     # Get all webhook endpoints
     endpoints = db.query(WebhookEndpoint).order_by(WebhookEndpoint.created_at.desc()).all()
     active_count = sum(1 for e in endpoints if e.is_active)
 
     # Get delivery stats for last 24 hours
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
     deliveries_24h = db.query(WebhookDelivery).filter(
         WebhookDelivery.created_at >= cutoff
     ).all()
@@ -2258,7 +2349,7 @@ def webhooks_list(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/webhooks/new", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:write"))])
 def webhook_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     context: dict[str, object] = {
         "request": request,
@@ -2283,7 +2374,7 @@ def webhook_create(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
         # Generate secret if not provided
@@ -2319,7 +2410,7 @@ def webhook_create(
 
 @router.get("/webhooks/{endpoint_id}/edit", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:write"))])
 def webhook_edit(request: Request, endpoint_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     endpoint = db.get(WebhookEndpoint, coerce_uuid(endpoint_id))
     if not endpoint:
@@ -2352,7 +2443,7 @@ def webhook_update(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     endpoint = db.get(WebhookEndpoint, coerce_uuid(endpoint_id))
     if not endpoint:
@@ -2386,9 +2477,9 @@ def webhook_update(
 @router.get("/audit", response_class=HTMLResponse, dependencies=[Depends(require_permission("audit:read"))])
 def audit_log(
     request: Request,
-    actor_id: Optional[str] = None,
-    action: Optional[str] = None,
-    entity_type: Optional[str] = None,
+    actor_id: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=10, le=100),
     db: Session = Depends(get_db),
@@ -2420,6 +2511,7 @@ def audit_log(
         offset=offset,
     )
 
+    from app.models.audit import AuditActorType
     from app.models.person import Person
     from app.services.audit_helpers import (
         extract_changes,
@@ -2428,8 +2520,6 @@ def audit_log(
         humanize_action,
         humanize_entity,
     )
-
-    from app.models.audit import AuditActorType
 
     def _is_user_actor(actor_type) -> bool:
         return actor_type in {AuditActorType.user, AuditActorType.user.value, "user"}
@@ -2528,7 +2618,7 @@ def audit_log(
             },
         )
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/audit.html",
         {
@@ -2579,7 +2669,7 @@ def scheduler_overview(
     total = len(all_tasks)
     total_pages = (total + per_page - 1) // per_page
 
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/scheduler.html",
         {
@@ -2600,7 +2690,7 @@ def scheduler_overview(
 @router.get("/scheduler/{task_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:read"))])
 def scheduler_task_detail(request: Request, task_id: str, db: Session = Depends(get_db)):
     """View scheduled task details."""
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     task = scheduler_service.scheduled_tasks.get(db, task_id)
     if not task:
@@ -2652,7 +2742,7 @@ def scheduler_task_run(request: Request, task_id: str, db: Session = Depends(get
     """Manually trigger a scheduled task."""
     task = scheduler_service.scheduled_tasks.get(db, task_id)
     scheduler_service.enqueue_task(task.task_name, task.args_json, task.kwargs_json)
-    task.last_run_at = datetime.now(timezone.utc)
+    task.last_run_at = datetime.now(UTC)
     db.commit()
     return RedirectResponse(url=f"/admin/system/scheduler/{task_id}", status_code=303)
 
@@ -2775,12 +2865,12 @@ async def workflow_project_task_transition_create(request: Request, db: Session 
 @router.get("/settings", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:read"))])
 def settings_overview(
     request: Request,
-    domain: Optional[str] = None,
+    domain: str | None = None,
     db: Session = Depends(get_db),
 ):
     """System settings management."""
     from app.csrf import get_csrf_token
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     settings_context = _build_settings_context(db, domain)
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
@@ -2810,7 +2900,7 @@ def settings_overview(
 )
 def settings_numbering(request: Request, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
 
     settings_context = _build_settings_context(db, "numbering")
     base_url = str(request.base_url).rstrip("/")
@@ -2837,7 +2927,7 @@ def settings_numbering(request: Request, db: Session = Depends(get_db)):
 @router.post("/settings", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:write"))])
 async def settings_update(
     request: Request,
-    domain: Optional[str] = Form(None),
+    domain: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Update system settings for a domain."""
@@ -2917,7 +3007,7 @@ async def settings_update(
             crm_meta_callback_url = base_url + "/webhooks/crm/meta"
             crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
             from app.csrf import get_csrf_token
-            from app.web.admin import get_sidebar_stats, get_current_user
+            from app.web.admin import get_current_user, get_sidebar_stats
             return templates.TemplateResponse(
                 "admin/system/settings.html",
                 {
@@ -2943,6 +3033,9 @@ async def settings_update(
             if selected_domain == SettingDomain.comms:
                 overrides["ticket_types"] = cast(
                     SettingValue, _extract_ticket_types_from_form(form)
+                )
+                overrides["region_ticket_assignments"] = cast(
+                    SettingValue, _extract_region_ticket_assignments_from_form(form)
                 )
             if selected_domain == SettingDomain.projects:
                 overrides["region_pm_assignments"] = cast(
@@ -3024,7 +3117,7 @@ async def settings_update(
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
     crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
     from app.csrf import get_csrf_token
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/settings.html",
         {
@@ -3054,7 +3147,7 @@ def _render_campaign_settings(
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
     crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/settings.html",
         {
@@ -3358,7 +3451,7 @@ async def settings_branding_update(
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
     crm_meta_oauth_redirect_url = base_url + "/admin/crm/meta/callback"
-    from app.web.admin import get_sidebar_stats, get_current_user
+    from app.web.admin import get_current_user, get_sidebar_stats
     return templates.TemplateResponse(
         "admin/system/settings.html",
         {
@@ -3379,7 +3472,8 @@ async def settings_branding_update(
 @router.post("/settings/test-smtp", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:settings:read"))])
 def test_smtp_connection(request: Request, db: Session = Depends(get_db)):
     """Test SMTP connection (HTMX endpoint)."""
-    from app.services.email import test_smtp_connection as smtp_test, _get_smtp_config
+    from app.services.email import _get_smtp_config
+    from app.services.email import test_smtp_connection as smtp_test
 
     config = _get_smtp_config(db)
     success, error = smtp_test(config, db=db)
@@ -3494,7 +3588,7 @@ def resend_user_invitation(request: Request, user_id: str, db: Session = Depends
     except Exception as exc:
         return HTMLResponse(
             f'<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Error: {str(exc)}'
+            f'Error: {exc!s}'
             f'</div>',
             status_code=500,
         )

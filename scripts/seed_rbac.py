@@ -6,7 +6,6 @@ from app.db import SessionLocal
 from app.models.person import Person
 from app.models.rbac import Permission, PersonRole, Role, RolePermission
 
-
 DEFAULT_PERMISSIONS = [
     # Audit
     ("audit:read", "Read audit events"),
@@ -325,8 +324,6 @@ def main():
                 raise SystemExit("Admin person not found.")
             _ensure_person_role(db, person.id, admin_role.id)
             db.commit()
-            print("Admin role assigned.")
-        print("RBAC seed complete.")
     finally:
         db.close()
 

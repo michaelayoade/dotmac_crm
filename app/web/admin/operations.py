@@ -1,4 +1,5 @@
 """Admin operations web routes."""
+import contextlib
 import math
 from datetime import datetime
 from urllib.parse import quote
@@ -10,23 +11,23 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.csrf import get_csrf_token
 from app.db import get_db
 from app.models.auth import UserCredential
-from app.models.person import Person
-from app.models.sales_order import SalesOrder, SalesOrderStatus, SalesOrderPaymentStatus
-from app.models.workforce import WorkOrder, WorkOrderStatus, WorkOrderPriority, WorkOrderType
-from app.models.vendor import InstallationProject
 from app.models.dispatch import TechnicianProfile
+from app.models.person import Person
+from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
+from app.models.vendor import InstallationProject
+from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
 from app.schemas.dispatch import TechnicianProfileCreate, TechnicianProfileUpdate
 from app.schemas.workforce import WorkOrderCreate, WorkOrderUpdate
-from app.services import sales_orders as sales_orders_service
-from app.services import workforce as workforce_service
 from app.services import dispatch as dispatch_service
+from app.services import sales_orders as sales_orders_service
 from app.services import vendor as vendor_service
+from app.services import workforce as workforce_service
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.web.admin import get_current_user, get_sidebar_stats
-from app.csrf import get_csrf_token
 
 router = APIRouter(prefix="/operations", tags=["admin-operations"])
 templates = Jinja2Templates(directory="templates")
@@ -83,15 +84,11 @@ def sales_orders_list(
     # Count for pagination
     count_query = db.query(func.count(SalesOrder.id)).filter(SalesOrder.is_active.is_(True))
     if status:
-        try:
+        with contextlib.suppress(ValueError):
             count_query = count_query.filter(SalesOrder.status == SalesOrderStatus(status))
-        except ValueError:
-            pass
     if payment_status:
-        try:
+        with contextlib.suppress(ValueError):
             count_query = count_query.filter(SalesOrder.payment_status == SalesOrderPaymentStatus(payment_status))
-        except ValueError:
-            pass
     total = count_query.scalar() or 0
     total_pages = math.ceil(total / per_page) if total > 0 else 1
 
@@ -150,8 +147,90 @@ def sales_order_detail(
             "order": order,
             "lines": lines,
             "can_delete": can_delete,
+            "csrf_token": get_csrf_token(request),
         },
     )
+
+
+@router.get("/sales-orders/{order_id}/edit", response_class=HTMLResponse)
+def sales_order_edit(
+    request: Request,
+    order_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """Edit sales order form."""
+    user = get_current_user(request)
+    try:
+        order = sales_orders_service.sales_orders.get(db, str(order_id))
+    except HTTPException:
+        return RedirectResponse(url="/admin/operations/sales-orders", status_code=303)
+
+    return templates.TemplateResponse(
+        "admin/operations/sales_order_form.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "order": order,
+            "account_label": "",
+            "statuses": [s.value for s in SalesOrderStatus],
+            "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
+            "action_url": f"/admin/operations/sales-orders/{order.id}/edit",
+            "csrf_token": get_csrf_token(request),
+        },
+    )
+
+
+@router.post("/sales-orders/{order_id}/edit", response_class=HTMLResponse)
+def sales_order_update(
+    request: Request,
+    order_id: UUID,
+    status: str | None = Form(None),
+    payment_status: str | None = Form(None),
+    total: str | None = Form(None),
+    amount_paid: str | None = Form(None),
+    paid_at: str | None = Form(None),
+    notes: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Update sales order."""
+    user = get_current_user(request)
+    try:
+        order = sales_orders_service.sales_orders.get(db, str(order_id))
+    except HTTPException:
+        return RedirectResponse(url="/admin/operations/sales-orders", status_code=303)
+
+    try:
+        sales_orders_service.sales_orders.update_from_input(
+            db,
+            str(order.id),
+            status=status,
+            payment_status=payment_status,
+            total=total,
+            amount_paid=amount_paid,
+            paid_at=paid_at,
+            notes=notes,
+        )
+        return RedirectResponse(url=f"/admin/operations/sales-orders/{order.id}", status_code=303)
+    except Exception as exc:
+        return templates.TemplateResponse(
+            "admin/operations/sales_order_form.html",
+            {
+                "request": request,
+                "user": user,
+                "current_user": user,
+                "sidebar_stats": get_sidebar_stats(db),
+                "order": order,
+                "account_label": "",
+                "statuses": [s.value for s in SalesOrderStatus],
+                "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
+                "action_url": f"/admin/operations/sales-orders/{order.id}/edit",
+                "csrf_token": get_csrf_token(request),
+                "error": str(exc),
+            },
+            status_code=400,
+        )
 
 
 @router.post(
@@ -225,15 +304,11 @@ def work_orders_list(
     # Count for pagination
     count_query = db.query(func.count(WorkOrder.id))
     if status:
-        try:
+        with contextlib.suppress(ValueError):
             count_query = count_query.filter(WorkOrder.status == WorkOrderStatus(status))
-        except ValueError:
-            pass
     if priority:
-        try:
+        with contextlib.suppress(ValueError):
             count_query = count_query.filter(WorkOrder.priority == WorkOrderPriority(priority))
-        except ValueError:
-            pass
     total = count_query.scalar() or 0
     total_pages = math.ceil(total / per_page) if total > 0 else 1
 
@@ -537,10 +612,8 @@ def work_order_delete(
 ):
     """Soft-delete a work order and return to the list."""
     _ = get_current_user(request)
-    try:
+    with contextlib.suppress(HTTPException):
         workforce_service.work_orders.delete(db, str(order_id))
-    except HTTPException:
-        pass
     return RedirectResponse(url="/admin/operations/work-orders", status_code=303)
 
 

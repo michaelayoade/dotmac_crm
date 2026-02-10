@@ -76,7 +76,7 @@ class DotMacERPShiftSync:
             return None
 
         timeout_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds")
-        if isinstance(timeout_value, (int, str)):
+        if isinstance(timeout_value, int | str):
             timeout = int(timeout_value)
         else:
             timeout = 30

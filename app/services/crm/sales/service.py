@@ -1,14 +1,14 @@
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import cast, func, nullslast, or_, String
+from sqlalchemy import String, cast, func, nullslast, or_
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.crm.sales import Lead, Pipeline, PipelineStage, Quote, CrmQuoteLineItem
-from app.models.inventory import InventoryItem
 from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import LeadStatus, QuoteStatus
+from app.models.crm.sales import CrmQuoteLineItem, Lead, Pipeline, PipelineStage, Quote
 from app.models.domain_settings import SettingDomain
+from app.models.inventory import InventoryItem
 from app.models.person import PartyStatus, Person
 from app.models.projects import Project, ProjectStatus, ProjectTemplate, ProjectType
 from app.schemas.projects import ProjectCreate
@@ -368,9 +368,12 @@ class Leads(ListResponseMixin):
             setattr(lead, key, value)
 
         # When lead is won, upgrade person to customer
-        if data.get("status") == LeadStatus.won and lead.person:
-            if lead.person.party_status in (PartyStatus.lead, PartyStatus.contact):
-                lead.person.party_status = PartyStatus.customer
+        if (
+            data.get("status") == LeadStatus.won
+            and lead.person
+            and lead.person.party_status in (PartyStatus.lead, PartyStatus.contact)
+        ):
+            lead.person.party_status = PartyStatus.customer
 
         db.commit()
         db.refresh(lead)
@@ -615,9 +618,12 @@ class Quotes(ListResponseMixin):
             setattr(quote, key, value)
 
         # When quote is accepted, upgrade person to customer
-        if data.get("status") == QuoteStatus.accepted and quote.person:
-            if quote.person.party_status in (PartyStatus.lead, PartyStatus.contact):
-                quote.person.party_status = PartyStatus.customer
+        if (
+            data.get("status") == QuoteStatus.accepted
+            and quote.person
+            and quote.person.party_status in (PartyStatus.lead, PartyStatus.contact)
+        ):
+            quote.person.party_status = PartyStatus.customer
 
         db.commit()
         db.refresh(quote)
@@ -646,9 +652,8 @@ class CrmQuoteLineItems(ListResponseMixin):
         if not quote:
             raise HTTPException(status_code=404, detail="Quote not found")
         data = payload.model_dump()
-        if data.get("inventory_item_id"):
-            if not db.get(InventoryItem, data["inventory_item_id"]):
-                raise HTTPException(status_code=404, detail="Inventory item not found")
+        if data.get("inventory_item_id") and not db.get(InventoryItem, data["inventory_item_id"]):
+            raise HTTPException(status_code=404, detail="Inventory item not found")
         if not data.get("amount"):
             data["amount"] = Decimal(data.get("quantity") or 0) * Decimal(
                 data.get("unit_price") or 0
@@ -666,9 +671,8 @@ class CrmQuoteLineItems(ListResponseMixin):
         if not item:
             raise HTTPException(status_code=404, detail="Quote line item not found")
         data = payload.model_dump(exclude_unset=True)
-        if "inventory_item_id" in data and data["inventory_item_id"]:
-            if not db.get(InventoryItem, data["inventory_item_id"]):
-                raise HTTPException(status_code=404, detail="Inventory item not found")
+        if data.get("inventory_item_id") and not db.get(InventoryItem, data["inventory_item_id"]):
+            raise HTTPException(status_code=404, detail="Inventory item not found")
         for key, value in data.items():
             setattr(item, key, value)
         if "quantity" in data or "unit_price" in data:

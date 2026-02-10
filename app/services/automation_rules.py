@@ -5,9 +5,9 @@ Provides CRUD for automation rules and execution log queries.
 
 from __future__ import annotations
 
+import builtins
 import logging
 from datetime import UTC, datetime
-from typing import List
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -40,7 +40,7 @@ class AutomationRulesManager(ListResponseMixin):
         order_dir: str = "desc",
         limit: int = 50,
         offset: int = 0,
-    ) -> List[AutomationRule]:
+    ) -> builtins.list[AutomationRule]:
         query = db.query(AutomationRule)
 
         status_value = None
@@ -88,7 +88,7 @@ class AutomationRulesManager(ListResponseMixin):
     @staticmethod
     def create(
         db: Session,
-        payload: AutomationRuleCreate,  # noqa: F821
+        payload: AutomationRuleCreate,
         created_by_id: str | None = None,
     ) -> AutomationRule:
         data = payload.model_dump()
@@ -104,7 +104,7 @@ class AutomationRulesManager(ListResponseMixin):
     def update(
         db: Session,
         rule_id: str,
-        payload: AutomationRuleUpdate,  # noqa: F821
+        payload: AutomationRuleUpdate,
     ) -> AutomationRule:
         rule = db.get(AutomationRule, coerce_uuid(rule_id))
         if not rule:
@@ -139,7 +139,7 @@ class AutomationRulesManager(ListResponseMixin):
         return rule
 
     @staticmethod
-    def get_active_rules_for_event(db: Session, event_type_value: str) -> List[AutomationRule]:
+    def get_active_rules_for_event(db: Session, event_type_value: str) -> builtins.list[AutomationRule]:
         """Hot path query using the composite index."""
         return (
             db.query(AutomationRule)
@@ -159,7 +159,7 @@ class AutomationRulesManager(ListResponseMixin):
         event_id: UUID,
         event_type: str,
         outcome: AutomationLogOutcome,
-        actions_executed: List[dict],
+        actions_executed: builtins.list[dict],
         duration_ms: int,
         error: str | None = None,
     ) -> AutomationRuleLog:
@@ -182,7 +182,7 @@ class AutomationRulesManager(ListResponseMixin):
         return log
 
     @staticmethod
-    def recent_logs(db: Session, rule_id: str, limit: int = 20) -> List[AutomationRuleLog]:
+    def recent_logs(db: Session, rule_id: str, limit: int = 20) -> builtins.list[AutomationRuleLog]:
         return (
             db.query(AutomationRuleLog)
             .filter(AutomationRuleLog.rule_id == coerce_uuid(rule_id))

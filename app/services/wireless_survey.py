@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -135,8 +135,7 @@ def calculate_elevation_profile(request: ElevationProfileRequest) -> ElevationPr
             valid_count += 1
 
         # Calculate LOS height at this point (straight line between antennas)
-        from_total = (request.from_antenna_height_m + (ground_elev or 0)) if i == 0 and ground_elev else None
-        to_total = None
+        (request.from_antenna_height_m + (ground_elev or 0)) if i == 0 and ground_elev else None
         los_height = None
 
         if i == 0:
@@ -602,7 +601,7 @@ class SurveyLosService:
         los_path.elevation_profile = [p.model_dump() for p in profile_result.profile]
         los_path.free_space_loss_db = profile_result.free_space_loss_db
         los_path.sample_count = profile_result.sample_count
-        los_path.analysis_timestamp = datetime.now(timezone.utc)
+        los_path.analysis_timestamp = datetime.now(UTC)
 
         # Calculate estimated RSSI if we have TX power
         if from_point.tx_power_dbm is not None and los_path.free_space_loss_db is not None:

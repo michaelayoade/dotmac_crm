@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def _normalize(values: Iterable[str] | None) -> set[str]:
@@ -50,6 +50,90 @@ def can_manage_inbox_settings(
         }
         & scope_set
     )
+
+
+def can_view_inbox(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    if is_admin(roles, scopes):
+        return True
+    scope_set = _normalize(scopes)
+    return bool(
+        {
+            "crm:conversation:read",
+            "crm:conversation:write",
+            "crm:conversation:*",
+            "crm:conversation",
+            "crm:inbox:read",
+            "crm:inbox:write",
+            "crm:inbox:*",
+            "crm:inbox",
+            "crm",
+        }
+        & scope_set
+    )
+
+
+def can_write_inbox(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    if is_admin(roles, scopes):
+        return True
+    scope_set = _normalize(scopes)
+    return bool(
+        {
+            "crm:conversation:write",
+            "crm:conversation:*",
+            "crm:conversation",
+            "crm:inbox:write",
+            "crm:inbox:*",
+            "crm:inbox",
+            "crm",
+        }
+        & scope_set
+    )
+
+
+def can_send_message(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    return can_write_inbox(roles, scopes)
+
+
+def can_assign_conversation(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    return can_write_inbox(roles, scopes)
+
+
+def can_update_conversation_status(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    return can_write_inbox(roles, scopes)
+
+
+def can_resolve_conversation(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    return can_write_inbox(roles, scopes)
+
+
+def can_manage_private_notes(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    return can_write_inbox(roles, scopes)
+
+
+def can_reply_to_comments(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    return can_write_inbox(roles, scopes)
+
+
+def can_upload_attachments(
+    roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None
+) -> bool:
+    return can_write_inbox(roles, scopes)
 
 
 def can_view_private_note(

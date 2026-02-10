@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 from playwright.sync_api import Page, expect
-
-from tests.playwright.pages.admin.crm import InboxPage, ConversationPage
+from tests.playwright.pages.admin.crm import ConversationPage, InboxPage
 
 
 class TestCRMInbox:
@@ -50,7 +48,7 @@ class TestCRMConversation:
         inbox.goto()
         inbox.expect_loaded()
         # If there are conversations, the thread should be visible
-        conv_page = ConversationPage(admin_page, settings.base_url)
+        ConversationPage(admin_page, settings.base_url)
         # Thread area should exist
         expect(admin_page.locator("[data-testid='message-thread']").or_(
             admin_page.locator(".message-thread").or_(

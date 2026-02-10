@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.services.crm.inbox.queries import get_inbox_stats, get_channel_stats
+from app.services.crm.inbox.queries import get_channel_stats, get_inbox_stats
 
 
 def load_inbox_stats(db: Session) -> tuple[dict, dict]:

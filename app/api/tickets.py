@@ -4,14 +4,14 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.tickets import (
+    TicketBulkUpdateRequest,
+    TicketBulkUpdateResponse,
+    TicketCommentBulkCreateRequest,
+    TicketCommentBulkCreateResponse,
     TicketCommentCreate,
     TicketCommentRead,
     TicketCommentUpdate,
-    TicketCommentBulkCreateRequest,
-    TicketCommentBulkCreateResponse,
     TicketCreate,
-    TicketBulkUpdateRequest,
-    TicketBulkUpdateResponse,
     TicketRead,
     TicketSlaEventCreate,
     TicketSlaEventRead,

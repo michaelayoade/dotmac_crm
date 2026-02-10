@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
+from app.logging import get_logger
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
 from app.models.crm.enums import ConversationStatus, MessageDirection
 from app.models.crm.team import CrmAgent
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.services.common import coerce_uuid
-from app.logging import get_logger
 from app.services.settings_spec import resolve_value
 
 
@@ -35,7 +35,7 @@ def _message_preview(message: Message, limit: int = 140) -> str | None:
 
 
 def _coerce_int(value: Any) -> int:
-    if isinstance(value, (int, str, bytes, bytearray)):
+    if isinstance(value, int | str | bytes | bytearray):
         try:
             return int(value)
         except (TypeError, ValueError):
@@ -136,7 +136,7 @@ def send_reply_reminders(db: Session) -> int:
     if delay_seconds <= 0:
         return 0
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     threshold = now - timedelta(seconds=delay_seconds)
     repeat_interval_seconds = _coerce_int(repeat_interval_seconds)
 

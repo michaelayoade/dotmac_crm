@@ -532,6 +532,288 @@ def sync_dotmac_erp_shifts(days_ahead: int = 14, time_off_days_ahead: int = 30):
 
 
 @celery_app.task(
+    name="app.tasks.integrations.sync_material_request_to_erp",
+    bind=True,
+    time_limit=60,
+    soft_time_limit=45,
+    max_retries=5,
+    autoretry_for=(DotMacERPTransientError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+def sync_material_request_to_erp(self, material_request_id: str):
+    """Push an approved material request to DotMac ERP.
+
+    Args:
+        material_request_id: UUID of the material request to sync
+
+    Returns:
+        Dict with sync result
+    """
+    from app.services.dotmac_erp import (
+        DotMacERPAuthError,
+        DotMacERPError,
+        DotMacERPRateLimitError,
+    )
+    from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("MATERIAL_REQUEST_SYNC_START material_request_id=%s", material_request_id)
+
+    try:
+        from sqlalchemy.orm import selectinload
+
+        from app.models.material_request import MaterialRequest
+
+        mr = session.get(
+            MaterialRequest,
+            coerce_uuid(material_request_id),
+            options=[selectinload(MaterialRequest.items)],
+        )
+        if not mr:
+            logger.warning("MATERIAL_REQUEST_SYNC_NOT_FOUND material_request_id=%s", material_request_id)
+            return {"success": False, "error": "Material request not found"}
+
+        sync_service = dotmac_erp_material_request_sync(session)
+        result = sync_service.sync_material_request(mr)
+        sync_service.close()
+
+        if result.success:
+            logger.info(
+                "MATERIAL_REQUEST_SYNC_COMPLETE material_request_id=%s erp_id=%s",
+                material_request_id,
+                result.erp_material_request_id,
+            )
+        else:
+            status = "error"
+            logger.warning(
+                "MATERIAL_REQUEST_SYNC_FAILED material_request_id=%s error=%s",
+                material_request_id,
+                result.error,
+            )
+
+        return {
+            "success": result.success,
+            "material_request_id": result.material_request_id,
+            "erp_material_request_id": result.erp_material_request_id,
+            "error": result.error,
+        }
+
+    except DotMacERPRateLimitError as e:
+        status = "retry"
+        retry_after = e.retry_after or 60
+        logger.warning(
+            "MATERIAL_REQUEST_SYNC_RATE_LIMITED material_request_id=%s retry_after=%s",
+            material_request_id,
+            retry_after,
+        )
+        raise self.retry(exc=e, countdown=retry_after)
+    except DotMacERPAuthError as e:
+        status = "error"
+        logger.error(
+            "MATERIAL_REQUEST_SYNC_AUTH_ERROR material_request_id=%s error=%s",
+            material_request_id,
+            str(e),
+        )
+        return {"success": False, "error": str(e), "error_type": "auth"}
+    except DotMacERPError as e:
+        status = "error"
+        logger.error(
+            "MATERIAL_REQUEST_SYNC_ERROR material_request_id=%s error=%s",
+            material_request_id,
+            str(e),
+        )
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        status = "error"
+        logger.exception(
+            "MATERIAL_REQUEST_SYNC_FAILED material_request_id=%s error=%s",
+            material_request_id,
+            str(e),
+        )
+        session.rollback()
+        raise
+
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("material_request_sync", status, duration)
+
+
+@celery_app.task(
+    name="app.tasks.integrations.sync_dotmac_erp_contacts",
+    time_limit=600,
+    soft_time_limit=540,
+)
+def sync_dotmac_erp_contacts():
+    """Pull customers and contacts from DotMac ERP.
+
+    Syncs organizations (companies) and persons (contacts).
+
+    Returns:
+        Dict with sync result summary
+    """
+    from app.services.dotmac_erp import dotmac_erp_contact_sync, record_contact_sync_result
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("DOTMAC_ERP_CONTACT_SYNC_START")
+
+    try:
+        sync_service = dotmac_erp_contact_sync(session)
+        result = sync_service.sync_all()
+        sync_service.close()
+
+        logger.info(
+            "DOTMAC_ERP_CONTACT_SYNC_COMPLETE orgs_created=%d orgs_updated=%d "
+            "contacts_created=%d contacts_updated=%d contacts_linked=%d "
+            "channels_upserted=%d errors=%d duration=%.2fs",
+            result.orgs_created,
+            result.orgs_updated,
+            result.contacts_created,
+            result.contacts_updated,
+            result.contacts_linked,
+            result.channels_upserted,
+            len(result.errors),
+            result.duration_seconds,
+        )
+
+        if result.has_errors:
+            status = "partial"
+            for error in result.errors[:10]:
+                logger.warning("DOTMAC_ERP_CONTACT_SYNC_ERROR %s", error)
+
+        record_contact_sync_result(
+            orgs_created=result.orgs_created,
+            orgs_updated=result.orgs_updated,
+            contacts_created=result.contacts_created,
+            contacts_updated=result.contacts_updated,
+            contacts_linked=result.contacts_linked,
+            channels_upserted=result.channels_upserted,
+            errors=result.errors,
+            duration_seconds=result.duration_seconds,
+        )
+
+        return {
+            "orgs_created": result.orgs_created,
+            "orgs_updated": result.orgs_updated,
+            "contacts_created": result.contacts_created,
+            "contacts_updated": result.contacts_updated,
+            "contacts_linked": result.contacts_linked,
+            "channels_upserted": result.channels_upserted,
+            "total_synced": result.total_synced,
+            "errors": result.errors,
+            "duration_seconds": result.duration_seconds,
+        }
+
+    except Exception as e:
+        status = "error"
+        logger.exception("DOTMAC_ERP_CONTACT_SYNC_FAILED error=%s", str(e))
+        session.rollback()
+        raise
+
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("dotmac_erp_contact_sync", status, duration)
+
+
+@celery_app.task(
+    name="app.tasks.integrations.sync_dotmac_erp_teams",
+    time_limit=300,
+    soft_time_limit=240,
+)
+def sync_dotmac_erp_teams():
+    """Pull departments from DotMac ERP into ServiceTeam model.
+
+    Syncs team structure and membership, auto-syncs CRM agents.
+
+    Returns:
+        Dict with sync result summary
+    """
+    from app.services.dotmac_erp import dotmac_erp_team_sync, record_team_sync_result
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("DOTMAC_ERP_TEAM_SYNC_START")
+
+    try:
+        sync_service = dotmac_erp_team_sync(session)
+        result = sync_service.sync_departments()
+        sync_service.close()
+
+        logger.info(
+            "DOTMAC_ERP_TEAM_SYNC_COMPLETE teams_created=%d teams_updated=%d "
+            "teams_deactivated=%d members_added=%d members_updated=%d "
+            "members_deactivated=%d persons_matched=%d persons_skipped=%d "
+            "crm_agents_synced=%d errors=%d duration=%.2fs",
+            result.teams_created,
+            result.teams_updated,
+            result.teams_deactivated,
+            result.members_added,
+            result.members_updated,
+            result.members_deactivated,
+            result.persons_matched,
+            result.persons_skipped,
+            result.crm_agents_synced,
+            len(result.errors),
+            result.duration_seconds,
+        )
+
+        if result.has_errors:
+            status = "partial"
+            for error in result.errors[:10]:
+                logger.warning("DOTMAC_ERP_TEAM_SYNC_ERROR %s", error)
+
+        record_team_sync_result(
+            teams_created=result.teams_created,
+            teams_updated=result.teams_updated,
+            teams_deactivated=result.teams_deactivated,
+            members_added=result.members_added,
+            members_updated=result.members_updated,
+            members_deactivated=result.members_deactivated,
+            persons_matched=result.persons_matched,
+            persons_skipped=result.persons_skipped,
+            errors=result.errors,
+            duration_seconds=result.duration_seconds,
+        )
+
+        return {
+            "teams_created": result.teams_created,
+            "teams_updated": result.teams_updated,
+            "teams_deactivated": result.teams_deactivated,
+            "members_added": result.members_added,
+            "members_updated": result.members_updated,
+            "members_deactivated": result.members_deactivated,
+            "persons_matched": result.persons_matched,
+            "persons_skipped": result.persons_skipped,
+            "crm_agents_synced": result.crm_agents_synced,
+            "total_synced": result.total_synced,
+            "errors": result.errors,
+            "duration_seconds": result.duration_seconds,
+        }
+
+    except Exception as e:
+        status = "error"
+        logger.exception("DOTMAC_ERP_TEAM_SYNC_FAILED error=%s", str(e))
+        session.rollback()
+        raise
+
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("dotmac_erp_team_sync", status, duration)
+
+
+@celery_app.task(
     name="app.tasks.integrations.sync_chatwoot",
     time_limit=3600,  # 1 hour for large imports
     soft_time_limit=3300,
@@ -570,7 +852,7 @@ def sync_chatwoot(
         return None
 
     def _coerce_int(value: object | None, default: int) -> int:
-        if isinstance(value, (int, str, bytes, bytearray)):
+        if isinstance(value, int | str | bytes | bytearray):
             try:
                 return int(value)
             except (TypeError, ValueError):

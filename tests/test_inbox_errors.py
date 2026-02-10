@@ -3,8 +3,8 @@
 from fastapi import HTTPException
 
 from app.services.crm.inbox.errors import (
-    InboxValidationError,
     InboxNotFoundError,
+    InboxValidationError,
     as_http_exception,
 )
 

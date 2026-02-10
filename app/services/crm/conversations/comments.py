@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -11,12 +12,10 @@ from app.models.crm.comments import (
     SocialCommentPlatform,
     SocialCommentReply,
 )
-import httpx
-
-from app.services import meta_pages
-from app.services.crm import contact as contact_service
 from app.models.crm.enums import ChannelType as CrmChannelType
+from app.services import meta_pages
 from app.services.common import coerce_uuid
+from app.services.crm import contact as contact_service
 
 
 def _parse_meta_datetime(value: str | None) -> datetime | None:
@@ -32,7 +31,7 @@ def _parse_meta_datetime(value: str | None) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
+        return parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -256,13 +255,16 @@ def list_social_comments(
     db: Session,
     search: str | None = None,
     platform: SocialCommentPlatform | None = None,
-    limit: int = 50,
+    source_account_id: str | None = None,
+    limit: int = 150,
     offset: int = 0,
 ) -> list[SocialComment]:
     query = db.query(SocialComment).filter(SocialComment.is_active.is_(True))
     query = query.filter(SocialComment.external_id.isnot(None)).filter(SocialComment.external_id != "")
     if platform:
         query = query.filter(SocialComment.platform == platform)
+    if source_account_id:
+        query = query.filter(SocialComment.source_account_id == source_account_id)
     if search:
         pattern = f"%{search.strip()}%"
         query = query.filter(
@@ -340,7 +342,7 @@ async def reply_to_social_comment(
         platform=comment.platform,
         external_id=str(external_id) if external_id else None,
         message=message,
-        created_time=datetime.now(timezone.utc),
+        created_time=datetime.now(UTC),
         raw_payload=result,
     )
     db.add(reply)

@@ -13,8 +13,9 @@ Requirements:
     - These are created during the initial Splynx migration process
 """
 
-from app.db import SessionLocal
 from sqlalchemy import text
+
+from app.db import SessionLocal
 
 
 def update_account_start_dates():
@@ -30,10 +31,8 @@ def update_account_start_dates():
             WHERE sc.date_add IS NOT NULL
         """))
         count = result.scalar()
-        print(f"Records to update: {count}")
 
         if count == 0:
-            print("No records to update.")
             return
 
         # Show date range
@@ -43,13 +42,11 @@ def update_account_start_dates():
             JOIN splynx_staging.splynx_customers sc ON sc.id = mc.splynx_customer_id
             WHERE sc.date_add IS NOT NULL
         """))
-        row = result.fetchone()
-        print(f"Date range: {row[0]} to {row[1]}")
+        result.fetchone()
 
         # Confirm before updating
         response = input("\nProceed with update? (yes/no): ")
         if response.lower() != "yes":
-            print("Update cancelled.")
             return
 
         # Run the bulk update
@@ -63,7 +60,6 @@ def update_account_start_dates():
         """))
 
         db.commit()
-        print(f"\nUpdated {result.rowcount} subscriber records with Splynx start dates")
 
         # Verify the update
         result = db.execute(text("""
@@ -73,10 +69,7 @@ def update_account_start_dates():
             FROM subscribers
             WHERE account_start_date IS NOT NULL
         """))
-        row = result.fetchone()
-        print(f"\nVerification:")
-        print(f"  Total with account_start_date: {row[0]}")
-        print(f"  With different date than created_at: {row[1]}")
+        result.fetchone()
 
     finally:
         db.close()

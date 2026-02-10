@@ -1,14 +1,15 @@
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.models.auth import Session as AuthSession, SessionStatus
+import app.services.auth_flow as auth_flow_service
+from app.models.auth import Session as AuthSession
+from app.models.auth import SessionStatus
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.vendor import Vendor, VendorUser
-import app.services.auth_flow as auth_flow_service
 from app.services.common import coerce_uuid
 from app.services.settings_spec import resolve_value
 
@@ -22,7 +23,7 @@ _VENDOR_SESSIONS: dict[str, dict] = {}
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _coerce_ttl(value: object | None, default: int) -> int:

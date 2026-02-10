@@ -46,6 +46,7 @@ def create_email_connector_target(
     imap: dict | None = None,
     pop3: dict | None = None,
     auth_config: dict | None = None,
+    metadata: dict | None = None,
 ):
     """Create an email connector and integration target.
 
@@ -68,25 +69,34 @@ def create_email_connector_target(
         .first()
     )
     if not config:
+        merged_metadata = dict(metadata or {})
+        if smtp is not None:
+            merged_metadata["smtp"] = smtp
+        if imap is not None:
+            merged_metadata["imap"] = imap
+        if pop3 is not None:
+            merged_metadata["pop3"] = pop3
         config = ConnectorConfig(
             name=name,
             connector_type=ConnectorType.email,
             auth_config=auth_config,
-            metadata_={"smtp": smtp, "imap": imap, "pop3": pop3},
+            metadata_=merged_metadata,
         )
         db.add(config)
         db.commit()
         db.refresh(config)
     else:
-        metadata = dict(config.metadata_ or {})
+        merged = dict(config.metadata_ or {})
         if smtp is not None:
-            metadata["smtp"] = smtp
+            merged["smtp"] = smtp
         if imap is not None:
-            metadata["imap"] = imap
+            merged["imap"] = imap
         if pop3 is not None:
-            metadata["pop3"] = pop3
+            merged["pop3"] = pop3
         if metadata:
-            config.metadata_ = metadata
+            merged.update(metadata)
+        if merged:
+            config.metadata_ = merged
         if auth_config is not None:
             config.auth_config = auth_config
         config.is_active = True
@@ -121,6 +131,7 @@ def create_whatsapp_connector_target(
     phone_number_id: str | None = None,
     auth_config: dict | None = None,
     base_url: str | None = None,
+    metadata: dict | None = None,
 ):
     """Create a WhatsApp connector and integration target.
 
@@ -135,9 +146,9 @@ def create_whatsapp_connector_target(
         IntegrationTarget: The created integration target
     """
     name = _ensure_unique_connector_name(db, name, ConnectorType.whatsapp)
-    metadata = {}
+    merged_metadata = dict(metadata or {})
     if phone_number_id:
-        metadata["phone_number_id"] = phone_number_id
+        merged_metadata["phone_number_id"] = phone_number_id
     config = (
         db.query(ConnectorConfig)
         .filter(ConnectorConfig.name == name)
@@ -150,7 +161,7 @@ def create_whatsapp_connector_target(
             connector_type=ConnectorType.whatsapp,
             auth_config=auth_config,
             base_url=base_url,
-            metadata_=metadata or None,
+            metadata_=merged_metadata or None,
         )
         db.add(config)
         db.commit()
@@ -159,6 +170,8 @@ def create_whatsapp_connector_target(
         merged = dict(config.metadata_ or {})
         if phone_number_id:
             merged["phone_number_id"] = phone_number_id
+        if metadata:
+            merged.update(metadata)
         if merged:
             config.metadata_ = merged
         if auth_config is not None:

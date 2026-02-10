@@ -8,13 +8,13 @@ import re
 
 from sqlalchemy.orm import Session
 
+from app.models.crm.sales import Lead
 from app.models.notification import (
     Notification,
     NotificationChannel,
     NotificationStatus,
     NotificationTemplate,
 )
-from app.models.crm.sales import Lead
 from app.models.person import Person
 from app.models.projects import Project
 from app.models.tickets import Ticket
@@ -79,7 +79,7 @@ class NotificationHandler:
 
         template_codes = (
             list(template_code)
-            if isinstance(template_code, (list, tuple, set))
+            if isinstance(template_code, list | tuple | set)
             else [template_code]
         )
 

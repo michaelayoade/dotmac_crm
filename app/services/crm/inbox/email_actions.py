@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from html import escape as html_escape
 
 from sqlalchemy.orm import Session
 
-from app.models.connector import ConnectorConfigUpdate, ConnectorType
+from app.models.connector import ConnectorType
+from app.schemas.connector import ConnectorConfigUpdate
 from app.schemas.integration import IntegrationTargetUpdate
 from app.services import connector as connector_service
 from app.services import email as email_service
 from app.services import integration as integration_service
 from app.services.crm import inbox as inbox_service
 from app.services.crm.inbox.inboxes import get_email_channel_state
+from app.services.crm.inbox.permissions import can_manage_inbox_settings
 from app.services.crm.inbox.targets import resolve_target_and_config
 
 
@@ -31,7 +34,17 @@ class RedirectResult:
     error_detail: str | None = None
 
 
-def poll_email_channel(db: Session) -> HtmlResult:
+def poll_email_channel(
+    db: Session,
+    *,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> HtmlResult:
+    if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+        return HtmlResult(
+            status_code=403,
+            message="<p class='text-xs text-red-400'>Forbidden</p>",
+        )
     try:
         result = inbox_service.poll_email_targets(db)
         processed = int(result.get("processed") or 0)
@@ -46,7 +59,18 @@ def poll_email_channel(db: Session) -> HtmlResult:
         )
 
 
-def check_email_inbox(db: Session, target_id: str | None) -> HtmlResult:
+def check_email_inbox(
+    db: Session,
+    target_id: str | None,
+    *,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> HtmlResult:
+    if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+        return HtmlResult(
+            status_code=403,
+            message="<p class='text-xs text-red-400'>Forbidden</p>",
+        )
     target_id_value = (target_id or "").strip()
     if not target_id_value:
         return HtmlResult(
@@ -119,7 +143,18 @@ def check_email_inbox(db: Session, target_id: str | None) -> HtmlResult:
     )
 
 
-def reset_email_imap_cursor(db: Session, target_id: str | None) -> HtmlResult:
+def reset_email_imap_cursor(
+    db: Session,
+    target_id: str | None,
+    *,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> HtmlResult:
+    if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+        return HtmlResult(
+            status_code=403,
+            message="<p class='text-xs text-red-400'>Forbidden</p>",
+        )
     target_id_value = (target_id or "").strip()
     if not target_id_value:
         return HtmlResult(
@@ -151,7 +186,21 @@ def reset_email_imap_cursor(db: Session, target_id: str | None) -> HtmlResult:
     )
 
 
-def reset_email_polling_runs(db: Session, target_id: str | None, next_url: str | None) -> RedirectResult:
+def reset_email_polling_runs(
+    db: Session,
+    target_id: str | None,
+    next_url: str | None,
+    *,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> RedirectResult:
+    if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+        return RedirectResult(
+            ok=False,
+            next_url=_normalize_next_url(next_url),
+            query_key="email_error",
+            error_detail="Forbidden",
+        )
     target_id_value = (target_id or "").strip()
     if target_id_value:
         integration_service.reset_stuck_runs(db, target_id_value)
@@ -170,7 +219,17 @@ def delete_email_inbox(
     target_id: str | None,
     connector_id: str | None,
     next_url: str | None,
+    *,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> RedirectResult:
+    if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+        return RedirectResult(
+            ok=False,
+            next_url=_normalize_next_url(next_url),
+            query_key="email_error",
+            error_detail="Forbidden",
+        )
     target_id_value = (target_id or "").strip()
     if not target_id_value:
         return RedirectResult(
@@ -180,10 +239,8 @@ def delete_email_inbox(
             error_detail="Inbox target is required.",
         )
 
-    try:
+    with contextlib.suppress(Exception):
         integration_service.IntegrationJobs.disable_import_jobs_for_target(db, target_id_value)
-    except Exception:
-        pass
 
     try:
         integration_service.integration_targets.delete(db, target_id_value)
@@ -197,10 +254,8 @@ def delete_email_inbox(
 
     connector_id_value = (connector_id or "").strip()
     if connector_id_value:
-        try:
+        with contextlib.suppress(Exception):
             connector_service.connector_configs.delete(db, connector_id_value)
-        except Exception:
-            pass
 
     return RedirectResult(ok=True, next_url=_normalize_next_url(next_url), query_key="email_setup")
 
@@ -210,7 +265,17 @@ def activate_email_inbox(
     target_id: str | None,
     connector_id: str | None,
     next_url: str | None,
+    *,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> RedirectResult:
+    if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+        return RedirectResult(
+            ok=False,
+            next_url=_normalize_next_url(next_url),
+            query_key="email_error",
+            error_detail="Forbidden",
+        )
     target_id_value = (target_id or "").strip()
     if not target_id_value:
         return RedirectResult(
@@ -235,14 +300,12 @@ def activate_email_inbox(
 
     connector_id_value = (connector_id or "").strip()
     if connector_id_value:
-        try:
+        with contextlib.suppress(Exception):
             connector_service.connector_configs.update(
                 db,
                 connector_id_value,
                 ConnectorConfigUpdate(is_active=True),
             )
-        except Exception:
-            pass
 
     return RedirectResult(ok=True, next_url=_normalize_next_url(next_url), query_key="email_setup")
 

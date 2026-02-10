@@ -7,7 +7,6 @@ Uses a 5-minute TTL to balance freshness with performance.
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 import redis
 

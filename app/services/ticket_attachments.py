@@ -1,3 +1,4 @@
+import contextlib
 import uuid
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def _coerce_upload_files(
         if not files.filename:
             return []
         return [files]
-    if isinstance(files, (list, tuple)):
+    if isinstance(files, list | tuple):
         uploads: list[UploadFile] = []
         for item in files:
             if isinstance(item, UploadFile):
@@ -43,7 +44,7 @@ def _coerce_upload_files(
             elif _is_upload_like(item) and getattr(item, "filename", None):
                 uploads.append(item)
         return uploads
-    if isinstance(files, (str, bytes)):
+    if isinstance(files, str | bytes):
         return []
     # Be permissive with unexpected types (e.g., stray form fields) to avoid 400s.
     return []
@@ -57,10 +58,8 @@ def prepare_ticket_attachments(files: UploadFile | list[UploadFile] | None) -> l
     for file in uploads:
         if not file.filename:
             continue
-        try:
+        with contextlib.suppress(Exception):
             file.file.seek(0)
-        except Exception:
-            pass
         content = file.file.read()
         if content is None:
             content = b""

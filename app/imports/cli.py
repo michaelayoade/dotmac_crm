@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 from app.db import SessionLocal
@@ -23,9 +22,8 @@ def import_subscriber_custom_fields(path: str) -> int:
         )
     finally:
         db.close()
-    print(f"created={created} errors={len(errors)}")
-    for err in errors:
-        print(f"row={err.index} error={err.detail}", file=sys.stderr)
+    for _err in errors:
+        pass
     return 1 if errors else 0
 
 

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
 from app.models.inventory import InventoryItem, InventoryLocation, InventoryStock
-from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPError
 from app.services import settings_spec
+from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPError
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ class DotMacERPInventorySync:
         timeout_value = settings_spec.resolve_value(
             self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds"
         )
-        if isinstance(timeout_value, (int, str)):
+        if isinstance(timeout_value, int | str):
             timeout = int(timeout_value)
         else:
             timeout = 30
@@ -303,7 +303,7 @@ class DotMacERPInventorySync:
         Returns:
             InventorySyncResult with counts and errors
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         result = InventorySyncResult()
 
         client = self._get_client()
@@ -327,7 +327,7 @@ class DotMacERPInventorySync:
         result.stock_updated = stock_updated
         result.errors.extend(items_errors)
 
-        result.duration_seconds = (datetime.now(timezone.utc) - start_time).total_seconds()
+        result.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
 
         logger.info(
             f"Inventory sync complete: {result.items_created} items created, "

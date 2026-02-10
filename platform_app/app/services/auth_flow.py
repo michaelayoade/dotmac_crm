@@ -16,13 +16,15 @@ from app.models.auth import (
     AuthProvider,
     MFAMethod,
     MFAMethodType,
-    Session as AuthSession,
     SessionStatus,
     UserCredential,
 )
-from app.models.rbac import Permission, PersonRole, Role, RolePermission
+from app.models.auth import (
+    Session as AuthSession,
+)
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.person import Person
+from app.models.rbac import Permission, PersonRole, Role, RolePermission
 from app.services.secrets import resolve_secret
 
 PASSWORD_CONTEXT = CryptContext(schemes=["bcrypt"], deprecated="auto")

@@ -1,0 +1,155 @@
+<div class="divide-y divide-slate-200 dark:divide-slate-800/50">
+    {% for conv in conversations %}
+    {% if conv.kind == 'comment' %}
+    {% set platform_class = 'channel-facebook_messenger' if conv.platform == 'facebook' else 'channel-instagram_dm' %}
+    <a href="{{ conv.href }}"
+       class="conversation-item {{ platform_class }} conv-stagger block">
+        <div class="px-4 py-3.5 cursor-pointer">
+            <div class="flex items-start gap-3">
+                <div class="relative flex-shrink-0 mt-0.5">
+                    <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-sm font-semibold text-white border border-slate-600/30">
+                        {{ conv.author_name[:2] if conv.author_name else "?" }}
+                    </div>
+                    <div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full channel-indicator flex items-center justify-center">
+                        {% if conv.platform == 'facebook' %}
+                        <svg class="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                        </svg>
+                        {% else %}
+                        <svg class="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0z"/>
+                        </svg>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between gap-2 mb-0.5">
+                        <h4 class="text-sm font-semibold text-slate-900 truncate dark:text-white">{{ conv.author_name }}</h4>
+                        <span class="text-xs text-slate-500 font-mono-tight whitespace-nowrap dark:text-slate-500">
+                            {{ conv.last_message_at.strftime('%H:%M') if conv.last_message_at else '' }}
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-500 truncate leading-relaxed dark:text-slate-500">{{ conv.preview }}</p>
+                    <div class="flex items-center gap-2 mt-2">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-500/10 text-slate-500 border border-slate-500/20 dark:text-slate-400">
+                            {{ 'Facebook' if conv.platform == 'facebook' else 'Instagram' }} Comments
+                        </span>
+                        {% if conv.inbox_label %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-500/10 text-slate-500 border border-slate-500/20 dark:text-slate-400">
+                            {{ conv.inbox_label }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </a>
+    {% else %}
+    <a href="/admin/crm/inbox?conversation_id={{ conv.id }}"
+       data-conversation-id="{{ conv.id }}"
+       data-contact-id="{{ conv.contact.id }}"
+       class="conversation-item channel-{{ conv.channel }} {% if conv.unread_count > 0 %}unread{% endif %} {% if selected_conversation and selected_conversation.id == conv.id %}active{% endif %} conv-stagger block"
+       @click.prevent="selectConversation('{{ conv.id }}', '{{ conv.contact.id }}')"
+       @keydown.enter.prevent="selectConversation('{{ conv.id }}', '{{ conv.contact.id }}')">
+        <div class="px-4 py-3.5 cursor-pointer">
+            <div class="flex items-start gap-3">
+                <!-- Avatar with channel indicator -->
+                <button type="button"
+                        class="relative flex-shrink-0"
+                        @click.stop.prevent="openContactPanel('{{ conv.contact.id }}')"
+                        @keydown.enter.stop.prevent="openContactPanel('{{ conv.contact.id }}')"
+                        aria-label="View contact details">
+                    <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-sm font-semibold text-white border border-slate-600/30">
+                        {{ conv.contact.avatar_initials }}
+                    </div>
+                    <!-- Channel indicator dot -->
+                    <div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full channel-indicator flex items-center justify-center">
+                        {% if conv.channel == 'email' %}
+                        <svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8"/>
+                        </svg>
+                        {% elif conv.channel == 'whatsapp' %}
+                        <svg class="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z"/>
+                        </svg>
+                        {% elif conv.channel == 'facebook_messenger' %}
+                        <svg class="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                        </svg>
+                        {% elif conv.channel == 'instagram_dm' %}
+                        <svg class="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0z"/>
+                        </svg>
+                        {% endif %}
+                    </div>
+                </button>
+
+                <!-- Content -->
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between gap-2 mb-0.5">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <h4 class="text-sm font-semibold text-slate-900 truncate dark:text-white" data-role="contact-name">{{ conv.contact.name }}</h4>
+                            {% if conv.contact.splynx_id %}
+                            <span class="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-600 border border-blue-500/25 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20" title="Splynx Customer ID">
+                                #{{ conv.contact.splynx_id }}
+                            </span>
+                            {% endif %}
+                        </div>
+                        <span class="text-xs text-slate-500 font-mono-tight whitespace-nowrap dark:text-slate-500"
+                              data-role="last-message-at"
+                              {% if conv.last_message_at %}data-timestamp="{{ conv.last_message_at.isoformat() }}"{% endif %}>
+                            {{ conv.last_message_at.strftime('%H:%M') if conv.last_message_at else '' }}
+                        </span>
+                    </div>
+
+                    {% if conv.subject %}
+                    <p class="text-xs font-medium text-slate-600 truncate mb-0.5 dark:text-slate-300">{{ conv.subject }}</p>
+                    {% endif %}
+
+                    <p class="text-xs text-slate-500 truncate leading-relaxed dark:text-slate-500" data-role="preview">{{ conv.preview }}</p>
+
+                    <!-- Meta row -->
+                    <div class="flex items-center justify-between mt-2">
+                        <div class="flex items-center gap-2">
+                            <!-- Status badge -->
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium
+                                {% if conv.status == 'open' %}bg-green-500/10 text-green-400 border border-green-500/20
+                                {% elif conv.status == 'pending' %}bg-yellow-500/10 text-yellow-400 border border-yellow-500/20
+                                {% elif conv.status == 'snoozed' %}bg-orange-500/10 text-orange-400 border border-orange-500/20
+                                {% else %}bg-slate-500/10 text-slate-400 border border-slate-500/20{% endif %}">
+                                {% if conv.status == 'open' %}
+                                <span class="w-1 h-1 rounded-full bg-green-500 status-dot"></span>
+                                {% endif %}
+                                {{ conv.status | capitalize }}
+                            </span>
+
+                            {% if conv.assigned_to %}
+                            <span class="text-[10px] text-slate-500 dark:text-slate-500">
+                                <span class="inline-flex items-center justify-center w-4 h-4 rounded bg-slate-200 text-[8px] font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-300" title="{{ conv.assigned_to.name }}">{{ conv.assigned_to.initials }}</span>
+                            </span>
+                            {% elif conv.assigned_team %}
+                            <span class="text-[10px] text-slate-500 dark:text-slate-500">
+                                <span class="inline-flex items-center justify-center w-4 h-4 rounded bg-amber-100 text-[8px] font-bold text-amber-700 border border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20" title="{{ conv.assigned_team.name }}">{{ conv.assigned_team.initials }}</span>
+                            </span>
+                            {% endif %}
+
+                            {% if conv.inbox and conv.inbox.label %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-500/10 text-slate-500 border border-slate-500/20 dark:text-slate-400">
+                                {{ conv.inbox.label }}
+                            </span>
+                            {% endif %}
+                        </div>
+
+                        <span data-role="unread-count"
+                              class="flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-primary-500 text-[10px] font-bold text-white {% if conv.unread_count == 0 %}hidden{% endif %}">
+                            {{ conv.unread_count }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </a>
+    {% endif %}
+    {% endfor %}
+</div>

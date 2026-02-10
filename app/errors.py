@@ -50,9 +50,9 @@ def register_error_handlers(app) -> None:
                 return value.filename or "upload"
             if isinstance(value, dict):
                 return {key: _sanitize_input(val) for key, val in value.items()}
-            if isinstance(value, (list, tuple, set)):
+            if isinstance(value, list | tuple | set):
                 return [_sanitize_input(item) for item in value]
-            if isinstance(value, (str, int, float, bool)) or value is None:
+            if isinstance(value, str | int | float | bool) or value is None:
                 return value
             return str(value)
 

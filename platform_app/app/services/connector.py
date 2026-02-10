@@ -86,7 +86,7 @@ class ConnectorConfigs:
         if not config:
             raise HTTPException(status_code=404, detail="Connector config not found")
         data = payload.model_dump(exclude_unset=True)
-        if "auth_config" in data and data["auth_config"]:
+        if data.get("auth_config"):
             merged = dict(config.auth_config or {})
             merged.update(data["auth_config"])
             data["auth_config"] = merged

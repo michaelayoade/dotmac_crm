@@ -8,6 +8,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.tickets import (
     Ticket,
+    TicketAssignee,
     TicketComment,
     TicketPriority,
     TicketSlaEvent,
@@ -31,6 +32,7 @@ from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
+from app.services import settings_spec
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -50,6 +52,46 @@ def _has_field_visit_tag(tags: list | None) -> bool:
     if not tags:
         return False
     return "field_visit" in tags
+
+
+def _normalize_assignee_ids(assignee_ids: list[str] | None) -> list[str]:
+    if not assignee_ids:
+        return []
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for raw in assignee_ids:
+        if not raw:
+            continue
+        try:
+            coerced = str(coerce_uuid(raw))
+        except Exception:
+            continue
+        if coerced not in seen:
+            seen.add(coerced)
+            normalized.append(coerced)
+    return normalized
+
+
+def _sync_ticket_assignees(db: Session, ticket: Ticket, assignee_ids: list[str] | None) -> None:
+    if assignee_ids is None:
+        return
+    normalized = _normalize_assignee_ids(assignee_ids)
+    for person_id in normalized:
+        _ensure_person(db, person_id)
+
+    ticket.assigned_to_person_id = coerce_uuid(normalized[0]) if normalized else None
+
+    current_ids = {str(assignee.person_id) for assignee in ticket.assignees}
+    target_ids = set(normalized)
+
+    for person_id in target_ids - current_ids:
+        ticket.assignees.append(
+            TicketAssignee(ticket_id=ticket.id, person_id=coerce_uuid(person_id))
+        )
+    if target_ids != current_ids:
+        for assignee in list(ticket.assignees):
+            if str(assignee.person_id) not in target_ids:
+                ticket.assignees.remove(assignee)
 
 
 def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder | None:
@@ -140,6 +182,36 @@ def _resolve_technician_contact(db: Session, person_id) -> dict | None:
     }
 
 
+def _get_region_ticket_assignments(db: Session, region: str | None) -> tuple[str | None, str | None]:
+    """Look up ticket manager + assistant person_id for the given region from settings."""
+    if not region:
+        return None, None
+    region_ticket_map = settings_spec.resolve_value(db, SettingDomain.comms, "region_ticket_assignments")
+    if not region_ticket_map or not isinstance(region_ticket_map, dict):
+        return None, None
+    entry = region_ticket_map.get(region)
+    manager_id: str | None = None
+    assistant_id: str | None = None
+    if isinstance(entry, dict):
+        manager_id = entry.get("manager_person_id") or entry.get("ticket_manager_person_id")
+        assistant_id = entry.get("assistant_person_id") or entry.get("assistant_manager_person_id")
+    elif isinstance(entry, str):
+        manager_id = entry
+    if manager_id:
+        person = db.get(Person, coerce_uuid(manager_id))
+        if not person:
+            manager_id = None
+        else:
+            manager_id = str(person.id)
+    if assistant_id:
+        person = db.get(Person, coerce_uuid(assistant_id))
+        if not person:
+            assistant_id = None
+        else:
+            assistant_id = str(person.id)
+    return manager_id, assistant_id
+
+
 class Tickets(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: TicketCreate):
@@ -147,6 +219,13 @@ class Tickets(ListResponseMixin):
             _ensure_person(db, str(payload.created_by_person_id))
         if payload.assigned_to_person_id:
             _ensure_person(db, str(payload.assigned_to_person_id))
+        if payload.assigned_to_person_ids:
+            for person_id in payload.assigned_to_person_ids:
+                _ensure_person(db, str(person_id))
+        if payload.ticket_manager_person_id:
+            _ensure_person(db, str(payload.ticket_manager_person_id))
+        if payload.assistant_manager_person_id:
+            _ensure_person(db, str(payload.assistant_manager_person_id))
         if payload.lead_id:
             _ensure_lead(db, str(payload.lead_id))
         if payload.customer_person_id:
@@ -156,7 +235,13 @@ class Tickets(ListResponseMixin):
 
         validate_ticket_creation(db, payload)
 
-        data = payload.model_dump()
+        data = payload.model_dump(exclude={"assigned_to_person_ids"})
+        fields_set = payload.model_fields_set
+        assignee_ids: list[str] | None = None
+        if "assigned_to_person_ids" in fields_set:
+            assignee_ids = [str(value) for value in (payload.assigned_to_person_ids or [])]
+        elif payload.assigned_to_person_id:
+            assignee_ids = [str(payload.assigned_to_person_id)]
         number = generate_number(
             db=db,
             domain=SettingDomain.numbering,
@@ -168,9 +253,17 @@ class Tickets(ListResponseMixin):
         )
         if number:
             data["number"] = number
+        # Auto-assign ticket manager based on region if not already specified
+        if data.get("region"):
+            auto_manager, auto_assistant = _get_region_ticket_assignments(db, data["region"])
+            if auto_manager and not data.get("ticket_manager_person_id"):
+                data["ticket_manager_person_id"] = coerce_uuid(auto_manager)
+            if auto_assistant and not data.get("assistant_manager_person_id"):
+                data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
         ticket = Ticket(**data)
         db.add(ticket)
         db.flush()  # Get ticket.id before creating work order
+        _sync_ticket_assignees(db, ticket, assignee_ids)
 
         # Auto-create work order if field_visit tag is present
         if _has_field_visit_tag(payload.tags):
@@ -325,14 +418,46 @@ class Tickets(ListResponseMixin):
         previous_priority = ticket.priority
         previous_assigned_to = ticket.assigned_to_person_id
         data = payload.model_dump(exclude_unset=True)
+        assignee_ids: list[str] | None = None
+        if "assigned_to_person_ids" in payload.model_fields_set:
+            assignee_ids = [str(value) for value in (payload.assigned_to_person_ids or [])]
+        elif "assigned_to_person_id" in data:
+            if data.get("assigned_to_person_id"):
+                assignee_ids = [str(data["assigned_to_person_id"])]
+            else:
+                assignee_ids = []
+        data.pop("assigned_to_person_ids", None)
         if data.get("created_by_person_id"):
             _ensure_person(db, str(data["created_by_person_id"]))
         if data.get("assigned_to_person_id"):
             _ensure_person(db, str(data["assigned_to_person_id"]))
+        if data.get("ticket_manager_person_id"):
+            _ensure_person(db, str(data["ticket_manager_person_id"]))
+        if data.get("assistant_manager_person_id"):
+            _ensure_person(db, str(data["assistant_manager_person_id"]))
         if data.get("lead_id"):
             _ensure_lead(db, str(data["lead_id"]))
         if data.get("customer_person_id"):
             _ensure_person(db, str(data["customer_person_id"]))
+
+        # Auto-assign ticket manager based on region if region changes and no manager is set
+        new_region = data.get("region")
+        current_manager = (
+            data.get("ticket_manager_person_id")
+            if "ticket_manager_person_id" in data
+            else ticket.ticket_manager_person_id
+        )
+        current_assistant = (
+            data.get("assistant_manager_person_id")
+            if "assistant_manager_person_id" in data
+            else ticket.assistant_manager_person_id
+        )
+        if new_region:
+            auto_manager, auto_assistant = _get_region_ticket_assignments(db, new_region)
+            if auto_manager and not current_manager:
+                data["ticket_manager_person_id"] = coerce_uuid(auto_manager)
+            if auto_assistant and not current_assistant:
+                data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
 
         # Check if field_visit tag is being added
         had_field_visit = _has_field_visit_tag(ticket.tags)
@@ -341,6 +466,7 @@ class Tickets(ListResponseMixin):
 
         for key, value in data.items():
             setattr(ticket, key, value)
+        _sync_ticket_assignees(db, ticket, assignee_ids)
 
         # Auto-create work order if field_visit tag is newly added
         if will_have_field_visit and not had_field_visit:
@@ -360,40 +486,35 @@ class Tickets(ListResponseMixin):
             "to_status": new_status.value if new_status else None,
             "status": new_status.value if new_status else None,
         }
-        context = {
-            "ticket_id": ticket.id,
-            "subscriber_id": ticket.subscriber_id,
-        }
 
-        if previous_status != new_status:
-            if new_status == TicketStatus.resolved:
-                customer_name = _resolve_customer_name(ticket, db)
-                customer_email = _resolve_customer_email(ticket, db)
-                event_payload["customer_name"] = customer_name
-                event_payload["email"] = customer_email
-                event_payload["doc"] = {
-                    "custom_customer_name": customer_name,
+        if previous_status != new_status and new_status == TicketStatus.resolved:
+            customer_name = _resolve_customer_name(ticket, db)
+            customer_email = _resolve_customer_email(ticket, db)
+            event_payload["customer_name"] = customer_name
+            event_payload["email"] = customer_email
+            event_payload["doc"] = {
+                "custom_customer_name": customer_name,
+                "name": str(ticket.id),
+                "subject": ticket.title,
+                "status": new_status.value if new_status else None,
+            }
+            technician_contact = _resolve_technician_contact(db, ticket.assigned_to_person_id)
+            if technician_contact and technician_contact.get("email"):
+                event_payload["technician_name"] = technician_contact["name"]
+                event_payload["technician_email"] = technician_contact["email"]
+                event_payload["technician_doc"] = {
+                    "custom_customer_name": technician_contact["name"],
                     "name": str(ticket.id),
                     "subject": ticket.title,
                     "status": new_status.value if new_status else None,
                 }
-                technician_contact = _resolve_technician_contact(db, ticket.assigned_to_person_id)
-                if technician_contact and technician_contact.get("email"):
-                    event_payload["technician_name"] = technician_contact["name"]
-                    event_payload["technician_email"] = technician_contact["email"]
-                    event_payload["technician_doc"] = {
-                        "custom_customer_name": technician_contact["name"],
-                        "name": str(ticket.id),
-                        "subject": ticket.title,
-                        "status": new_status.value if new_status else None,
-                    }
-                emit_event(
-                    db,
-                    EventType.ticket_resolved,
-                    event_payload,
-                    subscriber_id=ticket.subscriber_id,
-                    ticket_id=ticket.id,
-                )
+            emit_event(
+                db,
+                EventType.ticket_resolved,
+                event_payload,
+                subscriber_id=ticket.subscriber_id,
+                ticket_id=ticket.id,
+            )
 
         if ticket.assigned_to_person_id and ticket.assigned_to_person_id != previous_assigned_to:
             customer_name = _resolve_customer_name(ticket, db)

@@ -1,15 +1,16 @@
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.notification import AlertSeverity, AlertStatus
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.notification import (
     AlertNotificationLog,
     AlertNotificationPolicy,
     AlertNotificationPolicyStep,
+    AlertSeverity,
+    AlertStatus,
     DeliveryStatus,
     Notification,
     NotificationChannel,
@@ -19,13 +20,11 @@ from app.models.notification import (
     OnCallRotation,
     OnCallRotationMember,
 )
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
-from app.services.response import ListResponseMixin
 from app.schemas.notification import (
     AlertNotificationPolicyCreate,
-    AlertNotificationPolicyUpdate,
     AlertNotificationPolicyStepCreate,
     AlertNotificationPolicyStepUpdate,
+    AlertNotificationPolicyUpdate,
     NotificationBulkCreateRequest,
     NotificationCreate,
     NotificationDeliveryBulkUpdateRequest,
@@ -39,9 +38,8 @@ from app.schemas.notification import (
     OnCallRotationMemberUpdate,
     OnCallRotationUpdate,
 )
-
-
-
+from app.services.common import apply_ordering, apply_pagination, validate_enum
+from app.services.response import ListResponseMixin
 
 
 def _severity_rank(severity: AlertSeverity) -> int:
@@ -550,7 +548,7 @@ class AlertNotificationPolicies(ListResponseMixin):
                     )
                     if member:
                         recipient = member.contact
-                        member.last_used_at = datetime.now(timezone.utc)
+                        member.last_used_at = datetime.now(UTC)
                 if not recipient:
                     continue
                 subject = f"Alert {alert.severity.value}: {alert.metric_type.value}"
@@ -571,7 +569,7 @@ class AlertNotificationPolicies(ListResponseMixin):
                 if delay_minutes is None:
                     delay_minutes = default_delay_minutes
                 if delay_minutes and delay_minutes > 0:
-                    send_at = datetime.now(timezone.utc) + timedelta(minutes=delay_minutes)
+                    send_at = datetime.now(UTC) + timedelta(minutes=delay_minutes)
                 notification = Notification(
                     template_id=template_id,
                     channel=step.channel,

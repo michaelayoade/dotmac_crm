@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
-from app.schemas.common import ListResponse
-from app.services.response import list_response
 
 from app.db import SessionLocal
+from app.schemas.common import ListResponse
 from app.schemas.integration import (
     IntegrationJobCreate,
     IntegrationJobRead,
@@ -14,6 +13,7 @@ from app.schemas.integration import (
     IntegrationTargetUpdate,
 )
 from app.services import integration as integration_service
+from app.services.response import list_response
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 

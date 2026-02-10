@@ -21,14 +21,15 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar
 from uuid import UUID
 
 from fastapi import HTTPException
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
+    pass
 
 
 class OwnedResource(Protocol):
@@ -57,7 +58,7 @@ class OwnershipChecker:
         check_assignee: Whether to check assigned_to_person_id
     """
 
-    ADMIN_ROLES = {"admin", "superadmin"}
+    ADMIN_ROLES: ClassVar[set[str]] = {"admin", "superadmin"}
 
     def __init__(
         self,
@@ -278,7 +279,4 @@ def check_project_access(
 
     # Check manager
     manager = getattr(project, "manager_person_id", None)
-    if manager and manager == checker.user_id:
-        return True
-
-    return False
+    return bool(manager and manager == checker.user_id)

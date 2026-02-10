@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import json
 import random
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,6 @@ from app.services.crm.inbox.outbound import (
     send_message_with_retry,
 )
 
-
 STATUS_QUEUED = "queued"
 STATUS_SENDING = "sending"
 STATUS_RETRYING = "retrying"
@@ -27,7 +26,7 @@ STATUS_FAILED = "failed"
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _compute_backoff_seconds(attempts: int, base: float = 5.0, max_backoff: float = 300.0) -> float:
@@ -42,6 +41,7 @@ def enqueue_outbound_message(
     author_id: str | None,
     idempotency_key: str | None = None,
     priority: int = 0,
+    scheduled_at: datetime | None = None,
     dispatch: bool = True,
 ) -> OutboxMessage:
     if idempotency_key:
@@ -54,12 +54,13 @@ def enqueue_outbound_message(
         if existing:
             return existing
 
+    next_attempt_at = scheduled_at if scheduled_at and scheduled_at > _now() else _now()
     outbox = OutboxMessage(
         conversation_id=coerce_uuid(str(payload.conversation_id)),
         channel_type=payload.channel_type,
         status=STATUS_QUEUED,
         attempts=0,
-        next_attempt_at=_now(),
+        next_attempt_at=next_attempt_at,
         payload=json.loads(payload.model_dump_json()),
         author_id=coerce_uuid(author_id) if author_id else None,
         idempotency_key=idempotency_key,

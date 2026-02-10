@@ -12,14 +12,14 @@ Settings (configured in Admin > System > Settings > Comms):
 
 import os
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
 import httpx
 from sqlalchemy.orm import Session
 
-from app.logging import get_logger
 from app.config import settings
+from app.logging import get_logger
 from app.models.domain_settings import SettingDomain
 from app.models.oauth_token import OAuthToken
 from app.services.common import coerce_uuid
@@ -158,7 +158,7 @@ def build_authorization_url(
         "scope": ",".join(scopes),
         "response_type": "code",
     }
-    version = api_version or settings.meta_graph_api_version
+    version = api_version or "v19.0"
     return f"{META_OAUTH_BASE_URL}/{version}/dialog/oauth?{urlencode(params)}"
 
 
@@ -167,7 +167,7 @@ async def exchange_code_for_token(
     app_secret: str,
     redirect_uri: str,
     code: str,
-    base_url: str,
+    base_url: str | None = None,
 ) -> dict:
     """Exchange authorization code for a short-lived access token.
 
@@ -184,6 +184,7 @@ async def exchange_code_for_token(
         httpx.HTTPStatusError: If the API request fails
     """
     timeout = _get_meta_api_timeout()
+    base_url = base_url or _get_meta_graph_base_url(None)
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/oauth/access_token",
@@ -203,7 +204,7 @@ async def exchange_for_long_lived_token(
     app_id: str,
     app_secret: str,
     short_lived_token: str,
-    base_url: str,
+    base_url: str | None = None,
 ) -> dict:
     """Exchange a short-lived token for a long-lived token (60 days).
 
@@ -219,6 +220,7 @@ async def exchange_for_long_lived_token(
         httpx.HTTPStatusError: If the API request fails
     """
     timeout = _get_meta_api_timeout()
+    base_url = base_url or _get_meta_graph_base_url(None)
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/oauth/access_token",
@@ -235,7 +237,7 @@ async def exchange_for_long_lived_token(
 
         # Calculate expiry datetime (usually 60 days)
         expires_in = data.get("expires_in", 5184000)  # Default 60 days in seconds
-        data["expires_at"] = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        data["expires_at"] = datetime.now(UTC) + timedelta(seconds=expires_in)
 
         return data
 
@@ -244,7 +246,7 @@ async def refresh_long_lived_token(
     app_id: str,
     app_secret: str,
     existing_token: str,
-    base_url: str,
+    base_url: str | None = None,
 ) -> dict:
     """Refresh a long-lived token before it expires.
 
@@ -262,10 +264,15 @@ async def refresh_long_lived_token(
     Raises:
         httpx.HTTPStatusError: If the API request fails
     """
-    return await exchange_for_long_lived_token(app_id, app_secret, existing_token, base_url)
+    return await exchange_for_long_lived_token(
+        app_id,
+        app_secret,
+        existing_token,
+        base_url or _get_meta_graph_base_url(None),
+    )
 
 
-async def get_user_pages(access_token: str, base_url: str) -> list[dict]:
+async def get_user_pages(access_token: str, base_url: str | None = None) -> list[dict]:
     """Get list of Facebook Pages the user manages.
 
     Args:
@@ -278,6 +285,7 @@ async def get_user_pages(access_token: str, base_url: str) -> list[dict]:
         httpx.HTTPStatusError: If the API request fails
     """
     timeout = _get_meta_api_timeout()
+    base_url = base_url or _get_meta_graph_base_url(None)
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/me/accounts",
@@ -302,7 +310,7 @@ async def get_user_pages(access_token: str, base_url: str) -> list[dict]:
 async def get_instagram_business_account(
     page_id: str,
     page_access_token: str,
-    base_url: str,
+    base_url: str | None = None,
 ) -> dict | None:
     """Get Instagram Business Account connected to a Facebook Page.
 
@@ -318,6 +326,7 @@ async def get_instagram_business_account(
         httpx.HTTPStatusError: If the API request fails
     """
     timeout = _get_meta_api_timeout()
+    base_url = base_url or _get_meta_graph_base_url(None)
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{base_url.rstrip('/')}/{page_id}",
@@ -369,7 +378,7 @@ def store_page_token(
         existing.access_token = page_token
         existing.token_expires_at = token_expires_at
         existing.external_account_name = page_data.get("name")
-        existing.last_refreshed_at = datetime.now(timezone.utc)
+        existing.last_refreshed_at = datetime.now(UTC)
         existing.refresh_error = None
         existing.is_active = True
         existing.metadata_ = {
@@ -395,7 +404,7 @@ def store_page_token(
         token_type="bearer",
         token_expires_at=token_expires_at,
         scopes=FACEBOOK_SCOPES,
-        last_refreshed_at=datetime.now(timezone.utc),
+        last_refreshed_at=datetime.now(UTC),
         metadata_={
             "category": page_data.get("category"),
             "picture": page_data.get("picture", {}).get("data", {}).get("url"),
@@ -449,7 +458,7 @@ def store_instagram_token(
         existing.access_token = page_access_token  # IG uses page token
         existing.token_expires_at = token_expires_at
         existing.external_account_name = account_name
-        existing.last_refreshed_at = datetime.now(timezone.utc)
+        existing.last_refreshed_at = datetime.now(UTC)
         existing.refresh_error = None
         existing.is_active = True
         existing.metadata_ = {
@@ -474,7 +483,7 @@ def store_instagram_token(
         token_type="bearer",
         token_expires_at=token_expires_at,
         scopes=INSTAGRAM_SCOPES,
-        last_refreshed_at=datetime.now(timezone.utc),
+        last_refreshed_at=datetime.now(UTC),
         metadata_={
             "profile_picture_url": ig_account.get("profile_picture_url"),
         },

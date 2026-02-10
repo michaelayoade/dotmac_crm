@@ -6,8 +6,8 @@ Create Date: 2026-02-03 12:50:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "f9a0b1c2d3e4"
 down_revision = "f7a8b9c0d1e2"

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import json
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
-
 
 INBOX_LIST_TTL_SECONDS = 5
 COMMENTS_LIST_TTL_SECONDS = 300
@@ -23,7 +22,7 @@ _cache: dict[str, _CacheEntry] = {}
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _expired(entry: _CacheEntry) -> bool:
@@ -67,8 +66,9 @@ def build_inbox_list_key(params: dict[str, Any]) -> str:
     return f"inbox_list:{encoded}"
 
 
-def build_comments_list_key(search: str | None) -> str:
-    return f"comments_list:{search or ''}"
+def build_comments_list_key(params: dict[str, Any]) -> str:
+    encoded = json.dumps(params, sort_keys=True, default=str)
+    return f"comments_list:{encoded}"
 
 
 def build_comment_thread_key(comment_id: str) -> str:

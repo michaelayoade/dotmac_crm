@@ -4,9 +4,15 @@ from __future__ import annotations
 import argparse
 import csv
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Callable
+from datetime import UTC, datetime
+
+from app.db import SessionLocal
+from app.models.auth import AuthProvider, UserCredential
+from app.models.person import Person
+from app.models.rbac import PersonRole, Role
+from app.services.auth_flow import hash_password
 
 load_dotenv: Callable[..., bool] | None
 try:
@@ -15,12 +21,6 @@ except Exception:
     load_dotenv = None
 else:
     load_dotenv = _load_dotenv
-
-from app.db import SessionLocal
-from app.models.auth import AuthProvider, UserCredential
-from app.models.person import Person
-from app.models.rbac import PersonRole, Role
-from app.services.auth_flow import hash_password
 
 
 def _normalize_whitespace(value: str) -> str:
@@ -131,7 +131,6 @@ def main() -> int:
     args = parse_args()
     rows = load_rows(args.csv)
     if not rows:
-        print("No rows found.")
         return 0
 
     db = SessionLocal()
@@ -142,7 +141,6 @@ def main() -> int:
             .first()
         )
         if not role:
-            print(f"Role not found: {args.role}")
             return 1
 
         created_people = 0
@@ -168,7 +166,6 @@ def main() -> int:
                     continue
 
             if args.dry_run:
-                print(f"DRY RUN: would create/update {row.email} ({first_name} {last_name})")
                 report_rows.append({"email": row.email, "status": "dry_run", "note": ""})
                 continue
 
@@ -213,7 +210,7 @@ def main() -> int:
                 if args.reset_existing_password and args.password:
                     credential.password_hash = hash_password(args.password)
                     credential.must_change_password = bool(args.force_reset)
-                    credential.password_updated_at = datetime.now(timezone.utc)
+                    credential.password_updated_at = datetime.now(UTC)
                     db.commit()
                     updated_credentials += 1
             else:
@@ -231,14 +228,6 @@ def main() -> int:
 
             report_rows.append({"email": row.email, "status": "ok", "note": ""})
 
-        print("Done.")
-        print(f"People created: {created_people}")
-        print(f"Existing people: {skipped_existing}")
-        print(f"Credentials created: {created_credentials}")
-        print(f"Credentials updated: {updated_credentials}")
-        print(f"Roles assigned: {role_assigned}")
-        print(f"Roles already present: {role_already}")
-        print(f"Skipped missing last name: {skipped_missing_last}")
 
         if report_rows:
             report_path = "scripts/agent_user_results.csv"
@@ -246,7 +235,6 @@ def main() -> int:
                 writer = csv.DictWriter(handle, fieldnames=["email", "status", "note"])
                 writer.writeheader()
                 writer.writerows(report_rows)
-            print(f"Report: {report_path}")
     finally:
         db.close()
 

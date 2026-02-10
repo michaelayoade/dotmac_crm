@@ -20,27 +20,27 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from app.logging import get_logger
 from app.models.external import ExternalEntityType
 from app.services.erpnext.client import ERPNextClient, ERPNextError
 from app.services.erpnext.mappers import (
-    map_hd_ticket,
-    map_project,
-    map_task,
-    map_contact,
-    map_customer,
-    map_lead,
-    map_quotation,
-    HD_TICKET_FIELDS,
-    PROJECT_FIELDS,
-    TASK_FIELDS,
     CONTACT_FIELDS,
     CUSTOMER_FIELDS,
+    HD_TICKET_FIELDS,
     LEAD_FIELDS,
+    PROJECT_FIELDS,
     QUOTATION_FIELDS,
+    TASK_FIELDS,
+    map_contact,
+    map_customer,
+    map_hd_ticket,
+    map_lead,
+    map_project,
+    map_quotation,
+    map_task,
 )
 
 if TYPE_CHECKING:
@@ -121,7 +121,7 @@ class ERPNextImporter:
         """Test ERPNext API connection."""
         return self.client.test_connection()
 
-    def import_all(self, db: "Session") -> ImportResult:
+    def import_all(self, db: Session) -> ImportResult:
         """Import all doctypes from ERPNext.
 
         Order matters for foreign key relationships:
@@ -174,7 +174,7 @@ class ERPNextImporter:
 
     def _get_or_create_external_ref(
         self,
-        db: "Session",
+        db: Session,
         entity_type: ExternalEntityType,
         external_id: str,
         entity_id: UUID | None = None,
@@ -206,10 +206,10 @@ class ERPNextImporter:
         )
         return ref, True
 
-    def _import_contacts(self, db: "Session") -> ImportStats:
+    def _import_contacts(self, db: Session) -> ImportStats:
         """Import ERPNext Contacts as Person records."""
-        from app.models.person import Person
         from app.models.external import ExternalEntityType
+        from app.models.person import Person
 
         stats = ImportStats()
 
@@ -294,10 +294,10 @@ class ERPNextImporter:
 
         return stats
 
-    def _import_customers(self, db: "Session") -> ImportStats:
+    def _import_customers(self, db: Session) -> ImportStats:
         """Import ERPNext Customers as Organization + Subscriber records."""
-        from app.models.subscriber import Organization, Subscriber
         from app.models.external import ExternalEntityType
+        from app.models.subscriber import Organization, Subscriber
 
         stats = ImportStats()
 
@@ -380,10 +380,10 @@ class ERPNextImporter:
 
         return stats
 
-    def _import_projects(self, db: "Session") -> ImportStats:
+    def _import_projects(self, db: Session) -> ImportStats:
         """Import ERPNext Projects."""
-        from app.models.projects import Project, ProjectPriority, ProjectStatus
         from app.models.external import ExternalEntityType
+        from app.models.projects import Project, ProjectPriority, ProjectStatus
 
         stats = ImportStats()
 
@@ -457,11 +457,11 @@ class ERPNextImporter:
 
         return stats
 
-    def _import_tasks(self, db: "Session") -> ImportStats:
+    def _import_tasks(self, db: Session) -> ImportStats:
         """Import ERPNext Tasks as ProjectTasks."""
-        from app.models.projects import ProjectTask, TaskPriority, TaskStatus
-        from app.models.external import ExternalEntityType
         from app.models.domain_settings import SettingDomain
+        from app.models.external import ExternalEntityType
+        from app.models.projects import ProjectTask, TaskPriority, TaskStatus
         from app.services.numbering import generate_number
 
         stats = ImportStats()
@@ -552,10 +552,10 @@ class ERPNextImporter:
 
         return stats
 
-    def _import_tickets(self, db: "Session") -> ImportStats:
+    def _import_tickets(self, db: Session) -> ImportStats:
         """Import ERPNext HD Tickets."""
-        from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
         from app.models.external import ExternalEntityType
+        from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
 
         stats = ImportStats()
 
@@ -632,11 +632,11 @@ class ERPNextImporter:
 
         return stats
 
-    def _import_leads(self, db: "Session") -> ImportStats:
+    def _import_leads(self, db: Session) -> ImportStats:
         """Import ERPNext Leads as CRM Leads."""
         from app.models.crm.sales import Lead, LeadStatus
-        from app.models.person import Person
         from app.models.external import ExternalEntityType
+        from app.models.person import Person
 
         stats = ImportStats()
 
@@ -722,13 +722,14 @@ class ERPNextImporter:
 
         return stats
 
-    def _import_quotations(self, db: "Session") -> ImportStats:
+    def _import_quotations(self, db: Session) -> ImportStats:
         """Import ERPNext Quotations as CRM Quotes."""
-        from app.models.crm.sales import Quote, CrmQuoteLineItem
+        from decimal import Decimal
+
         from app.models.crm.enums import QuoteStatus
+        from app.models.crm.sales import CrmQuoteLineItem, Quote
         from app.models.external import ExternalEntityType, ExternalReference
         from app.models.subscriber import Subscriber
-        from decimal import Decimal
 
         stats = ImportStats()
 

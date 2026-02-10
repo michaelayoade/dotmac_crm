@@ -1,12 +1,14 @@
-import json
 import html
-from pathlib import Path
-from datetime import datetime, timedelta, timezone
+import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+
+from app.models.domain_settings import SettingDomain
 from app.models.network import FiberSegment, FiberSegmentType
 from app.models.person import Person
 from app.models.projects import Project
@@ -40,11 +42,10 @@ from app.schemas.vendor import (
 from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, round_money
 from app.services.response import ListResponseMixin
-from app.models.domain_settings import SettingDomain
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _ensure_vendor(db: Session, vendor_id: str) -> Vendor:
@@ -281,9 +282,9 @@ class InstallationProjects(ListResponseMixin):
     def update(db: Session, project_id: str, payload: InstallationProjectUpdate):
         project = _ensure_installation_project(db, project_id)
         data = payload.model_dump(exclude_unset=True)
-        if "buildout_project_id" in data and data["buildout_project_id"]:
+        if data.get("buildout_project_id"):
             _ensure_buildout_project(db, str(data["buildout_project_id"]))
-        if "assigned_vendor_id" in data and data["assigned_vendor_id"]:
+        if data.get("assigned_vendor_id"):
             _ensure_vendor(db, str(data["assigned_vendor_id"]))
         for key, value in data.items():
             setattr(project, key, value)
@@ -364,9 +365,12 @@ class ProjectQuotes(ListResponseMixin):
             _ensure_person(db, created_by_person_id)
         if project.assignment_type == VendorAssignmentType.direct and str(project.assigned_vendor_id) != str(vendor_id):
             raise HTTPException(status_code=403, detail="Project is assigned to another vendor")
-        if project.status == InstallationProjectStatus.open_for_bidding:
-            if project.bidding_close_at and project.bidding_close_at <= _now():
-                raise HTTPException(status_code=400, detail="Bidding window has closed")
+        if (
+            project.status == InstallationProjectStatus.open_for_bidding
+            and project.bidding_close_at
+            and project.bidding_close_at <= _now()
+        ):
+            raise HTTPException(status_code=400, detail="Bidding window has closed")
         currency = settings_spec.resolve_value(
             db, SettingDomain.billing, "default_currency"
         ) or "NGN"

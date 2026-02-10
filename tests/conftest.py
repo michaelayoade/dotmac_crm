@@ -1,11 +1,11 @@
+import contextlib
 import os
 import sqlite3
 import uuid
-
+from datetime import UTC
 import pytest
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, event, TypeDecorator, String, text
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import String, TypeDecorator, create_engine, event, text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -18,9 +18,9 @@ load_dotenv(os.path.join(os.getcwd(), ".env"))
 class _JoseDateTimeProxy:
     @staticmethod
     def utcnow():
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     @staticmethod
     def now(tz=None):
@@ -67,8 +67,7 @@ class SQLiteUUID(TypeDecorator):
 
 # Monkey-patch SQLAlchemy's UUID type for SQLite compatibility
 # This must happen before any models are imported
-from sqlalchemy import Uuid
-from sqlalchemy.sql import sqltypes
+from sqlalchemy.sql import sqltypes  # noqa: E402
 
 _original_uuid_bind_processor = sqltypes.Uuid.bind_processor
 _original_uuid_result_processor = sqltypes.Uuid.result_processor
@@ -98,14 +97,12 @@ def _sqlite_uuid_result_processor(self, dialect, coltype):
     return _original_uuid_result_processor(self, dialect, coltype)
 
 
-setattr(sqltypes.Uuid, "bind_processor", _sqlite_uuid_bind_processor)
-setattr(sqltypes.Uuid, "result_processor", _sqlite_uuid_result_processor)
+sqltypes.Uuid.bind_processor = _sqlite_uuid_bind_processor
+sqltypes.Uuid.result_processor = _sqlite_uuid_result_processor
 
 
 # Monkey-patch PostgreSQL JSONB type for SQLite compatibility
 # SQLite uses JSON instead of JSONB
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import JSON
 
 _original_jsonb_compile = None
 
@@ -127,20 +124,24 @@ def _patch_jsonb_for_sqlite():
 
 _patch_jsonb_for_sqlite()
 
-from app.models.person import Person
-from app.schemas.projects import ProjectCreate, ProjectTaskCreate
-from app.schemas.tickets import TicketCreate
-from app.schemas.workforce import WorkOrderCreate
-from app.schemas.network import OLTDeviceCreate
-from app.schemas.gis import GeoLayerCreate
-from app.services import projects as projects_service
-from app.services import tickets as tickets_service
-from app.services import workforce as workforce_service
-from app.services import network as network_service
-from app.services import gis as gis_service
+from app.models import automation_rule as _automation_rule  # noqa: F401,E402
+from app.models.person import Person  # noqa: E402
+from app.schemas.gis import GeoLayerCreate  # noqa: E402
+from app.schemas.network import OLTDeviceCreate  # noqa: E402
+from app.schemas.projects import ProjectCreate, ProjectTaskCreate  # noqa: E402
+from app.schemas.tickets import TicketCreate  # noqa: E402
+from app.schemas.workforce import WorkOrderCreate  # noqa: E402
+from app.services import gis as gis_service  # noqa: E402
+from app.services import network as network_service  # noqa: E402
+from app.services import projects as projects_service  # noqa: E402
+from app.services import tickets as tickets_service  # noqa: E402
+from app.services import workforce as workforce_service  # noqa: E402
 
 
 def _resolve_test_database_url() -> str | None:
+    def _running_in_container() -> bool:
+        return os.path.exists("/.dockerenv") or os.getenv("RUNNING_IN_DOCKER") == "1"
+
     raw_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not raw_url:
         return None
@@ -149,9 +150,9 @@ def _resolve_test_database_url() -> str | None:
     if url.drivername.startswith("postgresql"):
         if url.database != "crm_test":
             url = url.set(database="crm_test")
-        if url.host == "db":
+        if url.host == "db" and not _running_in_container():
             url = url.set(host="localhost")
-        return str(url)
+        return url.render_as_string(hide_password=False)
 
     return raw_url
 
@@ -178,16 +179,12 @@ def engine():
         @event.listens_for(engine, "connect")
         def _load_spatialite(dbapi_connection, _connection_record):
             dbapi_connection.enable_load_extension(True)
-            try:
+            with contextlib.suppress(Exception):
                 dbapi_connection.load_extension("mod_spatialite")
-            except Exception:
-                pass  # Spatialite not available, some tests may fail
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
-            try:
+            with contextlib.suppress(Exception):
                 cursor.execute("SELECT InitSpatialMetaData(1)")
-            except Exception:
-                pass  # Already initialized or spatialite not available
             cursor.close()
 
         # Create a connection first to initialize spatialite
@@ -273,6 +270,16 @@ def subscription(subscriber_account):
 
 
 @pytest.fixture()
+def network_device():
+    """Stub network device fixture (NetworkDevice model removed)."""
+    class _StubNetworkDevice:
+        def __init__(self):
+            self.id = uuid.uuid4()
+
+    return _StubNetworkDevice()
+
+
+@pytest.fixture()
 def ticket(db_session):
     ticket = tickets_service.tickets.create(
         db_session,
@@ -355,8 +362,8 @@ def geo_layer(db_session):
 # CRM Fixtures
 # ============================================================================
 
-from app.models.crm.team import CrmTeam, CrmAgent, CrmAgentTeam, CrmTeamChannel, CrmRoutingRule
-from app.models.person import Person, PersonChannel, ChannelType
+from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam  # noqa: E402
+from app.models.person import ChannelType, PersonChannel  # noqa: E402
 
 
 @pytest.fixture()
@@ -388,6 +395,81 @@ def crm_contact_channel(db_session, crm_contact):
     db_session.commit()
     db_session.refresh(channel)
     return channel
+
+
+from app.models.inventory import InventoryItem  # noqa: E402
+from app.models.material_request import MaterialRequest, MaterialRequestItem  # noqa: E402
+from app.models.service_team import (  # noqa: E402
+    ServiceTeam,
+    ServiceTeamMember,
+    ServiceTeamMemberRole,
+    ServiceTeamType,
+)
+
+
+@pytest.fixture()
+def inventory_item(db_session):
+    """Inventory item for material request tests."""
+    item = InventoryItem(name="Fiber Splice Closure", sku="FIB-SC-001")
+    db_session.add(item)
+    db_session.commit()
+    db_session.refresh(item)
+    return item
+
+
+@pytest.fixture()
+def service_team(db_session):
+    """Service team for team/member tests."""
+    team = ServiceTeam(
+        name="Test Field Team",
+        team_type=ServiceTeamType.field_service,
+        region="Western Cape",
+    )
+    db_session.add(team)
+    db_session.commit()
+    db_session.refresh(team)
+    return team
+
+
+@pytest.fixture()
+def service_team_member(db_session, service_team, person):
+    """Service team member linking person to team."""
+    member = ServiceTeamMember(
+        team_id=service_team.id,
+        person_id=person.id,
+        role=ServiceTeamMemberRole.member,
+    )
+    db_session.add(member)
+    db_session.commit()
+    db_session.refresh(member)
+    return member
+
+
+@pytest.fixture()
+def material_request(db_session, person, ticket):
+    """Draft material request linked to a ticket."""
+    mr = MaterialRequest(
+        ticket_id=ticket.id,
+        requested_by_person_id=person.id,
+    )
+    db_session.add(mr)
+    db_session.commit()
+    db_session.refresh(mr)
+    return mr
+
+
+@pytest.fixture()
+def material_request_with_item(db_session, material_request, inventory_item):
+    """Material request with one line item."""
+    item = MaterialRequestItem(
+        material_request_id=material_request.id,
+        item_id=inventory_item.id,
+        quantity=5,
+    )
+    db_session.add(item)
+    db_session.commit()
+    db_session.refresh(material_request)
+    return material_request
 
 
 @pytest.fixture()

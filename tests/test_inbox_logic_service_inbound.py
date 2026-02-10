@@ -1,9 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.logic.crm_inbox_logic import (
-    LogicService,
-    InboundSelfMessageContext,
     InboundDedupeContext,
+    InboundSelfMessageContext,
+    LogicService,
 )
 
 
@@ -42,7 +42,7 @@ def test_inbound_self_whatsapp_address_match():
 
 def test_inbound_dedupe_email_builds_external_id_when_missing_message_id():
     logic = LogicService()
-    received_at = datetime(2026, 1, 28, 12, 0, 0, tzinfo=timezone.utc)
+    received_at = datetime(2026, 1, 28, 12, 0, 0, tzinfo=UTC)
     ctx = InboundDedupeContext(
         channel_type="email",
         contact_address="Test@Example.com",

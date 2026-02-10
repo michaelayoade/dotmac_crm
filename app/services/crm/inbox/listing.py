@@ -8,13 +8,13 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.crm.enums import ChannelType, ConversationStatus
-from app.services.crm.inbox.queries import list_inbox_conversations
 from app.services.crm.inbox import cache as inbox_cache
-from app.services.crm.inbox.search import normalize_search
 from app.services.crm.inbox.comments_context import (
     build_comment_list_items,
     load_comments_context,
 )
+from app.services.crm.inbox.queries import list_inbox_conversations
+from app.services.crm.inbox.search import normalize_search
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,10 @@ class InboxListResult:
     status_enum: ConversationStatus | None
     include_comments: bool
     target_is_comment: bool
+    offset: int
+    limit: int
+    has_more: bool
+    next_offset: int | None
 
 
 async def load_inbox_list(
@@ -36,10 +40,14 @@ async def load_inbox_list(
     assignment: str | None,
     assigned_person_id: str | None,
     target_id: str | None,
+    offset: int = 0,
+    limit: int = 150,
     include_thread: bool = False,
     fetch_comments: bool = False,
 ) -> InboxListResult:
     normalized_search = normalize_search(search)
+    safe_offset = max(int(offset or 0), 0)
+    safe_limit = max(int(limit or 0), 1)
     cache_params = {
         "channel": channel,
         "status": status,
@@ -47,6 +55,8 @@ async def load_inbox_list(
         "assignment": assignment,
         "assigned_person_id": assigned_person_id,
         "target_id": target_id,
+        "offset": safe_offset,
+        "limit": safe_limit,
         "include_thread": include_thread,
         "fetch_comments": fetch_comments,
     }
@@ -77,8 +87,12 @@ async def load_inbox_list(
         include_comments = True
     if include_comments and not target_is_comment and target_prefix:
         include_comments = False
+    if safe_offset > 0:
+        include_comments = False
 
     conversations_raw: list[tuple[Any, Any, int]] = []
+    has_more = False
+    next_offset: int | None = None
     if not target_is_comment:
         conversations_raw = list_inbox_conversations(
             db,
@@ -89,8 +103,13 @@ async def load_inbox_list(
             assigned_person_id=assigned_person_id,
             channel_target_id=target_id,
             exclude_superseded_resolved=exclude_superseded,
-            limit=50,
+            limit=safe_limit + 1,
+            offset=safe_offset,
         )
+        if len(conversations_raw) > safe_limit:
+            has_more = True
+            conversations_raw = conversations_raw[:safe_limit]
+            next_offset = safe_offset + safe_limit
 
     comment_items: list[dict] = []
     if include_comments:
@@ -116,6 +135,10 @@ async def load_inbox_list(
         status_enum=status_enum,
         include_comments=include_comments,
         target_is_comment=target_is_comment,
+        offset=safe_offset,
+        limit=safe_limit,
+        has_more=has_more,
+        next_offset=next_offset,
     )
     inbox_cache.set(cache_key, result, inbox_cache.INBOX_LIST_TTL_SECONDS)
     return result

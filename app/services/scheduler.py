@@ -2,8 +2,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.scheduler import ScheduledTask, ScheduleType
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.schemas.scheduler import ScheduledTaskCreate, ScheduledTaskUpdate
+from app.services.common import apply_ordering, apply_pagination
 from app.services.response import ListResponseMixin
 
 
@@ -64,11 +64,10 @@ class ScheduledTasks(ListResponseMixin):
         data = payload.model_dump(exclude_unset=True)
         if "schedule_type" in data:
             data["schedule_type"] = _validate_schedule_type(data["schedule_type"])
-        if "interval_seconds" in data and data["interval_seconds"] is not None:
-            if data["interval_seconds"] < 1:
-                raise HTTPException(
-                    status_code=400, detail="interval_seconds must be >= 1"
-                )
+        if "interval_seconds" in data and data["interval_seconds"] is not None and data["interval_seconds"] < 1:
+            raise HTTPException(
+                status_code=400, detail="interval_seconds must be >= 1"
+            )
         for key, value in data.items():
             setattr(task, key, value)
         db.commit()

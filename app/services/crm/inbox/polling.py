@@ -5,7 +5,7 @@ This module handles the creation and management of email polling jobs,
 as well as the execution of polling operations against email connectors.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -181,7 +181,7 @@ def poll_email_targets(db: Session, target_id: str | None = None) -> dict:
 
     logger.info(
         "EMAIL_POLL_START ts=%s targets=%s connectors=%s",
-        datetime.now(timezone.utc).isoformat(),
+        datetime.now(UTC).isoformat(),
         len(targets),
         len(email_connectors),
     )

@@ -6,8 +6,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.person import ChannelType, PartyStatus
-
 
 class PartyStatusEnum(str, Enum):
     """Party lifecycle status for API responses."""

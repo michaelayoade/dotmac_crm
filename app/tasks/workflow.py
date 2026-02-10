@@ -1,7 +1,7 @@
 """Workflow automation tasks for SLA monitoring and ticket management."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.celery_app import celery_app
 from app.db import SessionLocal
@@ -28,7 +28,7 @@ def detect_sla_breaches() -> dict[str, int]:
     breached = 0
     errors = 0
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Find all running SLA clocks that are past due
         overdue_clocks = (

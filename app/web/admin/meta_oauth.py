@@ -4,7 +4,6 @@ Handles the OAuth flow for connecting Facebook Pages and Instagram
 Business accounts to the CRM system.
 """
 
-import os
 from datetime import datetime
 from urllib.parse import quote
 
@@ -16,8 +15,7 @@ from app.db import SessionLocal
 from app.logging import get_logger
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.integration import IntegrationTarget, IntegrationTargetType
-from app.services import meta_oauth
-from app.services import oauth_state
+from app.services import meta_oauth, oauth_state
 from app.web.auth.dependencies import require_web_auth
 
 logger = get_logger(__name__)

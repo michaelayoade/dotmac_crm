@@ -8,11 +8,11 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from app.db import SessionLocal
-from app.models.notification import NotificationChannel, NotificationStatus
-from app.models.rbac import Role, PersonRole
-from app.schemas.notification import NotificationBulkCreateRequest
-from app.services import notification as notification_service
+from app.db import SessionLocal  # noqa: E402
+from app.models.notification import NotificationChannel, NotificationStatus  # noqa: E402
+from app.models.rbac import PersonRole, Role  # noqa: E402
+from app.schemas.notification import NotificationBulkCreateRequest  # noqa: E402
+from app.services import notification as notification_service  # noqa: E402
 
 
 def parse_args():
@@ -35,7 +35,6 @@ def main():
     with SessionLocal() as db:
         role = db.query(Role).filter(Role.name == "admin").first()
         if not role:
-            print("No admin role found.")
             return
 
         person_ids = [
@@ -46,7 +45,6 @@ def main():
             .all()
         ]
         if not person_ids:
-            print("No admin users found.")
             return
 
         payload = NotificationBulkCreateRequest(
@@ -56,8 +54,7 @@ def main():
             body=args.body,
             status=status,
         )
-        response = notification_service.notifications.bulk_create_response(db, payload)
-        print(f"Sent {response.get('created', 0)} notifications.")
+        notification_service.notifications.bulk_create_response(db, payload)
 
 
 if __name__ == "__main__":

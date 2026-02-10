@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from sqlalchemy import func
@@ -15,17 +15,18 @@ from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirecti
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import InboxSendRequest
-from app.services.common import coerce_uuid
 from app.services import crm as crm_service
-from app.services.crm import conversations as conversation_service
-from app.services.crm import contacts as contact_service
+from app.services.common import coerce_uuid
+from app.services.crm.contacts.service import get_or_create_contact_by_channel
+from app.services.crm.conversations import service as conversation_service
 from app.services.crm.inbox.attachments_processing import apply_message_attachments
+from app.services.crm.inbox.permissions import can_send_message, can_write_inbox
 from app.services.crm.inbox.status_flow import apply_status_transition
 
 
 @dataclass(frozen=True)
 class SendConversationMessageResult:
-    kind: Literal["not_found", "validation_error", "success", "send_failed"]
+    kind: Literal["forbidden", "not_found", "validation_error", "success", "send_failed"]
     conversation: Conversation | None = None
     message: Message | None = None
     error_detail: str | None = None
@@ -34,6 +35,7 @@ class SendConversationMessageResult:
 @dataclass(frozen=True)
 class StartConversationResult:
     kind: Literal[
+        "forbidden",
         "invalid_channel",
         "invalid_inbox",
         "missing_recipient",
@@ -101,8 +103,17 @@ def send_conversation_message(
     message_text: str | None,
     attachments_json: str | None,
     reply_to_message_id: str | None,
-    author_id: str | None,
+    template_id: str | None = None,
+    scheduled_at: str | None = None,
+    author_id: str | None = None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> SendConversationMessageResult:
+    if (roles is not None or scopes is not None) and not can_send_message(roles, scopes):
+        return SendConversationMessageResult(
+            kind="forbidden",
+            error_detail="Not authorized to send messages",
+        )
     try:
         conversation = conversation_service.Conversations.get(db, conversation_id)
     except Exception:
@@ -119,7 +130,7 @@ def send_conversation_message(
         except Exception:
             attachments_payload = []
 
-    if not body_text and not attachments_payload:
+    if not body_text and not attachments_payload and not template_id:
         return SendConversationMessageResult(
             kind="validation_error",
             conversation=conversation,
@@ -134,21 +145,79 @@ def send_conversation_message(
             reply_to_uuid = None
 
     channel_target_uuid = coerce_uuid(channel_target_id) if channel_target_id else None
+    template_uuid = None
+    if template_id:
+        try:
+            template_uuid = coerce_uuid(template_id)
+        except Exception:
+            template_uuid = None
+
+    scheduled_value = None
+    if scheduled_at:
+        try:
+            scheduled_value = datetime.fromisoformat(scheduled_at)
+            if scheduled_value.tzinfo is None:
+                scheduled_value = scheduled_value.replace(tzinfo=UTC)
+        except Exception:
+            scheduled_value = None
     result_msg = None
     try:
+        payload = InboxSendRequest(
+            conversation_id=conversation.id,
+            channel_type=channel_type,
+            channel_target_id=channel_target_uuid,
+            body=body_text,
+            attachments=attachments_payload or None,
+            reply_to_message_id=reply_to_uuid,
+            template_id=template_uuid,
+            scheduled_at=scheduled_value,
+        )
+        if scheduled_value and scheduled_value > datetime.now(UTC):
+            from app.services.crm.inbox.outbox import enqueue_outbound_message
+
+            enqueue_outbound_message(
+                db,
+                payload=payload,
+                author_id=author_id,
+                scheduled_at=scheduled_value,
+                dispatch=True,
+            )
+            return SendConversationMessageResult(
+                kind="success",
+                conversation=conversation,
+                message=None,
+            )
+
         result_msg = crm_service.inbox.send_message_with_retry(
             db,
-            InboxSendRequest(
-                conversation_id=conversation.id,
-                channel_type=channel_type,
-                channel_target_id=channel_target_uuid,
-                body=body_text,
-                attachments=attachments_payload or None,
-                reply_to_message_id=reply_to_uuid,
-            ),
+            payload,
             author_id=author_id,
         )
     except Exception as exc:
+        error_detail = getattr(exc, "detail", None) or "Failed to send message"
+        if "Rate limit exceeded" in str(error_detail):
+            retry_after = 60
+            if "retry_after=" in str(error_detail):
+                try:
+                    retry_part = str(error_detail).split("retry_after=")[-1]
+                    retry_after = int(retry_part.split("s")[0])
+                except Exception:
+                    retry_after = 60
+            scheduled_value = datetime.now(UTC) + timedelta(seconds=retry_after)
+            from app.services.crm.inbox.outbox import enqueue_outbound_message
+
+            enqueue_outbound_message(
+                db,
+                payload=payload,
+                author_id=author_id,
+                scheduled_at=scheduled_value,
+                dispatch=True,
+            )
+            return SendConversationMessageResult(
+                kind="success",
+                conversation=conversation,
+                message=None,
+            )
         result_msg = conversation_service.Messages.create(
             db,
             MessageCreate(
@@ -158,13 +227,9 @@ def send_conversation_message(
                 status=MessageStatus.failed,
                 body=message_text,
                 reply_to_message_id=reply_to_uuid,
-                sent_at=datetime.now(timezone.utc),
+                sent_at=datetime.now(UTC),
             ),
         )
-        if hasattr(exc, "detail"):
-            error_detail = getattr(exc, "detail")
-        else:
-            error_detail = "Failed to send message"
         return SendConversationMessageResult(
             kind="send_failed",
             conversation=conversation,
@@ -200,7 +265,14 @@ def start_new_conversation(
     subject: str | None,
     message_text: str,
     author_person_id: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
 ) -> StartConversationResult:
+    if (roles is not None or scopes is not None) and not can_write_inbox(roles, scopes):
+        return StartConversationResult(
+            kind="forbidden",
+            error_detail="Not authorized to start conversations",
+        )
     try:
         channel_enum = ChannelType(channel_type)
     except ValueError:
@@ -233,7 +305,7 @@ def start_new_conversation(
             error_detail="Message body is required",
         )
 
-    contact, _ = contact_service.get_or_create_contact_by_channel(
+    contact, _ = get_or_create_contact_by_channel(
         db,
         channel_enum,
         address,
@@ -256,9 +328,12 @@ def start_new_conversation(
             )
             .first()
         )
-        if last_inbound and last_inbound.channel_target_id:
-            if last_inbound.channel_target_id != resolved_channel_target_id:
-                conversation = None
+        if (
+            last_inbound
+            and last_inbound.channel_target_id
+            and last_inbound.channel_target_id != resolved_channel_target_id
+        ):
+            conversation = None
     if not conversation:
         conversation = conversation_service.Conversations.create(
             db,

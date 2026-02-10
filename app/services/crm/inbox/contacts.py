@@ -9,8 +9,9 @@ contacts have appropriate channel records and normalizes addresses.
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.models.person import ChannelType as PersonChannelType, Person, PersonChannel
 from app.models.crm.enums import ChannelType
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Person, PersonChannel
 from app.services.crm import contact as contact_service
 from app.services.crm.inbox_normalizers import _normalize_channel_address
 
@@ -155,11 +156,14 @@ def _resolve_person_for_inbound(
             channel_type,
             normalized_address or address,
         )
-        if channel_type == ChannelType.email and normalized_address:
-            if not person.email or person.email.endswith("@example.invalid"):
-                person.email = normalized_address
-                db.commit()
-                db.refresh(person)
+        if (
+            channel_type == ChannelType.email
+            and normalized_address
+            and (not person.email or person.email.endswith("@example.invalid"))
+        ):
+            person.email = normalized_address
+            db.commit()
+            db.refresh(person)
         if display_name and not person.display_name:
             person.display_name = display_name
             db.commit()

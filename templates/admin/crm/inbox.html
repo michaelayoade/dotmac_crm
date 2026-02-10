@@ -269,6 +269,11 @@
                             class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
                         Assigned to me
                     </button>
+                    <button @click="setAssignment('my_team')"
+                            :class="currentAssignment === 'my_team' ? 'bg-white text-cyan-700 shadow-sm dark:bg-slate-700 dark:text-cyan-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                        My Team
+                    </button>
                     <button @click="setAssignment('unassigned')"
                             :class="currentAssignment === 'unassigned' ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
                             class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
@@ -531,6 +536,7 @@ function inboxController() {
         selectedConversation: {{ (selected_conversation.id if selected_conversation else None) | tojson }},
         selectedContactId: {{ (selected_conversation.contact.id if selected_conversation else None) | tojson }},
         selectedCommentId: {{ ((selected_comment.id | string) if selected_comment else None) | tojson }},
+        paginationLimit: {{ (pagination_limit or 150) | tojson }},
         showContactPanel: false,
         sidePanel: null,
         showNewConversation: {{ (new_error is not none) | tojson }},
@@ -543,10 +549,14 @@ function inboxController() {
         facebookCommentInboxes: {{ (facebook_comment_inboxes or []) | tojson }},
         instagramCommentInboxes: {{ (instagram_comment_inboxes or []) | tojson }},
         isTyping: false,
+        typingConversationId: null,
+        typingTimer: null,
+        typingSendTimer: null,
         wsConnected: false,
         inboxWs: null,
         refreshTimer: null,
         refreshDelayMs: 250,
+        pendingThreadRefresh: false,
         pendingAttachments: [],
         notifications: [],
         notificationAutoDismissSeconds: {{ (notification_auto_dismiss_seconds or 12) | tojson }},
@@ -570,10 +580,17 @@ function inboxController() {
                     this.resizeEmailFrames();
                     this.initQuoteHandlers();
                     this.renderQuotePreview();
+                    this.isTyping = false;
+                    this.typingConversationId = null;
+                    this.restoreDraft(this.selectedConversation);
                 }
                 if (e.detail.target.id === 'conversation-list') {
                     this.storeConversationCache();
                     this.subscribeVisibleConversations();
+                    const list = document.querySelector('#conversation-list');
+                    if (list) {
+                        list.scrollTop = 0;
+                    }
                 }
             });
             document.body.addEventListener('htmx:beforeRequest', (e) => {
@@ -621,6 +638,25 @@ function inboxController() {
             window.addEventListener('inbox-agent-notification', (e) => {
                 this.handleAgentNotification(e.detail);
             });
+            window.addEventListener('inbox-user-typing', (e) => {
+                const payload = e.detail || {};
+                if (!payload.conversation_id) return;
+                if (this.selectedConversation !== payload.conversation_id) return;
+                if (payload.is_typing) {
+                    this.isTyping = true;
+                    this.typingConversationId = payload.conversation_id;
+                    if (this.typingTimer) {
+                        clearTimeout(this.typingTimer);
+                    }
+                    this.typingTimer = setTimeout(() => {
+                        this.isTyping = false;
+                        this.typingConversationId = null;
+                    }, 2500);
+                } else if (this.typingConversationId === payload.conversation_id) {
+                    this.isTyping = false;
+                    this.typingConversationId = null;
+                }
+            });
             window.addEventListener('inbox-list-refresh', () => {
                 this.scheduleRefresh('list');
             });
@@ -628,7 +664,10 @@ function inboxController() {
             // Fallback polling - always keep comments refreshed
             setInterval(() => {
                 if (!document.hidden) {
-                    this.autoRefresh();
+                    // Only poll when websocket is down to avoid redundant refreshes.
+                    if (!this.wsConnected) {
+                        this.autoRefresh();
+                    }
                 }
             }, 30000);
 
@@ -639,6 +678,53 @@ function inboxController() {
                     this.refreshThread(true);
                 });
             }
+        },
+        draftKey(conversationId) {
+            if (!conversationId) return null;
+            return `crm:inbox:draft:${conversationId}`;
+        },
+        storeDraft(conversationId, text) {
+            const key = this.draftKey(conversationId);
+            if (!key) return;
+            try {
+                localStorage.setItem(key, text || '');
+            } catch (err) {
+                console.log('[Inbox] draft store failed', err);
+            }
+        },
+        clearDraft(conversationId) {
+            const key = this.draftKey(conversationId);
+            if (!key) return;
+            try {
+                localStorage.removeItem(key);
+            } catch (err) {
+                console.log('[Inbox] draft clear failed', err);
+            }
+        },
+        restoreDraft(conversationId) {
+            const key = this.draftKey(conversationId);
+            if (!key) return;
+            try {
+                const draft = localStorage.getItem(key);
+                if (!draft) return;
+                const input = document.querySelector('#message-thread textarea[name="message"]');
+                if (input && !input.value.trim()) {
+                    input.value = draft;
+                    input.dispatchEvent(new Event('input'));
+                }
+            } catch (err) {
+                console.log('[Inbox] draft restore failed', err);
+            }
+        },
+        sendTypingIndicator(conversationId) {
+            if (!conversationId || !this.inboxWs) return;
+            this.inboxWs.sendTyping(conversationId, true);
+            if (this.typingSendTimer) {
+                clearTimeout(this.typingSendTimer);
+            }
+            this.typingSendTimer = setTimeout(() => {
+                this.inboxWs.sendTyping(conversationId, false);
+            }, 2000);
         },
         initQuoteHandlers() {
             if (!this._quoteDelegated) {
@@ -1160,6 +1246,8 @@ function inboxController() {
             if (this.currentAssignment) params.set('assignment', this.currentAssignment);
             if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
             if (this.searchQuery) params.set('search', this.searchQuery);
+            params.set('page', '1');
+            params.set('limit', String(this.paginationLimit));
 
             if (this.currentChannel === 'comments') {
                 window.location = `/admin/crm/inbox?${params.toString()}`;
@@ -1248,6 +1336,8 @@ function inboxController() {
             if (this.searchQuery) params.set('search', this.searchQuery);
             if (this.selectedCommentId) params.set('comment_id', this.selectedCommentId);
             if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
+            params.set('page', '1');
+            params.set('limit', String(this.paginationLimit));
 
             htmx.ajax('GET', `/admin/crm/inbox/comments/list?${params.toString()}`, {
                 target: '#conversation-list',
@@ -1265,7 +1355,7 @@ function inboxController() {
                 return;
             }
             this.filterConversations();
-            this.refreshThread();
+            // Avoid polling the thread to reduce interruptions while typing.
         },
 
         refreshThread(force = false) {
@@ -1277,13 +1367,26 @@ function inboxController() {
             }
             const input = document.querySelector('#message-thread textarea[name="message"]');
             const isComposing = input && (document.activeElement === input || input.value.trim() !== '');
-            if (!force && isComposing) {
+            if (isComposing) {
+                if (force) {
+                    this.pendingThreadRefresh = true;
+                }
                 return;
+            }
+            if (this.pendingThreadRefresh) {
+                this.pendingThreadRefresh = false;
             }
             htmx.ajax('GET', `/admin/crm/inbox/conversation/${this.selectedConversation}`, {
                 target: '#message-thread',
                 swap: 'innerHTML transition:false'
             });
+        },
+        flushPendingThreadRefresh() {
+            if (!this.pendingThreadRefresh) {
+                return;
+            }
+            this.pendingThreadRefresh = false;
+            this.refreshThread(true);
         },
 
         subscribeVisibleConversations() {

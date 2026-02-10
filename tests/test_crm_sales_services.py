@@ -8,19 +8,18 @@ from fastapi import HTTPException
 
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.schemas.crm.sales import (
-    PipelineCreate,
-    PipelineUpdate,
-    PipelineStageCreate,
-    PipelineStageUpdate,
     LeadCreate,
     LeadUpdate,
+    PipelineCreate,
+    PipelineStageCreate,
+    PipelineStageUpdate,
+    PipelineUpdate,
     QuoteCreate,
-    QuoteUpdate,
     QuoteLineItemCreate,
     QuoteLineItemUpdate,
+    QuoteUpdate,
 )
 from app.services.crm import sales as sales_service
-
 
 # =============================================================================
 # Pipelines CRUD Tests
@@ -415,7 +414,7 @@ def test_list_leads_filter_by_pipeline(db_session, person):
         limit=10,
         offset=0,
     )
-    assert any(l.id == lead.id for l in leads)
+    assert any(item.id == lead.id for item in leads)
 
 
 def test_list_leads_filter_by_stage(db_session, person):
@@ -444,7 +443,7 @@ def test_list_leads_filter_by_stage(db_session, person):
         limit=10,
         offset=0,
     )
-    assert any(l.id == lead.id for l in leads)
+    assert any(item.id == lead.id for item in leads)
 
 
 def test_list_leads_filter_by_status(db_session, person):
@@ -466,7 +465,7 @@ def test_list_leads_filter_by_status(db_session, person):
         limit=10,
         offset=0,
     )
-    assert any(l.id == lead.id for l in leads)
+    assert any(item.id == lead.id for item in leads)
 
 
 def test_list_leads_filter_inactive(db_session, person):
@@ -488,7 +487,7 @@ def test_list_leads_filter_inactive(db_session, person):
         limit=10,
         offset=0,
     )
-    assert any(l.id == lead.id for l in leads)
+    assert any(item.id == lead.id for item in leads)
 
 
 def test_list_leads_filter_by_owner_agent(db_session, person, crm_agent):
@@ -510,7 +509,7 @@ def test_list_leads_filter_by_owner_agent(db_session, person, crm_agent):
         limit=10,
         offset=0,
     )
-    assert any(l.id == lead.id for l in leads)
+    assert any(item.id == lead.id for item in leads)
 
 
 def test_list_leads_invalid_status(db_session):
@@ -1169,7 +1168,7 @@ def test_kanban_view_with_pipeline(db_session, person):
             default_probability=20,
         ),
     )
-    stage2 = sales_service.PipelineStages.create(
+    sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(
             pipeline_id=pipeline.id,

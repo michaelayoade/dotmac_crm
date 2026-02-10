@@ -1,10 +1,9 @@
 """Field validation API endpoints for real-time form validation."""
 
 import re
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -13,7 +12,6 @@ from app.models.person import Person
 from app.models.subscriber import Organization
 from app.services.auth_dependencies import require_user_auth
 
-
 router = APIRouter(prefix="/validation", tags=["validation"])
 
 
@@ -21,13 +19,13 @@ class FieldValidationRequest(BaseModel):
     """Request body for single field validation."""
     field: str
     value: str
-    context: Optional[dict] = None  # Additional context (e.g., entity ID for update)
+    context: dict | None = None  # Additional context (e.g., entity ID for update)
 
 
 class FieldValidationResponse(BaseModel):
     """Response for field validation."""
     valid: bool
-    message: Optional[str] = None
+    message: str | None = None
     field: str
 
 
@@ -35,7 +33,7 @@ class FormValidationRequest(BaseModel):
     """Request body for full form validation."""
     fields: dict[str, str]
     form_type: str
-    context: Optional[dict] = None
+    context: dict | None = None
 
 
 class FormValidationResponse(BaseModel):
@@ -59,7 +57,7 @@ URL_PATTERN = re.compile(
 CURRENCY_PATTERN = re.compile(r'^-?\d+(?:[,.]\d{1,2})?$')
 
 
-def validate_email_format(value: str) -> tuple[bool, Optional[str]]:
+def validate_email_format(value: str) -> tuple[bool, str | None]:
     """Validate email format."""
     if not value:
         return True, None
@@ -68,7 +66,7 @@ def validate_email_format(value: str) -> tuple[bool, Optional[str]]:
     return True, None
 
 
-def validate_phone_format(value: str) -> tuple[bool, Optional[str]]:
+def validate_phone_format(value: str) -> tuple[bool, str | None]:
     """Validate phone number format."""
     if not value:
         return True, None
@@ -78,7 +76,7 @@ def validate_phone_format(value: str) -> tuple[bool, Optional[str]]:
     return True, None
 
 
-def validate_url_format(value: str) -> tuple[bool, Optional[str]]:
+def validate_url_format(value: str) -> tuple[bool, str | None]:
     """Validate URL format."""
     if not value:
         return True, None
@@ -87,7 +85,7 @@ def validate_url_format(value: str) -> tuple[bool, Optional[str]]:
     return True, None
 
 
-def validate_currency_format(value: str) -> tuple[bool, Optional[str]]:
+def validate_currency_format(value: str) -> tuple[bool, str | None]:
     """Validate currency amount format."""
     if not value:
         return True, None
@@ -97,21 +95,21 @@ def validate_currency_format(value: str) -> tuple[bool, Optional[str]]:
     return True, None
 
 
-def validate_required(value: str) -> tuple[bool, Optional[str]]:
+def validate_required(value: str) -> tuple[bool, str | None]:
     """Validate required field."""
     if not value or not value.strip():
         return False, "This field is required"
     return True, None
 
 
-def validate_min_length(value: str, min_len: int) -> tuple[bool, Optional[str]]:
+def validate_min_length(value: str, min_len: int) -> tuple[bool, str | None]:
     """Validate minimum length."""
     if value and len(value) < min_len:
         return False, f"Must be at least {min_len} characters"
     return True, None
 
 
-def validate_max_length(value: str, max_len: int) -> tuple[bool, Optional[str]]:
+def validate_max_length(value: str, max_len: int) -> tuple[bool, str | None]:
     """Validate maximum length."""
     if value and len(value) > max_len:
         return False, f"Must be no more than {max_len} characters"
@@ -121,8 +119,8 @@ def validate_max_length(value: str, max_len: int) -> tuple[bool, Optional[str]]:
 async def validate_email_unique(
     db: Session,
     email: str,
-    exclude_id: Optional[str] = None
-) -> tuple[bool, Optional[str]]:
+    exclude_id: str | None = None
+) -> tuple[bool, str | None]:
     """Check if email is unique in the database."""
     if not email:
         return True, None
@@ -140,8 +138,8 @@ async def validate_email_unique(
 async def validate_org_name_unique(
     db: Session,
     name: str,
-    exclude_id: Optional[str] = None
-) -> tuple[bool, Optional[str]]:
+    exclude_id: str | None = None
+) -> tuple[bool, str | None]:
     """Check if organization name is unique."""
     if not name:
         return True, None

@@ -110,6 +110,9 @@ class Project(Base):
     manager_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     project_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     assistant_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    service_team_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_teams.id")
+    )
     start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -130,6 +133,7 @@ class Project(Base):
     manager = relationship("Person", foreign_keys=[manager_person_id])
     project_manager = relationship("Person", foreign_keys=[project_manager_person_id])
     assistant_manager = relationship("Person", foreign_keys=[assistant_manager_person_id])
+    service_team = relationship("ServiceTeam", foreign_keys=[service_team_id])
     project_template = relationship("ProjectTemplate")
     tasks = relationship("ProjectTask", back_populates="project")
     comments = relationship("ProjectComment", back_populates="project")
@@ -172,6 +176,41 @@ class ProjectTask(Base):
     created_by = relationship("Person", foreign_keys=[created_by_person_id])
     template_task = relationship("ProjectTemplateTask")
     comments = relationship("ProjectTaskComment", back_populates="task")
+    assignees = relationship(
+        "ProjectTaskAssignee",
+        back_populates="task",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def assigned_to_person_ids(self):
+        if self.assignees:
+            return [assignee.person_id for assignee in self.assignees]
+        if self.assigned_to_person_id:
+            return [self.assigned_to_person_id]
+        return []
+
+
+class ProjectTaskAssignee(Base):
+    __tablename__ = "project_task_assignees"
+
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_tasks.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+    )
+
+    task = relationship("ProjectTask", back_populates="assignees")
+    person = relationship("Person")
 
 
 class ProjectTemplateTask(Base):

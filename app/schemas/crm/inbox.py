@@ -15,8 +15,10 @@ class InboxSendRequest(BaseModel):
     channel_target_id: UUID | None = None
     person_channel_id: UUID | None = None
     reply_to_message_id: UUID | None = None
+    template_id: UUID | None = None
     subject: str | None = Field(default=None, max_length=200)
     body: str | None = None
+    scheduled_at: datetime | None = None
     personalization: dict | None = None
     attachments: list[dict] | None = None
 
@@ -24,7 +26,7 @@ class InboxSendRequest(BaseModel):
     def _require_body_or_attachments(self):
         body_text = (self.body or "").strip()
         has_attachments = bool(self.attachments)
-        if not body_text and not has_attachments:
+        if not body_text and not has_attachments and not self.template_id:
             raise ValueError("Message body is required when no attachments are provided.")
         self.body = body_text
         return self
@@ -130,7 +132,7 @@ class InstagramDMWebhookPayload(BaseModel):
     metadata: dict | None = None
 
     @model_validator(mode="after")
-    def _require_body_for_non_story_mentions(self) -> "InstagramDMWebhookPayload":
+    def _require_body_for_non_story_mentions(self) -> InstagramDMWebhookPayload:
         if self.body:
             return self
         attachments = None
@@ -144,10 +146,7 @@ class InstagramDMWebhookPayload(BaseModel):
 def _attachments_have_story_mention(attachments: object) -> bool:
     if not isinstance(attachments, list):
         return False
-    for attachment in attachments:
-        if isinstance(attachment, dict) and attachment.get("type") == "story_mention":
-            return True
-    return False
+    return any(isinstance(attachment, dict) and attachment.get("type") == "story_mention" for attachment in attachments)
 
 
 class FacebookCommentPayload(BaseModel):

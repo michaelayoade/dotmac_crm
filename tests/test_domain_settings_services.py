@@ -1,8 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
-from app.models.domain_settings import SettingDomain
-from app.models.domain_settings import SettingValueType
+from app.models.domain_settings import SettingDomain, SettingValueType
 from app.schemas.settings import DomainSettingCreate, DomainSettingUpdate
 from app.services import domain_settings as domain_settings_service
 from app.services import settings_api as settings_api_service

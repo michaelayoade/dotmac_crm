@@ -6,10 +6,9 @@ Create Date: 2026-01-30 12:00:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import ENUM
-
 
 revision = "c4d5e6f7a8b9"
 down_revision = "9c7e3c4e8b12"

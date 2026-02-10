@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -15,11 +15,11 @@ from sqlalchemy.orm import Session
 
 from app.logging import get_logger
 from app.models.crm.chat_widget import ChatWidgetConfig, WidgetVisitorSession
-from app.models.crm.sales import Lead
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
-from app.models.person import PartyStatus, Person, PersonChannel
+from app.models.crm.sales import Lead
 from app.models.person import ChannelType as PersonChannelType
+from app.models.person import PartyStatus, Person, PersonChannel
 from app.schemas.crm.chat_widget import (
     BusinessHours,
     BusinessHoursDay,
@@ -115,7 +115,7 @@ def _validate_prechat_settings(enabled: bool, fields: list[PrechatField] | None)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _generate_visitor_token() -> str:
@@ -193,13 +193,13 @@ class ChatWidgetConfigManager:
         return config
 
     @staticmethod
-    def get(db: Session, config_id: "UUID | str") -> ChatWidgetConfig | None:
+    def get(db: Session, config_id: UUID | str) -> ChatWidgetConfig | None:
         """Get a widget configuration by ID."""
         return db.get(ChatWidgetConfig, coerce_uuid(config_id))
 
     @staticmethod
     def update(
-        db: Session, config_id: "UUID | str", payload: ChatWidgetConfigUpdate
+        db: Session, config_id: UUID | str, payload: ChatWidgetConfigUpdate
     ) -> ChatWidgetConfig | None:
         """Update a widget configuration."""
         config = db.get(ChatWidgetConfig, coerce_uuid(config_id))
@@ -250,7 +250,7 @@ class ChatWidgetConfigManager:
         return query.order_by(ChatWidgetConfig.created_at.desc()).limit(limit).all()
 
     @staticmethod
-    def delete(db: Session, config_id: "UUID | str") -> bool:
+    def delete(db: Session, config_id: UUID | str) -> bool:
         """Delete a widget configuration."""
         config = db.get(ChatWidgetConfig, coerce_uuid(config_id))
         if not config:
@@ -275,11 +275,7 @@ class ChatWidgetConfigManager:
         if not domain:
             return False
 
-        for pattern in config.allowed_domains:
-            if _domain_matches_pattern(domain, pattern):
-                return True
-
-        return False
+        return any(_domain_matches_pattern(domain, pattern) for pattern in config.allowed_domains)
 
     @staticmethod
     def get_public_config(config: ChatWidgetConfig) -> ChatWidgetPublicConfig:
@@ -321,7 +317,7 @@ class WidgetVisitorManager:
     @staticmethod
     def create_session(
         db: Session,
-        config_id: "UUID | str",
+        config_id: UUID | str,
         payload: WidgetSessionCreate,
         ip_address: str | None = None,
         user_agent: str | None = None,
@@ -383,7 +379,7 @@ class WidgetVisitorManager:
         )
 
     @staticmethod
-    def get_session(db: Session, session_id: "UUID | str") -> WidgetVisitorSession | None:
+    def get_session(db: Session, session_id: UUID | str) -> WidgetVisitorSession | None:
         """Get a session by ID."""
         return db.get(WidgetVisitorSession, coerce_uuid(session_id))
 
@@ -626,9 +622,10 @@ def receive_widget_message(
     )
 
     # Broadcast to WebSocket subscribers
+    from app.services.crm.inbox.routing import apply_routing_rules
     from app.websocket.broadcaster import (
-        broadcast_new_message,
         broadcast_conversation_summary,
+        broadcast_new_message,
         subscribe_widget_to_conversation,
     )
 
@@ -636,6 +633,7 @@ def receive_widget_message(
     if is_new_conversation:
         subscribe_widget_to_conversation(str(session.id), str(conversation.id))
 
+    apply_routing_rules(db, conversation=conversation, message=message)
     broadcast_new_message(message, conversation)
     from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
     notify_assigned_agent_new_reply(db, conversation, message)
@@ -663,7 +661,7 @@ def send_widget_message(
     db: Session,
     session: WidgetVisitorSession,
     body: str,
-    author_id: "UUID | str | None" = None,
+    author_id: UUID | str | None = None,
 ) -> Message:
     """
     Send a message from agent to widget visitor.

@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import html
 import logging
 import re
+from datetime import datetime
 from html.parser import HTMLParser
 from urllib.parse import urlparse
-from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
-from app.models.subscriber import Organization
 from app.models.person import Person
+from app.models.subscriber import Organization
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
@@ -611,6 +610,47 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     if not html_body and "&lt;" in content and "&gt;" in content:
         html_source = html.unescape(content)
 
+    reply_to = metadata.get("reply_to") if isinstance(metadata, dict) else None
+    if not reply_to and msg.reply_to_message_id:
+        reply_msg = db.get(Message, msg.reply_to_message_id)
+        if reply_msg and reply_msg.conversation_id == msg.conversation_id:
+            timestamp = reply_msg.sent_at or reply_msg.received_at or reply_msg.created_at
+            excerpt = (reply_msg.body or "").strip()
+            if len(excerpt) > 240:
+                excerpt = excerpt[:237].rstrip() + "..."
+            reply_author = "Contact"
+            if reply_msg.direction == MessageDirection.internal:
+                reply_author = "Internal Note"
+            elif reply_msg.direction == MessageDirection.outbound:
+                if reply_msg.author_id:
+                    reply_person = db.get(Person, reply_msg.author_id)
+                    if reply_person:
+                        reply_author = (
+                            reply_person.display_name
+                            or " ".join(
+                                part
+                                for part in [reply_person.first_name, reply_person.last_name]
+                                if part
+                            ).strip()
+                            or "Agent"
+                        )
+                    else:
+                        reply_author = "Agent"
+                else:
+                    reply_author = "Agent"
+            else:
+                conv = reply_msg.conversation
+                if conv and conv.contact:
+                    reply_author = conv.contact.display_name or conv.contact.email or "Contact"
+            reply_to = {
+                "id": str(reply_msg.id),
+                "author": reply_author,
+                "excerpt": excerpt or "Attachment",
+                "sent_at": timestamp.isoformat() if timestamp else None,
+                "direction": reply_msg.direction.value,
+                "channel_type": reply_msg.channel_type.value if reply_msg.channel_type else None,
+            }
+
     return {
         "id": str(msg.id),
         "conversation_id": str(msg.conversation_id),
@@ -620,6 +660,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "html_body": html_body,
         "timestamp": msg.received_at or msg.sent_at or msg.created_at,
         "status": msg.status.value if msg.status else "received",
+        "read_at": msg.read_at,
         "attachments": attachments,
         "sender": {
             "name": sender_name,
@@ -629,7 +670,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "visibility": visibility,
         "is_private_note": is_private_note,
         "author_id": str(msg.author_id) if msg.author_id else None,
-        "reply_to": metadata.get("reply_to") if isinstance(metadata, dict) else None,
+        "reply_to": reply_to,
         "reply_to_message_id": str(msg.reply_to_message_id) if msg.reply_to_message_id else None,
     }
 

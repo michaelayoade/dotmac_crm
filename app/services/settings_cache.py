@@ -4,6 +4,7 @@ This module provides a centralized cache for domain settings using Redis,
 eliminating race conditions with in-memory caches in multi-worker environments.
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -154,12 +155,10 @@ class SettingsCache:
             values = r.mget(cache_keys)
             if not isinstance(values, list):
                 return result
-            for key, value in zip(keys, values):
+            for key, value in zip(keys, values, strict=False):
                 if isinstance(value, str):
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError):
                         result[key] = json.loads(value)
-                    except json.JSONDecodeError:
-                        pass
         except redis.RedisError as exc:
             logger.warning(f"Settings cache get_multi failed: {exc}")
         return result

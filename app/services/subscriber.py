@@ -5,10 +5,10 @@ This service handles subscriber accounts synced from external billing systems
 like Splynx, UCRM, WHMCS, or custom platforms.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.subscriber import Subscriber, SubscriberStatus
@@ -152,7 +152,7 @@ class SubscriberManager:
         for key, value in data.items():
             if hasattr(subscriber, key):
                 setattr(subscriber, key, value)
-        subscriber.updated_at = datetime.now(timezone.utc)
+        subscriber.updated_at = datetime.now(UTC)
         db.commit()
         db.refresh(subscriber)
         return subscriber
@@ -160,7 +160,7 @@ class SubscriberManager:
     def delete(self, db: Session, subscriber: Subscriber) -> None:
         """Soft delete a subscriber."""
         subscriber.is_active = False
-        subscriber.updated_at = datetime.now(timezone.utc)
+        subscriber.updated_at = datetime.now(UTC)
         db.commit()
 
     def hard_delete(self, db: Session, subscriber: Subscriber) -> None:
@@ -185,7 +185,7 @@ class SubscriberManager:
         sync_data = {
             "external_system": external_system,
             "external_id": external_id,
-            "last_synced_at": datetime.now(timezone.utc),
+            "last_synced_at": datetime.now(UTC),
             "sync_error": None,
             **data,
         }
@@ -200,7 +200,7 @@ class SubscriberManager:
     ) -> Subscriber:
         """Mark a sync error on subscriber."""
         subscriber.sync_error = error[:500] if error else None
-        subscriber.last_synced_at = datetime.now(timezone.utc)
+        subscriber.last_synced_at = datetime.now(UTC)
         db.commit()
         db.refresh(subscriber)
         return subscriber
@@ -208,13 +208,13 @@ class SubscriberManager:
     def get_stats(self, db: Session) -> dict[str, int]:
         """Get subscriber statistics."""
         total = db.query(func.count(Subscriber.id)).filter(
-            Subscriber.is_active == True
+            Subscriber.is_active.is_(True)
         ).scalar() or 0
 
         by_status = {}
         for status in SubscriberStatus:
             count = db.query(func.count(Subscriber.id)).filter(
-                Subscriber.is_active == True,
+                Subscriber.is_active.is_(True),
                 Subscriber.status == status,
             ).scalar() or 0
             by_status[status.value] = count
@@ -229,7 +229,7 @@ class SubscriberManager:
     ) -> Subscriber:
         """Link subscriber to a person contact."""
         subscriber.person_id = person_id
-        subscriber.updated_at = datetime.now(timezone.utc)
+        subscriber.updated_at = datetime.now(UTC)
         db.commit()
         db.refresh(subscriber)
         return subscriber
@@ -239,7 +239,7 @@ class SubscriberManager:
     ) -> Subscriber:
         """Link subscriber to an organization."""
         subscriber.organization_id = organization_id
-        subscriber.updated_at = datetime.now(timezone.utc)
+        subscriber.updated_at = datetime.now(UTC)
         db.commit()
         db.refresh(subscriber)
         return subscriber

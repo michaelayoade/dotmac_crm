@@ -6,8 +6,8 @@ import csv
 from dataclasses import dataclass
 
 from app.db import SessionLocal
-from app.models.person import Person
 from app.models.dispatch import TechnicianProfile
+from app.models.person import Person
 
 
 def _normalize_whitespace(value: str) -> str:
@@ -69,7 +69,6 @@ def main() -> int:
     args = parse_args()
     rows = load_rows(args.csv)
     if not rows:
-        print("No rows found.")
         return 0
 
     db = SessionLocal()
@@ -98,7 +97,6 @@ def main() -> int:
                 continue
 
             if args.dry_run:
-                print(f"DRY RUN: would add technician {row.email} ({row.region})")
                 report_rows.append({"email": row.email, "status": "dry_run", "note": ""})
                 continue
 
@@ -113,10 +111,6 @@ def main() -> int:
             created += 1
             report_rows.append({"email": row.email, "status": "created", "note": row.region})
 
-        print("Done.")
-        print(f"Created technicians: {created}")
-        print(f"Skipped existing: {skipped_existing}")
-        print(f"Missing person: {skipped_missing_person}")
 
         if report_rows:
             report_path = "scripts/technician_seed_results.csv"
@@ -124,7 +118,6 @@ def main() -> int:
                 writer = csv.DictWriter(handle, fieldnames=["email", "status", "note"])
                 writer.writeheader()
                 writer.writerows(report_rows)
-            print(f"Report: {report_path}")
     finally:
         db.close()
 

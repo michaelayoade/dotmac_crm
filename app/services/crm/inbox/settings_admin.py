@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain, SettingValueType
+from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.schemas.crm.team import AgentCreate, AgentTeamCreate, TeamCreate
 from app.schemas.settings import DomainSettingUpdate
 from app.services import crm as crm_service
@@ -30,7 +31,7 @@ class NotificationSettingsResult:
 
 
 def _coerce_value_json(value: object | None) -> dict[Any, Any] | list[Any] | bool | int | str | None:
-    if isinstance(value, (dict, list, bool, int, str)):
+    if isinstance(value, dict | list | bool | int | str):
         return value
     return None
 
@@ -61,7 +62,7 @@ def update_notification_settings(
     scopes: list[str] | None = None,
 ) -> NotificationSettingsResult:
     try:
-        if not can_manage_inbox_settings(roles, scopes):
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
             return NotificationSettingsResult(
                 ok=False,
                 error_detail="Not authorized to update notification settings",
@@ -164,7 +165,7 @@ def create_team(
     scopes: list[str] | None = None,
 ) -> ActionResult:
     try:
-        if not can_manage_inbox_settings(roles, scopes):
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
             return ActionResult(ok=False, error_detail="Not authorized to create teams")
         payload = TeamCreate(
             name=name.strip(),
@@ -185,7 +186,7 @@ def create_agent(
     scopes: list[str] | None = None,
 ) -> ActionResult:
     try:
-        if not can_manage_inbox_settings(roles, scopes):
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
             return ActionResult(ok=False, error_detail="Not authorized to create agents")
         person_id_value = (person_id or "").strip()
         if not person_id_value:
@@ -220,7 +221,7 @@ def create_agent_team(
     scopes: list[str] | None = None,
 ) -> ActionResult:
     try:
-        if not can_manage_inbox_settings(roles, scopes):
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
             return ActionResult(
                 ok=False, error_detail="Not authorized to assign agent to team"
             )
@@ -235,3 +236,67 @@ def create_agent_team(
             ok=False,
             error_detail=str(exc) or "Failed to assign agent to team",
         )
+
+
+def deactivate_agent(
+    db: Session,
+    *,
+    agent_id: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Not authorized to update agents")
+        agent = db.get(CrmAgent, coerce_uuid(agent_id))
+        if not agent:
+            return ActionResult(ok=False, error_detail="Agent not found")
+        agent.is_active = False
+        db.query(CrmAgentTeam).filter(
+            CrmAgentTeam.agent_id == agent.id,
+            CrmAgentTeam.is_active.is_(True),
+        ).update({"is_active": False})
+        db.commit()
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to update agent")
+
+
+def activate_agent(
+    db: Session,
+    *,
+    agent_id: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Not authorized to update agents")
+        agent = db.get(CrmAgent, coerce_uuid(agent_id))
+        if not agent:
+            return ActionResult(ok=False, error_detail="Agent not found")
+        agent.is_active = True
+        db.commit()
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to update agent")
+
+
+def remove_agent_team(
+    db: Session,
+    *,
+    link_id: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Not authorized to update agent teams")
+        link = db.get(CrmAgentTeam, coerce_uuid(link_id))
+        if not link:
+            return ActionResult(ok=False, error_detail="Agent team link not found")
+        link.is_active = False
+        db.commit()
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to update agent team")

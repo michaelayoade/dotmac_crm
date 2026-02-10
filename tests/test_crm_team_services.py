@@ -7,17 +7,16 @@ from fastapi import HTTPException
 
 from app.models.crm.enums import ChannelType
 from app.schemas.crm.team import (
-    TeamCreate,
-    TeamUpdate,
     AgentCreate,
-    AgentUpdate,
     AgentTeamCreate,
-    TeamChannelCreate,
+    AgentUpdate,
     RoutingRuleCreate,
     RoutingRuleUpdate,
+    TeamChannelCreate,
+    TeamCreate,
+    TeamUpdate,
 )
 from app.services.crm import team as team_service
-
 
 # =============================================================================
 # Teams CRUD Tests

@@ -58,7 +58,7 @@ class ConnectorConfigRead(ConnectorConfigBase):
             return value
         masked = dict(value)
         for key in ("secret", "token", "api_key", "password", "client_secret"):
-            if key in masked and masked[key]:
+            if masked.get(key):
                 raw = str(masked[key])
                 suffix = raw[-4:]
                 masked[key] = f"{'*' * max(len(raw) - 4, 4)}{suffix}"

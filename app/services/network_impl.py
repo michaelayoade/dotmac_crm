@@ -1,77 +1,77 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.domain_settings import SettingDomain
 from app.models.network import (
+    FdhCabinet,
+    FiberEndpointType,
     FiberSegment,
     FiberSegmentType,
     FiberSplice,
     FiberSpliceClosure,
     FiberSpliceTray,
     FiberStrand,
-    FdhCabinet,
+    FiberStrandStatus,
     FiberTerminationPoint,
+    ODNEndpointType,
+    OltCard,
+    OltCardPort,
     OLTDevice,
     OltPortType,
     OltPowerUnit,
     OltSfpModule,
-    OltCard,
-    OltCardPort,
     OltShelf,
-    FiberStrandStatus,
-    SplitterPortType,
-    FiberEndpointType,
-    ODNEndpointType,
     OntAssignment,
     OntUnit,
     PonPort,
     PonPortSplitterLink,
     Splitter,
     SplitterPort,
+    SplitterPortType,
 )
-from app.models.domain_settings import SettingDomain
-from app.services.response import ListResponseMixin
-from app.services import settings_spec
 from app.schemas.network import (
+    FdhCabinetCreate,
+    FdhCabinetUpdate,
     FiberSegmentCreate,
     FiberSegmentUpdate,
     FiberSpliceClosureCreate,
     FiberSpliceClosureUpdate,
     FiberSpliceCreate,
-    FiberSpliceUpdate,
     FiberSpliceTrayCreate,
     FiberSpliceTrayUpdate,
+    FiberSpliceUpdate,
     FiberStrandCreate,
     FiberStrandUpdate,
     FiberTerminationPointCreate,
     FiberTerminationPointUpdate,
-    FdhCabinetCreate,
-    FdhCabinetUpdate,
+    OltCardCreate,
+    OltCardPortCreate,
+    OltCardPortUpdate,
+    OltCardUpdate,
     OLTDeviceCreate,
     OLTDeviceUpdate,
     OltPowerUnitCreate,
     OltPowerUnitUpdate,
     OltSfpModuleCreate,
     OltSfpModuleUpdate,
-    OltCardCreate,
-    OltCardPortCreate,
-    OltCardPortUpdate,
-    OltCardUpdate,
     OltShelfCreate,
     OltShelfUpdate,
     OntAssignmentCreate,
     OntAssignmentUpdate,
     OntUnitCreate,
     OntUnitUpdate,
+    PonPortCreate,
     PonPortSplitterLinkCreate,
     PonPortSplitterLinkUpdate,
-    PonPortCreate,
     PonPortUpdate,
     SplitterCreate,
     SplitterPortCreate,
     SplitterPortUpdate,
     SplitterUpdate,
 )
+from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.response import ListResponseMixin
 
 
 def _safe_get(db: Session, model, item_id: object):
@@ -228,7 +228,7 @@ class PonPorts(ListResponseMixin):
             olt = _safe_get(db, OLTDevice, data["olt_id"])
             if not olt:
                 raise HTTPException(status_code=404, detail="OLT device not found")
-        if "olt_card_port_id" in data and data["olt_card_port_id"]:
+        if data.get("olt_card_port_id"):
             card_port = _safe_get(db, OltCardPort, data["olt_card_port_id"])
             if not card_port:
                 raise HTTPException(status_code=404, detail="OLT card port not found")
@@ -700,7 +700,7 @@ class Splitters(ListResponseMixin):
         if not splitter:
             raise HTTPException(status_code=404, detail="Splitter not found")
         data = payload.model_dump(exclude_unset=True)
-        if "fdh_id" in data and data["fdh_id"]:
+        if data.get("fdh_id"):
             cabinet = _safe_get(db, FdhCabinet, data["fdh_id"])
             if not cabinet:
                 raise HTTPException(status_code=404, detail="FDH cabinet not found")

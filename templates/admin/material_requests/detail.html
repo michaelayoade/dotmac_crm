@@ -1,0 +1,242 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import submit_button, danger_button %}
+
+{% block title %}Material Request {{ mr.number or '' }} - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between animate-fade-in-up">
+        <div>
+            <div class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                <a href="/admin/operations/material-requests" class="hover:text-teal-600 dark:hover:text-teal-400">Material Requests</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="font-medium text-slate-900 dark:text-white">{{ mr.number or mr.id|string|truncate(8, True, '') }}</span>
+            </div>
+            <h1 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">Material Request {{ mr.number or '' }}</h1>
+            <div class="mt-2 flex items-center gap-3">
+                {% set sv = mr.status.value if mr.status else 'draft' %}
+                {% if sv == 'draft' %}
+                <span class="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                    <span class="h-2 w-2 rounded-full bg-slate-400"></span> Draft
+                </span>
+                {% elif sv == 'submitted' %}
+                <span class="inline-flex items-center gap-1.5 rounded-lg bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-400">
+                    <span class="h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span> Submitted
+                </span>
+                {% elif sv == 'approved' %}
+                <span class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Approved
+                </span>
+                {% elif sv == 'fulfilled' %}
+                <span class="inline-flex items-center gap-1.5 rounded-lg bg-teal-100 px-3 py-1 text-sm font-semibold text-teal-700 dark:bg-teal-500/20 dark:text-teal-400">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Fulfilled
+                </span>
+                {% elif sv == 'rejected' %}
+                <span class="inline-flex items-center gap-1.5 rounded-lg bg-red-100 px-3 py-1 text-sm font-semibold text-red-700 dark:bg-red-500/20 dark:text-red-400">
+                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg> Rejected
+                </span>
+                {% elif sv == 'canceled' %}
+                <span class="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400">Canceled</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            {% if sv == 'draft' %}
+            <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/submit">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                {{ submit_button("Submit for Approval", color="blue", size="sm") }}
+            </form>
+            {% elif sv == 'submitted' %}
+            <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/approve">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                {{ submit_button("Approve", color="emerald", size="sm") }}
+            </form>
+            <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/reject">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                {{ danger_button("Reject", size="sm") }}
+            </form>
+            {% endif %}
+            {% if sv not in ['fulfilled', 'rejected', 'canceled'] %}
+            <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/cancel">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors">Cancel</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-3">
+        <!-- Main Content -->
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Items -->
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 100ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-emerald-600 shadow-sm">
+                        <svg class="h-4.5 w-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                    </div>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Requested Items</h2>
+                    <span class="ml-auto rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{ mr.items|length }}</span>
+                </div>
+                <div class="p-6">
+                    {% if mr.items %}
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-slate-200 dark:border-slate-700">
+                                    <th class="pb-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Item</th>
+                                    <th class="pb-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">SKU</th>
+                                    <th class="pb-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Quantity</th>
+                                    <th class="pb-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notes</th>
+                                    {% if sv in ['draft', 'submitted'] %}
+                                    <th class="pb-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
+                                    {% endif %}
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                                {% for item in mr.items %}
+                                <tr>
+                                    <td class="py-3 font-medium text-slate-900 dark:text-white">{{ item.item.name if item.item else '-' }}</td>
+                                    <td class="py-3 text-slate-500 dark:text-slate-400">{{ item.item.sku if item.item else '-' }}</td>
+                                    <td class="py-3 text-right font-semibold text-slate-900 dark:text-white">{{ item.quantity }}</td>
+                                    <td class="py-3 text-slate-500 dark:text-slate-400">{{ item.notes or '-' }}</td>
+                                    {% if sv in ['draft', 'submitted'] %}
+                                    <td class="py-3 text-right">
+                                        <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/items/{{ item.id }}/remove" class="inline">
+                                            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                            <button type="submit" class="text-xs text-red-500 hover:text-red-700 dark:text-red-400" aria-label="Remove item">Remove</button>
+                                        </form>
+                                    </td>
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400 italic">No items added yet.</p>
+                    {% endif %}
+
+                    <!-- Add Item Form (only for draft/submitted) -->
+                    {% if sv in ['draft', 'submitted'] %}
+                    <div class="mt-6 pt-6 border-t border-slate-100 dark:border-slate-700/50">
+                        <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-3">Add Item</h3>
+                        <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/items/add" class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                            <div class="flex-1">
+                                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Item ID</label>
+                                <input type="text" name="item_id" required placeholder="Inventory item UUID"
+                                       class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            </div>
+                            <div class="w-24">
+                                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Qty</label>
+                                <input type="number" name="quantity" required min="1" value="1"
+                                       class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            </div>
+                            <div class="flex-1">
+                                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Notes</label>
+                                <input type="text" name="notes" placeholder="Optional notes"
+                                       class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            </div>
+                            {{ submit_button("Add", color="teal", size="sm") }}
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Notes -->
+            {% if mr.notes %}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 150ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Notes</h2>
+                </div>
+                <div class="p-6">
+                    <p class="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{{ mr.notes }}</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Sidebar -->
+        <div class="space-y-6">
+            <!-- Details -->
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 75ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Details</h2>
+                </div>
+                <div class="p-5 space-y-4">
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Priority</dt>
+                        <dd class="mt-1.5 text-sm font-medium text-slate-900 dark:text-white">{{ mr.priority.value|capitalize if mr.priority else 'Medium' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Requested By</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">
+                            {% if mr.requested_by %}
+                            {{ mr.requested_by.first_name }} {{ mr.requested_by.last_name }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </dd>
+                    </div>
+                    {% if mr.approved_by %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Approved By</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.approved_by.first_name }} {{ mr.approved_by.last_name }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if mr.ticket %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Ticket</dt>
+                        <dd class="mt-1.5">
+                            <a href="/admin/support/tickets/{{ mr.ticket.number or mr.ticket_id }}" class="text-sm font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400">
+                                {{ mr.ticket.number or mr.ticket_id|string|truncate(8, True, '') }}
+                            </a>
+                        </dd>
+                    </div>
+                    {% endif %}
+                    {% if mr.project %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Project</dt>
+                        <dd class="mt-1.5">
+                            <a href="/admin/projects/{{ mr.project_id }}" class="text-sm font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400">
+                                {{ mr.project.code or mr.project.name or mr.project_id|string|truncate(8, True, '') }}
+                            </a>
+                        </dd>
+                    </div>
+                    {% endif %}
+                    {% if mr.erp_material_request_id %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">ERP ID</dt>
+                        <dd class="mt-1.5 text-sm text-slate-600 dark:text-slate-400 font-mono">{{ mr.erp_material_request_id }}</dd>
+                    </div>
+                    {% endif %}
+                    <div class="pt-4 border-t border-slate-100 dark:border-slate-700/50">
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Created</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.created_at.strftime('%b %d, %Y at %H:%M') if mr.created_at else '-' }}</dd>
+                    </div>
+                    {% if mr.submitted_at %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Submitted</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.submitted_at.strftime('%b %d, %Y at %H:%M') }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if mr.approved_at %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Approved</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.approved_at.strftime('%b %d, %Y at %H:%M') }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if mr.fulfilled_at %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Fulfilled</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.fulfilled_at.strftime('%b %d, %Y at %H:%M') }}</dd>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

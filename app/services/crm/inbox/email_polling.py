@@ -5,20 +5,20 @@ import email
 import imaplib
 import poplib
 import re
+from datetime import UTC
 from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
-from datetime import timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.connector import ConnectorConfig
-from app.models.integration import IntegrationTarget, IntegrationTargetType
-from app.models.crm.conversation import MessageAttachment
-from app.schemas.crm.inbox import EmailWebhookPayload
-from app.services.crm import inbox as inbox_service
-from app.services.common import coerce_uuid
 from app.logging import get_logger
+from app.models.connector import ConnectorConfig
+from app.models.crm.conversation import MessageAttachment
+from app.models.integration import IntegrationTarget, IntegrationTargetType
+from app.schemas.crm.inbox import EmailWebhookPayload
+from app.services.common import coerce_uuid
+from app.services.crm import inbox as inbox_service
 
 logger = get_logger(__name__)
 
@@ -83,7 +83,7 @@ def _payload_to_bytes(value: object | None) -> bytes:
 
 
 def _extract_uid_from_fetch_header(header: object) -> str | None:
-    if isinstance(header, (bytes, bytearray)):
+    if isinstance(header, bytes | bytearray):
         header_bytes = header
     else:
         header_bytes = str(header).encode("utf-8", errors="replace")
@@ -287,7 +287,7 @@ def _imap_poll(
             if not msg_data or not msg_data[0]:
                 continue
             header, raw = msg_data[0] if isinstance(msg_data[0], tuple) else (None, None)
-            if not raw or not isinstance(raw, (bytes, bytearray)):
+            if not raw or not isinstance(raw, bytes | bytearray):
                 continue
             uid_value = _extract_uid_from_fetch_header(header)
             if last_uid is not None:
@@ -322,9 +322,9 @@ def _imap_poll(
                     parsed_date = parsedate_to_datetime(date_header)
                     if parsed_date:
                         received_at = (
-                            parsed_date.astimezone(timezone.utc)
+                            parsed_date.astimezone(UTC)
                             if parsed_date.tzinfo
-                            else parsed_date.replace(tzinfo=timezone.utc)
+                            else parsed_date.replace(tzinfo=UTC)
                         )
                 except Exception:
                     received_at = None
@@ -386,7 +386,7 @@ def _imap_poll(
         if not msg_data or not msg_data[0]:
             continue
         raw_bytes = msg_data[0][1]
-        if not isinstance(raw_bytes, (bytes, bytearray)):
+        if not isinstance(raw_bytes, bytes | bytearray):
             continue
         msg = email.message_from_bytes(raw_bytes)
         from_header = msg.get("From") or ""
@@ -417,9 +417,9 @@ def _imap_poll(
                 parsed_date = parsedate_to_datetime(date_header)
                 if parsed_date:
                     received_at = (
-                        parsed_date.astimezone(timezone.utc)
+                        parsed_date.astimezone(UTC)
                         if parsed_date.tzinfo
-                        else parsed_date.replace(tzinfo=timezone.utc)
+                        else parsed_date.replace(tzinfo=UTC)
                     )
             except Exception:
                 received_at = None
@@ -547,9 +547,9 @@ def _pop3_poll(
                 parsed_date = parsedate_to_datetime(date_header)
                 if parsed_date:
                     received_at = (
-                        parsed_date.astimezone(timezone.utc)
+                        parsed_date.astimezone(UTC)
                         if parsed_date.tzinfo
-                        else parsed_date.replace(tzinfo=timezone.utc)
+                        else parsed_date.replace(tzinfo=UTC)
                     )
             except Exception:
                 received_at = None

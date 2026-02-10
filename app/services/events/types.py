@@ -150,7 +150,7 @@ class Event:
                 return value.isoformat()
             if isinstance(value, dict):
                 return {key: _serialize(val) for key, val in value.items()}
-            if isinstance(value, (list, tuple)):
+            if isinstance(value, list | tuple):
                 return [_serialize(item) for item in value]
             return value
 

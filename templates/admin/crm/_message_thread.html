@@ -342,6 +342,9 @@
                             {% elif msg.status in ['failed', 'queued'] %}
                             <span class="w-2 h-2 rounded-full bg-red-500" title="Message not sent"></span>
                             {% endif %}
+                            {% if msg.read_at %}
+                            <span class="text-[10px] text-emerald-600 dark:text-emerald-400">Read</span>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -441,6 +444,9 @@
           action="/admin/crm/inbox/conversation/{{ conversation.id }}/message"
           class="max-w-3xl mx-auto"
           x-on:submit.prevent="
+              if ($el.dataset.submitting === '1') {
+                  return;
+              }
               const text = ($refs.messageInput?.value || '').trim();
               const hasAttachments = pendingAttachments && pendingAttachments.length > 0;
               if (!text && !hasAttachments) {
@@ -454,6 +460,12 @@
               }
               if ($root && $root.clearDraft) {
                   $root.clearDraft('{{ conversation.id }}');
+              }
+              $el.dataset.submitting = '1';
+              const submitBtn = $el.querySelector('button[type=submit]');
+              if (submitBtn) {
+                  submitBtn.disabled = true;
+                  submitBtn.classList.add('opacity-60', 'pointer-events-none');
               }
               $el.submit();
           ">
@@ -472,6 +484,32 @@
                    class="hidden"
                    @change="uploadAttachments($event)">
 
+            <!-- Template + schedule -->
+            <div class="flex flex-col gap-2">
+                <select name="template_id"
+                        class="min-w-[180px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary-500/40 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-200"
+                        @change="
+                            const opt = $event.target.selectedOptions[0];
+                            const body = opt ? opt.dataset.body : '';
+                            if (body && $refs.messageInput) {
+                                $refs.messageInput.value = body;
+                                $refs.messageInput.dispatchEvent(new Event('input'));
+                            }
+                        ">
+                    <option value="">Template</option>
+                    {% for tmpl in message_templates or [] %}
+                    <option value="{{ tmpl.id }}"
+                            data-body="{{ tmpl.body | e }}">
+                        {% if tmpl.channel_type %}{{ tmpl.channel_type.value }} · {% endif %}{{ tmpl.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <input type="datetime-local"
+                       name="scheduled_at"
+                       class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary-500/40 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-200"
+                       placeholder="Schedule send">
+            </div>
+
             <!-- Message input -->
             <div class="flex-1 relative">
                 <textarea x-ref="messageInput"
@@ -479,12 +517,20 @@
                           rows="1"
                           placeholder="Type your message..."
                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 placeholder-slate-400 resize-none focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/30 transition-all dark:bg-slate-800/50 dark:border-slate-700/50 dark:text-white dark:placeholder-slate-500"
-                          @keydown.enter.prevent="if (!$event.shiftKey) { $el.closest('form').requestSubmit(); }"
+                          @keydown.enter="
+                              if (!$event.ctrlKey && !$event.metaKey) { return; }
+                              $event.preventDefault();
+                              const form = $el.closest('form');
+                              if (!form || form.dataset.submitting === '1') { return; }
+                              form.requestSubmit();
+                          "
+                          @blur="if ($root && $root.flushPendingThreadRefresh) { $root.flushPendingThreadRefresh(); }"
                           @input="
                               $el.style.height = 'auto';
                               $el.style.height = Math.min($el.scrollHeight, 150) + 'px';
                               if ($refs.messageError) { $refs.messageError.textContent = ''; }
                               if ($root && $root.storeDraft) { $root.storeDraft('{{ conversation.id }}', $el.value); }
+                              if ($root && $root.sendTypingIndicator) { $root.sendTypingIndicator('{{ conversation.id }}'); }
                           "></textarea>
             </div>
 

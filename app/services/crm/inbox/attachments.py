@@ -10,9 +10,9 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models.domain_settings import SettingDomain
 from app.models.crm.conversation import Message
 from app.models.crm.enums import ChannelType
+from app.models.domain_settings import SettingDomain
 from app.services import meta_oauth
 from app.services.settings_spec import resolve_value
 

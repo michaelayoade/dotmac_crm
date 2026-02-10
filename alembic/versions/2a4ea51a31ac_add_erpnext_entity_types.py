@@ -1,7 +1,7 @@
 """Add ERPNext entity types to ExternalEntityType enum.
 
 Revision ID: 2a4ea51a31ac
-Revises: 
+Revises:
 Create Date: 2026-01-31
 
 """

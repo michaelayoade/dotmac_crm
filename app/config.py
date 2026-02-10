@@ -67,7 +67,7 @@ class Settings:
     )
 
     # Meta Graph API settings
-    meta_graph_api_version: str = os.getenv("META_GRAPH_API_VERSION", "v21.0")
+    meta_graph_api_version: str = os.getenv("META_GRAPH_API_VERSION", "v19.0")
     meta_graph_base_url: str = os.getenv(
         "META_GRAPH_BASE_URL",
         f"https://graph.facebook.com/{os.getenv('META_GRAPH_API_VERSION', 'v19.0')}",

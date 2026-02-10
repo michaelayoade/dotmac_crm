@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from uuid import UUID
+import re
+from datetime import UTC, datetime
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
-import re
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.logging import get_logger
+from app.middleware.widget_rate_limit import check_session_creation_rate
 from app.models.crm.chat_widget import ChatWidgetConfig, WidgetVisitorSession
 from app.models.crm.conversation import Message
 from app.models.crm.enums import MessageDirection
@@ -34,7 +36,6 @@ from app.services.crm.chat_widget import (
     widget_configs,
     widget_visitors,
 )
-from app.middleware.widget_rate_limit import check_session_creation_rate
 
 logger = get_logger(__name__)
 
@@ -103,7 +104,7 @@ def _validate_prechat_payload(config: ChatWidgetConfig, fields: dict) -> dict:
     name_value: str | None = None
     phone_value: str | None = None
 
-    for name in fields.keys():
+    for name in fields:
         if name not in field_map:
             errors.append(f"Unknown field: {name}")
 
@@ -535,3 +536,36 @@ def get_session_status(
         "unread_count": unread_count,
         "is_online": is_within_business_hours(config.business_hours) if config else True,
     }
+
+
+@router.post("/session/{session_id}/read")
+def mark_widget_messages_read(
+    session_id: UUID,
+    request: Request,
+    response: Response,
+    x_visitor_token: str = Header(alias="X-Visitor-Token"),
+    db: Session = Depends(get_db),
+):
+    """Mark outbound messages as read for a widget session."""
+    session = _get_session_from_token(db, x_visitor_token)
+
+    if str(session.id) != str(session_id):
+        raise HTTPException(status_code=403, detail="Session mismatch")
+
+    config = session.widget_config
+    if config:
+        _validate_origin(config, request)
+        _set_cors_headers(response, request.headers.get("origin"))
+
+    if not session.conversation_id:
+        return {"status": "ok"}
+
+    now = datetime.now(UTC)
+    db.query(Message).filter(
+        Message.conversation_id == session.conversation_id,
+        Message.direction == MessageDirection.outbound,
+        Message.read_at.is_(None),
+    ).update({"read_at": now})
+    db.commit()
+
+    return {"status": "ok"}

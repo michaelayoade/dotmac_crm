@@ -9,7 +9,6 @@ Rules:
 """
 import os
 import re
-import sys
 
 TEMPLATES_DIR = "/root/dotmac/dotmac_omni/templates"
 
@@ -50,16 +49,12 @@ def is_button_class(class_content):
             return False
 
     # Check if it matches button patterns
-    for pat in BUTTON_INDICATORS:
-        if re.search(pat, class_content):
-            return True
-
-    return False
+    return any(re.search(pat, class_content) for pat in BUTTON_INDICATORS)
 
 
 def process_file(filepath):
     """Process a single file, replacing rounded-lg with rounded-xl on button elements."""
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         content = f.read()
 
     if "rounded-lg" not in content:
@@ -84,7 +79,7 @@ def process_file(filepath):
         # Look at surrounding lines for <button or <a context
         context_start = max(0, i - 5)
         context_end = min(len(lines), i + 3)
-        context = "\n".join(lines[context_start:context_end])
+        "\n".join(lines[context_start:context_end])
 
         # Strategy 1: Line contains <button or <a with rounded-lg
         is_button_line = bool(re.search(r"<button\b", line)) or bool(
@@ -146,21 +141,16 @@ def process_file(filepath):
             f.write(new_content)
         stats["files_modified"] += 1
         stats["replacements"] += file_replacements
-        rel = os.path.relpath(filepath, "/root/dotmac/dotmac_omni")
-        print(f"  {rel}: {file_replacements} replacements")
+        os.path.relpath(filepath, "/root/dotmac/dotmac_omni")
 
 
 def main():
-    print("Scanning templates for button rounded-lg -> rounded-xl fixes...\n")
 
-    for root, dirs, files in os.walk(TEMPLATES_DIR):
+    for root, _dirs, files in os.walk(TEMPLATES_DIR):
         for fname in sorted(files):
             if fname.endswith(".html"):
                 process_file(os.path.join(root, fname))
 
-    print(f"\nDone! Files checked: {stats['files_checked']}, "
-          f"Files modified: {stats['files_modified']}, "
-          f"Total replacements: {stats['replacements']}")
 
 
 if __name__ == "__main__":

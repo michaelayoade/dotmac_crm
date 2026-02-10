@@ -8,12 +8,12 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.subscriber import SubscriberStatus
 from app.schemas.subscriber import (
-    SubscriberCreate,
-    SubscriberUpdate,
-    SubscriberResponse,
-    SubscriberListResponse,
-    SubscriberStats,
     SubscriberBulkSync,
+    SubscriberCreate,
+    SubscriberListResponse,
+    SubscriberResponse,
+    SubscriberStats,
+    SubscriberUpdate,
 )
 from app.services.subscriber import subscriber as subscriber_service
 

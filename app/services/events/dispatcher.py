@@ -56,7 +56,7 @@ class EventDispatcher:
         event_record_id = None
         persist_session = SessionLocal()
         try:
-            event_record: EventStore = EventStore(
+            persist_record: EventStore = EventStore(
                 event_id=event.event_id,
                 event_type=event.event_type.value,
                 payload=event.payload,
@@ -70,9 +70,9 @@ class EventDispatcher:
                 project_id=event.project_id,
                 work_order_id=event.work_order_id,
             )
-            persist_session.add(event_record)
+            persist_session.add(persist_record)
             persist_session.commit()
-            event_record_id = event_record.id
+            event_record_id = persist_record.id
         except Exception as persist_exc:
             # If we can't persist, still try to process but log the error
             logger.warning(

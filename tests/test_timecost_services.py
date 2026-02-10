@@ -1,7 +1,7 @@
 """Tests for timecost service."""
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -19,8 +19,7 @@ from app.schemas.timecost import (
     WorkLogUpdate,
 )
 from app.services import timecost as timecost_service
-from app.services.common import apply_ordering, apply_pagination, validate_enum
-
+from app.services.common import apply_ordering, apply_pagination
 
 # ============================================================================
 # Helper Function Tests
@@ -117,26 +116,26 @@ class TestComputeMinutes:
 
     def test_computes_minutes_from_times(self):
         """Test computes minutes from start and end times."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         end = start + timedelta(hours=2, minutes=30)
         result = timecost_service._compute_minutes(start, end)
         assert result == 150
 
     def test_returns_zero_for_none_start(self):
         """Test returns 0 when start is None."""
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
         result = timecost_service._compute_minutes(None, end)
         assert result == 0
 
     def test_returns_zero_for_none_end(self):
         """Test returns 0 when end is None."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         result = timecost_service._compute_minutes(start, None)
         assert result == 0
 
     def test_returns_zero_for_negative_delta(self):
         """Test returns 0 when end is before start."""
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
         start = end + timedelta(hours=1)
         result = timecost_service._compute_minutes(start, end)
         assert result == 0
@@ -152,7 +151,7 @@ class TestWorkLogsCreate:
 
     def test_creates_work_log(self, db_session, work_order, person):
         """Test creates work log with required fields."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         payload = WorkLogCreate(
             work_order_id=work_order.id,
             person_id=person.id,
@@ -165,7 +164,7 @@ class TestWorkLogsCreate:
 
     def test_computes_minutes_when_end_provided(self, db_session, work_order, person):
         """Test auto-computes minutes when end_at is provided."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         end = start + timedelta(hours=2)
         payload = WorkLogCreate(
             work_order_id=work_order.id,
@@ -179,7 +178,7 @@ class TestWorkLogsCreate:
 
     def test_uses_provided_minutes(self, db_session, work_order, person):
         """Test uses provided minutes instead of computing."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         end = start + timedelta(hours=2)
         payload = WorkLogCreate(
             work_order_id=work_order.id,
@@ -196,7 +195,7 @@ class TestWorkLogsCreate:
         payload = WorkLogCreate(
             work_order_id=uuid.uuid4(),
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
         )
         with pytest.raises(HTTPException) as exc_info:
             timecost_service.work_logs.create(db_session, payload)
@@ -208,7 +207,7 @@ class TestWorkLogsCreate:
         payload = WorkLogCreate(
             work_order_id=work_order.id,
             person_id=uuid.uuid4(),
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
         )
         with pytest.raises(HTTPException) as exc_info:
             timecost_service.work_logs.create(db_session, payload)
@@ -224,7 +223,7 @@ class TestWorkLogsGet:
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
         )
         db_session.add(log)
         db_session.commit()
@@ -248,13 +247,13 @@ class TestWorkLogsList:
         active = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
             is_active=True,
         )
         inactive = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
             is_active=False,
         )
         db_session.add_all([active, inactive])
@@ -277,7 +276,7 @@ class TestWorkLogsList:
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
         )
         db_session.add(log)
         db_session.commit()
@@ -292,14 +291,14 @@ class TestWorkLogsList:
             limit=10,
             offset=0,
         )
-        assert all(l.work_order_id == work_order.id for l in result)
+        assert all(item.work_order_id == work_order.id for item in result)
 
     def test_filters_by_person_id(self, db_session, work_order, person):
         """Test filters by person_id."""
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
         )
         db_session.add(log)
         db_session.commit()
@@ -314,14 +313,14 @@ class TestWorkLogsList:
             limit=10,
             offset=0,
         )
-        assert all(l.person_id == person.id for l in result)
+        assert all(item.person_id == person.id for item in result)
 
     def test_lists_inactive_when_specified(self, db_session, work_order, person):
         """Test lists inactive work logs when specified."""
         inactive = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
             is_active=False,
         )
         db_session.add(inactive)
@@ -337,7 +336,7 @@ class TestWorkLogsList:
             limit=10,
             offset=0,
         )
-        assert all(not l.is_active for l in result)
+        assert all(not item.is_active for item in result)
 
 
 class TestWorkLogsUpdate:
@@ -348,7 +347,7 @@ class TestWorkLogsUpdate:
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
         )
         db_session.add(log)
         db_session.commit()
@@ -359,7 +358,7 @@ class TestWorkLogsUpdate:
 
     def test_recomputes_minutes_on_time_change(self, db_session, work_order, person):
         """Test recomputes minutes when times change."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
@@ -391,7 +390,7 @@ class TestWorkLogsDelete:
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
-            start_at=datetime.now(timezone.utc),
+            start_at=datetime.now(UTC),
             is_active=True,
         )
         db_session.add(log)
@@ -569,7 +568,7 @@ class TestExpenseLinesList:
             limit=10,
             offset=0,
         )
-        assert all(l.work_order_id == work_order.id for l in result)
+        assert all(item.work_order_id == work_order.id for item in result)
 
     def test_filters_by_project_id(self, db_session, project):
         """Test filters by project_id."""
@@ -590,7 +589,7 @@ class TestExpenseLinesList:
             limit=10,
             offset=0,
         )
-        assert all(l.project_id == project.id for l in result)
+        assert all(item.project_id == project.id for item in result)
 
     def test_lists_inactive_when_specified(self, db_session, work_order):
         """Test lists inactive expense lines when specified."""
@@ -612,7 +611,7 @@ class TestExpenseLinesList:
             limit=10,
             offset=0,
         )
-        assert all(not l.is_active for l in result)
+        assert all(not item.is_active for item in result)
 
 
 class TestExpenseLinesUpdate:
@@ -724,7 +723,7 @@ class TestCostRatesCreate:
 
     def test_creates_with_effective_dates(self, db_session, person):
         """Test creates cost rate with effective dates."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         payload = CostRateCreate(
             person_id=person.id,
             hourly_rate=Decimal("100.00"),
@@ -1030,7 +1029,7 @@ class TestResolveRate:
 
     def test_returns_rate_for_person(self, db_session, person):
         """Test returns rate for person."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         rate = CostRate(
             person_id=person.id,
             hourly_rate=Decimal("60.00"),
@@ -1045,13 +1044,13 @@ class TestResolveRate:
 
     def test_returns_zero_when_no_rate(self, db_session, person):
         """Test returns 0 when no rate found."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = timecost_service._resolve_rate(db_session, str(person.id), now)
         assert result == Decimal("0.00")
 
     def test_respects_effective_dates(self, db_session, person):
         """Test respects effective dates."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Create rate that's expired
         expired = CostRate(
             person_id=person.id,
@@ -1087,7 +1086,7 @@ class TestWorkOrderCostSummary:
         db_session.add(rate)
         db_session.commit()
 
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
@@ -1103,7 +1102,7 @@ class TestWorkOrderCostSummary:
 
     def test_uses_log_hourly_rate_if_set(self, db_session, work_order, person):
         """Test uses work log's hourly_rate if set."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
@@ -1137,7 +1136,7 @@ class TestWorkOrderCostSummary:
 
     def test_ignores_inactive_logs_and_expenses(self, db_session, work_order, person):
         """Test ignores inactive work logs and expenses."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         active_log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
@@ -1191,7 +1190,7 @@ class TestProjectCostSummary:
         db_session.add(rate)
         db_session.commit()
 
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,
@@ -1219,7 +1218,7 @@ class TestProjectCostSummary:
 
     def test_calculates_total_cost(self, db_session, project, work_order, person):
         """Test calculates total cost."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         log = WorkLog(
             work_order_id=work_order.id,
             person_id=person.id,

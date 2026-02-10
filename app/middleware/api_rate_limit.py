@@ -9,8 +9,9 @@ from __future__ import annotations
 import os
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from threading import Lock
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, ClassVar
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -48,7 +49,7 @@ class APIRateLimitMiddleware:
     """
 
     # Paths to skip rate limiting
-    EXEMPT_PATHS = {
+    EXEMPT_PATHS: ClassVar[set[str]] = {
         "/health",
         "/ready",
         "/metrics",
@@ -57,7 +58,7 @@ class APIRateLimitMiddleware:
     }
 
     # Path prefixes to skip
-    EXEMPT_PREFIXES = (
+    EXEMPT_PREFIXES: ClassVar[tuple[str, ...]] = (
         "/static/",
         "/docs",
         "/openapi",
@@ -66,7 +67,7 @@ class APIRateLimitMiddleware:
 
     def __init__(
         self,
-        app: "ASGIApp",
+        app: ASGIApp,
         limit: int = DEFAULT_LIMIT,
         window_seconds: int = DEFAULT_WINDOW,
         key_func: Callable[[Request], str] | None = None,
@@ -122,7 +123,7 @@ class APIRateLimitMiddleware:
             return True
         return any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES)
 
-    async def __call__(self, scope: "Scope", receive: "Receive", send: "Send"):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return

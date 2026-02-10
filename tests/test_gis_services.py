@@ -1,10 +1,13 @@
 """Tests for GIS service."""
 
-from app.models.gis import GeoLocationType, GeoLayerType, GeoAreaType
+from app.models.gis import GeoAreaType, GeoLayerType, GeoLocationType
 from app.schemas.gis import (
-    GeoLocationCreate, GeoLocationUpdate,
-    GeoLayerCreate, GeoLayerUpdate,
-    GeoAreaCreate, GeoAreaUpdate,
+    GeoAreaCreate,
+    GeoAreaUpdate,
+    GeoLayerCreate,
+    GeoLayerUpdate,
+    GeoLocationCreate,
+    GeoLocationUpdate,
 )
 from app.services import gis as gis_service
 
@@ -141,7 +144,7 @@ def test_list_geo_layers_by_type(db_session):
         limit=10,
         offset=0,
     )
-    assert all(l.layer_type == GeoLayerType.polygons for l in polygons)
+    assert all(layer.layer_type == GeoLayerType.polygons for layer in polygons)
 
 
 def test_update_geo_layer(db_session):

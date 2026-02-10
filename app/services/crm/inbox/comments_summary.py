@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.models.crm.comments import SocialCommentPlatform
-from app.services.crm.inbox.comments_context import _group_comment_authors
 from app.services.crm import contact as contact_service
+from app.services.crm.inbox.comments_context import _group_comment_authors
 
 
 def build_comment_summaries(social_comments: list[Any]) -> list[dict]:
-    comment_summaries = []
+    comment_summaries: list[dict] = []
     if not social_comments:
         return comment_summaries
     grouped_comments = _group_comment_authors(social_comments)
@@ -61,7 +61,7 @@ def merge_recent_conversations_with_comments(
         return recent_conversations
     merged = list(recent_conversations) + comment_summaries
     merged.sort(
-        key=lambda item: item.get("sort_at") or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda item: item.get("sort_at") or datetime.min.replace(tzinfo=UTC),
         reverse=True,
     )
     return merged[:limit]

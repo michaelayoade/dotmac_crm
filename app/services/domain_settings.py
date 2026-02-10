@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import builtins
+from typing import Any
+
 from fastapi import HTTPException
-from typing import Any, List
 from sqlalchemy.orm import Session
 
-from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.domain_settings import SettingValueType
+from app.models.domain_settings import DomainSetting, SettingDomain, SettingValueType
 from app.schemas.settings import DomainSettingCreate, DomainSettingUpdate
-from app.services.common import validate_enum, apply_pagination, apply_ordering, coerce_uuid
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid
 from app.services.response import ListResponseMixin
 from app.services.settings_cache import SettingsCache
 
@@ -134,7 +135,7 @@ class DomainSettings(ListResponseMixin):
         key: str,
         value_type: SettingValueType,
         value_text: str | None = None,
-        value_json: dict | List[Any] | bool | int | str | None = None,
+        value_json: dict | builtins.list[Any] | bool | int | str | None = None,
         is_secret: bool = False,
     ):
         if not self.domain:

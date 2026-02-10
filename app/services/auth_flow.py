@@ -1,35 +1,37 @@
 from __future__ import annotations
 
 import hashlib
-import uuid
 import os
 import secrets
-from datetime import datetime, timedelta, timezone
+import uuid
+from datetime import UTC, datetime, timedelta
 
 import pyotp
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException, Request, Response, status
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.models.auth import (
     AuthProvider,
     MFAMethod,
     MFAMethodType,
-    Session as AuthSession,
     SessionStatus,
     UserCredential,
 )
+from app.models.auth import (
+    Session as AuthSession,
+)
+from app.models.domain_settings import DomainSetting, SettingDomain
+from app.models.person import Person
+from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
+from app.schemas.auth_flow import LoginResponse, LogoutResponse, TokenResponse
 from app.services.auth_cache import invalidate_session
 from app.services.common import coerce_uuid
 from app.services.response import ListResponseMixin
-from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
-from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.person import Person
 from app.services.secrets import resolve_secret
-from app.schemas.auth_flow import LoginResponse, LogoutResponse, TokenResponse
 
 PASSWORD_CONTEXT = CryptContext(
     schemes=["pbkdf2_sha256", "bcrypt"],
@@ -60,14 +62,14 @@ def _env_int(name: str) -> int | None:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=UTC)
     return value
 
 

@@ -1,15 +1,17 @@
 """Seed CRM inbox with test data for development/testing."""
 
 import argparse
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from dotenv import load_dotenv
 
 from app.db import SessionLocal
-from app.models.person import Person, PersonChannel, ChannelType as PersonChannelType
-from app.models.crm.conversation import Conversation, ConversationTag, Message
-from app.models.crm.enums import ChannelType as CrmChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models import Organization
+from app.models.crm.conversation import Conversation, ConversationTag, Message
+from app.models.crm.enums import ChannelType as CrmChannelType
+from app.models.crm.enums import ConversationStatus, MessageDirection, MessageStatus
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Person, PersonChannel
 
 
 def parse_args():
@@ -20,12 +22,10 @@ def parse_args():
 
 def clear_crm_data(db):
     """Clear existing CRM data."""
-    print("Clearing existing CRM data...")
     db.query(Message).delete()
     db.query(ConversationTag).delete()
     db.query(Conversation).delete()
     db.commit()
-    print("CRM data cleared.")
 
 
 def create_organizations(db):
@@ -53,7 +53,7 @@ def create_organizations(db):
 
 def create_contacts_and_conversations(db, orgs):
     """Create test contacts, channels, conversations, and messages."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     contacts_data = [
         {
@@ -421,20 +421,10 @@ def main():
         if args.clear:
             clear_crm_data(db)
 
-        print("Creating test organizations...")
         orgs = create_organizations(db)
-        print(f"  Created/found {len(orgs)} organizations")
 
-        print("Creating contacts, conversations, and messages...")
-        counts = create_contacts_and_conversations(db, orgs)
-        print(f"  Created {counts['contacts']} contacts")
-        print(f"  Created {counts['channels']} contact channels")
-        print(f"  Created {counts['conversations']} conversations")
-        print(f"  Created {counts['messages']} messages")
-        print(f"  Created {counts['tags']} tags")
+        create_contacts_and_conversations(db, orgs)
 
-        print("\nCRM inbox seed data created successfully!")
-        print("Access the inbox at: /admin/crm/inbox")
 
     finally:
         db.close()

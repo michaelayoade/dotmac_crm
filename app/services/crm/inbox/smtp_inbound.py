@@ -5,17 +5,12 @@ from __future__ import annotations
 import base64
 import os
 import sys
+from collections.abc import Iterable
+from datetime import UTC
 from email import message_from_bytes, policy
 from email.header import decode_header
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
-from datetime import timezone
-from typing import Any, Iterable
-
-SMTPController: Any
-try:
-    from aiosmtpd.controller import Controller as SMTPController
-except ModuleNotFoundError:
-    SMTPController = None
+from typing import Any
 
 from app.db import SessionLocal
 from app.logging import get_logger
@@ -23,6 +18,11 @@ from app.models.crm.conversation import MessageAttachment
 from app.schemas.crm.inbox import EmailWebhookPayload
 from app.services.crm import inbox as inbox_service
 
+SMTPController: Any
+try:
+    from aiosmtpd.controller import Controller as SMTPController
+except ModuleNotFoundError:
+    SMTPController = None
 
 logger = get_logger(__name__)
 
@@ -133,9 +133,9 @@ def _handle_message(
                 parsed_date = parsedate_to_datetime(date_header)
                 if parsed_date:
                     received_at = (
-                        parsed_date.astimezone(timezone.utc)
+                        parsed_date.astimezone(UTC)
                         if parsed_date.tzinfo
-                        else parsed_date.replace(tzinfo=timezone.utc)
+                        else parsed_date.replace(tzinfo=UTC)
                     )
             except Exception:
                 received_at = None

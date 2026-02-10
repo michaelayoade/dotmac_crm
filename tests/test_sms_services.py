@@ -14,15 +14,14 @@ def test_send_sms_twilio_auth_failure_logs(caplog):
         json={"message": "Authentication failed"},
     )
 
-    with patch("httpx.post", return_value=response):
-        with caplog.at_level("ERROR"):
-            success, sid, error = sms_service._send_via_twilio(
-                "acct",
-                "secret",
-                "+15550001111",
-                "+15550002222",
-                "Hello",
-            )
+    with patch("httpx.post", return_value=response), caplog.at_level("ERROR"):
+        success, sid, error = sms_service._send_via_twilio(
+            "acct",
+            "secret",
+            "+15550001111",
+            "+15550002222",
+            "Hello",
+        )
 
     assert success is False
     assert sid is None
