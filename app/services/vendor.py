@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.domain_settings import SettingDomain
 from app.models.network import FiberSegment, FiberSegmentType
@@ -26,6 +26,7 @@ from app.models.vendor import (
     QuoteLineItem,
     Vendor,
     VendorAssignmentType,
+    VendorUser,
 )
 from app.schemas.vendor import (
     AsBuiltRouteCreate,
@@ -36,6 +37,7 @@ from app.schemas.vendor import (
     ProjectQuoteUpdate,
     ProposedRouteRevisionCreate,
     QuoteLineItemCreate,
+    QuoteLineItemUpdate,
     VendorCreate,
     VendorUpdate,
 )
@@ -88,6 +90,13 @@ def _ensure_quote(db: Session, quote_id: str) -> ProjectQuote:
     if not quote:
         raise HTTPException(status_code=404, detail="Project quote not found")
     return quote
+
+
+def _ensure_quote_line_item(db: Session, line_item_id: str) -> QuoteLineItem:
+    item = db.get(QuoteLineItem, coerce_uuid(line_item_id))
+    if not item:
+        raise HTTPException(status_code=404, detail="Quote line item not found")
+    return item
 
 
 def _ensure_route_revision(db: Session, revision_id: str) -> ProposedRouteRevision:
@@ -194,17 +203,29 @@ class Vendors(ListResponseMixin):
     @staticmethod
     def update(db: Session, vendor_id: str, payload: VendorUpdate):
         vendor = _ensure_vendor(db, vendor_id)
+        was_active = bool(vendor.is_active)
         data = payload.model_dump(exclude_unset=True)
         for key, value in data.items():
             setattr(vendor, key, value)
         db.commit()
         db.refresh(vendor)
+        # If the vendor is deactivated, revoke all vendor portal links too.
+        if was_active and not vendor.is_active:
+            db.query(VendorUser).filter(VendorUser.vendor_id == vendor.id).update(
+                {"is_active": False},
+                synchronize_session=False,
+            )
+            db.commit()
         return vendor
 
     @staticmethod
     def delete(db: Session, vendor_id: str):
         vendor = _ensure_vendor(db, vendor_id)
         vendor.is_active = False
+        db.query(VendorUser).filter(VendorUser.vendor_id == vendor.id).update(
+            {"is_active": False},
+            synchronize_session=False,
+        )
         db.commit()
 
 
@@ -321,6 +342,7 @@ class InstallationProjects(ListResponseMixin):
         now = _now()
         query = (
             db.query(InstallationProject)
+            .options(joinedload(InstallationProject.project))
             .filter(InstallationProject.status == InstallationProjectStatus.open_for_bidding)
             .filter(InstallationProject.bidding_open_at <= now)
             .filter(InstallationProject.bidding_close_at >= now)
@@ -332,8 +354,10 @@ class InstallationProjects(ListResponseMixin):
     @staticmethod
     def list_for_vendor(db: Session, vendor_id: str, limit: int, offset: int):
         _ensure_vendor(db, vendor_id)
-        query = (
-            db.query(InstallationProject)
+        # Avoid SELECT DISTINCT over JSON columns (projects.tags/metadata are JSON, which has no equality operator).
+        # We page on distinct installation_project IDs, then fetch the full rows with eager-loaded Project.
+        id_query = (
+            db.query(InstallationProject.id, InstallationProject.updated_at)
             .outerjoin(ProjectQuote, ProjectQuote.project_id == InstallationProject.id)
             .filter(
                 (InstallationProject.assigned_vendor_id == coerce_uuid(vendor_id))
@@ -343,10 +367,50 @@ class InstallationProjects(ListResponseMixin):
             .distinct()
             .order_by(InstallationProject.updated_at.desc())
         )
-        return apply_pagination(query, limit, offset).all()
+        ids = [row[0] for row in apply_pagination(id_query, limit, offset).all()]
+        if not ids:
+            return []
+        return (
+            db.query(InstallationProject)
+            .options(joinedload(InstallationProject.project))
+            .filter(InstallationProject.id.in_(ids))
+            .order_by(InstallationProject.updated_at.desc())
+            .all()
+        )
 
 
 class ProjectQuotes(ListResponseMixin):
+    @staticmethod
+    def get_latest_for_vendor_project(
+        db: Session,
+        installation_project_id: str,
+        vendor_id: str,
+    ) -> ProjectQuote | None:
+        return (
+            db.query(ProjectQuote)
+            .filter(ProjectQuote.project_id == coerce_uuid(installation_project_id))
+            .filter(ProjectQuote.vendor_id == coerce_uuid(vendor_id))
+            .order_by(ProjectQuote.created_at.desc())
+            .first()
+        )
+
+    @staticmethod
+    def get_or_create_for_vendor_project(
+        db: Session,
+        installation_project_id: str,
+        vendor_id: str,
+        created_by_person_id: str | None,
+    ) -> ProjectQuote:
+        existing = ProjectQuotes.get_latest_for_vendor_project(db, installation_project_id, vendor_id)
+        if existing:
+            return existing
+        return ProjectQuotes.create(
+            db,
+            ProjectQuoteCreate(project_id=coerce_uuid(installation_project_id)),
+            vendor_id=vendor_id,
+            created_by_person_id=created_by_person_id,
+        )
+
     @staticmethod
     def create(db: Session, payload: ProjectQuoteCreate, vendor_id: str, created_by_person_id: str | None):
         project = _ensure_installation_project(db, str(payload.project_id))
@@ -518,6 +582,60 @@ class QuoteLineItems(ListResponseMixin):
             {"created_at": QuoteLineItem.created_at},
         )
         return apply_pagination(query, limit, offset).all()
+
+    @staticmethod
+    def update(
+        db: Session,
+        quote_id: str,
+        line_item_id: str,
+        payload: QuoteLineItemUpdate,
+        vendor_id: str | None = None,
+    ):
+        quote = _ensure_quote(db, quote_id)
+        item = _ensure_quote_line_item(db, line_item_id)
+        if str(item.quote_id) != str(quote.id):
+            raise HTTPException(status_code=400, detail="Line item does not belong to quote")
+        if vendor_id and str(quote.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Quote ownership required")
+
+        data = payload.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            setattr(item, key, value)
+
+        quantity = Decimal(item.quantity or Decimal("1.000"))
+        unit_price = Decimal(item.unit_price or Decimal("0.00"))
+        item.amount = round_money(quantity * unit_price)
+
+        db.commit()
+        db.refresh(item)
+
+        quote.subtotal = _quote_total_from_items(db, str(quote.id))
+        quote.total = round_money(quote.subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+        db.commit()
+        return item
+
+    @staticmethod
+    def delete(
+        db: Session,
+        quote_id: str,
+        line_item_id: str,
+        vendor_id: str | None = None,
+    ):
+        quote = _ensure_quote(db, quote_id)
+        item = _ensure_quote_line_item(db, line_item_id)
+        if str(item.quote_id) != str(quote.id):
+            raise HTTPException(status_code=400, detail="Line item does not belong to quote")
+        if vendor_id and str(quote.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Quote ownership required")
+
+        item.is_active = False
+        db.commit()
+        db.refresh(item)
+
+        quote.subtotal = _quote_total_from_items(db, str(quote.id))
+        quote.total = round_money(quote.subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+        db.commit()
+        return item
 
 
 class ProposedRouteRevisions(ListResponseMixin):
