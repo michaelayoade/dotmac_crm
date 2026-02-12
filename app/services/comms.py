@@ -40,9 +40,7 @@ class CustomerNotifications(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
-            default_status = settings_spec.resolve_value(
-                db, SettingDomain.comms, "default_notification_status"
-            )
+            default_status = settings_spec.resolve_value(db, SettingDomain.comms, "default_notification_status")
             if default_status:
                 data["status"] = CustomerNotificationStatus(default_status)
         event = CustomerNotificationEvent(**data)
@@ -76,15 +74,10 @@ class CustomerNotifications(ListResponseMixin):
             query = query.filter(CustomerNotificationEvent.entity_id == entity_id)
         if status:
             try:
-                query = query.filter(
-                    CustomerNotificationEvent.status
-                    == CustomerNotificationStatus(status)
-                )
+                query = query.filter(CustomerNotificationEvent.status == CustomerNotificationStatus(status))
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail="Invalid status") from exc
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": CustomerNotificationEvent.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": CustomerNotificationEvent.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod

@@ -165,9 +165,7 @@ class DotMacERPTeamSync:
 
         return team
 
-    def _sync_team_members(
-        self, team: ServiceTeam, members_data: list[dict], result: TeamSyncResult
-    ) -> None:
+    def _sync_team_members(self, team: ServiceTeam, members_data: list[dict], result: TeamSyncResult) -> None:
         """Sync members for a single team."""
         seen_person_ids: set = set()
 
@@ -196,12 +194,14 @@ class DotMacERPTeamSync:
                 existing.is_active = True
                 result.members_updated += 1
             else:
-                self.db.add(ServiceTeamMember(
-                    team_id=team.id,
-                    person_id=person.id,
-                    role=role,
-                    is_active=True,
-                ))
+                self.db.add(
+                    ServiceTeamMember(
+                        team_id=team.id,
+                        person_id=person.id,
+                        role=role,
+                        is_active=True,
+                    )
+                )
                 result.members_added += 1
 
         # Deactivate members no longer in the ERP department
@@ -288,11 +288,7 @@ class DotMacERPTeamSync:
             self.db.commit()
 
             # Auto-sync CRM agents for affected teams
-            synced_teams = (
-                self.db.query(ServiceTeam)
-                .filter(ServiceTeam.erp_department.in_(seen_erp_departments))
-                .all()
-            )
+            synced_teams = self.db.query(ServiceTeam).filter(ServiceTeam.erp_department.in_(seen_erp_departments)).all()
             for team in synced_teams:
                 try:
                     from app.services.service_teams import sync_crm_agents
@@ -310,8 +306,7 @@ class DotMacERPTeamSync:
         result.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
 
         logger.info(
-            "Team sync complete: %d created, %d updated, %d deactivated, "
-            "%d members added, %d updated, %d deactivated",
+            "Team sync complete: %d created, %d updated, %d deactivated, %d members added, %d updated, %d deactivated",
             result.teams_created,
             result.teams_updated,
             result.teams_deactivated,

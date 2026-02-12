@@ -26,12 +26,7 @@ def _now() -> datetime:
 def _author_is_admin(db: Session, author_id: str | None) -> bool:
     if not author_id:
         return False
-    role = (
-        db.query(Role)
-        .filter(Role.name == "admin")
-        .filter(Role.is_active.is_(True))
-        .first()
-    )
+    role = db.query(Role).filter(Role.name == "admin").filter(Role.is_active.is_(True)).first()
     if not role:
         return False
     link = (

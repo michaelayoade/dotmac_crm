@@ -130,10 +130,7 @@ def get_or_404(db: Session, model: type[T], id: str, detail: str | None = None, 
     """
     entity = db.get(model, coerce_uuid(id), **options)
     if not entity:
-        raise HTTPException(
-            status_code=404,
-            detail=detail or f"{model.__name__} not found"
-        )
+        raise HTTPException(status_code=404, detail=detail or f"{model.__name__} not found")
     return entity
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.base_page import BasePage
 
 
@@ -36,11 +37,11 @@ class TestReportsAccess:
         page.goto()
         page.expect_loaded()
         # Should show some report categories
-        expect(admin_page.get_by_text("Revenue", exact=False).or_(
-            admin_page.get_by_text("Financial", exact=False).or_(
-                admin_page.get_by_text("Report", exact=False)
-            )
-        ).first).to_be_visible()
+        expect(
+            admin_page.get_by_text("Revenue", exact=False)
+            .or_(admin_page.get_by_text("Financial", exact=False).or_(admin_page.get_by_text("Report", exact=False)))
+            .first
+        ).to_be_visible()
 
 
 class TestRevenueReports:
@@ -55,11 +56,11 @@ class TestRevenueReports:
         """Revenue report should have date filters."""
         admin_page.goto(f"{settings.base_url}/admin/reports")
         # Date filter elements should exist
-        expect(admin_page.get_by_role("combobox").or_(
-            admin_page.get_by_label("Date").or_(
-                admin_page.get_by_label("Period")
-            )
-        ).first).to_be_visible()
+        expect(
+            admin_page.get_by_role("combobox")
+            .or_(admin_page.get_by_label("Date").or_(admin_page.get_by_label("Period")))
+            .first
+        ).to_be_visible()
 
 
 class TestSubscriberReports:
@@ -68,9 +69,9 @@ class TestSubscriberReports:
     def test_subscriber_report_accessible(self, admin_page: Page, settings):
         """Subscriber report should be accessible."""
         admin_page.goto(f"{settings.base_url}/admin/reports")
-        expect(admin_page.get_by_text("Subscriber", exact=False).or_(
-            admin_page.get_by_text("Customer", exact=False)
-        ).first).to_be_visible()
+        expect(
+            admin_page.get_by_text("Subscriber", exact=False).or_(admin_page.get_by_text("Customer", exact=False)).first
+        ).to_be_visible()
 
 
 class TestNetworkReports:
@@ -80,11 +81,11 @@ class TestNetworkReports:
         """Network report should be accessible."""
         admin_page.goto(f"{settings.base_url}/admin/reports")
         # Check for network or operations reports
-        expect(admin_page.get_by_text("Network", exact=False).or_(
-            admin_page.get_by_text("Operation", exact=False).or_(
-                admin_page.get_by_text("Report", exact=False)
-            )
-        ).first).to_be_visible()
+        expect(
+            admin_page.get_by_text("Network", exact=False)
+            .or_(admin_page.get_by_text("Operation", exact=False).or_(admin_page.get_by_text("Report", exact=False)))
+            .first
+        ).to_be_visible()
 
 
 class TestReportsAPI:

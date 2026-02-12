@@ -122,12 +122,7 @@ class WorkOrders(ListResponseMixin):
         else:
             query = query.active_only(False)
 
-        return (
-            query
-            .order_by(order_by, order_dir)
-            .paginate(limit, offset)
-            .all()
-        )
+        return query.order_by(order_by, order_dir).paginate(limit, offset).all()
 
     @staticmethod
     def update(db: Session, work_order_id: str, payload: WorkOrderUpdate):

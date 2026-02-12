@@ -244,9 +244,7 @@ class Messages(ListResponseMixin):
                     "conversation_id": str(message.conversation_id),
                     "person_id": str(conversation.person_id),
                     "channel_type": message.channel_type.value,
-                    "channel_target_id": (
-                        str(message.channel_target_id) if message.channel_target_id else None
-                    ),
+                    "channel_target_id": (str(message.channel_target_id) if message.channel_target_id else None),
                     "subject": message.subject,
                     "external_id": message.external_id,
                 },
@@ -383,9 +381,7 @@ def resolve_open_conversation_for_channel(
     return None
 
 
-def resolve_person_channel(
-    db: Session, person_id: str, channel_type: ChannelType
-) -> PersonChannel | None:
+def resolve_person_channel(db: Session, person_id: str, channel_type: ChannelType) -> PersonChannel | None:
     person_channel_type = PersonChannelType(channel_type.value)
     return (
         db.query(PersonChannel)
@@ -482,8 +478,7 @@ def resolve_conversation_contact(
         )
         if source_channel_id:
             update_query = update_query.filter(
-                (Message.person_channel_id == source_channel_id)
-                | (Message.person_channel_id.is_(None))
+                (Message.person_channel_id == source_channel_id) | (Message.person_channel_id.is_(None))
             )
         else:
             update_query = update_query.filter(Message.person_channel_id.is_(None))
@@ -514,6 +509,7 @@ def can_mark_conversation_read(
         return True
     if assignment.agent_id:
         from app.models.crm.team import CrmAgent
+
         agent = db.get(CrmAgent, assignment.agent_id)
         return bool(agent and str(agent.person_id) == str(actor_person_id))
     if assignment.team_id:

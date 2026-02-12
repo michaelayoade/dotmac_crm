@@ -72,9 +72,7 @@ def ticket_support_metrics(
                     "compliance_percent": None,
                 },
             }
-        query = query.filter(
-            Ticket.assigned_to_person_id.in_([coerce_uuid(pid) for pid in person_ids])
-        )
+        query = query.filter(Ticket.assigned_to_person_id.in_([coerce_uuid(pid) for pid in person_ids]))
 
     tickets = query.all()
     totals = {"total": len(tickets), "open": 0, "closed": 0}
@@ -85,9 +83,7 @@ def ticket_support_metrics(
             delta = ticket.resolved_at - ticket.created_at
             resolution_hours.append(delta.total_seconds() / 3600)
 
-    avg_resolution = (
-        sum(resolution_hours) / len(resolution_hours) if resolution_hours else None
-    )
+    avg_resolution = sum(resolution_hours) / len(resolution_hours) if resolution_hours else None
 
     sla_query = db.query(TicketSlaEvent).join(Ticket)
     if start_at:
@@ -98,9 +94,7 @@ def ticket_support_metrics(
         if not person_ids:
             sla_query = sla_query.filter(TicketSlaEvent.id == None)  # noqa: E711
         else:
-            sla_query = sla_query.filter(
-                Ticket.assigned_to_person_id.in_([coerce_uuid(pid) for pid in person_ids])
-            )
+            sla_query = sla_query.filter(Ticket.assigned_to_person_id.in_([coerce_uuid(pid) for pid in person_ids]))
     sla_events = sla_query.all()
     sla_totals: dict[str, Any] = {
         "total": 0,
@@ -126,9 +120,7 @@ def ticket_support_metrics(
             bucket["breached"] += 1
         if event.ticket and event.ticket.priority:
             priority_key = event.ticket.priority.value
-            priority_bucket = sla_totals["by_priority"].setdefault(
-                priority_key, {"total": 0, "met": 0, "breached": 0}
-            )
+            priority_bucket = sla_totals["by_priority"].setdefault(priority_key, {"total": 0, "met": 0, "breached": 0})
             priority_bucket["total"] += 1
             if met:
                 priority_bucket["met"] += 1
@@ -183,13 +175,9 @@ def inbox_kpis(
             ConversationAssignment.is_active.is_(True)
         )
         if agent_id:
-            assignment_query = assignment_query.filter(
-                ConversationAssignment.agent_id == coerce_uuid(agent_id)
-            )
+            assignment_query = assignment_query.filter(ConversationAssignment.agent_id == coerce_uuid(agent_id))
         if team_id:
-            assignment_query = assignment_query.filter(
-                ConversationAssignment.team_id == coerce_uuid(team_id)
-            )
+            assignment_query = assignment_query.filter(ConversationAssignment.team_id == coerce_uuid(team_id))
         conversation_ids = [row[0] for row in assignment_query.all()]
         if not conversation_ids:
             return {
@@ -236,9 +224,7 @@ def inbox_kpis(
             .subquery()
         )
         first_inbound = (
-            db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time)
-            .filter(inbound_subq.c.rn == 1)
-            .all()
+            db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time).filter(inbound_subq.c.rn == 1).all()
         )
         inbound_map = {row[0]: row[1] for row in first_inbound}
 
@@ -259,9 +245,7 @@ def inbox_kpis(
             .subquery()
         )
         first_outbound = (
-            db.query(outbound_subq.c.conversation_id, outbound_subq.c.msg_time)
-            .filter(outbound_subq.c.rn == 1)
-            .all()
+            db.query(outbound_subq.c.conversation_id, outbound_subq.c.msg_time).filter(outbound_subq.c.rn == 1).all()
         )
         outbound_map = {row[0]: row[1] for row in first_outbound}
 
@@ -274,23 +258,14 @@ def inbox_kpis(
             if convo.status == ConversationStatus.resolved and inbound_time and convo.updated_at:
                 resolution_times.append((convo.updated_at - inbound_time).total_seconds() / 60)
 
-    avg_response_minutes = (
-        sum(response_times) / len(response_times) if response_times else None
-    )
-    avg_resolution_minutes = (
-        sum(resolution_times) / len(resolution_times) if resolution_times else None
-    )
+    avg_response_minutes = sum(response_times) / len(response_times) if response_times else None
+    avg_resolution_minutes = sum(resolution_times) / len(resolution_times) if resolution_times else None
 
-    channel_volume = (
-        db.query(Message.channel_type, func.count(Message.id))
-        .group_by(Message.channel_type)
-        .all()
-    )
+    channel_volume = db.query(Message.channel_type, func.count(Message.id)).group_by(Message.channel_type).all()
     channel_volume_map = {str(channel): count for channel, count in channel_volume}
 
     email_inbox_rows = (
-        message_query
-        .filter(Message.channel_type == ChannelType.email)
+        message_query.filter(Message.channel_type == ChannelType.email)
         .outerjoin(IntegrationTarget, IntegrationTarget.id == Message.channel_target_id)
         .with_entities(Message.channel_target_id, IntegrationTarget.name, func.count(Message.id))
         .group_by(Message.channel_target_id, IntegrationTarget.name)
@@ -363,9 +338,7 @@ def field_service_metrics(
     if person_ids is not None:
         if not person_ids:
             return {"total": 0, "status": {}, "avg_completion_hours": None}
-        query = query.filter(
-            WorkOrder.assigned_to_person_id.in_([coerce_uuid(pid) for pid in person_ids])
-        )
+        query = query.filter(WorkOrder.assigned_to_person_id.in_([coerce_uuid(pid) for pid in person_ids]))
     work_orders = query.all()
     status_counts: dict[str, int] = {}
     completion_hours: list[float] = []
@@ -373,12 +346,8 @@ def field_service_metrics(
         key = order.status.value if order.status else "unknown"
         status_counts[key] = status_counts.get(key, 0) + 1
         if order.completed_at and order.started_at:
-            completion_hours.append(
-                (order.completed_at - order.started_at).total_seconds() / 3600
-            )
-    avg_completion_hours = (
-        sum(completion_hours) / len(completion_hours) if completion_hours else None
-    )
+            completion_hours.append((order.completed_at - order.started_at).total_seconds() / 3600)
+    avg_completion_hours = sum(completion_hours) / len(completion_hours) if completion_hours else None
     return {
         "total": len(work_orders),
         "status": status_counts,
@@ -456,8 +425,7 @@ def agent_performance_metrics(
         agents_query = agents_query.filter(CrmAgent.id == coerce_uuid(agent_id))
     if team_id:
         agents_query = (
-            agents_query
-            .join(CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id)
+            agents_query.join(CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id)
             .filter(CrmAgentTeam.team_id == coerce_uuid(team_id))
             .filter(CrmAgentTeam.is_active.is_(True))
         )
@@ -471,27 +439,28 @@ def agent_performance_metrics(
     agent_stats: list[dict[str, Any]] = []
     for agent in agents:
         # Get conversations assigned to this agent
-        assignment_query = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.agent_id == agent.id)
+        assignment_query = db.query(ConversationAssignment.conversation_id).filter(
+            ConversationAssignment.agent_id == agent.id
         )
         conversation_ids = [row[0] for row in assignment_query.all()]
 
         if not conversation_ids:
             person = person_map.get(agent.person_id)
             name = (
-                person.display_name or
-                f"{person.first_name or ''} {person.last_name or ''}".strip() or
-                "Agent"
-            ) if person else "Agent"
-            agent_stats.append({
-                "agent_id": str(agent.id),
-                "name": name,
-                "total_conversations": 0,
-                "resolved_conversations": 0,
-                "avg_first_response_minutes": None,
-                "avg_resolution_minutes": None,
-            })
+                (person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or "Agent")
+                if person
+                else "Agent"
+            )
+            agent_stats.append(
+                {
+                    "agent_id": str(agent.id),
+                    "name": name,
+                    "total_conversations": 0,
+                    "resolved_conversations": 0,
+                    "avg_first_response_minutes": None,
+                    "avg_resolution_minutes": None,
+                }
+            )
             continue
 
         # Query conversations
@@ -547,19 +516,21 @@ def agent_performance_metrics(
 
         person = person_map.get(agent.person_id)
         name = (
-            person.display_name or
-            f"{person.first_name or ''} {person.last_name or ''}".strip() or
-            "Agent"
-        ) if person else "Agent"
+            (person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or "Agent")
+            if person
+            else "Agent"
+        )
 
-        agent_stats.append({
-            "agent_id": str(agent.id),
-            "name": name,
-            "total_conversations": total,
-            "resolved_conversations": resolved,
-            "avg_first_response_minutes": round(avg_frt, 1) if avg_frt is not None else None,
-            "avg_resolution_minutes": round(avg_resolution, 1) if avg_resolution is not None else None,
-        })
+        agent_stats.append(
+            {
+                "agent_id": str(agent.id),
+                "name": name,
+                "total_conversations": total,
+                "resolved_conversations": resolved,
+                "avg_first_response_minutes": round(avg_frt, 1) if avg_frt is not None else None,
+                "avg_resolution_minutes": round(avg_resolution, 1) if avg_resolution is not None else None,
+            }
+        )
 
     # Sort by resolved conversations descending
     agent_stats.sort(
@@ -590,13 +561,9 @@ def conversation_trend(
             ConversationAssignment.is_active.is_(True)
         )
         if agent_id:
-            assignment_query = assignment_query.filter(
-                ConversationAssignment.agent_id == coerce_uuid(agent_id)
-            )
+            assignment_query = assignment_query.filter(ConversationAssignment.agent_id == coerce_uuid(agent_id))
         if team_id:
-            assignment_query = assignment_query.filter(
-                ConversationAssignment.team_id == coerce_uuid(team_id)
-            )
+            assignment_query = assignment_query.filter(ConversationAssignment.team_id == coerce_uuid(team_id))
         conversation_ids = [row[0] for row in assignment_query.all()]
 
     trend_data = []
@@ -613,11 +580,13 @@ def conversation_trend(
         )
         if conversation_ids is not None:
             if not conversation_ids:
-                trend_data.append({
-                    "date": current_date.strftime("%Y-%m-%d"),
-                    "total": 0,
-                    "resolved": 0,
-                })
+                trend_data.append(
+                    {
+                        "date": current_date.strftime("%Y-%m-%d"),
+                        "total": 0,
+                        "resolved": 0,
+                    }
+                )
                 current_date += timedelta(days=1)
                 continue
             query = query.filter(Conversation.id.in_(conversation_ids))
@@ -638,11 +607,13 @@ def conversation_trend(
         total = len(conversations)
         resolved = sum(1 for c in conversations if c.status == ConversationStatus.resolved)
 
-        trend_data.append({
-            "date": current_date.strftime("%Y-%m-%d"),
-            "total": total,
-            "resolved": resolved,
-        })
+        trend_data.append(
+            {
+                "date": current_date.strftime("%Y-%m-%d"),
+                "total": total,
+                "resolved": resolved,
+            }
+        )
         current_date += timedelta(days=1)
 
     return trend_data
@@ -711,12 +682,14 @@ def sales_pipeline_metrics(
     for stage in stages:
         stage_leads = [lead for lead in leads if lead.stage_id == stage.id]
         stage_value = sum((lead.estimated_value or Decimal(0)) for lead in stage_leads)
-        stage_breakdown.append({
-            "id": str(stage.id),
-            "name": stage.name,
-            "count": len(stage_leads),
-            "value": float(stage_value),
-        })
+        stage_breakdown.append(
+            {
+                "id": str(stage.id),
+                "name": stage.name,
+                "count": len(stage_leads),
+                "value": float(stage_value),
+            }
+        )
 
     return {
         "pipeline_value": float(total_value),
@@ -749,6 +722,7 @@ def sales_forecast(
 
     # Only include leads that aren't won or lost
     from app.models.crm.enums import LeadStatus
+
     query = query.filter(~Lead.status.in_([LeadStatus.won, LeadStatus.lost]))
 
     if pipeline_id:
@@ -768,9 +742,7 @@ def sales_forecast(
         month_end = month_start.replace(day=last_day)
 
         month_leads = [
-            lead
-            for lead in leads
-            if lead.expected_close_date and month_start <= lead.expected_close_date <= month_end
+            lead for lead in leads if lead.expected_close_date and month_start <= lead.expected_close_date <= month_end
         ]
 
         expected_value = sum((lead.estimated_value or Decimal(0)) for lead in month_leads)
@@ -779,13 +751,15 @@ def sales_forecast(
             for lead in month_leads
         )
 
-        forecast.append({
-            "month": month_start.strftime("%Y-%m"),
-            "month_label": month_start.strftime("%b %Y"),
-            "expected_value": float(expected_value),
-            "weighted_value": float(weighted_value),
-            "deal_count": len(month_leads),
-        })
+        forecast.append(
+            {
+                "month": month_start.strftime("%Y-%m"),
+                "month_label": month_start.strftime("%b %Y"),
+                "expected_value": float(expected_value),
+                "weighted_value": float(weighted_value),
+                "deal_count": len(month_leads),
+            }
+        )
 
     return forecast
 
@@ -852,15 +826,17 @@ def agent_sales_performance(
         total_closed = len(won) + len(lost)
         win_rate = (len(won) / total_closed * 100) if total_closed > 0 else None
 
-        results.append({
-            "agent_id": agent_id,
-            "name": name,
-            "deals_won": len(won),
-            "deals_lost": len(lost),
-            "total_deals": len(agent_lead_list),
-            "won_value": float(won_value),
-            "win_rate": round(win_rate, 1) if win_rate is not None else None,
-        })
+        results.append(
+            {
+                "agent_id": agent_id,
+                "name": name,
+                "deals_won": len(won),
+                "deals_lost": len(lost),
+                "total_deals": len(agent_lead_list),
+                "won_value": float(won_value),
+                "win_rate": round(win_rate, 1) if win_rate is not None else None,
+            }
+        )
 
     # Sort by won value descending
     results.sort(key=lambda x: float(x.get("won_value") or 0), reverse=True)

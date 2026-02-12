@@ -105,15 +105,11 @@ def _domain_allowed_keys(domain: SettingDomain) -> str:
     return ", ".join(sorted(spec.key for spec in specs))
 
 
-def _normalize_spec_setting(
-    domain: SettingDomain, key: str, payload: DomainSettingUpdate
-) -> DomainSettingUpdate:
+def _normalize_spec_setting(domain: SettingDomain, key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     spec = settings_spec.get_spec(domain, key)
     if not spec:
         allowed = _domain_allowed_keys(domain)
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -122,9 +118,7 @@ def _normalize_spec_setting(
         raise HTTPException(status_code=400, detail=error)
     if spec.allowed and coerced not in spec.allowed:
         allowed = ", ".join(sorted(spec.allowed))
-        raise HTTPException(
-            status_code=400, detail=f"Value must be one of: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Value must be one of: {allowed}")
     if spec.value_type == SettingValueType.integer:
         if not isinstance(coerced, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
@@ -133,13 +127,9 @@ def _normalize_spec_setting(
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="Value must be an integer") from exc
         if spec.min_value is not None and parsed < spec.min_value:
-            raise HTTPException(
-                status_code=400, detail=f"Value must be >= {spec.min_value}"
-            )
+            raise HTTPException(status_code=400, detail=f"Value must be >= {spec.min_value}")
         if spec.max_value is not None and parsed > spec.max_value:
-            raise HTTPException(
-                status_code=400, detail=f"Value must be <= {spec.max_value}"
-            )
+            raise HTTPException(status_code=400, detail=f"Value must be <= {spec.max_value}")
         coerced = parsed
     value_text, value_json = settings_spec.normalize_for_db(spec, coerced)
     data = payload.model_dump(exclude_unset=True)
@@ -179,9 +169,7 @@ def _list_domain_settings_response(
     return list_response(items, limit, offset)
 
 
-def _upsert_domain_setting(
-    db: Session, domain: SettingDomain, key: str, payload: DomainSettingUpdate
-):
+def _upsert_domain_setting(db: Session, domain: SettingDomain, key: str, payload: DomainSettingUpdate):
     normalized_payload = _normalize_spec_setting(domain, key, payload)
     service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(domain)
     if not service:
@@ -193,9 +181,7 @@ def _get_domain_setting(db: Session, domain: SettingDomain, key: str):
     spec = settings_spec.get_spec(domain, key)
     if not spec:
         allowed = _domain_allowed_keys(domain)
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(domain)
     if not service:
         raise HTTPException(status_code=400, detail="Unknown settings domain")
@@ -210,9 +196,7 @@ def list_gis_settings(
     limit: int,
     offset: int,
 ):
-    return settings_service.gis_settings.list(
-        db, None, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.gis_settings.list(db, None, is_active, order_by, order_dir, limit, offset)
 
 
 def list_gis_settings_response(
@@ -230,9 +214,7 @@ def list_gis_settings_response(
 def _normalize_gis_setting(key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     if key not in _GIS_SETTING_KEYS:
         allowed = ", ".join(sorted(_GIS_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -276,9 +258,7 @@ def upsert_gis_setting(db: Session, key: str, payload: DomainSettingUpdate):
 def get_gis_setting(db: Session, key: str):
     if key not in _GIS_SETTING_KEYS:
         allowed = ", ".join(sorted(_GIS_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     return settings_service.gis_settings.get_by_key(db, key)
 
 
@@ -290,9 +270,7 @@ def list_geocoding_settings(
     limit: int,
     offset: int,
 ):
-    return settings_service.geocoding_settings.list(
-        db, None, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.geocoding_settings.list(db, None, is_active, order_by, order_dir, limit, offset)
 
 
 def list_geocoding_settings_response(
@@ -307,14 +285,10 @@ def list_geocoding_settings_response(
     return list_response(items, limit, offset)
 
 
-def _normalize_geocoding_setting(
-    key: str, payload: DomainSettingUpdate
-) -> DomainSettingUpdate:
+def _normalize_geocoding_setting(key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     if key not in _GEOCODING_SETTING_KEYS:
         allowed = ", ".join(sorted(_GEOCODING_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -364,9 +338,7 @@ def upsert_geocoding_setting(db: Session, key: str, payload: DomainSettingUpdate
 def get_geocoding_setting(db: Session, key: str):
     if key not in _GEOCODING_SETTING_KEYS:
         allowed = ", ".join(sorted(_GEOCODING_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     return settings_service.geocoding_settings.get_by_key(db, key)
 
 
@@ -378,9 +350,7 @@ def list_radius_settings(
     limit: int,
     offset: int,
 ):
-    return settings_service.radius_settings.list(
-        db, None, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.radius_settings.list(db, None, is_active, order_by, order_dir, limit, offset)
 
 
 def list_radius_settings_response(
@@ -398,9 +368,7 @@ def list_radius_settings_response(
 def _normalize_radius_setting(key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     if key not in _RADIUS_SETTING_KEYS:
         allowed = ", ".join(sorted(_RADIUS_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -438,9 +406,7 @@ def _normalize_radius_setting(key: str, payload: DomainSettingUpdate) -> DomainS
             raise HTTPException(status_code=400, detail="Value must be a string")
         normalized = value.strip().lower()
         if normalized not in {"running", "success", "failed"}:
-            raise HTTPException(
-                status_code=400, detail="Value must be running, success, or failed"
-            )
+            raise HTTPException(status_code=400, detail="Value must be running, success, or failed")
         data["value_type"] = SettingValueType.string
         data["value_text"] = normalized
         data["value_json"] = None
@@ -463,9 +429,7 @@ def upsert_radius_setting(db: Session, key: str, payload: DomainSettingUpdate):
 def get_radius_setting(db: Session, key: str):
     if key not in _RADIUS_SETTING_KEYS:
         allowed = ", ".join(sorted(_RADIUS_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     return settings_service.radius_settings.get_by_key(db, key)
 
 
@@ -477,9 +441,7 @@ def list_auth_settings(
     limit: int,
     offset: int,
 ):
-    return settings_service.auth_settings.list(
-        db, None, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.auth_settings.list(db, None, is_active, order_by, order_dir, limit, offset)
 
 
 def list_auth_settings_response(
@@ -497,9 +459,7 @@ def list_auth_settings_response(
 def _normalize_auth_setting(key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     if key not in _AUTH_SETTING_KEYS:
         allowed = ", ".join(sorted(_AUTH_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -537,9 +497,7 @@ def _normalize_auth_setting(key: str, payload: DomainSettingUpdate) -> DomainSet
             raise HTTPException(status_code=400, detail="Value must be a string")
         normalized = value.strip().lower()
         if normalized not in {"lax", "strict", "none"}:
-            raise HTTPException(
-                status_code=400, detail="Value must be lax, strict, or none"
-            )
+            raise HTTPException(status_code=400, detail="Value must be lax, strict, or none")
         data["value_type"] = SettingValueType.string
         data["value_text"] = normalized
         data["value_json"] = None
@@ -562,9 +520,7 @@ def upsert_auth_setting(db: Session, key: str, payload: DomainSettingUpdate):
 def get_auth_setting(db: Session, key: str):
     if key not in _AUTH_SETTING_KEYS:
         allowed = ", ".join(sorted(_AUTH_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     return settings_service.auth_settings.get_by_key(db, key)
 
 
@@ -576,9 +532,7 @@ def list_audit_settings(
     limit: int,
     offset: int,
 ):
-    return settings_service.audit_settings.list(
-        db, None, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.audit_settings.list(db, None, is_active, order_by, order_dir, limit, offset)
 
 
 def list_audit_settings_response(
@@ -596,9 +550,7 @@ def list_audit_settings_response(
 def _normalize_audit_setting(key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     if key not in _AUDIT_SETTING_KEYS:
         allowed = ", ".join(sorted(_AUDIT_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -647,9 +599,7 @@ def upsert_audit_setting(db: Session, key: str, payload: DomainSettingUpdate):
 def get_audit_setting(db: Session, key: str):
     if key not in _AUDIT_SETTING_KEYS:
         allowed = ", ".join(sorted(_AUDIT_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     return settings_service.audit_settings.get_by_key(db, key)
 
 
@@ -661,9 +611,7 @@ def list_imports_settings(
     limit: int,
     offset: int,
 ):
-    return settings_service.imports_settings.list(
-        db, None, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.imports_settings.list(db, None, is_active, order_by, order_dir, limit, offset)
 
 
 def list_imports_settings_response(
@@ -678,14 +626,10 @@ def list_imports_settings_response(
     return list_response(items, limit, offset)
 
 
-def _normalize_imports_setting(
-    key: str, payload: DomainSettingUpdate
-) -> DomainSettingUpdate:
+def _normalize_imports_setting(key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     if key not in _IMPORTS_SETTING_KEYS:
         allowed = ", ".join(sorted(_IMPORTS_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -712,9 +656,7 @@ def upsert_imports_setting(db: Session, key: str, payload: DomainSettingUpdate):
 def get_imports_setting(db: Session, key: str):
     if key not in _IMPORTS_SETTING_KEYS:
         allowed = ", ".join(sorted(_IMPORTS_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     return settings_service.imports_settings.get_by_key(db, key)
 
 
@@ -726,9 +668,7 @@ def list_notification_settings(
     limit: int,
     offset: int,
 ):
-    return settings_service.notification_settings.list(
-        db, None, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.notification_settings.list(db, None, is_active, order_by, order_dir, limit, offset)
 
 
 def list_notification_settings_response(
@@ -743,14 +683,10 @@ def list_notification_settings_response(
     return list_response(items, limit, offset)
 
 
-def _normalize_notification_setting(
-    key: str, payload: DomainSettingUpdate
-) -> DomainSettingUpdate:
+def _normalize_notification_setting(key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     if key not in _NOTIFICATION_SETTING_KEYS:
         allowed = ", ".join(sorted(_NOTIFICATION_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -792,17 +728,13 @@ def _normalize_notification_setting(
 
 def upsert_notification_setting(db: Session, key: str, payload: DomainSettingUpdate):
     normalized_payload = _normalize_notification_setting(key, payload)
-    return settings_service.notification_settings.upsert_by_key(
-        db, key, normalized_payload
-    )
+    return settings_service.notification_settings.upsert_by_key(db, key, normalized_payload)
 
 
 def get_notification_setting(db: Session, key: str):
     if key not in _NOTIFICATION_SETTING_KEYS:
         allowed = ", ".join(sorted(_NOTIFICATION_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     return settings_service.notification_settings.get_by_key(db, key)
 
 
@@ -814,9 +746,7 @@ def list_scheduler_settings(
     limit: int,
     offset: int,
 ):
-    return settings_service.scheduler_settings.list(
-        db, None, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.scheduler_settings.list(db, None, is_active, order_by, order_dir, limit, offset)
 
 
 def list_scheduler_settings_response(
@@ -831,14 +761,10 @@ def list_scheduler_settings_response(
     return list_response(items, limit, offset)
 
 
-def _normalize_scheduler_setting(
-    key: str, payload: DomainSettingUpdate
-) -> DomainSettingUpdate:
+def _normalize_scheduler_setting(key: str, payload: DomainSettingUpdate) -> DomainSettingUpdate:
     if key not in _SCHEDULER_SETTING_KEYS:
         allowed = ", ".join(sorted(_SCHEDULER_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     value = payload.value_text if payload.value_text is not None else payload.value_json
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
@@ -872,9 +798,7 @@ def upsert_scheduler_setting(db: Session, key: str, payload: DomainSettingUpdate
 def get_scheduler_setting(db: Session, key: str):
     if key not in _SCHEDULER_SETTING_KEYS:
         allowed = ", ".join(sorted(_SCHEDULER_SETTING_KEYS))
-        raise HTTPException(
-            status_code=400, detail=f"Invalid setting key. Allowed: {allowed}"
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid setting key. Allowed: {allowed}")
     return settings_service.scheduler_settings.get_by_key(db, key)
 
 
@@ -886,9 +810,7 @@ def list_billing_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.billing, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.billing, is_active, order_by, order_dir, limit, offset)
 
 
 def list_billing_settings_response(
@@ -899,9 +821,7 @@ def list_billing_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.billing, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.billing, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_billing_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -920,9 +840,7 @@ def list_catalog_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.catalog, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.catalog, is_active, order_by, order_dir, limit, offset)
 
 
 def list_catalog_settings_response(
@@ -933,9 +851,7 @@ def list_catalog_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.catalog, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.catalog, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_catalog_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -954,9 +870,7 @@ def list_subscriber_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.subscriber, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.subscriber, is_active, order_by, order_dir, limit, offset)
 
 
 def list_subscriber_settings_response(
@@ -967,9 +881,7 @@ def list_subscriber_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.subscriber, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.subscriber, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_subscriber_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -988,9 +900,7 @@ def list_usage_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.usage, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.usage, is_active, order_by, order_dir, limit, offset)
 
 
 def list_usage_settings_response(
@@ -1001,9 +911,7 @@ def list_usage_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.usage, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.usage, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_usage_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -1022,9 +930,7 @@ def list_collections_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.collections, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.collections, is_active, order_by, order_dir, limit, offset)
 
 
 def list_collections_settings_response(
@@ -1035,9 +941,7 @@ def list_collections_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.collections, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.collections, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_collections_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -1056,9 +960,7 @@ def list_provisioning_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.provisioning, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.provisioning, is_active, order_by, order_dir, limit, offset)
 
 
 def list_provisioning_settings_response(
@@ -1069,9 +971,7 @@ def list_provisioning_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.provisioning, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.provisioning, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_provisioning_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -1090,9 +990,7 @@ def list_projects_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.projects, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.projects, is_active, order_by, order_dir, limit, offset)
 
 
 def list_projects_settings_response(
@@ -1103,9 +1001,7 @@ def list_projects_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.projects, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.projects, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_projects_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -1124,9 +1020,7 @@ def list_workflow_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.workflow, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.workflow, is_active, order_by, order_dir, limit, offset)
 
 
 def list_workflow_settings_response(
@@ -1137,9 +1031,7 @@ def list_workflow_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.workflow, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.workflow, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_workflow_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -1158,9 +1050,7 @@ def list_network_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.network, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.network, is_active, order_by, order_dir, limit, offset)
 
 
 def list_network_settings_response(
@@ -1171,9 +1061,7 @@ def list_network_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.network, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.network, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_network_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -1192,9 +1080,7 @@ def list_inventory_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.inventory, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.inventory, is_active, order_by, order_dir, limit, offset)
 
 
 def list_inventory_settings_response(
@@ -1205,9 +1091,7 @@ def list_inventory_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.inventory, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.inventory, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_inventory_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -1226,9 +1110,7 @@ def list_lifecycle_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.lifecycle, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.lifecycle, is_active, order_by, order_dir, limit, offset)
 
 
 def list_lifecycle_settings_response(
@@ -1239,9 +1121,7 @@ def list_lifecycle_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.lifecycle, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.lifecycle, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_lifecycle_setting(db: Session, key: str, payload: DomainSettingUpdate):
@@ -1260,9 +1140,7 @@ def list_comms_settings(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings(
-        db, SettingDomain.comms, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings(db, SettingDomain.comms, is_active, order_by, order_dir, limit, offset)
 
 
 def list_comms_settings_response(
@@ -1273,9 +1151,7 @@ def list_comms_settings_response(
     limit: int,
     offset: int,
 ):
-    return _list_domain_settings_response(
-        db, SettingDomain.comms, is_active, order_by, order_dir, limit, offset
-    )
+    return _list_domain_settings_response(db, SettingDomain.comms, is_active, order_by, order_dir, limit, offset)
 
 
 def upsert_comms_setting(db: Session, key: str, payload: DomainSettingUpdate):

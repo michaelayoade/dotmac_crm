@@ -18,9 +18,7 @@ router = APIRouter(prefix="/connectors", tags=["connectors"])
     response_model=ConnectorConfigRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_connector_config(
-    payload: ConnectorConfigCreate, db: Session = Depends(get_db)
-):
+def create_connector_config(payload: ConnectorConfigCreate, db: Session = Depends(get_db)):
     return connector_service.connector_configs.create(db, payload)
 
 
@@ -46,9 +44,7 @@ def list_connector_configs(
 
 
 @router.patch("/configs/{config_id}", response_model=ConnectorConfigRead)
-def update_connector_config(
-    config_id: str, payload: ConnectorConfigUpdate, db: Session = Depends(get_db)
-):
+def update_connector_config(config_id: str, payload: ConnectorConfigUpdate, db: Session = Depends(get_db)):
     return connector_service.connector_configs.update(db, config_id, payload)
 
 

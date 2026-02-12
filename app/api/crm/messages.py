@@ -45,7 +45,5 @@ def list_messages(
 
 
 @router.patch("/{message_id}", response_model=MessageRead)
-def update_message(
-    message_id: str, payload: MessageUpdate, db: Session = Depends(get_db)
-):
+def update_message(message_id: str, payload: MessageUpdate, db: Session = Depends(get_db)):
     return crm_service.messages.update(db, message_id, payload)

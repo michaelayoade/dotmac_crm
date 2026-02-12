@@ -1,20 +1,11 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, submit_button %}
+{% from "components/ui/macros.html" import page_header, stats_card, status_badge, danger_button, submit_button %}
 {% block title %}{{ task.name }} - Scheduler - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
-                <a href="/admin/system/scheduler" class="hover:text-primary-600">Scheduler</a>
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                <span class="text-slate-900 dark:text-white">{{ task.name }}</span>
-            </nav>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ task.name }}</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ task.task_name }}</p>
-        </div>
+    {% call page_header(task.name, task.task_name, color="cyan", color2="blue", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "/admin/system/scheduler", "label": "Scheduler"}, {"href": "", "label": task.name}]) %}
         <div class="flex items-center gap-2">
             <form method="POST" action="/admin/system/scheduler/{{ task.id }}/run" class="inline">
                 {{ submit_button("Run Now", loading_label="Running...") }}
@@ -29,29 +20,32 @@
             </form>
             {% endif %}
         </div>
-    </div>
+    {% endcall %}
 
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <!-- Main Info -->
+        {# ── Main Info ── #}
         <div class="lg:col-span-2 space-y-6">
-            <!-- Task Configuration -->
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            {# Task Configuration #}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 75ms">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/10 to-blue-500/10 dark:from-cyan-500/20 dark:to-blue-500/20">
+                        <svg class="h-4 w-4 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    </div>
                     <h2 class="font-semibold text-slate-900 dark:text-white">Task Configuration</h2>
                 </div>
                 <div class="p-6">
                     <dl class="grid grid-cols-1 gap-6 sm:grid-cols-2">
                         <div>
-                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Task Name</dt>
-                            <dd class="mt-1 text-sm text-slate-900 dark:text-white font-mono">{{ task.task_name }}</dd>
+                            <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Task Name</dt>
+                            <dd class="mt-1.5 text-sm text-slate-900 dark:text-white font-mono">{{ task.task_name }}</dd>
                         </div>
                         <div>
-                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Schedule Type</dt>
-                            <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ task.schedule_type.value | title }}</dd>
+                            <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Schedule Type</dt>
+                            <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ task.schedule_type.value | title }}</dd>
                         </div>
                         <div>
-                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Interval</dt>
-                            <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                            <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Interval</dt>
+                            <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">
                                 {% set seconds = task.interval_seconds %}
                                 {% if seconds >= 86400 %}
                                     {{ (seconds // 86400) }} day{% if seconds // 86400 > 1 %}s{% endif %}
@@ -65,18 +59,12 @@
                             </dd>
                         </div>
                         <div>
-                            <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Status</dt>
-                            <dd class="mt-1">
+                            <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</dt>
+                            <dd class="mt-1.5">
                                 {% if task.enabled %}
-                                <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
-                                    Enabled
-                                </span>
+                                {{ status_badge("Enabled", "active", size="sm") }}
                                 {% else %}
-                                <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
-                                    Disabled
-                                </span>
+                                {{ status_badge("Disabled", "inactive", size="sm") }}
                                 {% endif %}
                             </dd>
                         </div>
@@ -84,25 +72,28 @@
                 </div>
             </div>
 
-            <!-- Task Arguments -->
+            {# Task Arguments #}
             {% if task.args_json or task.kwargs_json %}
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 150ms">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/10 to-blue-500/10 dark:from-cyan-500/20 dark:to-blue-500/20">
+                        <svg class="h-4 w-4 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                    </div>
                     <h2 class="font-semibold text-slate-900 dark:text-white">Task Arguments</h2>
                 </div>
                 <div class="p-6 space-y-4">
                     {% if task.args_json %}
                     <div>
-                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">Positional Arguments</dt>
-                        <dd class="rounded-lg bg-slate-50 dark:bg-slate-900 p-4 font-mono text-sm text-slate-900 dark:text-white overflow-x-auto">
+                        <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Positional Arguments</dt>
+                        <dd class="rounded-xl bg-slate-50 dark:bg-slate-900 p-4 font-mono text-sm text-slate-900 dark:text-white overflow-x-auto">
                             <pre>{{ task.args_json | tojson(indent=2) }}</pre>
                         </dd>
                     </div>
                     {% endif %}
                     {% if task.kwargs_json %}
                     <div>
-                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400 mb-2">Keyword Arguments</dt>
-                        <dd class="rounded-lg bg-slate-50 dark:bg-slate-900 p-4 font-mono text-sm text-slate-900 dark:text-white overflow-x-auto">
+                        <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Keyword Arguments</dt>
+                        <dd class="rounded-xl bg-slate-50 dark:bg-slate-900 p-4 font-mono text-sm text-slate-900 dark:text-white overflow-x-auto">
                             <pre>{{ task.kwargs_json | tojson(indent=2) }}</pre>
                         </dd>
                     </div>
@@ -111,23 +102,26 @@
             </div>
             {% endif %}
 
-            <!-- Recent Runs -->
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            {# Execution History #}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 225ms">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/10 to-blue-500/10 dark:from-cyan-500/20 dark:to-blue-500/20">
+                        <svg class="h-4 w-4 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    </div>
                     <h2 class="font-semibold text-slate-900 dark:text-white">Execution History</h2>
                 </div>
                 <div class="p-6">
                     {% if runs %}
                     <div class="space-y-3">
                         {% for run in runs %}
-                        <div class="flex items-center justify-between rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                        <div class="flex items-center justify-between rounded-xl border border-slate-200/60 p-4 dark:border-slate-700/60">
                             <div class="flex items-center gap-3">
                                 {% if run.success %}
-                                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+                                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30">
                                     <svg class="h-4 w-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                                 </div>
                                 {% else %}
-                                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+                                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900/30">
                                     <svg class="h-4 w-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                 </div>
                                 {% endif %}
@@ -137,9 +131,9 @@
                                 </div>
                             </div>
                             {% if run.success %}
-                            <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">Success</span>
+                            {{ status_badge("Success", "active", size="sm") }}
                             {% else %}
-                            <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/30 dark:text-red-400">Failed</span>
+                            {{ status_badge("Failed", "danger", size="sm") }}
                             {% endif %}
                         </div>
                         {% endfor %}
@@ -151,25 +145,28 @@
             </div>
         </div>
 
-        <!-- Sidebar -->
+        {# ── Sidebar ── #}
         <div class="space-y-6">
-            <!-- Quick Info -->
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            {# Quick Info #}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 100ms">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/10 to-blue-500/10 dark:from-cyan-500/20 dark:to-blue-500/20">
+                        <svg class="h-4 w-4 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
                     <h2 class="font-semibold text-slate-900 dark:text-white">Quick Info</h2>
                 </div>
                 <div class="p-6 space-y-4">
                     <div>
-                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Task ID</p>
-                        <p class="text-sm text-slate-900 dark:text-white font-mono">{{ task.id | string | truncate(20, True, '...') }}</p>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Task ID</p>
+                        <p class="mt-1 text-sm text-slate-900 dark:text-white font-mono">{{ task.id | string | truncate(20, True, '...') }}</p>
                     </div>
                     <div>
-                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Last Run</p>
-                        <p class="text-sm text-slate-900 dark:text-white">{{ task.last_run_at.strftime('%B %d, %Y %H:%M') if task.last_run_at else 'Never' }}</p>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Run</p>
+                        <p class="mt-1 text-sm text-slate-900 dark:text-white">{{ task.last_run_at.strftime('%B %d, %Y %H:%M') if task.last_run_at else 'Never' }}</p>
                     </div>
                     <div>
-                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Next Run</p>
-                        <p class="text-sm text-slate-900 dark:text-white">
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Next Run</p>
+                        <p class="mt-1 text-sm text-slate-900 dark:text-white">
                             {% if task.enabled and task.last_run_at %}
                                 {{ next_run.strftime('%B %d, %Y %H:%M') if next_run else 'Calculating...' }}
                             {% elif task.enabled %}
@@ -180,19 +177,19 @@
                         </p>
                     </div>
                     <div>
-                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Created</p>
-                        <p class="text-sm text-slate-900 dark:text-white">{{ task.created_at.strftime('%B %d, %Y') if task.created_at else '-' }}</p>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</p>
+                        <p class="mt-1 text-sm text-slate-900 dark:text-white">{{ task.created_at.strftime('%B %d, %Y') if task.created_at else '-' }}</p>
                     </div>
                     <div>
-                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Last Updated</p>
-                        <p class="text-sm text-slate-900 dark:text-white">{{ task.updated_at.strftime('%B %d, %Y %H:%M') if task.updated_at else '-' }}</p>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Updated</p>
+                        <p class="mt-1 text-sm text-slate-900 dark:text-white">{{ task.updated_at.strftime('%B %d, %Y %H:%M') if task.updated_at else '-' }}</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Danger Zone -->
-            <div class="rounded-xl border border-red-200 bg-white shadow-sm dark:border-red-800/50 dark:bg-slate-800">
-                <div class="border-b border-red-200 px-6 py-4 dark:border-red-800/50">
+            {# Danger Zone #}
+            <div class="animate-fade-in-up rounded-2xl border border-red-200/60 bg-white shadow-sm dark:border-red-800/40 dark:bg-slate-800" style="animation-delay: 175ms">
+                <div class="border-b border-red-200/60 px-6 py-4 dark:border-red-800/40">
                     <h2 class="font-semibold text-red-700 dark:text-red-400">Danger Zone</h2>
                 </div>
                 <div class="p-6">

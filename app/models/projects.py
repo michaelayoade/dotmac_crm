@@ -95,6 +95,7 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     code: Mapped[str | None] = mapped_column(String(80))
     number: Mapped[str | None] = mapped_column(String(40))
+    erpnext_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     customer_address: Mapped[str | None] = mapped_column(Text)
     project_type: Mapped[ProjectType | None] = mapped_column(Enum(ProjectType))
@@ -110,9 +111,7 @@ class Project(Base):
     manager_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     project_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     assistant_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
-    service_team_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("service_teams.id")
-    )
+    service_team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("service_teams.id"))
     start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -147,6 +146,7 @@ class ProjectTask(Base):
     parent_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("project_tasks.id"))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     number: Mapped[str | None] = mapped_column(String(40))
+    erpnext_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     template_task_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("project_template_tasks.id")

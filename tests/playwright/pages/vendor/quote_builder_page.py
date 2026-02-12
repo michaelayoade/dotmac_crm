@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.base_page import BasePage
 
 
@@ -34,17 +35,13 @@ class VendorQuoteBuilderPage(BasePage):
 
     def fill_notes(self, notes: str) -> None:
         """Fill quote notes."""
-        self.page.get_by_label("Notes").or_(
-            self.page.locator("textarea")
-        ).first.fill(notes)
+        self.page.get_by_label("Notes").or_(self.page.locator("textarea")).first.fill(notes)
 
     def add_line_item(self, description: str, quantity: str, unit_price: str) -> None:
         """Add a line item to the quote."""
         self.page.get_by_role("button", name="Add").first.click()
         # Fill the new line item fields
-        rows = self.page.locator("[data-testid='line-item']").or_(
-            self.page.locator(".line-item")
-        )
+        rows = self.page.locator("[data-testid='line-item']").or_(self.page.locator(".line-item"))
         last_row = rows.last
         last_row.get_by_label("Description").fill(description)
         last_row.get_by_label("Quantity").fill(quantity)
@@ -56,19 +53,17 @@ class VendorQuoteBuilderPage(BasePage):
 
     def save_draft(self) -> None:
         """Save quote as draft."""
-        self.page.get_by_role("button", name="Save").or_(
-            self.page.get_by_role("button", name="Draft")
-        ).first.click()
+        self.page.get_by_role("button", name="Save").or_(self.page.get_by_role("button", name="Draft")).first.click()
 
     def expect_quote_submitted(self) -> None:
         """Assert quote was submitted successfully."""
-        expect(self.page.get_by_text("submitted", exact=False).or_(
-            self.page.get_by_text("success", exact=False)
-        ).first).to_be_visible()
+        expect(
+            self.page.get_by_text("submitted", exact=False).or_(self.page.get_by_text("success", exact=False)).first
+        ).to_be_visible()
 
     def get_total(self) -> str:
         """Get quote total."""
-        total_element = self.page.locator("[data-testid='quote-total']").or_(
-            self.page.get_by_text("Total", exact=False)
-        ).first
+        total_element = (
+            self.page.locator("[data-testid='quote-total']").or_(self.page.get_by_text("Total", exact=False)).first
+        )
         return total_element.text_content() or ""

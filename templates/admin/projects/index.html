@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button %}
+{% from "components/ui/macros.html" import danger_button, table_shell, table_row, empty_state %}
 {% block title %}Projects - Admin{% endblock %}
 
 {% block content %}
@@ -20,9 +20,16 @@
             </a>
         </div>
     </div>
+    {% if notice == "splynx_exists" %}
+    <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
+        Customer already exists on Splynx.
+    </div>
+    {% endif %}
 
     {% set query_params = [] %}
-    {% if priority %}{% set _ = query_params.append('priority=' ~ priority) %}{% endif %}
+    {% if project_type %}{% set _ = query_params.append('project_type=' ~ project_type) %}{% endif %}
+    {% if pm %}{% set _ = query_params.append('pm=' ~ pm) %}{% endif %}
+    {% if spc %}{% set _ = query_params.append('spc=' ~ spc) %}{% endif %}
     {% if per_page %}{% set _ = query_params.append('per_page=' ~ per_page) %}{% endif %}
     {% set base_query = query_params | join('&') %}
 
@@ -84,7 +91,7 @@
     </div>
 
     <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <form class="flex flex-col gap-4 sm:flex-row sm:items-end">
+        <form id="projects-filter-form" class="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div class="flex-1">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Status</label>
                 <select name="status" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
@@ -97,15 +104,32 @@
                 </select>
             </div>
             <div class="flex-1">
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Priority</label>
-                <select name="priority" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="">All Priorities</option>
-                    <option value="lower" {% if priority == 'lower' %}selected{% endif %}>Lower</option>
-                    <option value="low" {% if priority == 'low' %}selected{% endif %}>Low</option>
-                    <option value="medium" {% if priority == 'medium' %}selected{% endif %}>Medium</option>
-                    <option value="normal" {% if priority == 'normal' %}selected{% endif %}>Normal</option>
-                    <option value="high" {% if priority == 'high' %}selected{% endif %}>High</option>
-                    <option value="urgent" {% if priority == 'urgent' %}selected{% endif %}>Urgent</option>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Project Type</label>
+                <select name="project_type" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Project Types</option>
+                    {% for item in project_types %}
+                    <option value="{{ item }}" {% if project_type == item %}selected{% endif %}>{{ item.replace('_', ' ').title() }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">PM</label>
+                <select name="pm" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Project Managers</option>
+                    <option value="me" {% if pm == 'me' %}selected{% endif %}>Me</option>
+                    {% for option in pm_options or [] %}
+                    <option value="{{ option.value }}" {% if pm == option.value %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">SPC</label>
+                <select name="spc" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Site Coordinators</option>
+                    <option value="me" {% if spc == 'me' %}selected{% endif %}>Me</option>
+                    {% for option in spc_options or [] %}
+                    <option value="{{ option.value }}" {% if spc == option.value %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
                 </select>
             </div>
             <div>
@@ -114,73 +138,189 @@
                 </button>
             </div>
         </form>
+        <div class="mt-3 flex justify-end">
+            <details id="projects-column-picker" class="relative">
+                <summary class="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M6 12h12m-9 5h6"/>
+                    </svg>
+                    Table Fields
+                    <svg class="h-4 w-4 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </summary>
+                <div class="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Show Columns</p>
+                    <div id="projects-column-options" class="max-h-72 space-y-2 overflow-y-auto pr-1">
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="project" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500" checked>
+                            <span>Project</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="customer" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500" checked>
+                            <span>Customer</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="status" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500" checked>
+                            <span>Status</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="priority" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500" checked>
+                            <span>Priority</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="created" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500" checked>
+                            <span>Created</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="code" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Code</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="type" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Project Type</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="region" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Region</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="owner" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Owner</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="manager" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Manager</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="project_manager" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Project Manager</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="assistant_manager" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Site Coordinator</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="start_at" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Start Date</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="due_at" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
+                            <span>Due Date</span>
+                        </label>
+                    </div>
+                </div>
+            </details>
+        </div>
     </div>
 
-    <div class="grid gap-4">
-        <details class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">Projects Kanban</summary>
-            <div class="mt-4">
-                <p class="text-xs text-slate-500 dark:text-slate-400">Drag to update status. Fields are configurable per board.</p>
-                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
-                    Manage Kanban settings in System Settings → Projects.
-                </div>
-                <div
-                    class="mt-4"
-                    id="projects-kanban"
-                    data-kanban
-                    data-kanban-endpoint="/api/v1/projects/kanban"
-                    data-update-endpoint="/api/v1/projects/kanban/move"
-                    data-config='{"columnField":"status","idField":"id","titleField":"name","subtitleField":"project_type","metaFields":["status","due_date"]}'>
-                </div>
-            </div>
-        </details>
+    <div x-data="{ activeView: 'table' }">
+        <!-- View Tabs -->
+        <div class="mb-4 flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <button type="button"
+                    x-on:click="activeView = 'table'"
+                    :class="activeView === 'table' ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'"
+                    class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M3 18h18M3 6h18"/></svg>
+                Table
+            </button>
+            <button type="button"
+                    x-on:click="activeView = 'kanban'; $nextTick(() => { if (window.DotmacKanban) window.DotmacKanban.initAll(); })"
+                    :class="activeView === 'kanban' ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'"
+                    class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+                Kanban
+            </button>
+            <button type="button"
+                    x-on:click="activeView = 'gantt'; $nextTick(() => { if (window.DotmacGantt) window.DotmacGantt.initAll(); })"
+                    :class="activeView === 'gantt' ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/50'"
+                    class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 4h12M8 15h4"/></svg>
+                Gantt
+            </button>
+        </div>
 
-        <details class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">Projects Gantt</summary>
-            <div class="mt-4">
-                <p class="text-xs text-slate-500 dark:text-slate-400">Drag the bar handle to update the due date.</p>
-                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
-                    Manage Gantt settings in System Settings → Projects.
-                </div>
-                <div
-                    class="mt-4"
-                    id="projects-gantt"
-                    data-gantt
-                    data-gantt-endpoint="/api/v1/projects/gantt"
-                    data-update-endpoint="/api/v1/projects/gantt/due-date"
-                    data-config='{"idField":"id","titleField":"name","startField":"start_date","dragField":"due_date"}'>
-                </div>
+        <!-- Kanban View -->
+        <div x-show="activeView === 'kanban'" x-cloak class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs text-slate-500 dark:text-slate-400">Drag to update status. Fields are configurable per board.</p>
+            <div class="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+                Manage Kanban settings in System Settings → Projects.
             </div>
-        </details>
-    </div>
+            <div
+                class="mt-4"
+                id="projects-kanban"
+                data-kanban
+                data-kanban-endpoint="/api/v1/projects/kanban"
+                data-update-endpoint="/api/v1/projects/kanban/move"
+                data-config='{"columnField":"status","idField":"id","titleField":"name","subtitleField":"project_type","metaFields":["status","due_date"]}'>
+            </div>
+        </div>
 
-    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
-                        <th class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
-                    {% if projects %}
-                    {% for project in projects %}
-                    {% set status_val = project.status.value if project.status else 'planned' %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="px-6 py-4">
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">{{ project.name }}</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">{{ project.code | default(project.number or (project.id|string|truncate(8, True, ''))) }}</p>
-                        </td>
-                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                            {% if project.subscriber %}
-                            {% set subscriber = project.subscriber %}
-                            <a href="/admin/subscribers/{{ subscriber.id }}" class="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">
-                                {% if subscriber.person %}
+        <!-- Gantt View -->
+        <div x-show="activeView === 'gantt'" x-cloak class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs text-slate-500 dark:text-slate-400">Drag the bar handle to update the due date.</p>
+            <div class="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+                Manage Gantt settings in System Settings → Projects.
+            </div>
+            <div
+                class="mt-4"
+                id="projects-gantt"
+                data-gantt
+                data-gantt-endpoint="/api/v1/projects/gantt"
+                data-update-endpoint="/api/v1/projects/gantt/due-date"
+                data-config='{"idField":"id","titleField":"name","startField":"start_date","dragField":"due_date"}'>
+            </div>
+        </div>
+
+        <!-- Table View -->
+        <div x-show="activeView === 'table'">
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="projects-table", color="primary") %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th data-project-column="project" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project</th>
+                    <th data-project-column="code" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
+                    <th data-project-column="type" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project Type</th>
+                    <th data-project-column="customer" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
+                    <th data-project-column="region" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                    <th data-project-column="status" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th data-project-column="priority" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                    <th data-project-column="owner" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Owner</th>
+                    <th data-project-column="manager" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Manager</th>
+                    <th data-project-column="project_manager" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project Manager</th>
+                    <th data-project-column="assistant_manager" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Site Coordinator</th>
+                    <th data-project-column="start_at" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Start Date</th>
+                    <th data-project-column="due_at" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Due Date</th>
+                    <th data-project-column="created" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
+                    <th class="{{ pad }}"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
+                {% if projects %}
+                {% for project in projects %}
+                {% set status_val = project.status.value if project.status else 'planned' %}
+                {% set project_type_label = project.project_type.value | replace('_', ' ') | title if project.project_type else '—' %}
+                {% set owner_label = project.owner.display_name or ((project.owner.first_name or '') ~ ' ' ~ (project.owner.last_name or '') | trim) if project.owner else '—' %}
+                {% set manager_label = project.manager.display_name or ((project.manager.first_name or '') ~ ' ' ~ (project.manager.last_name or '') | trim) if project.manager else '—' %}
+                {% set pm_label = project.project_manager.display_name or ((project.project_manager.first_name or '') ~ ' ' ~ (project.project_manager.last_name or '') | trim) if project.project_manager else '—' %}
+                {% set spc_label = project.assistant_manager.display_name or ((project.assistant_manager.first_name or '') ~ ' ' ~ (project.assistant_manager.last_name or '') | trim) if project.assistant_manager else '—' %}
+                {% call table_row(color="primary") %}
+                    <td data-project-column="project" class="{{ pad }}">
+                        <p class="text-sm font-medium text-slate-900 dark:text-white">{{ project.name }}</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ project.code | default(project.number or (project.id|string|truncate(8, True, ''))) }}</p>
+                    </td>
+                    <td data-project-column="code" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {{ project.code or project.number or '—' }}
+                    </td>
+                    <td data-project-column="type" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {{ project_type_label }}
+                    </td>
+                    <td data-project-column="customer" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {% if project.subscriber %}
+                        {% set subscriber = project.subscriber %}
+                        <a href="/admin/subscribers/{{ subscriber.id }}" class="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">
+                            {% if subscriber.person %}
                                 {{ subscriber.person.first_name }} {{ subscriber.person.last_name }}
                                 {% elif subscriber.organization %}
                                 {{ subscriber.organization.legal_name or subscriber.organization.name }}
@@ -188,21 +328,42 @@
                                 Subscriber
                                 {% endif %}
                             </a>
-                            {% else %}
-                            —
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4">
-                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ status_val | replace('_', ' ') | title }}</span>
-                        </td>
-                        <td class="px-6 py-4">
-                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">{{ project.priority.value if project.priority else 'normal' }}</span>
-                        </td>
-                        <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ project.created_at.strftime('%b %d, %Y') if project.created_at else 'N/A' }}</td>
-                        <td class="px-6 py-4 text-right">
-                            <a href="/admin/projects/{{ project.number or project.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
-                            <span class="px-1.5 text-slate-300">|</span>
-                            <a href="/admin/projects/{{ project.number or project.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                    <td data-project-column="region" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {{ project.region or '—' }}
+                    </td>
+                    <td data-project-column="status" class="{{ pad }}">
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ status_val | replace('_', ' ') | title }}</span>
+                    </td>
+                    <td data-project-column="priority" class="{{ pad }}">
+                        <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">{{ project.priority.value if project.priority else 'normal' }}</span>
+                    </td>
+                    <td data-project-column="owner" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {{ owner_label or '—' }}
+                    </td>
+                    <td data-project-column="manager" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {{ manager_label or '—' }}
+                    </td>
+                    <td data-project-column="project_manager" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {{ pm_label or '—' }}
+                    </td>
+                    <td data-project-column="assistant_manager" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {{ spc_label or '—' }}
+                    </td>
+                    <td data-project-column="start_at" class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">
+                        {{ project.start_at.strftime('%b %d, %Y %H:%M') if project.start_at else '—' }}
+                    </td>
+                    <td data-project-column="due_at" class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">
+                        {{ project.due_at.strftime('%b %d, %Y %H:%M') if project.due_at else '—' }}
+                    </td>
+                    <td data-project-column="created" class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ project.created_at.strftime('%b %d, %Y') if project.created_at else 'N/A' }}</td>
+                    <td class="{{ pad }} text-right">
+                        <a href="/admin/projects/{{ project.number or project.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
+                        <span class="px-1.5 text-slate-300">|</span>
+                        <a href="/admin/projects/{{ project.number or project.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
                             <span class="px-1.5 text-slate-300">|</span>
                             <form method="post"
                                   action="/admin/projects/{{ project.number or project.id }}/delete"
@@ -218,36 +379,48 @@
                                 </button>
                             </form>
                         </td>
-                    </tr>
+                {% endcall %}
                     {% endfor %}
                     {% else %}
                     <tr>
-                        <td colspan="5" class="px-6 py-12">
-                            {% set title = "No projects" %}
-                            {% set message = "Projects will appear here once created." %}
-                            {% include "components/data/empty_state.html" %}
+                        <td colspan="20" class="px-6 py-12">
+                            {{ empty_state("No projects", "Projects will appear here once created.") }}
                         </td>
                     </tr>
                     {% endif %}
                 </tbody>
             </table>
-        </div>
         {% if total_pages and total_pages > 1 %}
         {% set status_param = '&status=' ~ status if status else '' %}
-        {% set priority_param = '&priority=' ~ priority if priority else '' %}
+        {% set project_type_param = '&project_type=' ~ project_type if project_type else '' %}
+        {% set pm_param = '&pm=' ~ pm if pm else '' %}
+        {% set spc_param = '&spc=' ~ spc if spc else '' %}
         <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row">
-            <p class="text-sm text-slate-500 dark:text-slate-400">Page {{ page }} of {{ total_pages }}</p>
+            <div class="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+                <span>Page {{ page }} of {{ total_pages }}</span>
+                <label class="inline-flex items-center gap-2">
+                    <span>Rows</span>
+                    <select class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                            onchange="const u=new URL(window.location.href);u.searchParams.set('per_page', this.value);u.searchParams.set('page','1');window.location.assign(u.toString());">
+                        {% for size in [10, 25, 50, 100] %}
+                        <option value="{{ size }}" {% if per_page|int == size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
-                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
                 {% endif %}
                 {% if page < total_pages %}
-                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ status_param }}{{ priority_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
                 {% endif %}
             </div>
         </div>
         {% endif %}
-    </div>
+    {% endcall %}
+        </div>{# /table view #}
+    </div>{# /x-data tabs #}
 </div>
 {% endblock %}
 
@@ -364,6 +537,145 @@ document.addEventListener("DOMContentLoaded", () => {
         applyKanbanConfig(kanbanConfig);
         applyGanttConfig(ganttConfig);
     })();
+});
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const form = document.getElementById("projects-filter-form");
+    if (!form) return;
+    const userId = "{{ (current_user.get('person_id') if current_user and current_user.get('person_id') else 'anon') }}";
+    const filterStorageKey = `admin:projects:filters:${userId}`;
+    const columnStorageKey = `admin:projects:columns:${userId}`;
+    const fields = ["status", "project_type", "pm", "spc"];
+    const columnDefinitions = [
+        "project",
+        "customer",
+        "status",
+        "priority",
+        "created",
+        "code",
+        "type",
+        "region",
+        "owner",
+        "manager",
+        "project_manager",
+        "assistant_manager",
+        "start_at",
+        "due_at"
+    ];
+    const defaultVisibleColumns = ["project", "customer", "status", "priority", "created"];
+    const columnOptionInputs = Array.from(document.querySelectorAll("[data-project-column-option]"));
+    const url = new URL(window.location.href);
+
+    const readForm = () => {
+        const values = {};
+        fields.forEach((field) => {
+            const input = form.querySelector(`[name="${field}"]`);
+            values[field] = (input && input.value) ? input.value : "";
+        });
+        return values;
+    };
+
+    const saveFilters = () => {
+        window.localStorage.setItem(filterStorageKey, JSON.stringify(readForm()));
+    };
+
+    const getDefaultVisibleColumns = () => defaultVisibleColumns.slice();
+
+    const getVisibleColumns = () => {
+        const raw = window.localStorage.getItem(columnStorageKey);
+        if (!raw) return getDefaultVisibleColumns();
+        try {
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return getDefaultVisibleColumns();
+            const cleaned = parsed.filter((key) => typeof key === "string" && columnDefinitions.includes(key));
+            return cleaned.length ? cleaned : getDefaultVisibleColumns();
+        } catch (_error) {
+            return getDefaultVisibleColumns();
+        }
+    };
+
+    const saveVisibleColumns = (columns) => {
+        window.localStorage.setItem(columnStorageKey, JSON.stringify(columns));
+    };
+
+    const applyVisibleColumns = () => {
+        const visible = new Set(getVisibleColumns());
+        columnDefinitions.forEach((column) => {
+            const cells = document.querySelectorAll(`[data-project-column="${column}"]`);
+            cells.forEach((cell) => {
+                cell.classList.toggle("hidden", !visible.has(column));
+            });
+        });
+    };
+
+    const syncColumnOptionInputs = () => {
+        const visible = new Set(getVisibleColumns());
+        columnOptionInputs.forEach((input) => {
+            input.checked = visible.has(input.value);
+        });
+    };
+
+    let hasQueryFilters = false;
+    fields.forEach((field) => {
+        if ((url.searchParams.get(field) || "").trim()) {
+            hasQueryFilters = true;
+        }
+    });
+
+    if (!hasQueryFilters) {
+        const raw = window.localStorage.getItem(filterStorageKey);
+        if (raw) {
+            try {
+                const saved = JSON.parse(raw);
+                const restoredUrl = new URL(window.location.href);
+                let shouldRestore = false;
+                fields.forEach((field) => {
+                    const value = (saved[field] || "").trim();
+                    if (value) {
+                        restoredUrl.searchParams.set(field, value);
+                        shouldRestore = true;
+                    }
+                });
+                if (shouldRestore) {
+                    window.location.replace(restoredUrl.toString());
+                    return;
+                }
+            } catch (_error) {
+            }
+        }
+    } else {
+        saveFilters();
+    }
+
+    columnOptionInputs.forEach((input) => {
+        input.addEventListener("change", () => {
+            const current = new Set(getVisibleColumns());
+            if (input.checked) {
+                current.add(input.value);
+            } else {
+                current.delete(input.value);
+                if (current.size === 0) {
+                    input.checked = true;
+                    current.add(input.value);
+                }
+            }
+            saveVisibleColumns(Array.from(current));
+            syncColumnOptionInputs();
+            applyVisibleColumns();
+        });
+    });
+
+    form.addEventListener("submit", saveFilters);
+    fields.forEach((field) => {
+        const input = form.querySelector(`[name="${field}"]`);
+        if (input) {
+            input.addEventListener("change", saveFilters);
+        }
+    });
+
+    syncColumnOptionInputs();
+    applyVisibleColumns();
 });
 </script>
 {% endblock %}

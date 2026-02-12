@@ -61,9 +61,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         request.state.request_id = request_id
         token = _extract_bearer_token(request)
-        actor_id = getattr(request.state, "actor_id", None) or _extract_actor_id_from_jwt(
-            token
-        )
+        actor_id = getattr(request.state, "actor_id", None) or _extract_actor_id_from_jwt(token)
         start = time.monotonic()
         status_code = 500
         try:
@@ -73,9 +71,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             duration_ms = (time.monotonic() - start) * 1000.0
             path = _request_path(request)
             REQUEST_COUNT.labels(request.method, path, str(status_code)).inc()
-            REQUEST_LATENCY.labels(request.method, path, str(status_code)).observe(
-                duration_ms / 1000.0
-            )
+            REQUEST_LATENCY.labels(request.method, path, str(status_code)).observe(duration_ms / 1000.0)
             REQUEST_ERRORS.labels(request.method, path, str(status_code)).inc()
             logger.exception(
                 "request_failed",
@@ -92,9 +88,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         duration_ms = (time.monotonic() - start) * 1000.0
         path = _request_path(request)
         REQUEST_COUNT.labels(request.method, path, str(status_code)).inc()
-        REQUEST_LATENCY.labels(request.method, path, str(status_code)).observe(
-            duration_ms / 1000.0
-        )
+        REQUEST_LATENCY.labels(request.method, path, str(status_code)).observe(duration_ms / 1000.0)
         if status_code >= 500:
             REQUEST_ERRORS.labels(request.method, path, str(status_code)).inc()
         logger.info(

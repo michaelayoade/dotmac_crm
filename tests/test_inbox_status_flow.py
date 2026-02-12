@@ -3,17 +3,11 @@ from app.services.crm.inbox.status_flow import is_transition_allowed, validate_t
 
 
 def test_status_flow_allows_reopen():
-    assert is_transition_allowed(
-        ConversationStatus.resolved, ConversationStatus.open
-    )
+    assert is_transition_allowed(ConversationStatus.resolved, ConversationStatus.open)
 
 
 def test_status_flow_blocks_resolved_to_pending():
-    assert not is_transition_allowed(
-        ConversationStatus.resolved, ConversationStatus.pending
-    )
-    check = validate_transition(
-        ConversationStatus.resolved, ConversationStatus.pending
-    )
+    assert not is_transition_allowed(ConversationStatus.resolved, ConversationStatus.pending)
+    check = validate_transition(ConversationStatus.resolved, ConversationStatus.pending)
     assert not check.allowed
     assert check.reason

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 from sqlalchemy.orm import Session
 
-from app.models.crm.conversation import Message
+from app.models.crm.conversation import Message, MessageAttachment
 from app.schemas.crm.conversation import MessageAttachmentCreate
 from app.services.crm.conversations import message_attachments as message_attachments_service
 from app.services.crm.conversations import service as conversation_service
@@ -39,10 +39,18 @@ def apply_message_attachments(
 ) -> None:
     if not attachments:
         return
+    existing_stored_names = {
+        (att.metadata_ or {}).get("stored_name")
+        for att in db.query(MessageAttachment).filter(MessageAttachment.message_id == message.id).all()
+        if isinstance(att.metadata_, dict)
+    }
     for item in attachments:
         if not isinstance(item, dict):
             continue
         _validate_attachment_payload(item)
+        stored_name = item.get("stored_name")
+        if stored_name in existing_stored_names:
+            continue
         conversation_service.MessageAttachments.create(
             db,
             MessageAttachmentCreate(
@@ -51,6 +59,7 @@ def apply_message_attachments(
                 mime_type=item.get("mime_type"),
                 file_size=item.get("file_size"),
                 external_url=item.get("url"),
-                metadata_={"stored_name": item.get("stored_name")},
+                metadata_={"stored_name": stored_name},
             ),
         )
+        existing_stored_names.add(stored_name)

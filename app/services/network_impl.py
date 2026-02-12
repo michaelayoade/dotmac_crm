@@ -200,12 +200,8 @@ class PonPorts(ListResponseMixin):
         if olt_id:
             query = query.filter(PonPort.olt_id == olt_id)
         if card_id:
-            query = query.join(
-                OltCardPort, OltCardPort.id == PonPort.olt_card_port_id, isouter=True
-            )
-            query = query.filter(
-                (OltCardPort.card_id == card_id) | (PonPort.olt_card_port_id.is_(None))
-            )
+            query = query.join(OltCardPort, OltCardPort.id == PonPort.olt_card_port_id, isouter=True)
+            query = query.filter((OltCardPort.card_id == card_id) | (PonPort.olt_card_port_id.is_(None)))
         if is_active is None:
             query = query.filter(PonPort.is_active.is_(True))
         else:
@@ -252,15 +248,10 @@ class PonPorts(ListResponseMixin):
         if olt_id:
             query = query.filter(PonPort.olt_id == olt_id)
         total_ports = query.filter(PonPort.is_active.is_(True)).count()
-        assigned_ports = (
-            db.query(OntAssignment.pon_port_id)
-            .filter(OntAssignment.active.is_(True))
-        )
+        assigned_ports = db.query(OntAssignment.pon_port_id).filter(OntAssignment.active.is_(True))
         if olt_id:
             assigned_ports = assigned_ports.filter(
-                OntAssignment.pon_port_id.in_(
-                    db.query(PonPort.id).filter(PonPort.olt_id == olt_id)
-                )
+                OntAssignment.pon_port_id.in_(db.query(PonPort.id).filter(PonPort.olt_id == olt_id))
             )
         assigned_count = assigned_ports.distinct().count()
         return {
@@ -548,9 +539,7 @@ class OltCardPorts(ListResponseMixin):
         if card_id:
             query = query.filter(OltCardPort.card_id == card_id)
         if port_type:
-            query = query.filter(
-                OltCardPort.port_type == validate_enum(port_type, OltPortType, "port_type")
-            )
+            query = query.filter(OltCardPort.port_type == validate_enum(port_type, OltPortType, "port_type"))
         query = apply_ordering(
             query,
             order_by,
@@ -650,15 +639,11 @@ class Splitters(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "input_ports" not in fields_set:
-            default_input = settings_spec.resolve_value(
-                db, SettingDomain.network, "default_splitter_input_ports"
-            )
+            default_input = settings_spec.resolve_value(db, SettingDomain.network, "default_splitter_input_ports")
             if default_input:
                 data["input_ports"] = default_input
         if "output_ports" not in fields_set:
-            default_output = settings_spec.resolve_value(
-                db, SettingDomain.network, "default_splitter_output_ports"
-            )
+            default_output = settings_spec.resolve_value(db, SettingDomain.network, "default_splitter_output_ports")
             if default_output:
                 data["output_ports"] = default_output
         splitter = Splitter(**data)
@@ -752,10 +737,7 @@ class SplitterPorts(ListResponseMixin):
         if splitter_id:
             query = query.filter(SplitterPort.splitter_id == splitter_id)
         if port_type:
-            query = query.filter(
-                SplitterPort.port_type
-                == validate_enum(port_type, SplitterPortType, "port_type")
-            )
+            query = query.filter(SplitterPort.port_type == validate_enum(port_type, SplitterPortType, "port_type"))
         query = apply_ordering(
             query,
             order_by,
@@ -775,20 +757,13 @@ class SplitterPorts(ListResponseMixin):
             .filter(SplitterPort.is_active.is_(True))
             .count()
         )
-        splitter_ports_subquery = db.query(SplitterPort.id).filter(
-            SplitterPort.splitter_id == splitter_id
-        )
+        splitter_ports_subquery = db.query(SplitterPort.id).filter(SplitterPort.splitter_id == splitter_id)
         fiber_used = (
             db.query(FiberStrand.upstream_id)
             .filter(FiberStrand.upstream_type == FiberEndpointType.splitter_port)
             .filter(FiberStrand.upstream_id.in_(splitter_ports_subquery))
         )
-        used_ports = (
-            db.query(SplitterPort.id)
-            .filter(SplitterPort.id.in_(fiber_used))
-            .distinct()
-            .count()
-        )
+        used_ports = db.query(SplitterPort.id).filter(SplitterPort.id.in_(fiber_used)).distinct().count()
         return {"splitter_id": splitter_id, "total_ports": total_ports, "used_ports": used_ports}
 
     @staticmethod
@@ -829,13 +804,9 @@ class FiberStrands(ListResponseMixin):
             data["cable_name"] = segment.name
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
-            default_status = settings_spec.resolve_value(
-                db, SettingDomain.network, "default_fiber_strand_status"
-            )
+            default_status = settings_spec.resolve_value(db, SettingDomain.network, "default_fiber_strand_status")
             if default_status:
-                data["status"] = validate_enum(
-                    default_status, FiberStrandStatus, "status"
-                )
+                data["status"] = validate_enum(default_status, FiberStrandStatus, "status")
         strand = FiberStrand(**data)
         db.add(strand)
         db.commit()
@@ -876,10 +847,7 @@ class FiberStrands(ListResponseMixin):
         if cable_name:
             query = query.filter(FiberStrand.cable_name == cable_name)
         if status:
-            query = query.filter(
-                FiberStrand.status
-                == validate_enum(status, FiberStrandStatus, "status")
-            )
+            query = query.filter(FiberStrand.status == validate_enum(status, FiberStrandStatus, "status"))
         if is_active is None:
             query = query.filter(FiberStrand.is_active.is_(True))
         else:
@@ -1037,10 +1005,7 @@ class FiberSplices(ListResponseMixin):
         if tray_id:
             query = query.filter(FiberSplice.tray_id == tray_id)
         if strand_id:
-            query = query.filter(
-                (FiberSplice.from_strand_id == strand_id)
-                | (FiberSplice.to_strand_id == strand_id)
-            )
+            query = query.filter((FiberSplice.from_strand_id == strand_id) | (FiberSplice.to_strand_id == strand_id))
         query = apply_ordering(
             query,
             order_by,
@@ -1167,8 +1132,7 @@ class FiberTerminationPoints(ListResponseMixin):
         query = db.query(FiberTerminationPoint)
         if endpoint_type:
             query = query.filter(
-                FiberTerminationPoint.endpoint_type
-                == validate_enum(endpoint_type, ODNEndpointType, "endpoint_type")
+                FiberTerminationPoint.endpoint_type == validate_enum(endpoint_type, ODNEndpointType, "endpoint_type")
             )
         if is_active is None:
             query = query.filter(FiberTerminationPoint.is_active.is_(True))
@@ -1232,8 +1196,7 @@ class FiberSegments(ListResponseMixin):
         query = db.query(FiberSegment)
         if segment_type:
             query = query.filter(
-                FiberSegment.segment_type
-                == validate_enum(segment_type, FiberSegmentType, "segment_type")
+                FiberSegment.segment_type == validate_enum(segment_type, FiberSegmentType, "segment_type")
             )
         if fiber_strand_id:
             query = query.filter(FiberSegment.fiber_strand_id == fiber_strand_id)

@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import danger_button, status_badge, submit_button, typeahead_input, warning_button %}
+{% from "components/ui/macros.html" import danger_button, status_badge, submit_button, typeahead_input, warning_button, table_shell, table_row, empty_state %}
 
 {% block title %}Inbox Settings - Admin{% endblock %}
 
@@ -76,9 +76,14 @@
         Agent created.
     </div>
     {% endif %}
+    {% if agent_deleted %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Agent deleted.
+    </div>
+    {% endif %}
     {% if agent_error %}
     <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-        Agent could not be created.
+        Agent action failed.
         {% if agent_error_detail %}
         <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ agent_error_detail }}</div>
         {% endif %}
@@ -928,6 +933,13 @@
                                            value="{{ inbox.phone_number_id if inbox.phone_number_id }}"
                                            class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                                 </div>
+                                <div>
+                                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Business account ID</label>
+                                    <input name="business_account_id"
+                                           value="{{ inbox.business_account_id if inbox.business_account_id }}"
+                                           placeholder="WhatsApp Business Account ID (WABA)"
+                                           class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                </div>
 
                                 <div>
                                     <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Access token</label>
@@ -983,6 +995,12 @@
                     <div>
                         <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Phone number ID</label>
                         <input name="phone_number_id"
+                               class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Business account ID</label>
+                        <input name="business_account_id"
+                               placeholder="WhatsApp Business Account ID (WABA)"
                                class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                     </div>
 
@@ -1198,104 +1216,78 @@
             </div>
         </div>
 
-        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            {% if widgets %}
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                    <thead class="bg-slate-50 dark:bg-slate-800/50">
-                        <tr>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                Name
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                Domains
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                Status
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                Embed
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                Actions
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                        {% for widget in widgets %}
-                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                            <td class="whitespace-nowrap px-6 py-4">
-                                <div class="flex items-center gap-3">
-                                    <div class="h-8 w-8 rounded-lg" style="background-color: {{ widget.primary_color }}"></div>
-                                    <div>
-                                        <a href="/admin/crm/widget/{{ widget.id }}" class="font-medium text-slate-900 hover:text-blue-600 dark:text-white dark:hover:text-blue-400">
-                                            {{ widget.name }}
-                                        </a>
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
-                                {% if widget.allowed_domains %}
-                                    {{ widget.allowed_domains | join(', ') | truncate(40) }}
-                                {% else %}
-                                    <span class="text-slate-400 italic">All domains</span>
-                                {% endif %}
-                            </td>
-                            <td class="whitespace-nowrap px-6 py-4">
-                                {% if widget.is_active %}
-                                <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
-                                    Active
-                                </span>
-                                {% else %}
-                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-500/20 dark:text-slate-400">
-                                    Inactive
-                                </span>
-                                {% endif %}
-                            </td>
-                            <td class="whitespace-nowrap px-6 py-4 text-sm">
-                                <button type="button"
-                                        data-embed-code="{{ widget.embed_code | e }}"
-                                        onclick="copyWidgetEmbed(this)"
-                                        class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
-                                    Copy
-                                </button>
-                            </td>
-                            <td class="whitespace-nowrap px-6 py-4 text-right text-sm">
-                                <div class="flex items-center justify-end gap-2">
-                                    <a href="/admin/crm/widget/{{ widget.id }}"
-                                       class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                                       title="View & Edit">
-                                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                                        </svg>
+        {% set pad = 'px-6 py-3' %}
+        {% call table_shell(table_id="inbox-widgets-table", color="blue", count=widgets | length) %}
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                        <th scope="col" class="{{ pad }} text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Domains</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Embed</th>
+                        <th scope="col" class="{{ pad }} text-right text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if widgets %}
+                    {% for widget in widgets %}
+                    {% call table_row(color="blue") %}
+                        <td class="whitespace-nowrap {{ pad }}">
+                            <div class="flex items-center gap-3">
+                                <div class="h-8 w-8 rounded-lg" style="background-color: {{ widget.primary_color }}"></div>
+                                <div>
+                                    <a href="/admin/crm/widget/{{ widget.id }}" class="font-medium text-slate-900 hover:text-blue-600 dark:text-white dark:hover:text-blue-400">
+                                        {{ widget.name }}
                                     </a>
-                                    {{ danger_button("Delete", "Confirm Delete", "Are you sure you want to delete this widget?", "/admin/crm/widget/" ~ widget.id ~ "/delete", size="sm") }}
                                 </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <div class="p-10 text-center">
-                <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-                </svg>
-                <h3 class="mt-4 text-sm font-medium text-slate-900 dark:text-white">No chat widgets</h3>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create a widget to embed on your website.</p>
-                <div class="mt-6">
-                    <a href="/admin/crm/widget/new"
-                       class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700">
-                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                        Create widget
-                    </a>
-                </div>
-            </div>
-            {% endif %}
-        </div>
+                            </div>
+                        </td>
+                        <td class="whitespace-nowrap {{ pad }} text-sm text-slate-500 dark:text-slate-400">
+                            {% if widget.allowed_domains %}
+                                {{ widget.allowed_domains | join(', ') | truncate(40) }}
+                            {% else %}
+                                <span class="text-slate-400 italic">All domains</span>
+                            {% endif %}
+                        </td>
+                        <td class="whitespace-nowrap {{ pad }}">
+                            {% if widget.is_active %}
+                            <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300">
+                                Active
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-500/20 dark:text-slate-400">
+                                Inactive
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="whitespace-nowrap {{ pad }} text-sm">
+                            <button type="button"
+                                    data-embed-code="{{ widget.embed_code | e }}"
+                                    onclick="copyWidgetEmbed(this)"
+                                    class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                Copy
+                            </button>
+                        </td>
+                        <td class="whitespace-nowrap {{ pad }} text-right text-sm">
+                            <div class="flex items-center justify-end gap-2">
+                                <a href="/admin/crm/widget/{{ widget.id }}"
+                                   class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                                   title="View & Edit">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                    </svg>
+                                </a>
+                                {{ danger_button("Delete", "Confirm Delete", "Are you sure you want to delete this widget?", "/admin/crm/widget/" ~ widget.id ~ "/delete", size="sm") }}
+                            </div>
+                        </td>
+                    {% endcall %}
+                    {% endfor %}
+                    {% else %}
+                    {{ empty_state("No chat widgets", "Create a widget to embed on your website.", action_label="Create widget", action_href="/admin/crm/widget/new", colspan=5) }}
+                    {% endif %}
+                </tbody>
+            </table>
+        {% endcall %}
     </div>
 
     <div class="mt-10 space-y-6" id="crm-agents">
@@ -1379,134 +1371,157 @@
         </div>
 
         <div class="grid gap-6 lg:grid-cols-2">
-            <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Teams</h3>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                        <thead class="bg-slate-50 dark:bg-slate-800/50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Team</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Notes</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agents</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-900">
-                            {% if teams %}
-                                {% for team in teams %}
-                                {% set team_links = agent_teams | selectattr('team_id', 'equalto', team.id) | list %}
-                                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                                    <td class="px-6 py-4 text-sm font-medium text-slate-900 dark:text-white">{{ team.name }}</td>
-                                    <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ team.notes or '—' }}</td>
-                                    <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ team_links | length }}</td>
-                                    <td class="px-6 py-4">
-                                        {% if team.is_active %}
-                                        {{ status_badge("Active", "active", size="sm") }}
-                                        {% else %}
-                                        {{ status_badge("Inactive", "inactive", size="sm") }}
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            {% else %}
-                                <tr>
-                                    <td colspan="4" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No teams yet.</td>
-                                </tr>
-                            {% endif %}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+            {% set pad = 'px-6 py-3' %}
+            {% call table_shell(table_id="inbox-teams-table", title="Teams", count=teams | length) %}
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Team</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Notes</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agents</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% if teams %}
+                            {% for team in teams %}
+                            {% set team_links = agent_teams | selectattr('team_id', 'equalto', team.id) | list %}
+                            {% call table_row() %}
+                                <td class="{{ pad }} text-sm font-medium text-slate-900 dark:text-white">{{ team.name }}</td>
+                                <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ team.notes or '—' }}</td>
+                                <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ team_links | length }}</td>
+                                <td class="{{ pad }}">
+                                    {% if team.is_active %}
+                                    {{ status_badge("Active", "active", size="sm") }}
+                                    {% else %}
+                                    {{ status_badge("Inactive", "inactive", size="sm") }}
+                                    {% endif %}
+                                </td>
+                            {% endcall %}
+                            {% endfor %}
+                        {% else %}
+                            {{ empty_state("No teams yet", "Create a team to start routing inbox conversations.", colspan=4) }}
+                        {% endif %}
+                    </tbody>
+                </table>
+            {% endcall %}
 
-            <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                    <h3 class="text-base font-semibold text-slate-900 dark:text-white">Agents</h3>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                        <thead class="bg-slate-50 dark:bg-slate-800/50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agent</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Teams</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Presence</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Seen</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-900">
-                            {% if agents %}
-                                {% for agent in agents %}
-                                {% set agent_links = agent_teams | selectattr('agent_id', 'equalto', agent.id) | list %}
-                                {% set person = people_by_id.get(agent.person_id|string) %}
-                                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                                    <td class="px-6 py-4">
-                                        <div class="text-sm font-medium text-slate-900 dark:text-white">
-                                            {% if person %}
-                                                {{ person.first_name }} {{ person.last_name }}
-                                            {% else %}
-                                                {{ agent.person_id }}
-                                            {% endif %}
-                                        </div>
-                                        {% if person and person.email %}
-                                        <div class="text-xs text-slate-500 dark:text-slate-400">{{ person.email }}</div>
+            {% call table_shell(table_id="inbox-agents-table", title="Agents", count=agents | length, search_name="agent_list_search", search_placeholder="Search agents...") %}
+                {% if can_manage_settings %}
+                <form id="bulk-agent-action-form" method="POST" action="/admin/crm/inbox/agents/bulk" class="mb-3 flex flex-wrap items-center gap-2">
+                    <select name="action"
+                            class="w-48 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        <option value="deactivate">Deactivate selected</option>
+                    </select>
+                    <button type="submit"
+                            data-bulk-agent-submit
+                            disabled
+                            onclick="return confirm('Deactivate selected agents?')"
+                            class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-300">
+                        Apply
+                    </button>
+                </form>
+                {% endif %}
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                            <th class="{{ pad }} w-10 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                {% if can_manage_settings %}
+                                <input type="checkbox"
+                                       data-agent-select-all
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-900">
+                                {% endif %}
+                            </th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agent</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Teams</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Presence</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Seen</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700" data-agent-table-body>
+                        {% if agents %}
+                            {% for agent in agents %}
+                            {% set agent_links = agent_teams | selectattr('agent_id', 'equalto', agent.id) | list %}
+                            {% set person = people_by_id.get(agent.person_id|string) %}
+                            {% call table_row() %}
+                                <td class="{{ pad }}">
+                                    {% if can_manage_settings %}
+                                    <input type="checkbox"
+                                           name="agent_ids"
+                                           value="{{ agent.id }}"
+                                           form="bulk-agent-action-form"
+                                           data-agent-select-item
+                                           class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-900">
+                                    {% endif %}
+                                </td>
+                                <td class="{{ pad }}">
+                                    <div class="text-sm font-medium text-slate-900 dark:text-white">
+                                        {% if person %}
+                                            {{ person.first_name }} {{ person.last_name }}
+                                        {% else %}
+                                            {{ agent.person_id }}
                                         {% endif %}
-                                    </td>
-                                    <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ agent.title or '—' }}</td>
-                                    <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
-                                        {% if agent_links %}
-                                            <div class="flex flex-wrap gap-1">
-                                                {% for link in agent_links %}
-                                                    {% set team = teams_by_id.get(link.team_id|string) %}
-                                                    {% if team %}
-                                                    <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                                        {{ team.name }}
-                                                        {% if can_manage_settings %}
-                                                        <form method="POST" action="/admin/crm/inbox/agent-teams/{{ link.id }}/remove">
-                                                            <button type="submit" class="ml-1 rounded-full px-1 text-xs text-slate-500 hover:text-red-600 dark:text-slate-400">x</button>
-                                                        </form>
-                                                        {% endif %}
-                                                    </span>
+                                    </div>
+                                    {% if person and person.email %}
+                                    <div class="text-xs text-slate-500 dark:text-slate-400">{{ person.email }}</div>
+                                    {% endif %}
+                                </td>
+                                <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ agent.title or '—' }}</td>
+                                <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">
+                                    {% if agent_links %}
+                                        <div class="flex flex-wrap gap-1">
+                                            {% for link in agent_links %}
+                                                {% set team = teams_by_id.get(link.team_id|string) %}
+                                                {% if team %}
+                                                <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                    {{ team.name }}
+                                                    {% if can_manage_settings %}
+                                                    <form method="POST" action="/admin/crm/inbox/agent-teams/{{ link.id }}/remove">
+                                                        <button type="submit" class="ml-1 rounded-full px-1 text-xs text-slate-500 hover:text-red-600 dark:text-slate-400">x</button>
+                                                    </form>
                                                     {% endif %}
-                                                {% endfor %}
-                                            </div>
-                                        {% else %}
-                                            —
-                                        {% endif %}
-                                    </td>
-                                    <td class="px-6 py-4" data-agent-id="{{ agent.id }}">
-                                        <div class="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                                            <span class="h-2 w-2 rounded-full bg-slate-400" data-agent-presence-dot></span>
-                                            <span data-agent-presence-label>Offline</span>
+                                                </span>
+                                                {% endif %}
+                                            {% endfor %}
                                         </div>
-                                    </td>
-                                    <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400" data-agent-last-seen>—</td>
-                                    <td class="px-6 py-4">
-                                        {% if agent.is_active %}
-                                        {{ status_badge("Active", "active", size="sm") }}
-                                        {% else %}
-                                        {{ status_badge("Inactive", "inactive", size="sm") }}
-                                        {% endif %}
-                                    </td>
-                                    <td class="px-6 py-4">
-                                        {% if can_manage_settings %}
-                                            <div class="flex flex-col gap-2">
-                                                <form method="POST" action="/admin/crm/inbox/agent-teams" class="flex items-center gap-2">
-                                                    <input type="hidden" name="agent_id" value="{{ agent.id }}">
-                                                    <select name="team_id"
-                                                            class="w-36 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                                        <option value="">Add team...</option>
-                                                        {% for team in teams %}
-                                                            <option value="{{ team.id }}">{{ team.name }}</option>
-                                                        {% endfor %}
-                                                    </select>
-                                                    <button type="submit" class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                                        Add
-                                                    </button>
-                                                </form>
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="{{ pad }}" data-agent-id="{{ agent.id }}">
+                                    <div class="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                        <span class="h-2 w-2 rounded-full bg-slate-400" data-agent-presence-dot></span>
+                                        <span data-agent-presence-label>Offline</span>
+                                    </div>
+                                </td>
+                                <td class="{{ pad }} text-xs text-slate-500 dark:text-slate-400" data-agent-last-seen>—</td>
+                                <td class="{{ pad }}">
+                                    {% if agent.is_active %}
+                                    {{ status_badge("Active", "active", size="sm") }}
+                                    {% else %}
+                                    {{ status_badge("Inactive", "inactive", size="sm") }}
+                                    {% endif %}
+                                </td>
+                                <td class="{{ pad }}">
+                                    {% if can_manage_settings %}
+                                        <div class="flex flex-col gap-2">
+                                            <form method="POST" action="/admin/crm/inbox/agent-teams" class="flex items-center gap-2">
+                                                <input type="hidden" name="agent_id" value="{{ agent.id }}">
+                                                <select name="team_id"
+                                                        class="w-36 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                    <option value="">Add team...</option>
+                                                    {% for team in teams %}
+                                                        <option value="{{ team.id }}">{{ team.name }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                                <button type="submit" class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                                    Add
+                                                </button>
+                                            </form>
+                                            <div class="flex items-center gap-2">
                                                 {% if agent.is_active %}
                                                 <form method="POST" action="/admin/crm/inbox/agents/{{ agent.id }}/deactivate">
                                                     <button type="submit" class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-300">
@@ -1520,22 +1535,27 @@
                                                     </button>
                                                 </form>
                                                 {% endif %}
+                                                <form method="POST"
+                                                      action="/admin/crm/inbox/agents/{{ agent.id }}/delete"
+                                                      onsubmit="return confirm('Delete this agent permanently? This cannot be undone.')">
+                                                    <button type="submit" class="rounded-md border border-red-300 bg-red-100 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-200 dark:border-red-700/60 dark:bg-red-900/30 dark:text-red-200">
+                                                        Delete
+                                                    </button>
+                                                </form>
                                             </div>
-                                        {% else %}
-                                            <span class="text-xs text-slate-500 dark:text-slate-400">Read only</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            {% else %}
-                                <tr>
-                                    <td colspan="7" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No agents yet.</td>
-                                </tr>
-                            {% endif %}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+                                        </div>
+                                    {% else %}
+                                        <span class="text-xs text-slate-500 dark:text-slate-400">Read only</span>
+                                    {% endif %}
+                                </td>
+                            {% endcall %}
+                            {% endfor %}
+                        {% else %}
+                            {{ empty_state("No agents yet", "Create an agent to start routing inbox conversations.", colspan=8) }}
+                        {% endif %}
+                    </tbody>
+                </table>
+            {% endcall %}
         </div>
     </div>
 </div>
@@ -1621,7 +1641,63 @@ function updateAgentPresence() {
     .catch(() => {});
 }
 
+function initAgentListSearch() {
+    const searchInput = document.querySelector('input[name="agent_list_search"]');
+    const tableBody = document.querySelector('[data-agent-table-body]');
+    if (!searchInput || !tableBody) return;
+
+    const agentRows = Array.from(tableBody.querySelectorAll('tr'))
+        .filter((row) => row.querySelector('td[data-agent-id]'));
+
+    const filterRows = () => {
+        const query = String(searchInput.value || '').trim().toLowerCase();
+        agentRows.forEach((row) => {
+            const text = (row.textContent || '').toLowerCase();
+            row.style.display = !query || text.includes(query) ? '' : 'none';
+        });
+    };
+
+    searchInput.addEventListener('input', filterRows);
+    filterRows();
+}
+
+function initBulkAgentActions() {
+    const selectAll = document.querySelector('[data-agent-select-all]');
+    const submitButton = document.querySelector('[data-bulk-agent-submit]');
+    const itemSelector = 'input[data-agent-select-item]';
+    const items = Array.from(document.querySelectorAll(itemSelector));
+
+    if (!submitButton || !items.length) return;
+
+    const syncState = () => {
+        const checkedItems = items.filter((item) => item.checked);
+        submitButton.disabled = checkedItems.length === 0;
+        if (selectAll) {
+            selectAll.checked = checkedItems.length > 0 && checkedItems.length === items.length;
+            selectAll.indeterminate = checkedItems.length > 0 && checkedItems.length < items.length;
+        }
+    };
+
+    items.forEach((item) => {
+        item.addEventListener('change', syncState);
+    });
+
+    if (selectAll) {
+        selectAll.addEventListener('change', () => {
+            const checked = Boolean(selectAll.checked);
+            items.forEach((item) => {
+                item.checked = checked;
+            });
+            syncState();
+        });
+    }
+
+    syncState();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    initAgentListSearch();
+    initBulkAgentActions();
     updateAgentPresence();
     setInterval(updateAgentPresence, 60000);
 });

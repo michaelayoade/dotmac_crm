@@ -56,9 +56,7 @@ def list_sales_orders(
 
 
 @router.patch("/{sales_order_id}", response_model=SalesOrderRead)
-def update_sales_order(
-    sales_order_id: str, payload: SalesOrderUpdate, db: Session = Depends(get_db)
-):
+def update_sales_order(sales_order_id: str, payload: SalesOrderUpdate, db: Session = Depends(get_db)):
     return sales_order_service.sales_orders.update(db, sales_order_id, payload)
 
 
@@ -72,9 +70,7 @@ def delete_sales_order(sales_order_id: str, db: Session = Depends(get_db)):
     response_model=SalesOrderLineRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_sales_order_line(
-    sales_order_id: str, payload: SalesOrderLineCreate, db: Session = Depends(get_db)
-):
+def create_sales_order_line(sales_order_id: str, payload: SalesOrderLineCreate, db: Session = Depends(get_db)):
     data = payload.model_copy(update={"sales_order_id": sales_order_id})
     return sales_order_service.sales_order_lines.create(db, data)
 
@@ -88,13 +84,9 @@ def list_sales_order_lines(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return sales_order_service.sales_order_lines.list_response(
-        db, sales_order_id, order_by, order_dir, limit, offset
-    )
+    return sales_order_service.sales_order_lines.list_response(db, sales_order_id, order_by, order_dir, limit, offset)
 
 
 @router.patch("/lines/{line_id}", response_model=SalesOrderLineRead)
-def update_sales_order_line(
-    line_id: str, payload: SalesOrderLineUpdate, db: Session = Depends(get_db)
-):
+def update_sales_order_line(line_id: str, payload: SalesOrderLineUpdate, db: Session = Depends(get_db)):
     return sales_order_service.sales_order_lines.update(db, line_id, payload)

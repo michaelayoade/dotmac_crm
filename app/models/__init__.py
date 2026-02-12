@@ -113,15 +113,15 @@ from app.models.inventory import (  # noqa: F401
     ReservationStatus,
     WorkOrderMaterial,
 )
+from app.models.legal import (  # noqa: F401
+    LegalDocument,
+    LegalDocumentType,
+)
 from app.models.material_request import (  # noqa: F401
     MaterialRequest,
     MaterialRequestItem,
     MaterialRequestPriority,
     MaterialRequestStatus,
-)
-from app.models.legal import (  # noqa: F401
-    LegalDocument,
-    LegalDocumentType,
 )
 from app.models.network import (  # noqa: F401
     FdhCabinet,
@@ -229,8 +229,6 @@ from app.models.subscriber import (  # noqa: F401
     AccountType,
     AddressType,
     Organization,
-    Reseller,
-    ResellerUser,
     Subscriber,
     SubscriberStatus,
 )
@@ -271,6 +269,7 @@ from app.models.webhook import (  # noqa: F401
     WebhookEventType,
     WebhookSubscription,
 )
+from app.models.webhook_dead_letter import WebhookDeadLetter  # noqa: F401
 from app.models.wireless_mast import WirelessMast  # noqa: F401
 from app.models.wireless_survey import (  # noqa: F401
     SurveyLosPath,

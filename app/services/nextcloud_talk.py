@@ -97,9 +97,7 @@ class NextcloudTalkClient:
                 exc.response.status_code,
                 exc.response.text,
             )
-            raise NextcloudTalkError(
-                f"HTTP error: {exc.response.status_code}"
-            ) from exc
+            raise NextcloudTalkError(f"HTTP error: {exc.response.status_code}") from exc
         except httpx.RequestError as exc:
             logger.error("Nextcloud Talk request error: %s", exc)
             raise NextcloudTalkError(f"Request error: {exc}") from exc

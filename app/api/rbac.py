@@ -116,9 +116,7 @@ def list_permissions(
     response_model=PermissionRead,
     dependencies=[Depends(require_permission("rbac:permissions:write"))],
 )
-def update_permission(
-    permission_id: str, payload: PermissionUpdate, db: Session = Depends(get_db)
-):
+def update_permission(permission_id: str, payload: PermissionUpdate, db: Session = Depends(get_db)):
     return rbac_service.permissions.update(db, permission_id, payload)
 
 
@@ -137,9 +135,7 @@ def delete_permission(permission_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("rbac:roles:write"))],
 )
-def create_role_permission(
-    payload: RolePermissionCreate, db: Session = Depends(get_db)
-):
+def create_role_permission(payload: RolePermissionCreate, db: Session = Depends(get_db)):
     return rbac_service.role_permissions.create(db, payload)
 
 
@@ -166,9 +162,7 @@ def list_role_permissions(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return rbac_service.role_permissions.list_response(
-        db, role_id, permission_id, order_by, order_dir, limit, offset
-    )
+    return rbac_service.role_permissions.list_response(db, role_id, permission_id, order_by, order_dir, limit, offset)
 
 
 @router.patch(
@@ -176,9 +170,7 @@ def list_role_permissions(
     response_model=RolePermissionRead,
     dependencies=[Depends(require_permission("rbac:roles:write"))],
 )
-def update_role_permission(
-    link_id: str, payload: RolePermissionUpdate, db: Session = Depends(get_db)
-):
+def update_role_permission(link_id: str, payload: RolePermissionUpdate, db: Session = Depends(get_db)):
     return rbac_service.role_permissions.update(db, link_id, payload)
 
 
@@ -224,9 +216,7 @@ def list_person_roles(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return rbac_service.person_roles.list_response(
-        db, person_id, role_id, order_by, order_dir, limit, offset
-    )
+    return rbac_service.person_roles.list_response(db, person_id, role_id, order_by, order_dir, limit, offset)
 
 
 @router.patch(
@@ -234,9 +224,7 @@ def list_person_roles(
     response_model=PersonRoleRead,
     dependencies=[Depends(require_permission("rbac:assign"))],
 )
-def update_person_role(
-    link_id: str, payload: PersonRoleUpdate, db: Session = Depends(get_db)
-):
+def update_person_role(link_id: str, payload: PersonRoleUpdate, db: Session = Depends(get_db)):
     return rbac_service.person_roles.update(db, link_id, payload)
 
 

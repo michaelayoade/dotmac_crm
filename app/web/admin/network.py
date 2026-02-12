@@ -30,6 +30,7 @@ from app.services import gis as gis_service
 from app.services import settings_spec
 from app.services import vendor as vendor_service
 from app.services.common import coerce_uuid
+from app.services.fiber_plant import fiber_plant
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/network", tags=["web-admin-network"])
@@ -47,12 +48,7 @@ def _haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) ->
     radius = 6371000.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
-    )
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return radius * c
 
@@ -245,12 +241,7 @@ def network_map(request: Request, db: Session = Depends(get_db)):
         )
 
     # Fiber Segments
-    segments_count = (
-        db.query(func.count(FiberSegment.id))
-        .filter(FiberSegment.is_active.is_(True))
-        .scalar()
-        or 0
-    )
+    segments_count = db.query(func.count(FiberSegment.id)).filter(FiberSegment.is_active.is_(True)).scalar() or 0
     segment_geoms = []
     if _postgis_available(db):
         segment_geoms = (
@@ -286,14 +277,19 @@ def network_map(request: Request, db: Session = Depends(get_db)):
     stats = {
         "fdh_cabinets": db.query(func.count(FdhCabinet.id)).filter(FdhCabinet.is_active.is_(True)).scalar(),
         "fdh_with_location": len(fdh_cabinets),
-        "splice_closures": db.query(func.count(FiberSpliceClosure.id)).filter(FiberSpliceClosure.is_active.is_(True)).scalar(),
+        "splice_closures": db.query(func.count(FiberSpliceClosure.id))
+        .filter(FiberSpliceClosure.is_active.is_(True))
+        .scalar(),
         "closures_with_location": len(closures),
         "splitters": db.query(func.count(Splitter.id)).filter(Splitter.is_active.is_(True)).scalar(),
         "total_splices": db.query(func.count(FiberSplice.id)).scalar(),
         "segments": segments_count,
-        "access_points": db.query(func.count(FiberAccessPoint.id)).filter(FiberAccessPoint.is_active.is_(True)).scalar(),
+        "access_points": db.query(func.count(FiberAccessPoint.id))
+        .filter(FiberAccessPoint.is_active.is_(True))
+        .scalar(),
         "access_points_with_location": len(access_points),
     }
+    qa_stats = fiber_plant.get_quality_stats(db)
 
     cost_settings = {
         "drop_cable_per_meter": _coerce_float(
@@ -325,6 +321,7 @@ def network_map(request: Request, db: Session = Depends(get_db)):
             "sidebar_stats": get_sidebar_stats(db),
             "geojson_data": geojson_data,
             "stats": stats,
+            "qa_stats": qa_stats,
             "cost_settings": cost_settings,
         },
     )
@@ -387,11 +384,7 @@ def pop_sites_list(
 def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
-    cabinets = (
-        db.query(FdhCabinet)
-        .order_by(FdhCabinet.name.asc())
-        .all()
-    )
+    cabinets = db.query(FdhCabinet).order_by(FdhCabinet.name.asc()).all()
     stats = {
         "total": db.query(func.count(FdhCabinet.id)).scalar() or 0,
     }
@@ -412,7 +405,6 @@ def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
 @router.get("/fdh-cabinets/new", response_class=HTMLResponse)
 def fdh_cabinet_new(request: Request, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
-
 
     regions = gis_service.geo_areas.list(
         db,
@@ -532,13 +524,8 @@ def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(
         offset=0,
     )
     region_map = {str(region.id): region for region in regions}
-    cabinet.region = region_map.get(str(cabinet.region_id)) if cabinet.region_id else None
-    splitters = (
-        db.query(Splitter)
-        .filter(Splitter.fdh_id == cabinet.id)
-        .order_by(Splitter.name.asc())
-        .all()
-    )
+    region = region_map.get(str(cabinet.region_id)) if cabinet.region_id else None
+    splitters = db.query(Splitter).filter(Splitter.fdh_id == cabinet.id).order_by(Splitter.name.asc()).all()
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-detail.html",
         {
@@ -548,6 +535,7 @@ def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "cabinet": cabinet,
+            "region": region,
             "splitters": splitters,
             "activities": [],
         },
@@ -658,6 +646,7 @@ def fdh_cabinet_update(
         status_code=400,
     )
 
+
 @router.get("/fiber-map", response_class=HTMLResponse)
 def network_map_alias():
     return RedirectResponse(url="/admin/network/map", status_code=302)
@@ -731,11 +720,15 @@ async def fiber_map_nearest_cabinet(lat: float, lng: float, db: Session = Depend
 async def find_nearest_cabinet(_request: Request | None, lat: float, lng: float, db: Session):
     try:
         lat_f, lng_f = _parse_lat_lng(lat, lng)
-        cabinets = db.query(FdhCabinet).filter(
-            FdhCabinet.is_active.is_(True),
-            FdhCabinet.latitude.isnot(None),
-            FdhCabinet.longitude.isnot(None),
-        ).all()
+        cabinets = (
+            db.query(FdhCabinet)
+            .filter(
+                FdhCabinet.is_active.is_(True),
+                FdhCabinet.latitude.isnot(None),
+                FdhCabinet.longitude.isnot(None),
+            )
+            .all()
+        )
         if not cabinets:
             return JSONResponse({"error": "No cabinets found"}, status_code=404)
 
@@ -744,9 +737,7 @@ async def find_nearest_cabinet(_request: Request | None, lat: float, lng: float,
         for cabinet in cabinets:
             if cabinet.latitude is None or cabinet.longitude is None:
                 continue
-            dist = _haversine_distance_m(
-                lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude)
-            )
+            dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
             if nearest_dist is None or dist < nearest_dist:
                 nearest = cabinet
                 nearest_dist = dist
@@ -777,18 +768,20 @@ async def fiber_map_plan_options(lat: float, lng: float, db: Session = Depends(g
 async def plan_options(_request: Request | None, lat: float, lng: float, db: Session):
     try:
         lat_f, lng_f = _parse_lat_lng(lat, lng)
-        cabinets = db.query(FdhCabinet).filter(
-            FdhCabinet.is_active.is_(True),
-            FdhCabinet.latitude.isnot(None),
-            FdhCabinet.longitude.isnot(None),
-        ).all()
+        cabinets = (
+            db.query(FdhCabinet)
+            .filter(
+                FdhCabinet.is_active.is_(True),
+                FdhCabinet.latitude.isnot(None),
+                FdhCabinet.longitude.isnot(None),
+            )
+            .all()
+        )
         options = []
         for cabinet in cabinets:
             if cabinet.latitude is None or cabinet.longitude is None:
                 continue
-            dist = _haversine_distance_m(
-                lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude)
-            )
+            dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
             options.append(
                 {
                     "id": str(cabinet.id),

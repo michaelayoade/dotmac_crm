@@ -52,9 +52,7 @@ def _get_setting_value(db, domain: SettingDomain, key: str) -> str | None:
     return None
 
 
-def _effective_bool(
-    db, domain: SettingDomain, key: str, env_key: str, default: bool
-) -> bool:
+def _effective_bool(db, domain: SettingDomain, key: str, env_key: str, default: bool) -> bool:
     env_value = _env_bool(env_key)
     if env_value is not None:
         return env_value
@@ -64,9 +62,7 @@ def _effective_bool(
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _effective_int(
-    db, domain: SettingDomain, key: str, env_key: str, default: int
-) -> int:
+def _effective_int(db, domain: SettingDomain, key: str, env_key: str, default: int) -> int:
     env_value = _env_int(env_key)
     if env_value is not None:
         return env_value
@@ -79,9 +75,7 @@ def _effective_int(
         return default
 
 
-def _effective_str(
-    db, domain: SettingDomain, key: str, env_key: str, default: str | None
-) -> str | None:
+def _effective_str(db, domain: SettingDomain, key: str, env_key: str, default: str | None) -> str | None:
     env_value = _env_value(env_key)
     if env_value is not None:
         return env_value
@@ -156,9 +150,7 @@ def get_celery_config() -> dict:
     beat_refresh_seconds = 30
     session = SessionLocal()
     try:
-        broker = _effective_str(
-            session, SettingDomain.scheduler, "broker_url", "CELERY_BROKER_URL", None
-        )
+        broker = _effective_str(session, SettingDomain.scheduler, "broker_url", "CELERY_BROKER_URL", None)
         backend = _effective_str(
             session,
             SettingDomain.scheduler,
@@ -166,9 +158,7 @@ def get_celery_config() -> dict:
             "CELERY_RESULT_BACKEND",
             None,
         )
-        timezone = _effective_str(
-            session, SettingDomain.scheduler, "timezone", "CELERY_TIMEZONE", None
-        )
+        timezone = _effective_str(session, SettingDomain.scheduler, "timezone", "CELERY_TIMEZONE", None)
         beat_max_loop_interval = _effective_int(
             session,
             SettingDomain.scheduler,
@@ -188,16 +178,8 @@ def get_celery_config() -> dict:
     finally:
         session.close()
 
-    broker = (
-        broker
-        or _env_value("REDIS_URL")
-        or "redis://localhost:6379/0"
-    )
-    backend = (
-        backend
-        or _env_value("REDIS_URL")
-        or "redis://localhost:6379/1"
-    )
+    broker = broker or _env_value("REDIS_URL") or "redis://localhost:6379/0"
+    backend = backend or _env_value("REDIS_URL") or "redis://localhost:6379/1"
     timezone = timezone or "UTC"
     config: dict[str, object] = {
         "broker_url": broker,
@@ -213,9 +195,7 @@ def build_beat_schedule() -> dict:
     schedule: dict[str, dict] = {}
     session = SessionLocal()
     try:
-        enabled = _effective_bool(
-            session, SettingDomain.gis, "sync_enabled", "GIS_SYNC_ENABLED", True
-        )
+        enabled = _effective_bool(session, SettingDomain.gis, "sync_enabled", "GIS_SYNC_ENABLED", True)
         interval_minutes = _effective_int(
             session,
             SettingDomain.gis,
@@ -245,9 +225,7 @@ def build_beat_schedule() -> dict:
             "NOTIFICATION_QUEUE_INTERVAL_SECONDS",
             60,
         )
-        notification_queue_interval_seconds = max(
-            notification_queue_interval_seconds, 30
-        )
+        notification_queue_interval_seconds = max(notification_queue_interval_seconds, 30)
         _sync_scheduled_task(
             session,
             name="notification_queue_runner",
@@ -388,15 +366,11 @@ def build_beat_schedule() -> dict:
             True,
         )
         sla_breach_interval_seconds = _coerce_int(
-            resolve_value(
-                session, SettingDomain.workflow, "sla_breach_detection_interval_seconds"
-            ),
+            resolve_value(session, SettingDomain.workflow, "sla_breach_detection_interval_seconds"),
             1800,
         )
         sla_breach_min_interval = _coerce_int(
-            resolve_value(
-                session, SettingDomain.workflow, "sla_breach_detection_min_interval"
-            ),
+            resolve_value(session, SettingDomain.workflow, "sla_breach_detection_min_interval"),
             60,
         )
         sla_breach_interval_seconds = max(sla_breach_interval_seconds, sla_breach_min_interval)
@@ -455,9 +429,7 @@ def build_beat_schedule() -> dict:
             True,
         )
         event_retry_interval = _coerce_int(
-            resolve_value(
-                session, SettingDomain.scheduler, "event_retry_interval_seconds"
-            ),
+            resolve_value(session, SettingDomain.scheduler, "event_retry_interval_seconds"),
             300,
         )  # Default: 5 minutes
         event_retry_interval = max(event_retry_interval, 60)  # Min: 1 minute
@@ -478,9 +450,7 @@ def build_beat_schedule() -> dict:
             True,
         )
         event_stale_cleanup_interval = _coerce_int(
-            resolve_value(
-                session, SettingDomain.scheduler, "event_stale_cleanup_interval_seconds"
-            ),
+            resolve_value(session, SettingDomain.scheduler, "event_stale_cleanup_interval_seconds"),
             600,
         )  # Default: 10 minutes
         event_stale_cleanup_interval = max(event_stale_cleanup_interval, 60)  # Min: 1 minute
@@ -501,9 +471,7 @@ def build_beat_schedule() -> dict:
             True,
         )
         event_old_cleanup_interval = _coerce_int(
-            resolve_value(
-                session, SettingDomain.scheduler, "event_old_cleanup_interval_seconds"
-            ),
+            resolve_value(session, SettingDomain.scheduler, "event_old_cleanup_interval_seconds"),
             86400,
         )  # Default: daily
         event_old_cleanup_interval = max(event_old_cleanup_interval, 3600)  # Min: 1 hour
@@ -524,9 +492,7 @@ def build_beat_schedule() -> dict:
             False,
         )
         dotmac_erp_sync_interval_minutes = _coerce_int(
-            resolve_value(
-                session, SettingDomain.integration, "dotmac_erp_sync_interval_minutes"
-            ),
+            resolve_value(session, SettingDomain.integration, "dotmac_erp_sync_interval_minutes"),
             60,
         )
         dotmac_erp_sync_interval_seconds = max(dotmac_erp_sync_interval_minutes * 60, 300)
@@ -547,9 +513,7 @@ def build_beat_schedule() -> dict:
             False,
         )
         dotmac_erp_shift_sync_interval_minutes = _coerce_int(
-            resolve_value(
-                session, SettingDomain.integration, "dotmac_erp_shift_sync_interval_minutes"
-            ),
+            resolve_value(session, SettingDomain.integration, "dotmac_erp_shift_sync_interval_minutes"),
             60,  # Default: hourly
         )
         dotmac_erp_shift_sync_interval_seconds = max(dotmac_erp_shift_sync_interval_minutes * 60, 300)
@@ -570,9 +534,7 @@ def build_beat_schedule() -> dict:
             False,
         )
         dotmac_erp_contact_sync_interval_minutes = _coerce_int(
-            resolve_value(
-                session, SettingDomain.integration, "dotmac_erp_contact_sync_interval_minutes"
-            ),
+            resolve_value(session, SettingDomain.integration, "dotmac_erp_contact_sync_interval_minutes"),
             60,
         )
         dotmac_erp_contact_sync_interval_seconds = max(dotmac_erp_contact_sync_interval_minutes * 60, 300)
@@ -593,9 +555,7 @@ def build_beat_schedule() -> dict:
             False,
         )
         dotmac_erp_team_sync_interval_minutes = _coerce_int(
-            resolve_value(
-                session, SettingDomain.integration, "dotmac_erp_team_sync_interval_minutes"
-            ),
+            resolve_value(session, SettingDomain.integration, "dotmac_erp_team_sync_interval_minutes"),
             60,
         )
         dotmac_erp_team_sync_interval_seconds = max(dotmac_erp_team_sync_interval_minutes * 60, 300)
@@ -625,9 +585,7 @@ def build_beat_schedule() -> dict:
             False,
         )
         chatwoot_sync_interval_minutes = _coerce_int(
-            resolve_value(
-                session, SettingDomain.integration, "chatwoot_sync_interval_minutes"
-            ),
+            resolve_value(session, SettingDomain.integration, "chatwoot_sync_interval_minutes"),
             60,
         )
         chatwoot_sync_interval_seconds = max(chatwoot_sync_interval_minutes * 60, 300)
@@ -639,11 +597,28 @@ def build_beat_schedule() -> dict:
             interval_seconds=chatwoot_sync_interval_seconds,
         )
 
-        tasks = (
-            session.query(ScheduledTask)
-            .filter(ScheduledTask.enabled.is_(True))
-            .all()
+        # Splynx subscriber reconciliation sync
+        splynx_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "splynx_subscriber_sync_enabled",
+            "SPLYNX_SUBSCRIBER_SYNC_ENABLED",
+            False,
         )
+        splynx_sync_interval_hours = _coerce_int(
+            resolve_value(session, SettingDomain.integration, "splynx_subscriber_sync_interval_hours"),
+            24,
+        )
+        splynx_sync_interval_seconds = max(splynx_sync_interval_hours * 3600, 3600)  # Min: 1 hour
+        _sync_scheduled_task(
+            session,
+            name="splynx_subscriber_sync",
+            task_name="app.tasks.subscribers.sync_subscribers_from_splynx",
+            enabled=splynx_sync_enabled,
+            interval_seconds=splynx_sync_interval_seconds,
+        )
+
+        tasks = session.query(ScheduledTask).filter(ScheduledTask.enabled.is_(True)).all()
         for task in tasks:
             if task.schedule_type != ScheduleType.interval:
                 continue

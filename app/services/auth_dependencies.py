@@ -48,16 +48,11 @@ def _has_audit_scope(payload: dict) -> bool:
         roles.add(role_value)
     if isinstance(roles_value, list):
         roles.update(str(item) for item in roles_value)
-    return (
-        "audit:read" in scopes
-        or "audit:*" in scopes
-        or "admin" in roles
-        or "auditor" in roles
-    )
+    return "audit:read" in scopes or "audit:*" in scopes or "admin" in roles or "auditor" in roles
 
 
 def require_audit_auth(
-    request: Request = None,
+    request: Request,
     authorization: str | None = Header(default=None),
     x_session_token: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
@@ -81,9 +76,8 @@ def require_audit_auth(
                 if expires_at and expires_at <= now:
                     raise HTTPException(status_code=401, detail="Session expired")
             actor_id = str(payload.get("sub"))
-            if request is not None:
-                request.state.actor_id = actor_id
-                request.state.actor_type = "user"
+            request.state.actor_id = actor_id
+            request.state.actor_type = "user"
             return {"actor_type": "user", "actor_id": actor_id}
         session = (
             db.query(AuthSession)
@@ -94,9 +88,8 @@ def require_audit_auth(
             .first()
         )
         if session:
-            if request is not None:
-                request.state.actor_id = str(session.person_id)
-                request.state.actor_type = "user"
+            request.state.actor_id = str(session.person_id)
+            request.state.actor_type = "user"
             return {"actor_type": "user", "actor_id": str(session.person_id)}
     if x_api_key:
         api_key = (
@@ -108,20 +101,19 @@ def require_audit_auth(
             .first()
         )
         if api_key:
-            if request is not None:
-                request.state.actor_id = str(api_key.id)
-                request.state.actor_type = "api_key"
+            request.state.actor_id = str(api_key.id)
+            request.state.actor_type = "api_key"
             return {"actor_type": "api_key", "actor_id": str(api_key.id)}
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def require_user_auth(
-    request: Request = None,
+    request: Request,
     authorization: str | None = Header(default=None),
     db: Session = Depends(_get_db),
 ):
     token = _extract_bearer_token(authorization)
-    if not token and request is not None:
+    if not token:
         token = request.cookies.get("session_token")
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -152,18 +144,20 @@ def require_user_auth(
             # Only reload if roles/scopes were never cached (None), not if empty lists
             if roles is None or scopes is None:
                 roles, scopes = _load_rbac_claims(db, str(person_id))
-                set_cached_session(str(session_id), {
-                    "person_id": str(person_id),
-                    "roles": roles,
-                    "scopes": scopes,
-                    "expires_at": cached_expires_at,
-                })
+                set_cached_session(
+                    str(session_id),
+                    {
+                        "person_id": str(person_id),
+                        "roles": roles,
+                        "scopes": scopes,
+                        "expires_at": cached_expires_at,
+                    },
+                )
             roles = roles or []
             scopes = scopes or []
             actor_id = str(person_id)
-            if request is not None:
-                request.state.actor_id = actor_id
-                request.state.actor_type = "user"
+            request.state.actor_id = actor_id
+            request.state.actor_type = "user"
             return {
                 "person_id": str(person_id),
                 "session_id": str(session_id),
@@ -190,17 +184,19 @@ def require_user_auth(
         roles, scopes = _load_rbac_claims(db, str(person_id))
 
     # Cache the session for future requests
-    set_cached_session(str(session_id), {
-        "person_id": str(person_id),
-        "roles": roles,
-        "scopes": scopes,
-        "expires_at": session.expires_at.isoformat() if session.expires_at else None,
-    })
+    set_cached_session(
+        str(session_id),
+        {
+            "person_id": str(person_id),
+            "roles": roles,
+            "scopes": scopes,
+            "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+        },
+    )
 
     actor_id = str(person_id)
-    if request is not None:
-        request.state.actor_id = actor_id
-        request.state.actor_type = "user"
+    request.state.actor_id = actor_id
+    request.state.actor_type = "user"
     return {
         "person_id": str(person_id),
         "session_id": str(session_id),
@@ -218,19 +214,11 @@ def require_role(role_name: str):
         roles = set(auth.get("roles") or [])
         if role_name in roles:
             return auth
-        role = (
-            db.query(Role)
-            .filter(Role.name == role_name)
-            .filter(Role.is_active.is_(True))
-            .first()
-        )
+        role = db.query(Role).filter(Role.name == role_name).filter(Role.is_active.is_(True)).first()
         if not role:
             raise HTTPException(status_code=403, detail="Role not found")
         link = (
-            db.query(PersonRole)
-            .filter(PersonRole.person_id == person_id)
-            .filter(PersonRole.role_id == role.id)
-            .first()
+            db.query(PersonRole).filter(PersonRole.person_id == person_id).filter(PersonRole.role_id == role.id).first()
         )
         if not link:
             raise HTTPException(status_code=403, detail="Forbidden")
@@ -295,10 +283,7 @@ def require_permission(permission_key: str):
 
         # Find all matching permissions (exact or hierarchical)
         permissions = (
-            db.query(Permission)
-            .filter(Permission.key.in_(possible_keys))
-            .filter(Permission.is_active.is_(True))
-            .all()
+            db.query(Permission).filter(Permission.key.in_(possible_keys)).filter(Permission.is_active.is_(True)).all()
         )
         if not permissions:
             raise HTTPException(status_code=403, detail="Permission not found")
@@ -333,6 +318,7 @@ def require_permission(permission_key: str):
 
 def require_any_permission(*permission_keys: str):
     """Require user to have at least one of the specified permissions."""
+
     def _require_any_permission(
         auth=Depends(require_user_auth),
         db: Session = Depends(_get_db),

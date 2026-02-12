@@ -149,9 +149,7 @@ class InventoryLocations(ListResponseMixin):
             query = query.filter(InventoryLocation.is_active.is_(True))
         else:
             query = query.filter(InventoryLocation.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": InventoryLocation.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": InventoryLocation.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -214,7 +212,15 @@ class InventoryStocks(ListResponseMixin):
         else:
             query = query.filter(InventoryStock.is_active == is_active)
         query = apply_ordering(
-            query, order_by, order_dir, {"created_at": InventoryStock.created_at}
+            query,
+            order_by,
+            order_dir,
+            {
+                "created_at": InventoryStock.created_at,
+                "updated_at": InventoryStock.updated_at,
+                "quantity_on_hand": InventoryStock.quantity_on_hand,
+                "reserved_quantity": InventoryStock.reserved_quantity,
+            },
         )
         return apply_pagination(query, limit, offset).all()
 
@@ -265,13 +271,9 @@ class Reservations(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
-            default_status = settings_spec.resolve_value(
-                db, SettingDomain.inventory, "default_reservation_status"
-            )
+            default_status = settings_spec.resolve_value(db, SettingDomain.inventory, "default_reservation_status")
             if default_status:
-                data["status"] = validate_enum(
-                    default_status, ReservationStatus, "status"
-                )
+                data["status"] = validate_enum(default_status, ReservationStatus, "status")
         reservation = Reservation(**data)
         db.add(reservation)
         db.commit()
@@ -306,9 +308,7 @@ class Reservations(ListResponseMixin):
                 query = query.filter(Reservation.status == ReservationStatus(status))
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail="Invalid status") from exc
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": Reservation.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": Reservation.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -328,20 +328,14 @@ class WorkOrderMaterials(ListResponseMixin):
     def create(db: Session, payload: WorkOrderMaterialCreate):
         _ensure_work_order(db, str(payload.work_order_id))
         _ensure_item(db, str(payload.item_id))
-        if payload.reservation_id and not db.get(
-            Reservation, coerce_uuid(payload.reservation_id)
-        ):
+        if payload.reservation_id and not db.get(Reservation, coerce_uuid(payload.reservation_id)):
             raise HTTPException(status_code=404, detail="Reservation not found")
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
-            default_status = settings_spec.resolve_value(
-                db, SettingDomain.inventory, "default_material_status"
-            )
+            default_status = settings_spec.resolve_value(db, SettingDomain.inventory, "default_material_status")
             if default_status:
-                data["status"] = validate_enum(
-                    default_status, MaterialStatus, "status"
-                )
+                data["status"] = validate_enum(default_status, MaterialStatus, "status")
         material = WorkOrderMaterial(**data)
         db.add(material)
         db.commit()
@@ -373,9 +367,7 @@ class WorkOrderMaterials(ListResponseMixin):
                 query = query.filter(WorkOrderMaterial.status == MaterialStatus(status))
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail="Invalid status") from exc
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": WorkOrderMaterial.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": WorkOrderMaterial.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod

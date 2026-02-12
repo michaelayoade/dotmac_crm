@@ -51,6 +51,10 @@ def _get_vendor_user(db: Session, person_id: str) -> VendorUser | None:
     )
 
 
+def get_vendor_user(db: Session, person_id: str) -> VendorUser | None:
+    return _get_vendor_user(db, person_id)
+
+
 def _create_session(
     username: str,
     person_id: str,

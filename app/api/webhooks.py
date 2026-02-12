@@ -51,9 +51,7 @@ def list_webhook_endpoints(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return webhook_service.webhook_endpoints.list_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return webhook_service.webhook_endpoints.list_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.patch(
@@ -61,9 +59,7 @@ def list_webhook_endpoints(
     response_model=WebhookEndpointRead,
     tags=["webhook-endpoints"],
 )
-def update_webhook_endpoint(
-    endpoint_id: str, payload: WebhookEndpointUpdate, db: Session = Depends(get_db)
-):
+def update_webhook_endpoint(endpoint_id: str, payload: WebhookEndpointUpdate, db: Session = Depends(get_db)):
     return webhook_service.webhook_endpoints.update(db, endpoint_id, payload)
 
 
@@ -82,9 +78,7 @@ def delete_webhook_endpoint(endpoint_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     tags=["webhook-subscriptions"],
 )
-def create_webhook_subscription(
-    payload: WebhookSubscriptionCreate, db: Session = Depends(get_db)
-):
+def create_webhook_subscription(payload: WebhookSubscriptionCreate, db: Session = Depends(get_db)):
     return webhook_service.webhook_subscriptions.create(db, payload)
 
 
@@ -143,9 +137,7 @@ def delete_webhook_subscription(subscription_id: str, db: Session = Depends(get_
     status_code=status.HTTP_201_CREATED,
     tags=["webhook-deliveries"],
 )
-def create_webhook_delivery(
-    payload: WebhookDeliveryCreate, db: Session = Depends(get_db)
-):
+def create_webhook_delivery(payload: WebhookDeliveryCreate, db: Session = Depends(get_db)):
     return webhook_service.webhook_deliveries.create(db, payload)
 
 
@@ -192,7 +184,5 @@ def list_webhook_deliveries(
     response_model=WebhookDeliveryRead,
     tags=["webhook-deliveries"],
 )
-def update_webhook_delivery(
-    delivery_id: str, payload: WebhookDeliveryUpdate, db: Session = Depends(get_db)
-):
+def update_webhook_delivery(delivery_id: str, payload: WebhookDeliveryUpdate, db: Session = Depends(get_db)):
     return webhook_service.webhook_deliveries.update(db, delivery_id, payload)

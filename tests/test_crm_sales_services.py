@@ -83,9 +83,7 @@ def test_list_pipelines(db_session):
 
 def test_list_pipelines_filter_inactive(db_session):
     """Test listing only inactive pipelines."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Inactive Pipeline", is_active=False)
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Inactive Pipeline", is_active=False))
 
     pipelines = sales_service.Pipelines.list(
         db_session,
@@ -127,9 +125,7 @@ def test_list_pipelines_invalid_order_by(db_session):
 
 def test_update_pipeline(db_session):
     """Test updating a pipeline."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Original Name")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Original Name"))
     updated = sales_service.Pipelines.update(
         db_session,
         str(pipeline.id),
@@ -141,17 +137,13 @@ def test_update_pipeline(db_session):
 def test_update_pipeline_not_found(db_session):
     """Test updating non-existent pipeline raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        sales_service.Pipelines.update(
-            db_session, str(uuid.uuid4()), PipelineUpdate(name="New")
-        )
+        sales_service.Pipelines.update(db_session, str(uuid.uuid4()), PipelineUpdate(name="New"))
     assert exc_info.value.status_code == 404
 
 
 def test_delete_pipeline(db_session):
     """Test deleting (soft delete) a pipeline."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="To Delete")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="To Delete"))
     sales_service.Pipelines.delete(db_session, str(pipeline.id))
     db_session.refresh(pipeline)
     assert pipeline.is_active is False
@@ -171,9 +163,7 @@ def test_delete_pipeline_not_found(db_session):
 
 def test_create_pipeline_stage(db_session):
     """Test creating a pipeline stage."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Stage Test Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Stage Test Pipeline"))
     stage = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(
@@ -201,9 +191,7 @@ def test_create_pipeline_stage_pipeline_not_found(db_session):
 
 def test_list_pipeline_stages(db_session):
     """Test listing pipeline stages."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Stages List Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Stages List Pipeline"))
     sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(pipeline_id=pipeline.id, name="Stage 1", order_index=1),
@@ -227,14 +215,10 @@ def test_list_pipeline_stages(db_session):
 
 def test_list_pipeline_stages_filter_inactive(db_session):
     """Test listing only inactive pipeline stages."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Inactive Stages Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Inactive Stages Pipeline"))
     stage = sales_service.PipelineStages.create(
         db_session,
-        PipelineStageCreate(
-            pipeline_id=pipeline.id, name="Inactive Stage", is_active=False
-        ),
+        PipelineStageCreate(pipeline_id=pipeline.id, name="Inactive Stage", is_active=False),
     )
 
     stages = sales_service.PipelineStages.list(
@@ -266,9 +250,7 @@ def test_list_pipeline_stages_invalid_order_by(db_session):
 
 def test_update_pipeline_stage(db_session):
     """Test updating a pipeline stage."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Update Stage Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Update Stage Pipeline"))
     stage = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(pipeline_id=pipeline.id, name="Original Stage"),
@@ -285,9 +267,7 @@ def test_update_pipeline_stage(db_session):
 def test_update_pipeline_stage_not_found(db_session):
     """Test updating non-existent stage raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        sales_service.PipelineStages.update(
-            db_session, str(uuid.uuid4()), PipelineStageUpdate(name="New")
-        )
+        sales_service.PipelineStages.update(db_session, str(uuid.uuid4()), PipelineStageUpdate(name="New"))
     assert exc_info.value.status_code == 404
     assert "Pipeline stage not found" in exc_info.value.detail
 
@@ -311,9 +291,7 @@ def test_create_lead(db_session, person):
 
 def test_create_lead_with_pipeline_and_stage(db_session, person):
     """Test creating a lead with pipeline and stage."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Lead Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Lead Pipeline"))
     stage = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(pipeline_id=pipeline.id, name="Initial"),
@@ -394,9 +372,7 @@ def test_list_leads(db_session, person):
 
 def test_list_leads_filter_by_pipeline(db_session, person):
     """Test listing leads filtered by pipeline."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Filter Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Filter Pipeline"))
     lead = sales_service.Leads.create(
         db_session,
         LeadCreate(title="Pipeline Lead", person_id=person.id, pipeline_id=pipeline.id),
@@ -419,9 +395,7 @@ def test_list_leads_filter_by_pipeline(db_session, person):
 
 def test_list_leads_filter_by_stage(db_session, person):
     """Test listing leads filtered by stage."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Stage Filter Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Stage Filter Pipeline"))
     stage = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(pipeline_id=pipeline.id, name="Filter Stage"),
@@ -593,9 +567,7 @@ def test_lead_update_changes_person(db_session, person):
 def test_update_lead_not_found(db_session):
     """Test updating non-existent lead raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        sales_service.Leads.update(
-            db_session, str(uuid.uuid4()), LeadUpdate(title="New")
-        )
+        sales_service.Leads.update(db_session, str(uuid.uuid4()), LeadUpdate(title="New"))
     assert exc_info.value.status_code == 404
 
 
@@ -816,9 +788,7 @@ def test_update_quote(db_session, person):
 def test_update_quote_not_found(db_session):
     """Test updating non-existent quote raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        sales_service.Quotes.update(
-            db_session, str(uuid.uuid4()), QuoteUpdate(notes="New")
-        )
+        sales_service.Quotes.update(db_session, str(uuid.uuid4()), QuoteUpdate(notes="New"))
     assert exc_info.value.status_code == 404
 
 
@@ -1029,9 +999,7 @@ def test_update_quote_line_item_recalculates_quote_totals(db_session, person):
 def test_update_quote_line_item_not_found(db_session):
     """Test updating non-existent line item raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        sales_service.CrmQuoteLineItems.update(
-            db_session, str(uuid.uuid4()), QuoteLineItemUpdate(description="New")
-        )
+        sales_service.CrmQuoteLineItems.update(db_session, str(uuid.uuid4()), QuoteLineItemUpdate(description="New"))
     assert exc_info.value.status_code == 404
     assert "Quote line item not found" in exc_info.value.detail
 
@@ -1110,9 +1078,7 @@ def test_update_lead_with_sales_fields(db_session, person):
 
 def test_create_pipeline_stage_with_default_probability(db_session):
     """Test creating a pipeline stage with default probability."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Probability Stage Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Probability Stage Pipeline"))
     stage = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(
@@ -1127,9 +1093,7 @@ def test_create_pipeline_stage_with_default_probability(db_session):
 
 def test_create_pipeline_stage_default_probability_default(db_session):
     """Test pipeline stage default probability defaults to 50."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Default Prob Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Default Prob Pipeline"))
     stage = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(
@@ -1156,9 +1120,7 @@ def test_kanban_view_empty(db_session):
 
 def test_kanban_view_with_pipeline(db_session, person):
     """Test kanban view filtered by pipeline."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Kanban Test Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Kanban Test Pipeline"))
     stage1 = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(
@@ -1207,9 +1169,7 @@ def test_kanban_view_with_pipeline(db_session, person):
 
 def test_update_stage_moves_lead(db_session, person):
     """Test update_stage moves lead to new stage."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Stage Move Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Stage Move Pipeline"))
     stage1 = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(
@@ -1252,9 +1212,7 @@ def test_update_stage_moves_lead(db_session, person):
 
 def test_update_stage_preserves_existing_probability(db_session, person):
     """Test update_stage preserves existing probability."""
-    pipeline = sales_service.Pipelines.create(
-        db_session, PipelineCreate(name="Preserve Prob Pipeline")
-    )
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Preserve Prob Pipeline"))
     stage1 = sales_service.PipelineStages.create(
         db_session,
         PipelineStageCreate(

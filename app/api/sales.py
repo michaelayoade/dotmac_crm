@@ -15,6 +15,7 @@ router = APIRouter(prefix="/leads", tags=["sales"])
 
 class KanbanMoveRequest(BaseModel):
     """Request body for moving a lead on the kanban board."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     id: str

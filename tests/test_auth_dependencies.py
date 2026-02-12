@@ -15,7 +15,9 @@ from app.services.auth_dependencies import require_audit_auth, require_user_auth
 from app.services.auth_flow import AuthFlow, hash_password, hash_session_token
 
 
-def _make_access_token(person_id: str, session_id: str, scopes: list[str] | None = None, roles: list[str] | None = None):
+def _make_access_token(
+    person_id: str, session_id: str, scopes: list[str] | None = None, roles: list[str] | None = None
+):
     now = datetime.now(UTC)
     payload = {
         "sub": person_id,
@@ -269,9 +271,7 @@ def test_require_audit_auth_session_token_sets_actor_id(db_session, person):
     db_session.add(session)
     db_session.commit()
     request = Request({"type": "http", "headers": []})
-    auth = require_audit_auth(
-        authorization=None, x_session_token=refresh_token, request=request, db=db_session
-    )
+    auth = require_audit_auth(authorization=None, x_session_token=refresh_token, request=request, db=db_session)
     assert request.state.actor_id == str(person.id)
     assert auth["actor_type"] == "user"
 

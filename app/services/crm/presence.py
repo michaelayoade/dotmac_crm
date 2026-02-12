@@ -24,11 +24,7 @@ class AgentPresenceManager(ListResponseMixin):
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        presence = (
-            db.query(AgentPresence)
-            .filter(AgentPresence.agent_id == agent_uuid)
-            .first()
-        )
+        presence = db.query(AgentPresence).filter(AgentPresence.agent_id == agent_uuid).first()
         if presence:
             return presence
 
@@ -60,11 +56,7 @@ class AgentPresenceManager(ListResponseMixin):
             status_value = validate_enum(status, AgentPresenceStatus, "status")
 
         now = datetime.now(UTC)
-        presence = (
-            db.query(AgentPresence)
-            .filter(AgentPresence.agent_id == agent_uuid)
-            .first()
-        )
+        presence = db.query(AgentPresence).filter(AgentPresence.agent_id == agent_uuid).first()
 
         if presence:
             presence.status = status_value

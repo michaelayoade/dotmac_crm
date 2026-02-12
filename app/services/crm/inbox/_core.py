@@ -247,6 +247,20 @@ def _set_message_send_error(
     message.metadata_ = metadata
 
 
+def _store_external_message_id(message: Message, raw_message_id: str | None) -> None:
+    """Persist provider message IDs safely for varchar(120) columns."""
+    normalized = _normalize_external_id(raw_message_id)
+    message.external_id = normalized
+    if not raw_message_id:
+        return
+    raw_value = raw_message_id.strip()
+    if not raw_value or raw_value == normalized:
+        return
+    metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
+    metadata["provider_message_id"] = raw_value
+    message.metadata_ = metadata
+
+
 def _resolve_integration_target(
     db: Session,
     channel_type: ChannelType,
@@ -297,7 +311,6 @@ def _resolve_connector_config(
         ChannelType.instagram_dm: ConnectorType.facebook,
     }
     expected = expected_map.get(channel_type, ConnectorType.email)
-
     if config.connector_type != expected:
         raise HTTPException(status_code=400, detail="Connector type mismatch")
     return config
@@ -532,11 +545,7 @@ def _resolve_person_for_inbound(
 
     person = None
     if channel_type == ChannelType.email:
-        person = (
-            db.query(Person)
-            .filter(func.lower(Person.email) == normalized_address)
-            .first()
-        )
+        person = db.query(Person).filter(func.lower(Person.email) == normalized_address).first()
     if not person and channel_type == ChannelType.whatsapp:
         person = (
             db.query(Person)
@@ -599,9 +608,7 @@ def _find_duplicate_inbound_message(
 ) -> Message | None:
     if message_id:
         existing_query = (
-            db.query(Message)
-            .filter(Message.channel_type == channel_type)
-            .filter(Message.external_id == message_id)
+            db.query(Message).filter(Message.channel_type == channel_type).filter(Message.external_id == message_id)
         )
         if not dedupe_across_targets:
             if channel_target_id:
@@ -740,9 +747,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         if person_channel.channel_type.value != payload.channel_type.value:
             raise HTTPException(status_code=400, detail="Contact channel type mismatch")
     else:
-        person_channel = conversation_service.resolve_person_channel(
-            db, str(person.id), payload.channel_type
-        )
+        person_channel = conversation_service.resolve_person_channel(db, str(person.id), payload.channel_type)
 
     if not person_channel:
         raise HTTPException(status_code=400, detail="Contact channel not found")
@@ -797,6 +802,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         db.commit()
         db.refresh(message)
         from app.websocket.broadcaster import broadcast_message_status
+
         broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
         return message
 
@@ -851,7 +857,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
             response.raise_for_status()
             data = response.json() if response.content else {}
             message.status = MessageStatus.sent
-            message.external_id = data.get("messages", [{}])[0].get("id")
+            _store_external_message_id(message, data.get("messages", [{}])[0].get("id"))
         except httpx.HTTPError as exc:
             message.status = MessageStatus.failed
             status_code = None
@@ -884,12 +890,14 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         db.commit()
         db.refresh(message)
         from app.websocket.broadcaster import broadcast_message_status
+
         broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
         return message
 
     # Facebook Messenger sending
     if payload.channel_type == ChannelType.facebook_messenger:
         from app.services import meta_messaging
+
         account_id = _resolve_meta_account_id(db, conversation.id, payload.channel_type)
         if not last_inbound or not last_inbound.received_at:
             raise HTTPException(status_code=400, detail="Meta reply window expired")
@@ -920,7 +928,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
                 account_id=account_id,
             )
             message.status = MessageStatus.sent
-            message.external_id = result.get("message_id")
+            _store_external_message_id(message, result.get("message_id"))
         except Exception as exc:
             logger.error("facebook_messenger_send_failed conversation_id=%s error=%s", conversation.id, exc)
             message.status = MessageStatus.failed
@@ -929,12 +937,14 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         db.commit()
         db.refresh(message)
         from app.websocket.broadcaster import broadcast_message_status
+
         broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
         return message
 
     # Instagram DM sending
     if payload.channel_type == ChannelType.instagram_dm:
         from app.services import meta_messaging
+
         account_id = _resolve_meta_account_id(db, conversation.id, payload.channel_type)
         if not last_inbound or not last_inbound.received_at:
             raise HTTPException(status_code=400, detail="Meta reply window expired")
@@ -965,7 +975,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
                 account_id=account_id,
             )
             message.status = MessageStatus.sent
-            message.external_id = result.get("message_id")
+            _store_external_message_id(message, result.get("message_id"))
         except Exception as exc:
             logger.error("instagram_dm_send_failed conversation_id=%s error=%s", conversation.id, exc)
             message.status = MessageStatus.failed
@@ -974,6 +984,7 @@ def send_message(db: Session, payload: InboxSendRequest, author_id: str | None =
         db.commit()
         db.refresh(message)
         from app.websocket.broadcaster import broadcast_message_status
+
         broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
         return message
 

@@ -25,6 +25,7 @@ from app.schemas.tickets import (
     TicketSlaEventUpdate,
     TicketUpdate,
 )
+from app.services import settings_spec
 from app.services.common import (
     coerce_uuid,
 )
@@ -32,7 +33,6 @@ from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
-from app.services import settings_spec
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -65,6 +65,8 @@ def _normalize_assignee_ids(assignee_ids: list[str] | None) -> list[str]:
         try:
             coerced = str(coerce_uuid(raw))
         except Exception:
+            coerced = None
+        if not coerced:
             continue
         if coerced not in seen:
             seen.add(coerced)
@@ -85,9 +87,7 @@ def _sync_ticket_assignees(db: Session, ticket: Ticket, assignee_ids: list[str] 
     target_ids = set(normalized)
 
     for person_id in target_ids - current_ids:
-        ticket.assignees.append(
-            TicketAssignee(ticket_id=ticket.id, person_id=coerce_uuid(person_id))
-        )
+        ticket.assignees.append(TicketAssignee(ticket_id=ticket.id, person_id=coerce_uuid(person_id)))
     if target_ids != current_ids:
         for assignee in list(ticket.assignees):
             if str(assignee.person_id) not in target_ids:
@@ -183,7 +183,7 @@ def _resolve_technician_contact(db: Session, person_id) -> dict | None:
 
 
 def _get_region_ticket_assignments(db: Session, region: str | None) -> tuple[str | None, str | None]:
-    """Look up ticket manager + assistant person_id for the given region from settings."""
+    """Look up project manager + SPC person_id for the given region from settings."""
     if not region:
         return None, None
     region_ticket_map = settings_spec.resolve_value(db, SettingDomain.comms, "region_ticket_assignments")
@@ -191,10 +191,12 @@ def _get_region_ticket_assignments(db: Session, region: str | None) -> tuple[str
         return None, None
     entry = region_ticket_map.get(region)
     manager_id: str | None = None
-    assistant_id: str | None = None
+    spc_id: str | None = None
     if isinstance(entry, dict):
         manager_id = entry.get("manager_person_id") or entry.get("ticket_manager_person_id")
-        assistant_id = entry.get("assistant_person_id") or entry.get("assistant_manager_person_id")
+        spc_id = (
+            entry.get("spc_person_id") or entry.get("assistant_person_id") or entry.get("assistant_manager_person_id")
+        )
     elif isinstance(entry, str):
         manager_id = entry
     if manager_id:
@@ -203,13 +205,13 @@ def _get_region_ticket_assignments(db: Session, region: str | None) -> tuple[str
             manager_id = None
         else:
             manager_id = str(person.id)
-    if assistant_id:
-        person = db.get(Person, coerce_uuid(assistant_id))
+    if spc_id:
+        person = db.get(Person, coerce_uuid(spc_id))
         if not person:
-            assistant_id = None
+            spc_id = None
         else:
-            assistant_id = str(person.id)
-    return manager_id, assistant_id
+            spc_id = str(person.id)
+    return manager_id, spc_id
 
 
 class Tickets(ListResponseMixin):
@@ -253,13 +255,13 @@ class Tickets(ListResponseMixin):
         )
         if number:
             data["number"] = number
-        # Auto-assign ticket manager based on region if not already specified
+        # Auto-assign project manager + SPC based on region if not already specified
         if data.get("region"):
-            auto_manager, auto_assistant = _get_region_ticket_assignments(db, data["region"])
+            auto_manager, auto_spc = _get_region_ticket_assignments(db, data["region"])
             if auto_manager and not data.get("ticket_manager_person_id"):
                 data["ticket_manager_person_id"] = coerce_uuid(auto_manager)
-            if auto_assistant and not data.get("assistant_manager_person_id"):
-                data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
+            if auto_spc and not data.get("assistant_manager_person_id"):
+                data["assistant_manager_person_id"] = coerce_uuid(auto_spc)
         ticket = Ticket(**data)
         db.add(ticket)
         db.flush()  # Get ticket.id before creating work order
@@ -418,6 +420,7 @@ class Tickets(ListResponseMixin):
         previous_priority = ticket.priority
         previous_assigned_to = ticket.assigned_to_person_id
         data = payload.model_dump(exclude_unset=True)
+        fields_set = payload.model_fields_set
         assignee_ids: list[str] | None = None
         if "assigned_to_person_ids" in payload.model_fields_set:
             assignee_ids = [str(value) for value in (payload.assigned_to_person_ids or [])]
@@ -440,8 +443,10 @@ class Tickets(ListResponseMixin):
         if data.get("customer_person_id"):
             _ensure_person(db, str(data["customer_person_id"]))
 
-        # Auto-assign ticket manager based on region if region changes and no manager is set
+        # Auto-assign project manager + SPC based on region if region changes and no manager is set
         new_region = data.get("region")
+        manager_explicit = "ticket_manager_person_id" in fields_set
+        assistant_explicit = "assistant_manager_person_id" in fields_set
         current_manager = (
             data.get("ticket_manager_person_id")
             if "ticket_manager_person_id" in data
@@ -453,11 +458,11 @@ class Tickets(ListResponseMixin):
             else ticket.assistant_manager_person_id
         )
         if new_region:
-            auto_manager, auto_assistant = _get_region_ticket_assignments(db, new_region)
-            if auto_manager and not current_manager:
+            auto_manager, auto_spc = _get_region_ticket_assignments(db, new_region)
+            if auto_manager and not current_manager and not manager_explicit:
                 data["ticket_manager_person_id"] = coerce_uuid(auto_manager)
-            if auto_assistant and not current_assistant:
-                data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
+            if auto_spc and not current_assistant and not assistant_explicit:
+                data["assistant_manager_person_id"] = coerce_uuid(auto_spc)
 
         # Check if field_visit tag is being added
         had_field_visit = _has_field_visit_tag(ticket.tags)

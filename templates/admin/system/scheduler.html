@@ -1,83 +1,98 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, status_badge, table_shell, empty_state %}
 
 {% block title %}Scheduler - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Scheduler</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Monitor scheduled jobs and background automation</p>
-        </div>
-        <button type="button" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            Run Now
-        </button>
-    </div>
+    {{ page_header("Scheduler", "Monitor scheduled jobs and background automation", color="cyan", color2="blue", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "", "label": "Scheduler"}]) }}
 
-    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Job</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Schedule</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Run</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                        <th class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
-                    {% if tasks %}
-                    {% for task in tasks %}
-                    {% set enabled = task.enabled if task.enabled is defined else task.is_enabled %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="px-6 py-4 whitespace-nowrap">
+    {# ── Jobs Table ── #}
+    {% set pad = 'px-6 py-3' %}
+    <div class="animate-fade-in-up" style="animation-delay: 100ms">
+    {% call table_shell(table_id="scheduler-table", title="Scheduled Jobs", color="cyan", count=tasks | length) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Job</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Schedule</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Run</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th scope="col" class="{{ pad }} text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% if tasks %}
+                {% for task in tasks %}
+                {% set enabled = task.enabled if task.enabled is defined else task.is_enabled %}
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="{{ pad }} whitespace-nowrap">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/10 to-blue-500/10 dark:from-cyan-500/20 dark:to-blue-500/20">
+                                <svg class="h-4 w-4 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
                             <div>
-                                <p class="text-sm font-medium text-slate-900 dark:text-white">{{ task.name | default('Scheduled Task') }}</p>
+                                <p class="text-sm font-semibold text-slate-900 dark:text-white">{{ task.name | default('Scheduled Task') }}</p>
                                 <p class="text-xs text-slate-500 dark:text-slate-400">{{ task.description | default('Automated job') }}</p>
                             </div>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ task.cron | default(task.schedule | default('N/A')) }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ task.last_run_at.strftime('%b %d, %Y %H:%M') if task.last_run_at else 'Never' }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            {% if enabled %}
-                            <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">Enabled</span>
-                            {% else %}
-                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">Disabled</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right">
-                            <a href="/admin/system/scheduler/{{ task.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% else %}
-                    <tr>
-                        <td colspan="5" class="px-6 py-12">
-                            {% set title = "No scheduled tasks" %}
-                            {% set message = "Create a scheduled job to automate recurring operations." %}
-                            {% include "components/data/empty_state.html" %}
-                        </td>
-                    </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
+                        </div>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
+                        <code class="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ task.cron | default(task.schedule | default('N/A')) }}</code>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
+                        {% if task.last_run_at %}
+                        {{ task.last_run_at.strftime('%b %d, %Y %H:%M') }}
+                        {% else %}
+                        <span class="text-slate-400 dark:text-slate-500">Never</span>
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
+                        {% if enabled %}
+                        {{ status_badge("Enabled", "active", size="sm") }}
+                        {% else %}
+                        {{ status_badge("Disabled", "inactive", size="sm") }}
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap text-right">
+                        <a href="/admin/system/scheduler/{{ task.id }}" class="inline-flex items-center gap-1 text-sm font-medium text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300 transition-colors">
+                            View
+                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                {{ empty_state("No scheduled tasks", "Create a scheduled job to automate recurring operations.", colspan=5) }}
+                {% endif %}
+            </tbody>
+        </table>
 
         {% if total_pages and total_pages > 1 %}
-        <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row">
-            <p class="text-sm text-slate-500 dark:text-slate-400">Page {{ page }} of {{ total_pages }}</p>
+        <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200/60 px-6 py-3 dark:border-slate-700/60 sm:flex-row">
+            <div class="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+                <span>Page {{ page }} of {{ total_pages }}</span>
+                <label class="inline-flex items-center gap-2">
+                    <span>Rows</span>
+                    <select class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                            onchange="const u=new URL(window.location.href);u.searchParams.set('per_page', this.value);u.searchParams.set('page','1');window.location.assign(u.toString());">
+                        {% for size in [10, 25, 50, 100] %}
+                        <option value="{{ size }}" {% if per_page|int == size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
-                <a href="/admin/system/scheduler?page={{ page - 1 }}&per_page={{ per_page }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                <a href="/admin/system/scheduler?page={{ page - 1 }}&per_page={{ per_page }}" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 transition-colors">Previous</a>
                 {% endif %}
                 {% if page < total_pages %}
-                <a href="/admin/system/scheduler?page={{ page + 1 }}&per_page={{ per_page }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                <a href="/admin/system/scheduler?page={{ page + 1 }}&per_page={{ per_page }}" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 transition-colors">Next</a>
                 {% endif %}
             </div>
         </div>
         {% endif %}
+    {% endcall %}
     </div>
 </div>
 {% endblock %}

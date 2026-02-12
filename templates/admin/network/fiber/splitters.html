@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, table_shell, table_row, empty_state %}
 
 {% block title %}Splitters - Admin{% endblock %}
 
@@ -35,63 +35,60 @@
     </div>
 
     <!-- Splitters Table -->
-    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/50">
-                    <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Splitter</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ratio</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ports</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    {% for splitter in splitters %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="px-6 py-4">
-                            <div class="flex items-center gap-3">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-100 dark:bg-yellow-900/30">
-                                    <svg class="h-5 w-5 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                                </div>
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="splitters-table", color="primary") %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Splitter</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ratio</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ports</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th scope="col" class="{{ pad }}"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for splitter in splitters %}
+                {% call table_row(color="primary") %}
+                    <td class="{{ pad }}">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-100 dark:bg-yellow-900/30">
+                                <svg class="h-5 w-5 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                            </div>
                                 <div>
                                     <a href="/admin/network/splitters/{{ splitter.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ splitter.name }}</a>
                                     {% if splitter.fdh %}
                                     <p class="text-xs text-slate-500 dark:text-slate-400">{{ splitter.fdh.name }}</p>
                                     {% endif %}
-                                </div>
                             </div>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                        </div>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
                             <span class="text-sm text-slate-900 dark:text-white">{{ splitter.splitter_ratio or '-' }}</span>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                    <td class="{{ pad }} whitespace-nowrap">
                             <span class="text-sm text-slate-900 dark:text-white">{{ splitter.input_ports }} in / {{ splitter.output_ports }} out</span>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                    <td class="{{ pad }} whitespace-nowrap">
                             {% if splitter.is_active %}
                             {{ status_badge("Active", "active", size="sm") }}
                             {% else %}
                             {{ status_badge("Inactive", "inactive", size="sm") }}
                             {% endif %}
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                    <td class="{{ pad }} whitespace-nowrap text-right text-sm">
                             <a href="/admin/network/splitters/{{ splitter.id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
                         </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="5" class="px-6 py-12 text-center">
-                            <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                            <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">No splitters</h3>
-                            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Get started by adding an optical splitter.</p>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+                {% endcall %}
+                {% else %}
+                <tr>
+                    <td colspan="5" class="px-6 py-12">
+                        {{ empty_state("No splitters", "Get started by adding an optical splitter.") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
 </div>
 {% endblock %}

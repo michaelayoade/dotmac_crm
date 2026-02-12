@@ -3,7 +3,9 @@
     {% if conv.kind == 'comment' %}
     {% set platform_class = 'channel-facebook_messenger' if conv.platform == 'facebook' else 'channel-instagram_dm' %}
     <a href="{{ conv.href }}"
-       class="conversation-item {{ platform_class }} conv-stagger block">
+       class="conversation-item {{ platform_class }} conv-stagger block {% if selected_comment_id and selected_comment_id == conv.comment_id %}active{% endif %}"
+       @click.prevent="selectComment('{{ conv.comment_id }}')"
+       @keydown.enter.prevent="selectComment('{{ conv.comment_id }}')">
         <div class="px-4 py-3.5 cursor-pointer">
             <div class="flex items-start gap-3">
                 <div class="relative flex-shrink-0 mt-0.5">

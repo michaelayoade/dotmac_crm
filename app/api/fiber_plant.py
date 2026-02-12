@@ -43,3 +43,9 @@ def get_closure_splices(closure_id: str, db: Session = Depends(get_db)):
 def get_fiber_plant_stats(db: Session = Depends(get_db)):
     """Get summary statistics for the fiber plant."""
     return fiber_plant.get_stats(db)
+
+
+@router.get("/qa")
+def get_fiber_plant_qa(db: Session = Depends(get_db)):
+    """Get QA/data-quality checks for fiber plant map data."""
+    return fiber_plant.get_quality_stats(db)

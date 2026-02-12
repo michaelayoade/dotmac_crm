@@ -236,6 +236,7 @@ class Campaigns(ListResponseMixin):
 
         # Dispatch Celery task
         from app.tasks.campaigns import execute_campaign
+
         execute_campaign.delay(str(campaign.id))
 
         return campaign
@@ -383,9 +384,7 @@ class CampaignSteps(ListResponseMixin):
         limit: int = 50,
         offset: int = 0,
     ):
-        query = db.query(CampaignStep).filter(
-            CampaignStep.campaign_id == coerce_uuid(campaign_id)
-        )
+        query = db.query(CampaignStep).filter(CampaignStep.campaign_id == coerce_uuid(campaign_id))
         query = apply_ordering(
             query,
             order_by,
@@ -426,9 +425,7 @@ class CampaignRecipients(ListResponseMixin):
         limit: int = 50,
         offset: int = 0,
     ):
-        query = db.query(CampaignRecipient).filter(
-            CampaignRecipient.campaign_id == coerce_uuid(campaign_id)
-        )
+        query = db.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == coerce_uuid(campaign_id))
         if status:
             status_value = validate_enum(status, CampaignRecipientStatus, "status")
             query = query.filter(CampaignRecipient.status == status_value)
@@ -451,12 +448,7 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
     """
     cid = coerce_uuid(campaign_id)
     # Lock campaign row to prevent concurrent batch processing
-    campaign = (
-        db.query(Campaign)
-        .filter(Campaign.id == cid)
-        .with_for_update(skip_locked=True)
-        .first()
-    )
+    campaign = db.query(Campaign).filter(Campaign.id == cid).with_for_update(skip_locked=True).first()
     if not campaign or campaign.status != CampaignStatus.sending:
         return 0
 

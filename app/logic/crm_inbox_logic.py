@@ -58,10 +58,7 @@ class LogicService:
     """Pure decision logic for CRM inbox actions."""
 
     def decide_send_message(self, ctx: MessageContext) -> SendMessageDecision:
-        if (
-            ctx.last_inbound_channel_type
-            and ctx.requested_channel_type != ctx.last_inbound_channel_type
-        ):
+        if ctx.last_inbound_channel_type and ctx.requested_channel_type != ctx.last_inbound_channel_type:
             return SendMessageDecision(
                 status="deny",
                 channel_type=ctx.requested_channel_type,

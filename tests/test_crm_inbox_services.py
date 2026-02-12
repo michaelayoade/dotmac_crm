@@ -400,9 +400,7 @@ def test_send_message_contact_channel_not_found(db_session, crm_contact):
     assert "Contact channel not found" in exc_info.value.detail
 
 
-def test_send_message_channel_mismatch_with_inbound(
-    db_session, crm_contact, crm_contact_channel
-):
+def test_send_message_channel_mismatch_with_inbound(db_session, crm_contact, crm_contact_channel):
     """Test send_message rejects replies on a different channel than inbound."""
     from app.models.person import ChannelType as PersonChannelType
     from app.models.person import PersonChannel
@@ -544,9 +542,7 @@ def test_resolve_integration_target_by_id(db_session):
     db_session.add(target)
     db_session.commit()
 
-    result = inbox_service._resolve_integration_target(
-        db_session, ChannelType.email, str(target.id)
-    )
+    result = inbox_service._resolve_integration_target(db_session, ChannelType.email, str(target.id))
 
     assert result is not None
     assert result.id == target.id
@@ -555,9 +551,7 @@ def test_resolve_integration_target_by_id(db_session):
 def test_resolve_integration_target_not_found(db_session):
     """Test resolving non-existent integration target raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        inbox_service._resolve_integration_target(
-            db_session, ChannelType.email, str(uuid.uuid4())
-        )
+        inbox_service._resolve_integration_target(db_session, ChannelType.email, str(uuid.uuid4()))
     assert exc_info.value.status_code == 404
     assert "Integration target not found" in exc_info.value.detail
 
@@ -580,9 +574,7 @@ def test_resolve_integration_target_default(db_session):
     db_session.add(target)
     db_session.commit()
 
-    result = inbox_service._resolve_integration_target(
-        db_session, ChannelType.email, None
-    )
+    result = inbox_service._resolve_integration_target(db_session, ChannelType.email, None)
 
     assert result is not None
     assert result.id == target.id
@@ -610,9 +602,7 @@ def test_resolve_connector_config_success(db_session):
     db_session.add(target)
     db_session.commit()
 
-    result = inbox_service._resolve_connector_config(
-        db_session, target, ChannelType.email
-    )
+    result = inbox_service._resolve_connector_config(db_session, target, ChannelType.email)
 
     assert result is not None
     assert result.id == config.id
@@ -620,9 +610,7 @@ def test_resolve_connector_config_success(db_session):
 
 def test_resolve_connector_config_no_target(db_session):
     """Test resolving connector config with no target returns None."""
-    result = inbox_service._resolve_connector_config(
-        db_session, None, ChannelType.email
-    )
+    result = inbox_service._resolve_connector_config(db_session, None, ChannelType.email)
     assert result is None
 
 
@@ -795,15 +783,11 @@ def test_ensure_email_polling_job_update_existing(db_session):
     db_session.commit()
 
     # Create first job
-    job1 = inbox_service.ensure_email_polling_job(
-        db_session, str(target.id), interval_minutes=5
-    )
+    job1 = inbox_service.ensure_email_polling_job(db_session, str(target.id), interval_minutes=5)
     job1_id = job1.id
 
     # Update should return same job with new interval
-    job2 = inbox_service.ensure_email_polling_job(
-        db_session, str(target.id), interval_minutes=10
-    )
+    job2 = inbox_service.ensure_email_polling_job(db_session, str(target.id), interval_minutes=10)
 
     assert job2.id == job1_id
     assert job2.interval_minutes == 10
@@ -827,9 +811,7 @@ def test_ensure_email_polling_job_invalid_interval(db_session):
     db_session.commit()
 
     with pytest.raises(HTTPException) as exc_info:
-        inbox_service.ensure_email_polling_job(
-            db_session, str(target.id), interval_minutes=0
-        )
+        inbox_service.ensure_email_polling_job(db_session, str(target.id), interval_minutes=0)
     assert exc_info.value.status_code == 400
     assert "interval_minutes must be >= 1" in exc_info.value.detail
 
@@ -837,9 +819,7 @@ def test_ensure_email_polling_job_invalid_interval(db_session):
 def test_ensure_email_polling_job_target_not_found(db_session):
     """Test creating polling job with non-existent target raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        inbox_service.ensure_email_polling_job(
-            db_session, str(uuid.uuid4()), interval_minutes=5
-        )
+        inbox_service.ensure_email_polling_job(db_session, str(uuid.uuid4()), interval_minutes=5)
     assert exc_info.value.status_code == 404
     assert "Integration target not found" in exc_info.value.detail
 
@@ -862,9 +842,7 @@ def test_ensure_email_polling_job_wrong_target_type(db_session):
     db_session.commit()
 
     with pytest.raises(HTTPException) as exc_info:
-        inbox_service.ensure_email_polling_job(
-            db_session, str(target.id), interval_minutes=5
-        )
+        inbox_service.ensure_email_polling_job(db_session, str(target.id), interval_minutes=5)
     assert exc_info.value.status_code == 400
     assert "Target must be crm type" in exc_info.value.detail
 
@@ -880,9 +858,7 @@ def test_ensure_email_polling_job_no_connector_config(db_session):
     db_session.commit()
 
     with pytest.raises(HTTPException) as exc_info:
-        inbox_service.ensure_email_polling_job(
-            db_session, str(target.id), interval_minutes=5
-        )
+        inbox_service.ensure_email_polling_job(db_session, str(target.id), interval_minutes=5)
     assert exc_info.value.status_code == 400
     assert "Target missing connector config" in exc_info.value.detail
 
@@ -905,9 +881,7 @@ def test_ensure_email_polling_job_wrong_connector_type(db_session):
     db_session.commit()
 
     with pytest.raises(HTTPException) as exc_info:
-        inbox_service.ensure_email_polling_job(
-            db_session, str(target.id), interval_minutes=5
-        )
+        inbox_service.ensure_email_polling_job(db_session, str(target.id), interval_minutes=5)
     assert exc_info.value.status_code == 400
     assert "Target is not email connector" in exc_info.value.detail
 
@@ -1350,6 +1324,7 @@ def test_send_instagram_message_auth_error_records_metadata(db_session, crm_cont
     assert message.status == MessageStatus.failed
     assert message.metadata_["send_error"]["channel"] == "instagram_dm"
     assert "token expired" in message.metadata_["send_error"]["error"]
+
 
 def test_send_email_missing_recipient(db_session, crm_contact):
     """Test sending email with empty recipient address raises 400."""

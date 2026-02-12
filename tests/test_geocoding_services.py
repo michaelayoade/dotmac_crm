@@ -197,9 +197,7 @@ class TestNominatimSearch:
     def test_successful_search(self, db_session):
         """Test successful nominatim search."""
         mock_response = MagicMock()
-        mock_response.json.return_value = [
-            {"lat": "40.7128", "lon": "-74.0060", "display_name": "New York"}
-        ]
+        mock_response.json.return_value = [{"lat": "40.7128", "lon": "-74.0060", "display_name": "New York"}]
         mock_response.raise_for_status = MagicMock()
 
         with patch("app.services.geocoding.httpx.get", return_value=mock_response):
@@ -211,30 +209,38 @@ class TestNominatimSearch:
     def test_search_with_custom_settings(self, db_session):
         """Test search with custom settings from database."""
         # Set up custom settings
-        db_session.add(DomainSetting(
-            domain=SettingDomain.geocoding,
-            key="base_url",
-            value_text="https://custom.geocoder.com",
-            is_active=True,
-        ))
-        db_session.add(DomainSetting(
-            domain=SettingDomain.geocoding,
-            key="user_agent",
-            value_text="custom_agent",
-            is_active=True,
-        ))
-        db_session.add(DomainSetting(
-            domain=SettingDomain.geocoding,
-            key="timeout_sec",
-            value_text="15",
-            is_active=True,
-        ))
-        db_session.add(DomainSetting(
-            domain=SettingDomain.geocoding,
-            key="email",
-            value_text="test@example.com",
-            is_active=True,
-        ))
+        db_session.add(
+            DomainSetting(
+                domain=SettingDomain.geocoding,
+                key="base_url",
+                value_text="https://custom.geocoder.com",
+                is_active=True,
+            )
+        )
+        db_session.add(
+            DomainSetting(
+                domain=SettingDomain.geocoding,
+                key="user_agent",
+                value_text="custom_agent",
+                is_active=True,
+            )
+        )
+        db_session.add(
+            DomainSetting(
+                domain=SettingDomain.geocoding,
+                key="timeout_sec",
+                value_text="15",
+                is_active=True,
+            )
+        )
+        db_session.add(
+            DomainSetting(
+                domain=SettingDomain.geocoding,
+                key="email",
+                value_text="test@example.com",
+                is_active=True,
+            )
+        )
         db_session.commit()
 
         mock_response = MagicMock()
@@ -311,12 +317,14 @@ class TestGeocodeAddress:
 
     def test_returns_data_when_geocoding_disabled(self, db_session):
         """Test returns data unchanged if geocoding is disabled."""
-        db_session.add(DomainSetting(
-            domain=SettingDomain.geocoding,
-            key="enabled",
-            value_text="false",
-            is_active=True,
-        ))
+        db_session.add(
+            DomainSetting(
+                domain=SettingDomain.geocoding,
+                key="enabled",
+                value_text="false",
+                is_active=True,
+            )
+        )
         db_session.commit()
 
         data = {"address_line1": "123 Main St"}
@@ -326,12 +334,14 @@ class TestGeocodeAddress:
 
     def test_returns_data_when_provider_not_nominatim(self, db_session):
         """Test returns data unchanged if provider is not nominatim."""
-        db_session.add(DomainSetting(
-            domain=SettingDomain.geocoding,
-            key="provider",
-            value_text="google",
-            is_active=True,
-        ))
+        db_session.add(
+            DomainSetting(
+                domain=SettingDomain.geocoding,
+                key="provider",
+                value_text="google",
+                is_active=True,
+            )
+        )
         db_session.commit()
 
         data = {"address_line1": "123 Main St"}
@@ -347,9 +357,7 @@ class TestGeocodeAddress:
     def test_geocodes_address_successfully(self, db_session):
         """Test successfully geocodes an address."""
         mock_response = MagicMock()
-        mock_response.json.return_value = [
-            {"lat": "40.7128", "lon": "-74.0060"}
-        ]
+        mock_response.json.return_value = [{"lat": "40.7128", "lon": "-74.0060"}]
         mock_response.raise_for_status = MagicMock()
 
         data = {
@@ -381,9 +389,7 @@ class TestGeocodeAddress:
     def test_raises_exception_for_invalid_coords(self, db_session):
         """Test raises HTTPException for invalid coordinate values."""
         mock_response = MagicMock()
-        mock_response.json.return_value = [
-            {"lat": "not_a_number", "lon": "-74.0060"}
-        ]
+        mock_response.json.return_value = [{"lat": "not_a_number", "lon": "-74.0060"}]
         mock_response.raise_for_status = MagicMock()
 
         data = {"address_line1": "123 Main St"}
@@ -405,12 +411,14 @@ class TestGeocodePreview:
 
     def test_returns_empty_when_disabled(self, db_session):
         """Test returns empty list when geocoding is disabled."""
-        db_session.add(DomainSetting(
-            domain=SettingDomain.geocoding,
-            key="enabled",
-            value_text="false",
-            is_active=True,
-        ))
+        db_session.add(
+            DomainSetting(
+                domain=SettingDomain.geocoding,
+                key="enabled",
+                value_text="false",
+                is_active=True,
+            )
+        )
         db_session.commit()
 
         data = {"address_line1": "123 Main St"}
@@ -419,12 +427,14 @@ class TestGeocodePreview:
 
     def test_returns_empty_when_provider_not_nominatim(self, db_session):
         """Test returns empty list when provider is not nominatim."""
-        db_session.add(DomainSetting(
-            domain=SettingDomain.geocoding,
-            key="provider",
-            value_text="mapbox",
-            is_active=True,
-        ))
+        db_session.add(
+            DomainSetting(
+                domain=SettingDomain.geocoding,
+                key="provider",
+                value_text="mapbox",
+                is_active=True,
+            )
+        )
         db_session.commit()
 
         data = {"address_line1": "123 Main St"}
@@ -515,9 +525,7 @@ class TestGeocodePreviewFromRequest:
         mock_payload.limit = 5
 
         mock_response = MagicMock()
-        mock_response.json.return_value = [
-            {"lat": "42.3601", "lon": "-71.0589", "display_name": "Boston"}
-        ]
+        mock_response.json.return_value = [{"lat": "42.3601", "lon": "-71.0589", "display_name": "Boston"}]
         mock_response.raise_for_status = MagicMock()
 
         with patch("app.services.geocoding.httpx.get", return_value=mock_response):

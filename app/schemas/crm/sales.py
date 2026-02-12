@@ -64,6 +64,7 @@ class PipelineStageRead(PipelineStageBase):
 
 class LeadBase(BaseModel):
     """Lead linked to a Person in the unified party model."""
+
     person_id: UUID  # Required - links to Person
     pipeline_id: UUID | None = None
     stage_id: UUID | None = None
@@ -116,6 +117,7 @@ class LeadRead(LeadBase):
 
 class QuoteBase(BaseModel):
     """Quote linked to a Person in the unified party model."""
+
     person_id: UUID  # Required - links to Person
     lead_id: UUID | None = None
     status: QuoteStatus = QuoteStatus.draft

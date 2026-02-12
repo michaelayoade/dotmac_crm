@@ -1,4 +1,6 @@
 """Subscriber sync tasks for external billing system integration."""
+
+import logging
 import time
 from typing import Any
 
@@ -8,14 +10,17 @@ from app.logging import get_logger
 from app.metrics import observe_job
 from app.services.subscriber import subscriber as subscriber_service
 
+logger = get_logger(__name__)
+
 
 @celery_app.task(name="app.tasks.subscribers.sync_subscribers_from_splynx")
-def sync_subscribers_from_splynx(config: dict[str, Any] | None = None):
+def sync_subscribers_from_splynx() -> dict[str, Any]:
     """
-    Sync subscribers from Splynx billing system.
+    Reconciliation sync: pull all customers from Splynx using Basic auth
+    from domain settings, and upsert local Subscriber records.
 
-    Args:
-        config: Connection config with api_url, api_key, etc.
+    Runs on a 24h schedule as a safety net. The primary creation path is
+    via SplynxCustomerHandler on project_created events.
     """
     start = time.monotonic()
     status = "success"
@@ -26,17 +31,26 @@ def sync_subscribers_from_splynx(config: dict[str, Any] | None = None):
     results: dict[str, Any] = {"created": 0, "updated": 0, "errors": []}
 
     try:
-        if not config:
-            logger.warning("splynx_sync_no_config")
+        from app.services.splynx import fetch_customers
+
+        customers_data = fetch_customers(session)
+        if not customers_data:
+            logger.info("splynx_sync_no_data")
             return results
 
-        # Fetch subscribers from Splynx API
-        subscribers_data = _fetch_splynx_customers(config, logger)
+        # Batch-load existing person emails for matching
+        from app.models.person import Person
 
-        for customer in subscribers_data:
+        person_by_email: dict[str, Any] = {}
+        all_emails = [c.get("email", "").lower().strip() for c in customers_data if c.get("email")]
+        if all_emails:
+            persons = session.query(Person).filter(Person.email.in_(all_emails)).all()
+            person_by_email = {p.email.lower(): p for p in persons if p.email}
+
+        for customer in customers_data:
             try:
                 external_id = str(customer.get("id"))
-                data = {
+                data: dict[str, Any] = {
                     "subscriber_number": customer.get("login"),
                     "status": _map_splynx_status(customer.get("status")),
                     "service_name": customer.get("tariff_name"),
@@ -49,13 +63,16 @@ def sync_subscribers_from_splynx(config: dict[str, Any] | None = None):
                     "service_postal_code": customer.get("zip"),
                 }
 
-                existing = subscriber_service.get_by_external_id(
-                    session, "splynx", external_id
-                )
+                # Try to match to a Person by email
+                email = (customer.get("email") or "").lower().strip()
+                if email and email in person_by_email:
+                    person = person_by_email[email]
+                    data["person_id"] = person.id
+                    data["organization_id"] = person.organization_id
 
-                subscriber_service.sync_from_external(
-                    session, "splynx", external_id, data
-                )
+                existing = subscriber_service.get_by_external_id(session, "splynx", external_id)
+
+                subscriber_service.sync_from_external(session, "splynx", external_id, data)
 
                 if existing:
                     results["updated"] += 1
@@ -63,15 +80,16 @@ def sync_subscribers_from_splynx(config: dict[str, Any] | None = None):
                     results["created"] += 1
 
             except Exception as e:
-                results["errors"].append({
-                    "external_id": customer.get("id"),
-                    "error": str(e)
-                })
-                logger.error("splynx_sync_customer_error id=%s error=%s",
-                           customer.get("id"), str(e))
+                session.rollback()
+                results["errors"].append({"external_id": customer.get("id"), "error": str(e)})
+                logger.error("splynx_sync_customer_error id=%s error=%s", customer.get("id"), str(e))
 
-        logger.info("SPLYNX_SYNC_COMPLETE created=%d updated=%d errors=%d",
-                   results["created"], results["updated"], len(results["errors"]))
+        logger.info(
+            "SPLYNX_SYNC_COMPLETE created=%d updated=%d errors=%d",
+            results["created"],
+            results["updated"],
+            len(results["errors"]),
+        )
 
     except Exception as e:
         status = "error"
@@ -82,6 +100,64 @@ def sync_subscribers_from_splynx(config: dict[str, Any] | None = None):
         session.close()
         duration = time.monotonic() - start
         observe_job("splynx_subscriber_sync", status, duration)
+
+    return results
+
+
+@celery_app.task(name="app.tasks.subscribers.reconcile_subscriber_identity")
+def reconcile_subscriber_identity(
+    external_system: str = "splynx",
+    clear_duplicate_metadata: bool = True,
+) -> dict[str, Any]:
+    """
+    Reconcile subscriber/contact identity and normalize party status.
+
+    Steps:
+    - Link subscribers to people via external IDs (for Splynx: metadata.splynx_id)
+    - Optionally clear duplicate ID metadata on non-linked duplicate people
+    - Normalize Person.party_status based on active subscriber linkage
+    """
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("SUBSCRIBER_IDENTITY_RECONCILE_START external_system=%s", external_system)
+
+    results: dict[str, Any] = {
+        "external_system": external_system,
+        "link_reconciliation": {},
+        "status_reconciliation": {},
+    }
+
+    try:
+        results["link_reconciliation"] = subscriber_service.reconcile_external_people_links(
+            session,
+            external_system=external_system,
+            clear_duplicate_metadata=clear_duplicate_metadata,
+            dry_run=False,
+        )
+        results["status_reconciliation"] = subscriber_service.reconcile_party_status_from_subscribers(
+            session,
+            dry_run=False,
+        )
+
+        logger.info(
+            "SUBSCRIBER_IDENTITY_RECONCILE_COMPLETE external_system=%s linked=%d unmatched=%d upgraded=%d downgraded=%d",
+            external_system,
+            results["link_reconciliation"].get("linked_subscribers", 0),
+            results["link_reconciliation"].get("unmatched_subscribers", 0),
+            results["status_reconciliation"].get("upgraded_to_subscriber", 0),
+            results["status_reconciliation"].get("downgraded_to_customer", 0),
+        )
+    except Exception as e:
+        status = "error"
+        session.rollback()
+        logger.error("SUBSCRIBER_IDENTITY_RECONCILE_ERROR external_system=%s error=%s", external_system, str(e))
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("subscriber_identity_reconcile", status, duration)
 
     return results
 
@@ -128,13 +204,9 @@ def sync_subscribers_from_ucrm(config: dict[str, Any] | None = None):
                     "service_country_code": client.get("countryId"),
                 }
 
-                existing = subscriber_service.get_by_external_id(
-                    session, "ucrm", external_id
-                )
+                existing = subscriber_service.get_by_external_id(session, "ucrm", external_id)
 
-                subscriber_service.sync_from_external(
-                    session, "ucrm", external_id, data
-                )
+                subscriber_service.sync_from_external(session, "ucrm", external_id, data)
 
                 if existing:
                     results["updated"] += 1
@@ -142,15 +214,15 @@ def sync_subscribers_from_ucrm(config: dict[str, Any] | None = None):
                     results["created"] += 1
 
             except Exception as e:
-                results["errors"].append({
-                    "external_id": client.get("id"),
-                    "error": str(e)
-                })
-                logger.error("ucrm_sync_client_error id=%s error=%s",
-                           client.get("id"), str(e))
+                results["errors"].append({"external_id": client.get("id"), "error": str(e)})
+                logger.error("ucrm_sync_client_error id=%s error=%s", client.get("id"), str(e))
 
-        logger.info("UCRM_SYNC_COMPLETE created=%d updated=%d errors=%d",
-                   results["created"], results["updated"], len(results["errors"]))
+        logger.info(
+            "UCRM_SYNC_COMPLETE created=%d updated=%d errors=%d",
+            results["created"],
+            results["updated"],
+            len(results["errors"]),
+        )
 
     except Exception as e:
         status = "error"
@@ -181,8 +253,7 @@ def sync_subscribers_generic(
     status = "success"
     session = SessionLocal()
     logger = get_logger(__name__)
-    logger.info("GENERIC_SYNC_START system=%s count=%d",
-               external_system, len(subscribers_data))
+    logger.info("GENERIC_SYNC_START system=%s count=%d", external_system, len(subscribers_data))
 
     results: dict[str, Any] = {"created": 0, "updated": 0, "errors": []}
 
@@ -191,20 +262,14 @@ def sync_subscribers_generic(
             try:
                 external_id = sub_data.get("external_id") or sub_data.get("id")
                 if not external_id:
-                    results["errors"].append({
-                        "error": "Missing external_id"
-                    })
+                    results["errors"].append({"error": "Missing external_id"})
                     continue
 
                 external_id = str(external_id)
 
-                existing = subscriber_service.get_by_external_id(
-                    session, external_system, external_id
-                )
+                existing = subscriber_service.get_by_external_id(session, external_system, external_id)
 
-                subscriber_service.sync_from_external(
-                    session, external_system, external_id, sub_data
-                )
+                subscriber_service.sync_from_external(session, external_system, external_id, sub_data)
 
                 if existing:
                     results["updated"] += 1
@@ -212,16 +277,16 @@ def sync_subscribers_generic(
                     results["created"] += 1
 
             except Exception as e:
-                results["errors"].append({
-                    "external_id": sub_data.get("external_id", "unknown"),
-                    "error": str(e)
-                })
-                logger.error("generic_sync_error system=%s error=%s",
-                           external_system, str(e))
+                results["errors"].append({"external_id": sub_data.get("external_id", "unknown"), "error": str(e)})
+                logger.error("generic_sync_error system=%s error=%s", external_system, str(e))
 
-        logger.info("GENERIC_SYNC_COMPLETE system=%s created=%d updated=%d errors=%d",
-                   external_system, results["created"], results["updated"],
-                   len(results["errors"]))
+        logger.info(
+            "GENERIC_SYNC_COMPLETE system=%s created=%d updated=%d errors=%d",
+            external_system,
+            results["created"],
+            results["updated"],
+            len(results["errors"]),
+        )
 
     except Exception as e:
         status = "error"
@@ -236,48 +301,7 @@ def sync_subscribers_generic(
     return results
 
 
-def _fetch_splynx_customers(config: dict[str, Any], logger) -> list[dict]:
-    """Fetch customers from Splynx API."""
-    import requests
-
-    api_url = config.get("api_url", "").rstrip("/")
-    api_key = config.get("api_key")
-    api_secret = config.get("api_secret")
-
-    if not all([api_url, api_key]):
-        logger.warning("splynx_incomplete_config")
-        return []
-
-    headers = {
-        "Content-Type": "application/json",
-    }
-
-    # Splynx uses API key/secret authentication
-    auth_url = f"{api_url}/admin/auth/tokens"
-    try:
-        auth_response = requests.post(
-            auth_url,
-            json={"auth_type": "api_key", "key": api_key, "secret": api_secret},
-            headers=headers,
-            timeout=30,
-        )
-        auth_response.raise_for_status()
-        token = auth_response.json().get("access_token")
-
-        headers["Authorization"] = f"Splynx-EA (access_token={token})"
-
-        # Fetch customers
-        customers_url = f"{api_url}/admin/customers/customer"
-        response = requests.get(customers_url, headers=headers, timeout=60)
-        response.raise_for_status()
-        return response.json()
-
-    except requests.RequestException as e:
-        logger.error("splynx_api_error error=%s", str(e))
-        return []
-
-
-def _fetch_ucrm_clients(config: dict[str, Any], logger) -> list[dict]:
+def _fetch_ucrm_clients(config: dict[str, Any], logger: logging.Logger) -> list[dict[str, Any]]:
     """Fetch clients from UCRM/UNMS API."""
     import requests
 
@@ -306,7 +330,7 @@ def _fetch_ucrm_clients(config: dict[str, Any], logger) -> list[dict]:
 
 def _map_splynx_status(status: str | int | None) -> str:
     """Map Splynx status to our status enum value."""
-    status_map = {
+    status_map: dict[str | int, str] = {
         "active": "active",
         "blocked": "suspended",
         "inactive": "terminated",
@@ -315,4 +339,10 @@ def _map_splynx_status(status: str | int | None) -> str:
         2: "suspended",
         0: "terminated",
     }
-    return status_map.get(status, "active")
+    if status is None:
+        return "active"
+    mapped = status_map.get(status)
+    if mapped is None:
+        logger.warning("splynx_unknown_status value=%s — defaulting to active", status)
+        return "active"
+    return mapped

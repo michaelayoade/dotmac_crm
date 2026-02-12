@@ -1,128 +1,201 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, stats_card, status_badge, table_shell, table_row, empty_state, action_button, danger_button %}
 
-{% from "components/ui/macros.html" import danger_button %}
 {% block title %}Automations - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
+    {% call page_header("Automation Rules", "Configure event-driven rules to automate workflows", color="indigo", color2="violet", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "", "label": "Automations"}]) %}
+        {{ action_button("New Rule", "/admin/system/automations/new", color="indigo", color2="violet", icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>') }}
+    {% endcall %}
 
-    <!-- Header -->
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
-                <a href="/admin/system/configuration" class="hover:text-primary-600">System</a>
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                <span class="text-slate-900 dark:text-white">Automations</span>
-            </nav>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Automation Rules</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Configure event-driven rules to automate workflows.</p>
+    {# ── Stats Row ── #}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="animate-fade-in-up" style="animation-delay: 50ms">
+            {{ stats_card("Total Rules", status_counts.total | default(0), color="indigo", color2="violet", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>') }}
         </div>
-        <a href="/admin/system/automations/new"
-           class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            New Rule
-        </a>
+        <div class="animate-fade-in-up" style="animation-delay: 100ms">
+            {{ stats_card("Active", status_counts.get('active', 0) if status_counts.get is defined else status_counts.active | default(0), color="emerald", color2="green", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>') }}
+        </div>
+        <div class="animate-fade-in-up" style="animation-delay: 150ms">
+            {{ stats_card("Paused", status_counts.get('paused', 0) if status_counts.get is defined else status_counts.paused | default(0), color="amber", color2="orange", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>') }}
+        </div>
+        <div class="animate-fade-in-up" style="animation-delay: 200ms">
+            {{ stats_card("Archived", status_counts.get('archived', 0) if status_counts.get is defined else status_counts.archived | default(0), color="slate", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>') }}
+        </div>
     </div>
 
-    <!-- Status Tabs -->
-    <div class="flex flex-wrap gap-2">
+    {# ── Status Tabs ── #}
+    <div class="animate-fade-in-up flex flex-wrap items-center gap-2" style="animation-delay: 250ms">
         <a href="/admin/system/automations"
-           class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors
-                  {{ 'bg-primary-100 text-primary-700 dark:bg-primary-600/20 dark:text-primary-400' if not filter_status else 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800' }}">
-            All <span class="ml-1 text-xs">({{ status_counts.total }})</span>
+           class="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition-all
+                  {{ 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/25' if not filter_status else 'border border-slate-200/60 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700/60 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400' }}">
+            All <span class="ml-0.5 rounded-lg {{ 'bg-white/20 px-1.5 py-0.5 text-xs' if not filter_status else 'bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-700' }}">{{ status_counts.total | default(0) }}</span>
         </a>
-        {% for st in ['active', 'paused', 'archived'] %}
+        {% set tab_configs = [
+            ('active', 'Active', 'emerald'),
+            ('paused', 'Paused', 'amber'),
+            ('archived', 'Archived', 'slate')
+        ] %}
+        {% for st, label, tab_color in tab_configs %}
         <a href="/admin/system/automations?status={{ st }}"
-           class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors
-                  {{ 'bg-primary-100 text-primary-700 dark:bg-primary-600/20 dark:text-primary-400' if filter_status == st else 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800' }}">
-            {{ st|capitalize }} <span class="ml-1 text-xs">({{ status_counts.get(st, 0) }})</span>
+           class="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition-all
+                  {% if filter_status == st %}
+                  bg-{{ tab_color }}-500/10 text-{{ tab_color }}-700 ring-1 ring-{{ tab_color }}-500/20 dark:bg-{{ tab_color }}-500/20 dark:text-{{ tab_color }}-400
+                  {% else %}
+                  border border-slate-200/60 bg-white text-slate-600 hover:border-{{ tab_color }}-300 hover:bg-{{ tab_color }}-50 hover:text-{{ tab_color }}-700 dark:border-slate-700/60 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-{{ tab_color }}-500 dark:hover:bg-{{ tab_color }}-900/20 dark:hover:text-{{ tab_color }}-400
+                  {% endif %}">
+            {{ label }}
+            <span class="rounded-lg {{ 'bg-' ~ tab_color ~ '-500/10 dark:bg-' ~ tab_color ~ '-500/20' if filter_status == st else 'bg-slate-100 dark:bg-slate-700' }} px-1.5 py-0.5 text-xs">{{ status_counts.get(st, 0) if status_counts.get is defined else 0 }}</span>
         </a>
         {% endfor %}
     </div>
 
-    <!-- Search -->
-    <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="flex gap-4">
-            <input type="text" name="search" value="{{ search }}" placeholder="Search rules..."
-                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-            {% if filter_status %}
-            <input type="hidden" name="status" value="{{ filter_status }}">
-            {% endif %}
-            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Search</button>
-            <a href="/admin/system/automations" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Reset</a>
-        </div>
-    </form>
-
-    <!-- Table -->
-    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead>
-                    <tr class="bg-slate-50 dark:bg-slate-700/50">
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Name</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Event</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Priority</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Executions</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Last Triggered</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {% if rules %}
-                    {% for rule in rules %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                        <td class="px-6 py-4">
-                            <a href="/admin/system/automations/{{ rule.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ rule.name }}</a>
-                            {% if rule.description %}
-                            <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400 truncate max-w-xs">{{ rule.description }}</p>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                            <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-700">{{ rule.event_type }}</code>
-                        </td>
-                        <td class="px-6 py-4">
-                            {% set status_colors = {
-                                'active': 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400',
-                                'paused': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400',
-                                'archived': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
-                            } %}
-                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {{ status_colors.get(rule.status.value, 'bg-slate-100 text-slate-600') }}">
-                                {{ rule.status.value|capitalize }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ rule.priority }}</td>
-                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ rule.execution_count }}</td>
-                        <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
-                            {% if rule.last_triggered_at %}
-                            {{ rule.last_triggered_at.strftime('%Y-%m-%d %H:%M') }}
-                            {% else %}
-                            <span class="text-slate-400 dark:text-slate-500">Never</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-right text-sm">
-                            <a href="/admin/system/automations/{{ rule.id }}/edit" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
-                            <form method="post" action="/admin/system/automations/{{ rule.id }}/toggle" class="inline ml-3">
-                                {% include "components/forms/csrf_input.html" %}
-                                <button type="submit" class="text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
-                                    {{ 'Pause' if rule.status.value == 'active' else 'Activate' }}
-                                </button>
-                            </form>
-                            {{ danger_button("Delete", "Confirm Delete", "Delete this automation rule?", "/admin/system/automations/" ~ rule.id ~ "/delete", size="sm") }}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% else %}
-                    <tr>
-                        <td colspan="7" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
-                            No automation rules found. <a href="/admin/system/automations/new" class="text-primary-600 hover:underline">Create your first rule</a>.
-                        </td>
-                    </tr>
+    {# ── Search Bar ── #}
+    <div class="animate-fade-in-up" style="animation-delay: 300ms">
+        <form method="get" class="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div class="relative flex-1">
+                    <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input type="text" name="search" value="{{ search }}" placeholder="Search automation rules..."
+                           class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-10 pr-4 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+                </div>
+                {% if filter_status %}
+                <input type="hidden" name="status" value="{{ filter_status }}">
+                {% endif %}
+                <div class="flex items-center gap-2">
+                    <button type="submit" class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+                        Search
+                    </button>
+                    {% if search %}
+                    <a href="/admin/system/automations{{ '?status=' ~ filter_status if filter_status else '' }}"
+                       class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-500 transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        Clear
+                    </a>
                     {% endif %}
-                </tbody>
-            </table>
-        </div>
+                </div>
+            </div>
+        </form>
     </div>
 
+    {# ── Rules Table ── #}
+    {% set pad = 'px-6 py-3' %}
+    <div class="animate-fade-in-up" style="animation-delay: 350ms">
+    {% call table_shell(table_id="automations-table", title="Automation Rules", color="indigo", count=rules | length) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Rule</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Event</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Executions</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Triggered</th>
+                    <th scope="col" class="{{ pad }} text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% if rules %}
+                {% for rule in rules %}
+                {% call table_row(color="indigo") %}
+                    <td class="{{ pad }} whitespace-nowrap">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                                <svg class="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            </div>
+                            <div>
+                                <a href="/admin/system/automations/{{ rule.id }}" class="text-sm font-semibold text-slate-900 hover:text-indigo-600 dark:text-white dark:hover:text-indigo-400 transition-colors">{{ rule.name }}</a>
+                                {% if rule.description %}
+                                <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400 truncate max-w-xs">{{ rule.description }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
+                        <code class="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ rule.event_type }}</code>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
+                        {% if rule.status.value == 'active' %}
+                        {{ status_badge("Active", "active", size="sm") }}
+                        {% elif rule.status.value == 'paused' %}
+                        {{ status_badge("Paused", "warning", size="sm") }}
+                        {% else %}
+                        {{ status_badge("Archived", "inactive", size="sm") }}
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
+                        {% set prio = rule.priority | default(0) %}
+                        {% if prio >= 8 %}
+                        <span class="inline-flex items-center rounded-lg bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-700 dark:bg-red-500/20 dark:text-red-400">{{ prio }}</span>
+                        {% elif prio >= 5 %}
+                        <span class="inline-flex items-center rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">{{ prio }}</span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{ prio }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ rule.execution_count | default(0) }}</span>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
+                        {% if rule.last_triggered_at %}
+                        {{ rule.last_triggered_at.strftime('%b %d, %Y %H:%M') }}
+                        {% else %}
+                        <span class="text-slate-400 dark:text-slate-500">Never</span>
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap text-right">
+                        <div x-data="{ open: false }" class="relative inline-block">
+                            <button x-on:click="open = !open" class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors" aria-label="Rule actions">
+                                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"/>
+                                </svg>
+                            </button>
+                            <div x-show="open" x-on:click.outside="open = false" x-transition
+                                 class="absolute right-0 z-10 mt-1 w-48 rounded-xl border border-slate-200/60 bg-white py-1 shadow-lg dark:border-slate-700/60 dark:bg-slate-800">
+                                <a href="/admin/system/automations/{{ rule.id }}"
+                                   class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/50 transition-colors">
+                                    <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                    View Details
+                                </a>
+                                <a href="/admin/system/automations/{{ rule.id }}/edit"
+                                   class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/50 transition-colors">
+                                    <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                    Edit Rule
+                                </a>
+                                <hr class="my-1 border-slate-200/60 dark:border-slate-700/60">
+                                <form method="post" action="/admin/system/automations/{{ rule.id }}/toggle" class="block">
+                                    {% include "components/forms/csrf_input.html" %}
+                                    <button type="submit"
+                                            class="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/50 transition-colors">
+                                        {% if rule.status.value == 'active' %}
+                                        <svg class="h-4 w-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                        Pause
+                                        {% else %}
+                                        <svg class="h-4 w-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                        Activate
+                                        {% endif %}
+                                    </button>
+                                </form>
+                                <hr class="my-1 border-slate-200/60 dark:border-slate-700/60">
+                                <button hx-post="/admin/system/automations/{{ rule.id }}/delete"
+                                        hx-confirm="Are you sure you want to delete this automation rule?"
+                                        class="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                    Delete Rule
+                                </button>
+                            </div>
+                        </div>
+                    </td>
+                {% endcall %}
+                {% endfor %}
+                {% else %}
+                {{ empty_state("No automation rules", "Create your first automation rule to get started.", action_label="New Rule", action_href="/admin/system/automations/new", colspan=7) }}
+                {% endif %}
+            </tbody>
+        </table>
+    {% endcall %}
+    </div>
 </div>
 {% endblock %}

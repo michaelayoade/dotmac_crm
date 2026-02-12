@@ -16,9 +16,7 @@ class ChatWidgetConfig(Base):
 
     __tablename__ = "chat_widget_configs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
 
     # Optional link to connector for routing
@@ -51,9 +49,7 @@ class ChatWidgetConfig(Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -72,9 +68,7 @@ class WidgetVisitorSession(Base):
 
     __tablename__ = "widget_visitor_sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     widget_config_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("chat_widget_configs.id"), nullable=False
     )
@@ -86,14 +80,10 @@ class WidgetVisitorSession(Base):
     fingerprint_hash: Mapped[str | None] = mapped_column(String(64), index=True)
 
     # Link to identified person (after identification)
-    person_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id")
-    )
+    person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
 
     # Link to conversation
-    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crm_conversations.id")
-    )
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_conversations.id"))
 
     # Visitor metadata
     ip_address: Mapped[str | None] = mapped_column(String(45))  # IPv6 max length
@@ -102,9 +92,7 @@ class WidgetVisitorSession(Base):
     referrer_url: Mapped[str | None] = mapped_column(String(2048))
 
     # Custom fields from prechat form or identify call
-    metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", MutableDict.as_mutable(JSON())
-    )
+    metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON()))
 
     # Identification tracking
     is_identified: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -113,12 +101,8 @@ class WidgetVisitorSession(Base):
     identified_name: Mapped[str | None] = mapped_column(String(160))
 
     # Activity tracking
-    last_active_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     # Relationships
     widget_config = relationship("ChatWidgetConfig", back_populates="visitor_sessions")

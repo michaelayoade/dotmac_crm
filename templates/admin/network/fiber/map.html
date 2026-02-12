@@ -396,6 +396,16 @@
         </div>
     </div>
 
+    <div class="flex flex-wrap items-center gap-2 animate-fade-in-up" style="animation-delay: 75ms;">
+        <span class="inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold {{ 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300' if qa_stats.total_issues == 0 else 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-300' }}">
+            QA Issues: {{ qa_stats.total_issues }}
+        </span>
+        <span class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">FDH <span id="top-count-fdh">0</span></span>
+        <span class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">Closures <span id="top-count-closures">0</span></span>
+        <span class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">Access Points <span id="top-count-access-points">0</span></span>
+        <span class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">Segments <span id="top-count-segments">0</span></span>
+    </div>
+
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <!-- Map -->
         <div class="lg:col-span-3 animate-fade-in-up" style="animation-delay: 50ms;">
@@ -476,6 +486,49 @@
                 </div>
             </div>
 
+            <!-- Data Quality -->
+            <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+                <div class="border-b border-slate-200/60 bg-gradient-to-r from-slate-50 to-slate-100/50 px-6 py-4 dark:border-slate-700/60 dark:from-slate-800 dark:to-slate-800/50">
+                    <h2 class="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                        <svg class="h-5 w-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"/>
+                        </svg>
+                        Data Quality
+                    </h2>
+                </div>
+                <div class="p-6 space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-500 dark:text-slate-400">Total Issues</span>
+                        <span class="text-sm font-semibold px-2 py-0.5 rounded-lg {{ 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' if qa_stats.total_issues == 0 else 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' }}">{{ qa_stats.total_issues }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-500 dark:text-slate-400">Missing Identifiers</span>
+                        <span class="text-sm font-semibold text-slate-900 dark:text-white">{{ qa_stats.missing_identifiers.total }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-500 dark:text-slate-400">Duplicate Identifier Rows</span>
+                        <span class="text-sm font-semibold text-slate-900 dark:text-white">{{ qa_stats.duplicate_identifiers.total_rows }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-500 dark:text-slate-400">Empty Geometry</span>
+                        <span class="text-sm font-semibold text-slate-900 dark:text-white">{{ qa_stats.geometry.total_empty }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-500 dark:text-slate-400">Invalid Geometry</span>
+                        <span class="text-sm font-semibold text-slate-900 dark:text-white">{{ qa_stats.geometry.total_invalid }}</span>
+                    </div>
+                    <hr class="border-slate-200 dark:border-slate-700">
+                    <div class="text-xs text-slate-500 dark:text-slate-400 space-y-1">
+                        <div>Missing cabinet codes: <span class="font-medium text-slate-700 dark:text-slate-300">{{ qa_stats.missing_identifiers.fdh_missing_code }}</span></div>
+                        <div>Missing access-point codes: <span class="font-medium text-slate-700 dark:text-slate-300">{{ qa_stats.missing_identifiers.access_points_missing_code }}</span></div>
+                        <div>Duplicate cabinet code groups: <span class="font-medium text-slate-700 dark:text-slate-300">{{ qa_stats.duplicate_identifiers.cabinet_code_groups }}</span></div>
+                        {% if not qa_stats.geometry.postgis_checks_enabled %}
+                        <div class="text-amber-600 dark:text-amber-400">PostGIS validity checks are disabled on this database.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
             <!-- Legend -->
             <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
                 <div class="border-b border-slate-200/60 bg-gradient-to-r from-slate-50 to-slate-100/50 px-6 py-4 dark:border-slate-700/60 dark:from-slate-800 dark:to-slate-800/50">
@@ -545,34 +598,59 @@
                     </h2>
                 </div>
                 <div class="p-6 space-y-3">
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <div class="flex justify-between items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                        <span>Visible Features</span>
+                        <span id="layer-visible-total" class="rounded-md bg-slate-200 px-2 py-0.5 dark:bg-slate-700">0</span>
+                    </div>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-fdh" checked class="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500/20">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">FDH Cabinets</span>
+                        </span>
+                        <span id="layer-count-fdh" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-closures" checked class="h-4 w-4 rounded border-slate-300 text-teal-500 focus:ring-teal-500/20">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors">Splice Closures</span>
+                        </span>
+                        <span id="layer-count-closures" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-access-points" checked class="h-4 w-4 rounded border-slate-300 text-purple-500 focus:ring-purple-500/20">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">Access Points</span>
+                        </span>
+                        <span id="layer-count-access-points" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-feeder" checked class="h-4 w-4 rounded border-slate-300 text-red-500 focus:ring-red-500/20">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">Feeder Cables</span>
+                        </span>
+                        <span id="layer-count-feeder" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-distribution" checked class="h-4 w-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500/20">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">Distribution Cables</span>
+                        </span>
+                        <span id="layer-count-distribution" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-drop" checked class="h-4 w-4 rounded border-slate-300 text-green-500 focus:ring-green-500/20">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors">Drop Cables</span>
+                        </span>
+                        <span id="layer-count-drop" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
                     <hr class="my-2 border-slate-200 dark:border-slate-700">
-                    <label class="flex items-center gap-3 cursor-pointer group">
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-distances" class="h-4 w-4 rounded border-slate-300 text-slate-500 focus:ring-slate-500/20">
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-slate-100 transition-colors">Distance Labels</span>
+                        </span>
+                        <span id="layer-count-distances" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
                 </div>
             </div>
@@ -647,6 +725,55 @@
         drop: L.layerGroup().addTo(map),
         distances: L.layerGroup()  // Off by default
     };
+    const layerCounts = {
+        fdh: 0,
+        closures: 0,
+        accessPoints: 0,
+        feeder: 0,
+        distribution: 0,
+        drop: 0,
+        distances: 0
+    };
+
+    function updateLayerCountBadges() {
+        layerCounts.fdh = layers.fdh.getLayers().length;
+        layerCounts.closures = layers.closures.getLayers().length;
+        layerCounts.accessPoints = layers.accessPoints.getLayers().length;
+        layerCounts.feeder = layers.feeder.getLayers().length;
+        layerCounts.distribution = layers.distribution.getLayers().length;
+        layerCounts.drop = layers.drop.getLayers().length;
+        layerCounts.distances = layers.distances.getLayers().length;
+
+        const mappings = [
+            ['layer-count-fdh', layerCounts.fdh],
+            ['layer-count-closures', layerCounts.closures],
+            ['layer-count-access-points', layerCounts.accessPoints],
+            ['layer-count-feeder', layerCounts.feeder],
+            ['layer-count-distribution', layerCounts.distribution],
+            ['layer-count-drop', layerCounts.drop],
+            ['layer-count-distances', layerCounts.distances],
+            ['top-count-fdh', layerCounts.fdh],
+            ['top-count-closures', layerCounts.closures],
+            ['top-count-access-points', layerCounts.accessPoints],
+            ['top-count-segments', layerCounts.feeder + layerCounts.distribution + layerCounts.drop]
+        ];
+        mappings.forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = String(value);
+        });
+    }
+
+    function updateVisibleFeatureCount() {
+        const visibleTotal =
+            (document.getElementById('layer-fdh')?.checked ? layerCounts.fdh : 0) +
+            (document.getElementById('layer-closures')?.checked ? layerCounts.closures : 0) +
+            (document.getElementById('layer-access-points')?.checked ? layerCounts.accessPoints : 0) +
+            (document.getElementById('layer-feeder')?.checked ? layerCounts.feeder : 0) +
+            (document.getElementById('layer-distribution')?.checked ? layerCounts.distribution : 0) +
+            (document.getElementById('layer-drop')?.checked ? layerCounts.drop : 0);
+        const el = document.getElementById('layer-visible-total');
+        if (el) el.textContent = String(visibleTotal);
+    }
 
     // Custom icons
     const icons = {
@@ -1377,31 +1504,39 @@
             map.fitBounds(bounds, { padding: [50, 50] });
         }
     }
+    updateLayerCountBadges();
+    updateVisibleFeatureCount();
 
     // Layer toggle handlers
     document.getElementById('layer-fdh').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.fdh);
         else map.removeLayer(layers.fdh);
+        updateVisibleFeatureCount();
     });
     document.getElementById('layer-closures').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.closures);
         else map.removeLayer(layers.closures);
+        updateVisibleFeatureCount();
     });
     document.getElementById('layer-access-points').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.accessPoints);
         else map.removeLayer(layers.accessPoints);
+        updateVisibleFeatureCount();
     });
     document.getElementById('layer-feeder').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.feeder);
         else map.removeLayer(layers.feeder);
+        updateVisibleFeatureCount();
     });
     document.getElementById('layer-distribution').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.distribution);
         else map.removeLayer(layers.distribution);
+        updateVisibleFeatureCount();
     });
     document.getElementById('layer-drop').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.drop);
         else map.removeLayer(layers.drop);
+        updateVisibleFeatureCount();
     });
     document.getElementById('layer-distances').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.distances);

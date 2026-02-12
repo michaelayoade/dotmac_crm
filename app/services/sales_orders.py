@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -59,12 +60,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
 
 
 def _next_sequence_value(db: Session, key: str, start_value: int = 1) -> int:
-    sequence = (
-        db.query(DocumentSequence)
-        .filter(DocumentSequence.key == key)
-        .with_for_update()
-        .first()
-    )
+    sequence = db.query(DocumentSequence).filter(DocumentSequence.key == key).with_for_update().first()
     if not sequence:
         sequence = DocumentSequence(key=key, next_value=start_value)
         db.add(sequence)
@@ -99,10 +95,7 @@ def _apply_payment_fields(sales_order: SalesOrder, data: dict) -> None:
     if sales_order.payment_status == SalesOrderPaymentStatus.paid:
         if sales_order.status in {SalesOrderStatus.draft, SalesOrderStatus.confirmed}:
             sales_order.status = SalesOrderStatus.paid
-    elif (
-        sales_order.payment_status == SalesOrderPaymentStatus.waived
-        and sales_order.status == SalesOrderStatus.draft
-    ):
+    elif sales_order.payment_status == SalesOrderPaymentStatus.waived and sales_order.status == SalesOrderStatus.draft:
         sales_order.status = SalesOrderStatus.confirmed
 
 
@@ -135,9 +128,7 @@ class SalesOrders(ListResponseMixin):
         if data.get("status"):
             data["status"] = validate_enum(data["status"], SalesOrderStatus, "status")
         if data.get("payment_status"):
-            data["payment_status"] = validate_enum(
-                data["payment_status"], SalesOrderPaymentStatus, "payment_status"
-            )
+            data["payment_status"] = validate_enum(data["payment_status"], SalesOrderPaymentStatus, "payment_status")
         total_value = Decimal(data.get("total") or 0)
         amount_paid_value = Decimal(data.get("amount_paid") or 0)
 
@@ -146,15 +137,9 @@ class SalesOrders(ListResponseMixin):
             quote = get_by_id(db, Quote, data["quote_id"])
             if not quote:
                 raise HTTPException(status_code=404, detail="Quote not found")
-            existing = (
-                db.query(SalesOrder)
-                .filter(SalesOrder.quote_id == quote.id)
-                .first()
-            )
+            existing = db.query(SalesOrder).filter(SalesOrder.quote_id == quote.id).first()
             if existing:
-                raise HTTPException(
-                    status_code=400, detail="Sales order already exists for this quote"
-                )
+                raise HTTPException(status_code=400, detail="Sales order already exists for this quote")
 
         if not data.get("order_number"):
             data["order_number"] = _generate_order_number(db)
@@ -182,9 +167,7 @@ class SalesOrders(ListResponseMixin):
         )
         if not quote:
             raise HTTPException(status_code=404, detail="Quote not found")
-        existing = (
-            db.query(SalesOrder).filter(SalesOrder.quote_id == quote.id).first()
-        )
+        existing = db.query(SalesOrder).filter(SalesOrder.quote_id == quote.id).first()
         if existing:
             return existing
 
@@ -257,9 +240,7 @@ class SalesOrders(ListResponseMixin):
             status_value = validate_enum(status, SalesOrderStatus, "status")
             query = query.filter(SalesOrder.status == status_value)
         if payment_status:
-            payment_value = validate_enum(
-                payment_status, SalesOrderPaymentStatus, "payment_status"
-            )
+            payment_value = validate_enum(payment_status, SalesOrderPaymentStatus, "payment_status")
             query = query.filter(SalesOrder.payment_status == payment_value)
         if is_active is None:
             query = query.filter(SalesOrder.is_active.is_(True))
@@ -282,9 +263,7 @@ class SalesOrders(ListResponseMixin):
         if "status" in data:
             data["status"] = validate_enum(data["status"], SalesOrderStatus, "status")
         if "payment_status" in data:
-            data["payment_status"] = validate_enum(
-                data["payment_status"], SalesOrderPaymentStatus, "payment_status"
-            )
+            data["payment_status"] = validate_enum(data["payment_status"], SalesOrderPaymentStatus, "payment_status")
         if data.get("person_id"):
             _ensure_person(db, data["person_id"])
         if data.get("quote_id"):
@@ -292,20 +271,14 @@ class SalesOrders(ListResponseMixin):
             if not quote:
                 raise HTTPException(status_code=404, detail="Quote not found")
             existing = (
-                db.query(SalesOrder)
-                .filter(SalesOrder.quote_id == quote.id, SalesOrder.id != sales_order.id)
-                .first()
+                db.query(SalesOrder).filter(SalesOrder.quote_id == quote.id, SalesOrder.id != sales_order.id).first()
             )
             if existing:
-                raise HTTPException(
-                    status_code=400, detail="Sales order already exists for this quote"
-                )
+                raise HTTPException(status_code=400, detail="Sales order already exists for this quote")
 
         if data.get("payment_status") == SalesOrderPaymentStatus.paid:
             resolved_total = Decimal(data.get("total") or sales_order.total or 0)
-            resolved_amount_paid = Decimal(
-                data.get("amount_paid") or sales_order.amount_paid or 0
-            )
+            resolved_amount_paid = Decimal(data.get("amount_paid") or sales_order.amount_paid or 0)
             if resolved_amount_paid < resolved_total:
                 data["amount_paid"] = round_money(resolved_total)
             data["balance_due"] = Decimal("0.00")
@@ -339,13 +312,11 @@ class SalesOrders(ListResponseMixin):
         notes: str | None = None,
     ):
         """Update sales order using raw string inputs (e.g., from web forms)."""
-        update_data: dict[str, object | None] = {}
+        update_data: dict[str, Any] = {}
         if status:
             update_data["status"] = validate_enum(status, SalesOrderStatus, "status")
         if payment_status:
-            update_data["payment_status"] = validate_enum(
-                payment_status, SalesOrderPaymentStatus, "payment_status"
-            )
+            update_data["payment_status"] = validate_enum(payment_status, SalesOrderPaymentStatus, "payment_status")
 
         total_value = _parse_decimal(total)
         if total_value is not None:
@@ -388,9 +359,7 @@ class SalesOrderLines(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Sales order not found")
         data = payload.model_dump()
         if not data.get("amount"):
-            data["amount"] = Decimal(data.get("quantity") or 0) * Decimal(
-                data.get("unit_price") or 0
-            )
+            data["amount"] = Decimal(data.get("quantity") or 0) * Decimal(data.get("unit_price") or 0)
         line = SalesOrderLine(**data)
         db.add(line)
         db.flush()
@@ -426,9 +395,7 @@ class SalesOrderLines(ListResponseMixin):
     ):
         query = db.query(SalesOrderLine)
         if sales_order_id:
-            query = query.filter(
-                SalesOrderLine.sales_order_id == coerce_uuid(sales_order_id)
-            )
+            query = query.filter(SalesOrderLine.sales_order_id == coerce_uuid(sales_order_id))
         query = apply_ordering(
             query,
             order_by,

@@ -222,7 +222,7 @@ def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -
                     if isinstance(parsed, list):
                         return [str(item).strip() for item in parsed if str(item).strip()]
                 except Exception:
-                    pass
+                    logger.debug("Failed to parse JSON list for automation action.", exc_info=True)
             return [item.strip() for item in raw.split(",") if item.strip()]
         return [str(value).strip()]
 
@@ -251,8 +251,7 @@ def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -
         for status in load_statuses_raw:
             if status not in {s.value for s in ConversationStatus}:
                 raise ValueError(
-                    f"load_statuses contains invalid value '{status}'. "
-                    f"Allowed: {[s.value for s in ConversationStatus]}"
+                    f"load_statuses contains invalid value '{status}'. Allowed: {[s.value for s in ConversationStatus]}"
                 )
             load_statuses.append(ConversationStatus(status))
 
@@ -267,9 +266,7 @@ def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -
         .filter(AgentPresence.last_seen_at >= cutoff)
     )
     if team_id:
-        candidate_query = candidate_query.join(
-            CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id
-        ).filter(
+        candidate_query = candidate_query.join(CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id).filter(
             CrmAgentTeam.team_id == team_id,
             CrmAgentTeam.is_active.is_(True),
         )

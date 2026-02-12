@@ -1,27 +1,29 @@
-{% if recipients %}
-<div class="overflow-x-auto">
+{% from "components/ui/macros.html" import table_shell, table_row, empty_state %}
+{% set pad = 'px-6 py-3' %}
+{% call table_shell(table_id="campaign-recipients-table", color="slate") %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead>
-            <tr class="bg-slate-50 dark:bg-slate-700/50">
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Recipient</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Email</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Sent At</th>
+            <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Recipient</th>
+                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Email</th>
+                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
+                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Sent At</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+            {% if recipients %}
             {% for r in recipients %}
             {% set person = person_map.get(r.person_id|string) %}
-            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">
+            {% call table_row(color="slate") %}
+                <td class="{{ pad }} text-sm text-slate-900 dark:text-white">
                     {% if person %}
                     {{ person.display_name or (person.first_name ~ ' ' ~ person.last_name)|trim or 'Unknown' }}
                     {% else %}
                     Unknown
                     {% endif %}
                 </td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ r.email }}</td>
-                <td class="px-6 py-3">
+                <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ r.email }}</td>
+                <td class="{{ pad }}">
                     {% set rs_colors = {
                         'pending': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
                         'sent': 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400',
@@ -37,14 +39,18 @@
                     <span class="ml-1 text-xs text-red-500" title="{{ r.failed_reason }}">!</span>
                     {% endif %}
                 </td>
-                <td class="px-6 py-3 text-sm text-slate-500 dark:text-slate-400">
+                <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">
                     {{ r.sent_at.strftime('%Y-%m-%d %H:%M') if r.sent_at else '—' }}
                 </td>
-            </tr>
+            {% endcall %}
             {% endfor %}
+            {% else %}
+            <tr>
+                <td colspan="4" class="px-6 py-12">
+                    {{ empty_state("No recipients yet", "Send the campaign to populate this list.") }}
+                </td>
+            </tr>
+            {% endif %}
         </tbody>
     </table>
-</div>
-{% else %}
-<p class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No recipients yet. Send the campaign to populate this list.</p>
-{% endif %}
+{% endcall %}

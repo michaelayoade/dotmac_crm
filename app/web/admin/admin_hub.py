@@ -40,29 +40,27 @@ def admin_hub_index(request: Request, db: Session = Depends(get_db)):
     """Admin hub overview with cards for access control and monitoring."""
     # Access control counts
     users_count = db.query(UserCredential).count()
-    users_active_count = db.query(UserCredential).filter(
-        UserCredential.is_active.is_(True)
-    ).count()
+    users_active_count = db.query(UserCredential).filter(UserCredential.is_active.is_(True)).count()
     roles_count = db.query(Role).count()
     api_keys_count = db.query(ApiKey).count()
-    api_keys_active_count = db.query(ApiKey).filter(
-        ApiKey.is_active.is_(True)
-    ).count()
+    api_keys_active_count = db.query(ApiKey).filter(ApiKey.is_active.is_(True)).count()
 
     # Monitoring counts
     scheduled_tasks_count = db.query(ScheduledTask).count()
     integration_jobs_count = db.query(IntegrationJob).count()
 
     context = _base_context(request, db, active_page="admin-hub")
-    context.update({
-        # Access Control
-        "users_count": users_count,
-        "users_active_count": users_active_count,
-        "roles_count": roles_count,
-        "api_keys_count": api_keys_count,
-        "api_keys_active_count": api_keys_active_count,
-        # Monitoring
-        "scheduled_tasks_count": scheduled_tasks_count,
-        "integration_jobs_count": integration_jobs_count,
-    })
+    context.update(
+        {
+            # Access Control
+            "users_count": users_count,
+            "users_active_count": users_active_count,
+            "roles_count": roles_count,
+            "api_keys_count": api_keys_count,
+            "api_keys_active_count": api_keys_active_count,
+            # Monitoring
+            "scheduled_tasks_count": scheduled_tasks_count,
+            "integration_jobs_count": integration_jobs_count,
+        }
+    )
     return templates.TemplateResponse("admin/system/admin_hub/index.html", context)

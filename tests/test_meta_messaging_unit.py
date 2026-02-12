@@ -52,9 +52,7 @@ async def test_send_facebook_message_success(db_session):
         mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
         mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        result = await meta_messaging.send_facebook_message(
-            db_session, "u1", "Hello", target=target
-        )
+        result = await meta_messaging.send_facebook_message(db_session, "u1", "Hello", target=target)
 
     assert result["message_id"] == "m1"
 
@@ -73,8 +71,6 @@ def test_get_token_for_channel(db_session):
     db_session.add(token)
     db_session.commit()
 
-    found = meta_messaging._get_token_for_channel(
-        db_session, ChannelType.facebook_messenger, target
-    )
+    found = meta_messaging._get_token_for_channel(db_session, ChannelType.facebook_messenger, target)
     assert found is not None
     assert found.access_token == "token"

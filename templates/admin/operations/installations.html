@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import submit_button %}
+{% from "components/ui/macros.html" import submit_button, table_shell, table_row, empty_state %}
 {% block title %}Installations - Operations{% endblock %}
 
 {% block content %}
@@ -59,65 +59,65 @@
     </div>
 
     <!-- Table -->
-    <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800 animate-fade-in-up" style="animation-delay: 100ms;">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200/60 dark:divide-slate-700/60">
-                <thead class="bg-slate-50/80 dark:bg-slate-800/80">
-                    <tr>
-                        <th class="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Appointment</th>
-                        <th class="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Technician</th>
-                        <th class="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Window</th>
-                        <th class="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                        <th class="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {% if appointments %}
-                    {% for appt in appointments %}
-                    {% set status_val = appt.status.value if appt.status else 'unknown' %}
-                    <tr class="group hover:bg-gradient-to-r hover:from-amber-50/50 hover:to-orange-50/30 dark:hover:from-amber-900/10 dark:hover:to-orange-900/5 transition-all">
-                        <td class="px-6 py-4">
-                            <div class="flex items-center gap-3">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-100 to-teal-100 dark:from-cyan-900/40 dark:to-teal-900/30 transition-transform group-hover:scale-105">
-                                    <svg class="h-5 w-5 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                                    </svg>
-                                </div>
-                                <span class="text-sm font-mono font-semibold text-slate-900 dark:text-white">{{ appt.id|string|truncate(8, True, '') }}</span>
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="installations-table", color="amber") %}
+        <table class="min-w-full divide-y divide-slate-200/60 dark:divide-slate-700/60">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Appointment</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Technician</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Window</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                {% if appointments %}
+                {% for appt in appointments %}
+                {% set status_val = appt.status.value if appt.status else 'unknown' %}
+                {% call table_row(color="amber") %}
+                    <td class="{{ pad }}">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-100 to-teal-100 dark:from-cyan-900/40 dark:to-teal-900/30 transition-transform group-hover:scale-105">
+                                <svg class="h-5 w-5 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                </svg>
                             </div>
-                        </td>
-                        <td class="px-6 py-4">
-                            {% if appt.technician %}
-                            <div class="flex items-center gap-2">
-                                <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-xs font-bold text-white">
-                                    {{ appt.technician[0] if appt.technician else 'T' }}
-                                </div>
-                                <span class="text-sm text-slate-700 dark:text-slate-300">{{ appt.technician }}</span>
+                            <span class="text-sm font-mono font-semibold text-slate-900 dark:text-white">{{ appt.id|string|truncate(8, True, '') }}</span>
+                        </div>
+                    </td>
+                    <td class="{{ pad }}">
+                        {% if appt.technician %}
+                        <div class="flex items-center gap-2">
+                            <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-xs font-bold text-white">
+                                {{ appt.technician[0] if appt.technician else 'T' }}
                             </div>
-                            {% else %}
-                            <span class="inline-flex items-center gap-1.5 text-sm text-slate-400 dark:text-slate-500">
-                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                                Unassigned
-                            </span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4">
-                            <div class="flex items-center gap-2">
-                                <svg class="h-4 w-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                <div class="text-sm text-slate-600 dark:text-slate-400">
-                                    {% if appt.scheduled_start %}
-                                    <span class="font-medium text-slate-900 dark:text-white">{{ appt.scheduled_start.strftime('%b %d, %Y') }}</span>
-                                    <span class="text-slate-400 dark:text-slate-500">{{ appt.scheduled_start.strftime('%H:%M') }} – {{ appt.scheduled_end.strftime('%H:%M') if appt.scheduled_end else '' }}</span>
-                                    {% else %}
-                                    <span class="text-slate-400 dark:text-slate-500">Not scheduled</span>
-                                    {% endif %}
-                                </div>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">{{ appt.technician }}</span>
+                        </div>
+                        {% else %}
+                        <span class="inline-flex items-center gap-1.5 text-sm text-slate-400 dark:text-slate-500">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            Unassigned
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }}">
+                        <div class="flex items-center gap-2">
+                            <svg class="h-4 w-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <div class="text-sm text-slate-600 dark:text-slate-400">
+                                {% if appt.scheduled_start %}
+                                <span class="font-medium text-slate-900 dark:text-white">{{ appt.scheduled_start.strftime('%b %d, %Y') }}</span>
+                                <span class="text-slate-400 dark:text-slate-500">{{ appt.scheduled_start.strftime('%H:%M') }} – {{ appt.scheduled_end.strftime('%H:%M') if appt.scheduled_end else '' }}</span>
+                                {% else %}
+                                <span class="text-slate-400 dark:text-slate-500">Not scheduled</span>
+                                {% endif %}
                             </div>
-                        </td>
-                        <td class="px-6 py-4">
-                            {% if status_val == 'confirmed' %}
-                            <span class="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
-                                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        </div>
+                    </td>
+                    <td class="{{ pad }}">
+                        {% if status_val == 'confirmed' %}
+                        <span class="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm">
+                            <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                                 Confirmed
                             </span>
                             {% elif status_val == 'completed' %}
@@ -126,39 +126,41 @@
                             <span class="inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-red-500 to-rose-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm">No Show</span>
                             {% elif status_val == 'canceled' %}
                             <span class="inline-flex items-center rounded-lg bg-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-600 dark:text-slate-300">Canceled</span>
-                            {% else %}
-                            <span class="inline-flex items-center rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">{{ status_val | replace('_', ' ') | title }}</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            <span class="text-xs text-slate-400 dark:text-slate-500">No actions</span>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% else %}
-                    <tr>
-                        <td colspan="6" class="px-6 py-16">
-                            <div class="text-center">
-                                <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600">
-                                    <svg class="h-8 w-8 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                                    </svg>
-                                </div>
-                                <h3 class="mt-4 text-sm font-semibold text-slate-900 dark:text-white">No installations</h3>
-                                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Install appointments will appear here once scheduled.</p>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">{{ status_val | replace('_', ' ') | title }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} text-right">
+                        <span class="text-xs text-slate-400 dark:text-slate-500">No actions</span>
+                    </td>
+                {% endcall %}
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="6" class="px-6 py-12">
+                        {{ empty_state("No installations", "Install appointments will appear here once scheduled.") }}
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
         {% if total_pages and total_pages > 1 %}
         {% set status_param = '&status=' ~ status if status else '' %}
         <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200/60 px-6 py-4 dark:border-slate-700/60 sm:flex-row">
-            <p class="text-sm text-slate-500 dark:text-slate-400">
-                Page <span class="font-semibold text-slate-900 dark:text-white">{{ page }}</span> of <span class="font-semibold text-slate-900 dark:text-white">{{ total_pages }}</span>
-            </p>
+            <div class="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+                <span>
+                    Page <span class="font-semibold text-slate-900 dark:text-white">{{ page }}</span> of <span class="font-semibold text-slate-900 dark:text-white">{{ total_pages }}</span>
+                </span>
+                <label class="inline-flex items-center gap-2">
+                    <span>Rows</span>
+                    <select class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                            onchange="const u=new URL(window.location.href);u.searchParams.set('per_page', this.value);u.searchParams.set('page','1');window.location.assign(u.toString());">
+                        {% for size in [10, 25, 50, 100] %}
+                        <option value="{{ size }}" {% if per_page|int == size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
                 <a href="/admin/operations/installations?page={{ page - 1 }}&per_page={{ per_page }}{{ status_param }}"
@@ -177,7 +179,7 @@
             </div>
         </div>
         {% endif %}
-    </div>
+    {% endcall %}
 </div>
 
 {% endblock %}

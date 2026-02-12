@@ -110,7 +110,7 @@ def _test_imap_connection(
             if client is not None:
                 client.logout()
         except Exception:
-            pass
+            logger.debug("IMAP logout failed during disconnect.", exc_info=True)
 
 
 def _test_pop3_connection(
@@ -135,15 +135,13 @@ def _test_pop3_connection(
             if client is not None:
                 client.quit()
         except Exception:
-            pass
+            logger.debug("SMTP quit failed during disconnect.", exc_info=True)
 
 
 def _normalize_next_url(next_url: str | None, default_url: str) -> str:
     if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
         return default_url
     return next_url
-
-
 
 
 def configure_email_connector(
@@ -163,11 +161,17 @@ def configure_email_connector(
             error_detail="Forbidden",
         )
     target_id_value = _as_str(form.get("target_id")) if "target_id" in form else _as_str(defaults.get("target_id"))
-    connector_id_value = _as_str(form.get("connector_id")) if "connector_id" in form else _as_str(defaults.get("connector_id"))
+    connector_id_value = (
+        _as_str(form.get("connector_id")) if "connector_id" in form else _as_str(defaults.get("connector_id"))
+    )
     create_new_value = _as_str(form.get("create_new")) if "create_new" in form else _as_str(defaults.get("create_new"))
     create_new_flag = _as_bool(create_new_value)
-    polling_enabled_values = form.getlist("polling_enabled") if hasattr(form, "getlist") and "polling_enabled" in form else []
-    polling_enabled_value = _as_str(polling_enabled_values[-1]) if polling_enabled_values else _as_str(defaults.get("polling_enabled"))
+    polling_enabled_values = (
+        form.getlist("polling_enabled") if hasattr(form, "getlist") and "polling_enabled" in form else []
+    )
+    polling_enabled_value = (
+        _as_str(polling_enabled_values[-1]) if polling_enabled_values else _as_str(defaults.get("polling_enabled"))
+    )
 
     smtp_port_value = _as_str(form.get("smtp_port")) if "smtp_port" in form else _as_str(defaults.get("smtp_port"))
     imap_port_value = _as_str(form.get("imap_port")) if "imap_port" in form else _as_str(defaults.get("imap_port"))
@@ -208,7 +212,11 @@ def configure_email_connector(
     pop3_use_ssl = _as_str(defaults.get("pop3_use_ssl"))
     poll_interval_seconds = _as_str(defaults.get("poll_interval_seconds"))
     rate_limit_per_minute_provided = "rate_limit_per_minute" in form
-    rate_limit_per_minute_value = _as_str(form.get("rate_limit_per_minute")) if rate_limit_per_minute_provided else _as_str(defaults.get("rate_limit_per_minute"))
+    rate_limit_per_minute_value = (
+        _as_str(form.get("rate_limit_per_minute"))
+        if rate_limit_per_minute_provided
+        else _as_str(defaults.get("rate_limit_per_minute"))
+    )
 
     email_channel = get_email_channel_state(db)
     resolved_target = None
@@ -234,10 +242,14 @@ def configure_email_connector(
             ),
             "use_tls": _as_bool(smtp_use_tls)
             if smtp_use_tls is not None
-            else bool(existing_smtp.get("use_tls")) if isinstance(existing_smtp, dict) else False,
+            else bool(existing_smtp.get("use_tls"))
+            if isinstance(existing_smtp, dict)
+            else False,
             "use_ssl": _as_bool(smtp_use_ssl)
             if smtp_use_ssl is not None
-            else bool(existing_smtp.get("use_ssl")) if isinstance(existing_smtp, dict) else False,
+            else bool(existing_smtp.get("use_ssl"))
+            if isinstance(existing_smtp, dict)
+            else False,
         }
 
     imap = None
@@ -251,10 +263,14 @@ def configure_email_connector(
             ),
             "use_ssl": _as_bool(imap_use_ssl)
             if imap_use_ssl is not None
-            else bool(existing_imap.get("use_ssl")) if isinstance(existing_imap, dict) else True,
+            else bool(existing_imap.get("use_ssl"))
+            if isinstance(existing_imap, dict)
+            else True,
             "mailbox": imap_mailbox.strip()
             if imap_mailbox
-            else existing_imap.get("mailbox") if isinstance(existing_imap, dict) else "INBOX",
+            else existing_imap.get("mailbox")
+            if isinstance(existing_imap, dict)
+            else "INBOX",
         }
         imap["search_all"] = bool(imap_search_all_value)
 
@@ -269,7 +285,9 @@ def configure_email_connector(
             ),
             "use_ssl": _as_bool(pop3_use_ssl)
             if pop3_use_ssl is not None
-            else bool(existing_pop3.get("use_ssl")) if isinstance(existing_pop3, dict) else True,
+            else bool(existing_pop3.get("use_ssl"))
+            if isinstance(existing_pop3, dict)
+            else True,
         }
 
     logger.info(
@@ -352,9 +370,7 @@ def configure_email_connector(
 
     try:
         if not create_new_flag and email_channel and email_channel.get("connector_id"):
-            config = connector_service.connector_configs.get(
-                db, email_channel["connector_id"]
-            )
+            config = connector_service.connector_configs.get(db, email_channel["connector_id"])
             metadata = dict(config.metadata_ or {}) if isinstance(config.metadata_, dict) else {}
             if smtp_on and smtp:
                 metadata["smtp"] = smtp
@@ -430,7 +446,9 @@ def configure_email_connector(
                 imap=imap,
                 pop3=pop3,
                 auth_config=auth_config or None,
-                metadata={"rate_limit_per_minute": _as_int(rate_limit_per_minute_value)} if rate_limit_per_minute_value else None,
+                metadata={"rate_limit_per_minute": _as_int(rate_limit_per_minute_value)}
+                if rate_limit_per_minute_value
+                else None,
             )
             target_id = str(target.id)
 
@@ -444,9 +462,7 @@ def configure_email_connector(
             or bool(email_channel and email_channel.get("poll_interval_seconds"))
         )
         if polling_on and not interval_seconds:
-            interval_seconds = (
-                email_channel.get("poll_interval_seconds") if email_channel else None
-            ) or 300
+            interval_seconds = (email_channel.get("poll_interval_seconds") if email_channel else None) or 300
         if polling_flag_set and not polling_on:
             integration_service.IntegrationJobs.disable_import_jobs_for_target(db, target_id)
         elif polling_on and (imap or pop3):
@@ -489,16 +505,23 @@ def configure_whatsapp_connector(
             error_detail="Forbidden",
         )
     target_id_value = _as_str(form.get("target_id")) if "target_id" in form else _as_str(defaults.get("target_id"))
-    connector_id_value = _as_str(form.get("connector_id")) if "connector_id" in form else _as_str(defaults.get("connector_id"))
+    connector_id_value = (
+        _as_str(form.get("connector_id")) if "connector_id" in form else _as_str(defaults.get("connector_id"))
+    )
     create_new_value = _as_str(form.get("create_new")) if "create_new" in form else _as_str(defaults.get("create_new"))
     create_new_flag = _as_bool(create_new_value)
 
     name = _as_str(defaults.get("name")) or "CRM WhatsApp"
     access_token = _as_str(defaults.get("access_token"))
     phone_number_id = _as_str(defaults.get("phone_number_id"))
+    business_account_id = _as_str(defaults.get("business_account_id"))
     base_url = _as_str(defaults.get("base_url"))
     rate_limit_per_minute_provided = "rate_limit_per_minute" in form
-    rate_limit_per_minute_value = _as_str(form.get("rate_limit_per_minute")) if rate_limit_per_minute_provided else _as_str(defaults.get("rate_limit_per_minute"))
+    rate_limit_per_minute_value = (
+        _as_str(form.get("rate_limit_per_minute"))
+        if rate_limit_per_minute_provided
+        else _as_str(defaults.get("rate_limit_per_minute"))
+    )
 
     whatsapp_channel = get_whatsapp_channel_state(db)
     if not create_new_flag and (target_id_value or connector_id_value):
@@ -512,12 +535,12 @@ def configure_whatsapp_connector(
 
     try:
         if not create_new_flag and whatsapp_channel and whatsapp_channel.get("connector_id"):
-            config = connector_service.connector_configs.get(
-                db, whatsapp_channel["connector_id"]
-            )
+            config = connector_service.connector_configs.get(db, whatsapp_channel["connector_id"])
             merged_metadata = dict(config.metadata_ or {}) if isinstance(config.metadata_, dict) else {}
             if phone_number_id:
                 merged_metadata["phone_number_id"] = phone_number_id.strip()
+            if business_account_id:
+                merged_metadata["business_account_id"] = business_account_id.strip()
             if rate_limit_per_minute_value:
                 merged_metadata["rate_limit_per_minute"] = _as_int(rate_limit_per_minute_value)
             elif rate_limit_per_minute_provided:
@@ -553,7 +576,16 @@ def configure_whatsapp_connector(
                 phone_number_id=phone_number_id.strip() if phone_number_id else None,
                 auth_config=auth_config,
                 base_url=base_url.strip() if base_url else None,
-                metadata={"rate_limit_per_minute": _as_int(rate_limit_per_minute_value)} if rate_limit_per_minute_value else None,
+                metadata={
+                    **({"business_account_id": business_account_id.strip()} if business_account_id else {}),
+                    **(
+                        {"rate_limit_per_minute": _as_int(rate_limit_per_minute_value)}
+                        if rate_limit_per_minute_value
+                        else {}
+                    ),
+                }
+                if (business_account_id or rate_limit_per_minute_value)
+                else None,
             )
     except Exception:
         return ConnectorSaveResult(

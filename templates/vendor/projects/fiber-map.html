@@ -396,6 +396,66 @@
             </div>
 
             <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Data Quality</h2>
+                <div class="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                    <div class="flex items-center justify-between">
+                        <span>Total Issues</span>
+                        <span class="font-semibold {{ 'text-emerald-600 dark:text-emerald-400' if qa_stats.total_issues == 0 else 'text-rose-600 dark:text-rose-400' }}">{{ qa_stats.total_issues }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Missing Identifiers</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ qa_stats.missing_identifiers.total }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Duplicate Rows</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ qa_stats.duplicate_identifiers.total_rows }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Empty Geometry</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ qa_stats.geometry.total_empty }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span>Invalid Geometry</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ qa_stats.geometry.total_invalid }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Layers</h2>
+                <div class="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                    <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                        <span>Visible Features</span>
+                        <span id="layer-visible-total">0</span>
+                    </div>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <span class="flex items-center gap-2"><input type="checkbox" id="layer-fdh" checked class="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-500/20">FDH Cabinets</span>
+                        <span id="layer-count-fdh" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <span class="flex items-center gap-2"><input type="checkbox" id="layer-closures" checked class="h-4 w-4 rounded border-slate-300 text-teal-500 focus:ring-teal-500/20">Splice Closures</span>
+                        <span id="layer-count-closures" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <span class="flex items-center gap-2"><input type="checkbox" id="layer-feeder" checked class="h-4 w-4 rounded border-slate-300 text-red-500 focus:ring-red-500/20">Feeder Cables</span>
+                        <span id="layer-count-feeder" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <span class="flex items-center gap-2"><input type="checkbox" id="layer-distribution" checked class="h-4 w-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500/20">Distribution Cables</span>
+                        <span id="layer-count-distribution" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <span class="flex items-center gap-2"><input type="checkbox" id="layer-drop" checked class="h-4 w-4 rounded border-slate-300 text-green-500 focus:ring-green-500/20">Drop Cables</span>
+                        <span id="layer-count-drop" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer">
+                        <span class="flex items-center gap-2"><input type="checkbox" id="layer-distances" class="h-4 w-4 rounded border-slate-300 text-slate-500 focus:ring-slate-500/20">Distance Labels</span>
+                        <span id="layer-count-distances" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Legend</h2>
                 <div class="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
                     <div class="legend-item">
@@ -477,6 +537,46 @@
         drop: L.layerGroup().addTo(map),
         distances: L.layerGroup()
     };
+    const layerCounts = {
+        fdh: 0,
+        closures: 0,
+        feeder: 0,
+        distribution: 0,
+        drop: 0,
+        distances: 0
+    };
+
+    function updateLayerCountBadges() {
+        layerCounts.fdh = layers.fdh.getLayers().length;
+        layerCounts.closures = layers.closures.getLayers().length;
+        layerCounts.feeder = layers.feeder.getLayers().length;
+        layerCounts.distribution = layers.distribution.getLayers().length;
+        layerCounts.drop = layers.drop.getLayers().length;
+        layerCounts.distances = layers.distances.getLayers().length;
+        const mappings = [
+            ['layer-count-fdh', layerCounts.fdh],
+            ['layer-count-closures', layerCounts.closures],
+            ['layer-count-feeder', layerCounts.feeder],
+            ['layer-count-distribution', layerCounts.distribution],
+            ['layer-count-drop', layerCounts.drop],
+            ['layer-count-distances', layerCounts.distances]
+        ];
+        mappings.forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = String(value);
+        });
+    }
+
+    function updateVisibleFeatureCount() {
+        const visibleTotal =
+            (document.getElementById('layer-fdh')?.checked ? layerCounts.fdh : 0) +
+            (document.getElementById('layer-closures')?.checked ? layerCounts.closures : 0) +
+            (document.getElementById('layer-feeder')?.checked ? layerCounts.feeder : 0) +
+            (document.getElementById('layer-distribution')?.checked ? layerCounts.distribution : 0) +
+            (document.getElementById('layer-drop')?.checked ? layerCounts.drop : 0);
+        const el = document.getElementById('layer-visible-total');
+        if (el) el.textContent = String(visibleTotal);
+    }
 
     const icons = {
         fdh_cabinet: L.divIcon({
@@ -958,6 +1058,35 @@
     document.getElementById('btn-measure').addEventListener('click', toggleMeasureMode);
     document.getElementById('btn-plan').addEventListener('click', togglePlanMode);
     document.getElementById('btn-refresh').addEventListener('click', () => window.location.reload());
+    document.getElementById('layer-fdh').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.fdh);
+        else map.removeLayer(layers.fdh);
+        updateVisibleFeatureCount();
+    });
+    document.getElementById('layer-closures').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.closures);
+        else map.removeLayer(layers.closures);
+        updateVisibleFeatureCount();
+    });
+    document.getElementById('layer-feeder').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.feeder);
+        else map.removeLayer(layers.feeder);
+        updateVisibleFeatureCount();
+    });
+    document.getElementById('layer-distribution').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.distribution);
+        else map.removeLayer(layers.distribution);
+        updateVisibleFeatureCount();
+    });
+    document.getElementById('layer-drop').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.drop);
+        else map.removeLayer(layers.drop);
+        updateVisibleFeatureCount();
+    });
+    document.getElementById('layer-distances').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.distances);
+        else map.removeLayer(layers.distances);
+    });
 
     map.on('click', (e) => {
         if (measureMode) {
@@ -974,6 +1103,8 @@
 
     const geojsonData = {{ geojson_data | tojson | safe }};
     renderGeoJson(geojsonData);
+    updateLayerCountBadges();
+    updateVisibleFeatureCount();
 
     // ========== Search Functionality ==========
     const searchInput = document.getElementById('map-search-input');

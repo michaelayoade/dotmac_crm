@@ -1,23 +1,26 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, danger_button, submit_button, table_shell, table_row, empty_state, status_badge %}
 
-{% from "components/ui/macros.html" import danger_button, submit_button %}
 {% block title %}System Settings - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <div>
-        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">System Settings</h1>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Configure platform defaults and operational preferences</p>
-    </div>
+    {{ page_header("System Settings", "Configure platform defaults and operational preferences", color="indigo", color2="violet", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "", "label": "Settings"}]) }}
 
-    <div class="space-y-4">
+    {# ── Domain Pill Filters ── #}
+    <div class="animate-fade-in-up space-y-4" style="animation-delay: 50ms">
         {% for group_name, group_domains in grouped_domains.items() %}
         <div>
-            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">{{ group_name }}</h3>
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">{{ group_name }}</h3>
             <div class="flex flex-wrap gap-2">
                 {% for item in group_domains %}
                 <a href="/admin/system/settings?domain={{ item.value }}"
-                   class="rounded-full border px-3 py-1 text-sm font-medium transition {% if item.value == domain %}border-primary-600 bg-primary-50 text-primary-700 dark:border-primary-400 dark:bg-primary-500/10 dark:text-primary-300{% else %}border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-primary-500 dark:hover:text-primary-300{% endif %}">
+                   class="rounded-xl border px-3.5 py-1.5 text-sm font-semibold transition-all
+                          {% if item.value == domain %}
+                          border-indigo-500/30 bg-gradient-to-r from-indigo-500/10 to-violet-500/10 text-indigo-700 shadow-sm dark:border-indigo-500/30 dark:from-indigo-500/20 dark:to-violet-500/20 dark:text-indigo-400
+                          {% else %}
+                          border-slate-200/60 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50/50 hover:text-indigo-700 dark:border-slate-700/60 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-indigo-500/50 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400
+                          {% endif %}">
                     {{ item.label }}
                 </a>
                 {% endfor %}
@@ -26,68 +29,123 @@
         {% endfor %}
     </div>
 
+    {# ── Feedback Banners ── #}
     {% if errors %}
-    <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200">
-        <p class="font-semibold">Could not save settings:</p>
-        <ul class="mt-2 list-disc pl-5 space-y-1">
-            {% for error in errors %}
-            <li>{{ error }}</li>
-            {% endfor %}
-        </ul>
+    <div class="animate-fade-in-up rounded-2xl border border-red-200/60 bg-red-50 p-4 dark:border-red-800/60 dark:bg-red-900/20" style="animation-delay: 100ms">
+        <div class="flex items-start gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-500/10 dark:bg-red-500/20">
+                <svg class="h-4 w-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div>
+                <p class="text-sm font-semibold text-red-700 dark:text-red-400">Could not save settings:</p>
+                <ul class="mt-1.5 list-disc pl-5 space-y-0.5 text-sm text-red-600 dark:text-red-300">
+                    {% for error in errors %}
+                    <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
     </div>
     {% elif saved %}
-    <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200">
-        Settings saved.
+    <div class="animate-fade-in-up rounded-2xl border border-emerald-200/60 bg-emerald-50 p-4 dark:border-emerald-800/60 dark:bg-emerald-900/20" style="animation-delay: 100ms">
+        <div class="flex items-center gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 dark:bg-emerald-500/20">
+                <svg class="h-4 w-4 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <p class="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Settings saved successfully.</p>
+        </div>
     </div>
     {% endif %}
 
+    {# ── Integration: Splynx Test ── #}
+    {% if domain == "integration" %}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800 space-y-4" style="animation-delay: 150ms">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="flex items-start gap-3">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                    <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Splynx Connection Test</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Verify API credentials can authenticate to Splynx.</p>
+                </div>
+            </div>
+            <form method="POST" action="/admin/system/settings/integration/splynx-test">
+                {% include "components/forms/csrf_input.html" %}
+                {{ submit_button("Test Splynx Connection", loading_label="Testing...") }}
+            </form>
+        </div>
+        {% if splynx_test_result %}
+        <div class="rounded-xl border p-3 text-sm {% if splynx_test_result.ok %}border-emerald-200/60 bg-emerald-50 text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-400{% else %}border-red-200/60 bg-red-50 text-red-700 dark:border-red-800/60 dark:bg-red-900/20 dark:text-red-400{% endif %}">
+            {{ splynx_test_result.message }}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# ── Comms: Meta URLs ── #}
     {% if domain == "comms" %}
-    <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
-        <p class="font-semibold text-slate-900 dark:text-white">CRM Meta URLs</p>
-        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">OAuth redirect URI</p>
-        <p class="font-mono text-xs text-slate-600 dark:text-slate-300">{{ crm_meta_oauth_redirect_url }}</p>
-        <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Webhook callback URL</p>
-        <p class="font-mono text-xs text-slate-600 dark:text-slate-300">{{ crm_meta_callback_url }}</p>
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-slate-50/50 p-5 dark:border-slate-700/60 dark:bg-slate-800/60" style="animation-delay: 150ms">
+        <div class="flex items-start gap-3">
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20">
+                <svg class="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+            </div>
+            <div>
+                <p class="font-semibold text-slate-900 dark:text-white">CRM Meta URLs</p>
+                <div class="mt-2 space-y-2">
+                    <div>
+                        <p class="text-xs font-medium text-slate-500 dark:text-slate-400">OAuth redirect URI</p>
+                        <code class="mt-0.5 block rounded-lg bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:bg-slate-700/50 dark:text-slate-300">{{ crm_meta_oauth_redirect_url }}</code>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium text-slate-500 dark:text-slate-400">Webhook callback URL</p>
+                        <code class="mt-0.5 block rounded-lg bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:bg-slate-700/50 dark:text-slate-300">{{ crm_meta_callback_url }}</code>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     {% endif %}
 
+    {# ── Campaigns Domain: Senders + SMTP ── #}
     {% if domain == "campaigns" %}
-    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-6">
-        <div>
-            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Campaign Senders</h2>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage the sender identities available for CRM campaigns.</p>
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800 space-y-6" style="animation-delay: 150ms">
+        <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Campaign Senders</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage the sender identities available for CRM campaigns.</p>
+            </div>
         </div>
 
         <form method="POST" action="/admin/system/settings/campaign-senders" class="grid gap-4 sm:grid-cols-6">
             {% include "components/forms/csrf_input.html" %}
             <div class="sm:col-span-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Label</label>
-                <input type="text" name="name" required
-                       placeholder="Marketing Team"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Label</label>
+                <input type="text" name="name" required placeholder="Marketing Team"
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">From Name</label>
-                <input type="text" name="from_name"
-                       placeholder="DotMac CRM"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">From Name</label>
+                <input type="text" name="from_name" placeholder="DotMac CRM"
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">From Email *</label>
-                <input type="email" name="from_email" required
-                       placeholder="marketing@dotmac.io"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">From Email *</label>
+                <input type="email" name="from_email" required placeholder="marketing@dotmac.io"
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-3">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Reply-To</label>
-                <input type="email" name="reply_to"
-                       placeholder="support@dotmac.io"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Reply-To</label>
+                <input type="email" name="reply_to" placeholder="support@dotmac.io"
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-2 flex items-end">
                 <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                     <input type="checkbox" name="is_active" value="true" checked
-                           class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                     Active
                 </label>
             </div>
@@ -96,66 +154,70 @@
             </div>
         </form>
 
-        <div class="overflow-x-auto">
+        {% set pad = 'px-6 py-3' %}
+        {% call table_shell(table_id="campaign-senders-table", title="Senders", color="indigo", count=campaign_senders | length) %}
             <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
                 <thead>
-                    <tr class="bg-slate-50 dark:bg-slate-700/50">
-                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Label</th>
-                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">From</th>
-                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Reply-To</th>
-                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Active</th>
-                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Actions</th>
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                        <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Label</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">From</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Reply-To</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Active</th>
+                        <th scope="col" class="{{ pad }} text-right"><span class="sr-only">Actions</span></th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
                     {% if campaign_senders %}
                     {% for sender in campaign_senders %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                        <td class="px-4 py-3">
+                    {% call table_row(color="indigo") %}
+                        <td class="{{ pad }}">
                             <input type="text" form="sender-{{ sender.id }}" name="name" value="{{ sender.name }}"
-                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </td>
-                        <td class="px-4 py-3">
+                        <td class="{{ pad }}">
                             <div class="grid gap-2">
-                                <input type="text" form="sender-{{ sender.id }}" name="from_name" value="{{ sender.from_name or '' }}"
-                                       placeholder="From Name"
-                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <input type="text" form="sender-{{ sender.id }}" name="from_name" value="{{ sender.from_name or '' }}" placeholder="From Name"
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                                 <input type="email" form="sender-{{ sender.id }}" name="from_email" value="{{ sender.from_email }}"
-                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             </div>
                         </td>
-                        <td class="px-4 py-3">
+                        <td class="{{ pad }}">
                             <input type="email" form="sender-{{ sender.id }}" name="reply_to" value="{{ sender.reply_to or '' }}"
-                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </td>
-                        <td class="px-4 py-3">
+                        <td class="{{ pad }}">
                             <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                 <input type="checkbox" form="sender-{{ sender.id }}" name="is_active" value="true"
                                        {% if sender.is_active %}checked{% endif %}
-                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                       class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                             </label>
                         </td>
-                        <td class="px-4 py-3 text-right text-sm">
-                            <form id="sender-{{ sender.id }}" method="POST" action="/admin/system/settings/campaign-senders/{{ sender.id }}" class="inline">
-                                {% include "components/forms/csrf_input.html" %}
-                                <button type="submit" class="text-primary-600 hover:text-primary-700">Save</button>
-                            </form>
-                            {{ danger_button("Deactivate", "Confirm Deactivate", "Deactivate this sender?", "/admin/system/settings/campaign-senders/" ~ sender.id ~ "/delete", size="sm") }}
+                        <td class="{{ pad }} text-right text-sm">
+                            <div class="flex items-center justify-end gap-2">
+                                <form id="sender-{{ sender.id }}" method="POST" action="/admin/system/settings/campaign-senders/{{ sender.id }}" class="inline">
+                                    {% include "components/forms/csrf_input.html" %}
+                                    <button type="submit" class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/20 transition-colors">Save</button>
+                                </form>
+                                {{ danger_button("Deactivate", "Confirm Deactivate", "Deactivate this sender?", "/admin/system/settings/campaign-senders/" ~ sender.id ~ "/delete", size="sm") }}
+                            </div>
                         </td>
-                    </tr>
+                    {% endcall %}
                     {% endfor %}
                     {% else %}
-                    <tr>
-                        <td colspan="5" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No campaign senders configured yet.</td>
-                    </tr>
+                    {{ empty_state("No campaign senders", "Add a sender profile to begin sending campaigns.", colspan=5) }}
                     {% endif %}
                 </tbody>
             </table>
-        </div>
+        {% endcall %}
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
-        <div class="flex items-center justify-between">
+    {# ── SMTP Profiles ── #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800 space-y-4" style="animation-delay: 200ms">
+        <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 dark:from-violet-500/20 dark:to-purple-500/20">
+                <svg class="h-5 w-5 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
+            </div>
             <div>
                 <h2 class="text-lg font-semibold text-slate-900 dark:text-white">SMTP Profiles</h2>
                 <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage SMTP profiles available for campaigns.</p>
@@ -164,48 +226,48 @@
         <form method="POST" action="/admin/system/settings/campaign-smtp" class="grid gap-4 sm:grid-cols-6">
             {% include "components/forms/csrf_input.html" %}
             <div class="sm:col-span-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Label</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Label</label>
                 <input type="text" name="name" required placeholder="Campaign SMTP"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Host</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Host</label>
                 <input type="text" name="host" required placeholder="smtp.mailserver.com"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-1">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Port</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Port</label>
                 <input type="number" name="port" value="587"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-1 flex items-end">
                 <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                     <input type="checkbox" name="use_tls" value="true" checked
-                           class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 dark:border-slate-600 dark:bg-slate-700">
                     TLS
                 </label>
             </div>
             <div class="sm:col-span-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Username</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Username</label>
                 <input type="text" name="username"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Password</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Password</label>
                 <input type="password" name="password"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="sm:col-span-1 flex items-end">
                 <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                     <input type="checkbox" name="use_ssl" value="true"
-                           class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 dark:border-slate-600 dark:bg-slate-700">
                     SSL
                 </label>
             </div>
             <div class="sm:col-span-1 flex items-end">
                 <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                     <input type="checkbox" name="is_active" value="true" checked
-                           class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
+                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 dark:border-slate-600 dark:bg-slate-700">
                     Active
                 </label>
             </div>
@@ -214,102 +276,115 @@
             </div>
         </form>
 
-        <div class="overflow-x-auto">
+        {% set pad = 'px-6 py-3' %}
+        {% call table_shell(table_id="campaign-smtp-table", title="SMTP Profiles", color="violet", count=campaign_smtp_profiles | length) %}
             <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
                 <thead>
-                    <tr class="bg-slate-50 dark:bg-slate-700/50">
-                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Label</th>
-                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Host</th>
-                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Auth</th>
-                        <th class="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Flags</th>
-                        <th class="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Actions</th>
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                        <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Label</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Host</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Auth</th>
+                        <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Flags</th>
+                        <th scope="col" class="{{ pad }} text-right"><span class="sr-only">Actions</span></th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
                     {% if campaign_smtp_profiles %}
                     {% for smtp in campaign_smtp_profiles %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                        <td class="px-4 py-3">
+                    {% call table_row(color="violet") %}
+                        <td class="{{ pad }}">
                             <input type="text" form="smtp-{{ smtp.id }}" name="name" value="{{ smtp.name }}"
-                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </td>
-                        <td class="px-4 py-3">
+                        <td class="{{ pad }}">
                             <div class="grid gap-2">
                                 <input type="text" form="smtp-{{ smtp.id }}" name="host" value="{{ smtp.host }}"
-                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                                 <input type="number" form="smtp-{{ smtp.id }}" name="port" value="{{ smtp.port }}"
-                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             </div>
                         </td>
-                        <td class="px-4 py-3">
+                        <td class="{{ pad }}">
                             <div class="grid gap-2">
                                 <input type="text" form="smtp-{{ smtp.id }}" name="username" value="{{ smtp.username or '' }}"
-                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                <input type="password" form="smtp-{{ smtp.id }}" name="password" value=""
-                                       placeholder="••••••"
-                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+                                <input type="password" form="smtp-{{ smtp.id }}" name="password" value="" placeholder="••••••"
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                                 {% if smtp.password %}
                                 <p class="text-xs text-slate-500 dark:text-slate-400">Stored password hidden.</p>
                                 {% endif %}
                             </div>
                         </td>
-                        <td class="px-4 py-3">
-                            <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                <input type="checkbox" form="smtp-{{ smtp.id }}" name="use_tls" value="true"
-                                       {% if smtp.use_tls %}checked{% endif %}
-                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
-                                TLS
-                            </label>
-                            <label class="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                <input type="checkbox" form="smtp-{{ smtp.id }}" name="use_ssl" value="true"
-                                       {% if smtp.use_ssl %}checked{% endif %}
-                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
-                                SSL
-                            </label>
-                            <label class="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                <input type="checkbox" form="smtp-{{ smtp.id }}" name="is_active" value="true"
-                                       {% if smtp.is_active %}checked{% endif %}
-                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 dark:border-slate-600 dark:bg-slate-700">
-                                Active
-                            </label>
+                        <td class="{{ pad }}">
+                            <div class="space-y-2">
+                                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" form="smtp-{{ smtp.id }}" name="use_tls" value="true"
+                                           {% if smtp.use_tls %}checked{% endif %}
+                                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 dark:border-slate-600 dark:bg-slate-700">
+                                    TLS
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" form="smtp-{{ smtp.id }}" name="use_ssl" value="true"
+                                           {% if smtp.use_ssl %}checked{% endif %}
+                                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 dark:border-slate-600 dark:bg-slate-700">
+                                    SSL
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" form="smtp-{{ smtp.id }}" name="is_active" value="true"
+                                           {% if smtp.is_active %}checked{% endif %}
+                                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 dark:border-slate-600 dark:bg-slate-700">
+                                    Active
+                                </label>
+                            </div>
                         </td>
-                        <td class="px-4 py-3 text-right text-sm">
-                            <form id="smtp-{{ smtp.id }}" method="POST" action="/admin/system/settings/campaign-smtp/{{ smtp.id }}" class="inline">
-                                {% include "components/forms/csrf_input.html" %}
-                                <button type="submit" class="text-primary-600 hover:text-primary-700">Save</button>
-                            </form>
-                            {{ danger_button("Deactivate", "Confirm Deactivate", "Deactivate this SMTP profile?", "/admin/system/settings/campaign-smtp/" ~ smtp.id ~ "/delete", size="sm") }}
+                        <td class="{{ pad }} text-right text-sm">
+                            <div class="flex items-center justify-end gap-2">
+                                <form id="smtp-{{ smtp.id }}" method="POST" action="/admin/system/settings/campaign-smtp/{{ smtp.id }}" class="inline">
+                                    {% include "components/forms/csrf_input.html" %}
+                                    <button type="submit" class="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/20 transition-colors">Save</button>
+                                </form>
+                                {{ danger_button("Deactivate", "Confirm Deactivate", "Deactivate this SMTP profile?", "/admin/system/settings/campaign-smtp/" ~ smtp.id ~ "/delete", size="sm") }}
+                            </div>
                         </td>
-                    </tr>
+                    {% endcall %}
                     {% endfor %}
                     {% else %}
-                    <tr>
-                        <td colspan="5" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No SMTP profiles configured yet.</td>
-                    </tr>
+                    {{ empty_state("No SMTP profiles", "Add an SMTP profile to send campaigns.", colspan=5) }}
                     {% endif %}
                 </tbody>
             </table>
-        </div>
+        {% endcall %}
     </div>
     {% else %}
-    <form method="POST" action="/admin/system/settings" class="space-y-6">
+
+    {# ── Generic Settings Form ── #}
+    <form method="POST" action="/admin/system/settings" class="space-y-6" id="settings-form">
         {% include "components/forms/csrf_input.html" %}
         <input type="hidden" name="domain" value="{{ domain }}">
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 150ms">
             <div class="flex items-center justify-between">
-                <div>
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">{{ domain | replace('_', ' ') | title }}</h2>
-                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Edit default settings for this domain.</p>
+                <div class="flex items-start gap-3">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                        <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">{{ domain | replace('_', ' ') | title }}</h2>
+                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Edit default settings for this domain.</p>
+                    </div>
                 </div>
-                <span class="text-xs font-medium uppercase tracking-wide text-slate-400">Settings</span>
+                <span class="inline-flex items-center rounded-lg bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400">Settings</span>
             </div>
-            {% set hidden_keys = ['brand_logo_url', 'brand_favicon_url', 'ticket_types'] %}
+            {% set hidden_keys = ['brand_logo_url', 'brand_favicon_url', 'ticket_types', 'quote_banking_details'] %}
             {% if sections %}
-            <div class="mt-6 space-y-6">
+            <div class="mt-6 space-y-8">
                 {% for section in sections %}
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">{{ section.title }}</h3>
-                    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="h-px flex-1 bg-slate-200/60 dark:bg-slate-700/60"></div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{{ section.title }}</h3>
+                        <div class="h-px flex-1 bg-slate-200/60 dark:bg-slate-700/60"></div>
+                    </div>
+                    <div class="grid gap-5 sm:grid-cols-2">
                         {% for setting in section.settings %}
                         {% if setting.key not in hidden_keys %}
                         <div>
@@ -323,27 +398,27 @@
                                 <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                     <input type="checkbox" name="{{ setting.key }}" value="true"
                                            {% if setting.value %}checked{% endif %}
-                                           class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                                     Enabled
                                 </label>
                             {% elif setting.allowed %}
                                 <select name="{{ setting.key }}"
                                         {% if setting.required %}required{% endif %}
-                                        class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                        class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                                     {% for option in setting.allowed %}
                                     <option value="{{ option }}" {% if option == setting.value %}selected{% endif %}>{{ option | replace('_', ' ') | title }}</option>
                                     {% endfor %}
                                 </select>
                             {% elif setting.value_type == 'json' %}
                                 {% if domain == 'projects' and setting.key == 'region_pm_assignments' %}
-                                <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
+                                <div class="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/60 sm:col-span-2">
                                     <div class="grid gap-3">
                                         {% for region in region_pm_regions or [] %}
-                                        <div class="grid gap-3 sm:grid-cols-4">
+                                        <div class="grid gap-3 sm:grid-cols-3">
                                             <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
                                             <div>
                                                 <select name="region_pm_manager_{{ region }}"
-                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                        class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                                                     <option value="">Project Manager</option>
                                                     {% for tech in technicians or [] %}
                                                     {% if tech.person %}
@@ -355,22 +430,9 @@
                                                 </select>
                                             </div>
                                             <div>
-                                                <select name="region_pm_assistant_{{ region }}"
-                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                                    <option value="">Assistant PM</option>
-                                                    {% for tech in technicians or [] %}
-                                                    {% if tech.person %}
-                                                    <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
-                                                        {{ tech.person.first_name }} {{ tech.person.last_name }}
-                                                    </option>
-                                                    {% endif %}
-                                                    {% endfor %}
-                                                </select>
-                                            </div>
-                                            <div>
                                                 <select name="region_pm_spc_{{ region }}"
-                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                                    <option value="">SPCs</option>
+                                                        class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">Site Project Coordinator</option>
                                                     {% for tech in technicians or [] %}
                                                     {% if tech.person %}
                                                     <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].spc_person_id == tech.person.id|string %}selected{% endif %}>
@@ -384,16 +446,41 @@
                                         {% endfor %}
                                     </div>
                                 </div>
+                                {% elif domain == 'comms' and setting.key == 'quote_banking_details' %}
+                                <div class="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/60 sm:col-span-2">
+                                    <div class="grid gap-4 sm:grid-cols-2">
+                                        <div>
+                                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Bank Name</label>
+                                            <input type="text" name="quote_bank_name" value="{{ quote_banking_details.bank_name }}"
+                                                   class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Account Number</label>
+                                            <input type="text" name="quote_account_number" value="{{ quote_banking_details.account_number }}"
+                                                   class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Account Name</label>
+                                            <input type="text" name="quote_account_name" value="{{ quote_banking_details.account_name }}"
+                                                   class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Additional Info</label>
+                                            <textarea name="quote_additional_info" rows="3"
+                                                      class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ quote_banking_details.additional_info }}</textarea>
+                                        </div>
+                                    </div>
+                                </div>
                                 {% elif domain == 'comms' and setting.key == 'region_ticket_assignments' %}
-                                <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
+                                <div class="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/60 sm:col-span-2">
                                     <div class="grid gap-3">
                                         {% for region in region_ticket_regions or [] %}
-                                        <div class="grid gap-3 sm:grid-cols-4">
+                                        <div class="grid gap-3 sm:grid-cols-3">
                                             <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
                                             <div>
                                                 <select name="region_ticket_manager_{{ region }}"
-                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                                    <option value="">Ticket Manager</option>
+                                                        class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">Project Manager</option>
                                                     {% for tech in technicians or [] %}
                                                     {% if tech.person %}
                                                     <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].manager_person_id == tech.person.id|string %}selected{% endif %}>
@@ -404,22 +491,9 @@
                                                 </select>
                                             </div>
                                             <div>
-                                                <select name="region_ticket_assistant_{{ region }}"
-                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                                    <option value="">Assistant Manager</option>
-                                                    {% for tech in technicians or [] %}
-                                                    {% if tech.person %}
-                                                    <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
-                                                        {{ tech.person.first_name }} {{ tech.person.last_name }}
-                                                    </option>
-                                                    {% endif %}
-                                                    {% endfor %}
-                                                </select>
-                                            </div>
-                                            <div>
                                                 <select name="region_ticket_spc_{{ region }}"
-                                                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                                    <option value="">SPCs</option>
+                                                        class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                    <option value="">Site Project Coordinator</option>
                                                     {% for tech in technicians or [] %}
                                                     {% if tech.person %}
                                                     <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].spc_person_id == tech.person.id|string %}selected{% endif %}>
@@ -435,20 +509,20 @@
                                 </div>
                                 {% else %}
                                 <textarea name="{{ setting.key }}" rows="8"
-                                          class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-mono shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ setting.display_value }}</textarea>
+                                          class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm font-mono transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">{{ setting.display_value }}</textarea>
                                 {% endif %}
                             {% elif setting.value_type == 'integer' %}
                                 <input type="number" name="{{ setting.key }}" value="{{ setting.value }}"
                                        {% if setting.min_value is not none %}min="{{ setting.min_value }}"{% endif %}
                                        {% if setting.max_value is not none %}max="{{ setting.max_value }}"{% endif %}
                                        {% if setting.required %}required{% endif %}
-                                       class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             {% else %}
                                 <input type="{% if setting.is_secret %}password{% else %}text{% endif %}" name="{{ setting.key }}"
                                        value="{% if setting.is_secret %}{% else %}{{ setting.value }}{% endif %}"
                                        placeholder="{% if setting.is_secret %}••••••{% endif %}"
                                        {% if setting.required and not (setting.is_secret and setting.value) %}required{% endif %}
-                                       class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                                 {% if setting.is_secret and setting.value %}
                                 <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Stored value hidden.</p>
                                 {% endif %}
@@ -461,7 +535,7 @@
                 {% endfor %}
             </div>
             {% else %}
-            <div class="mt-6 grid gap-4 sm:grid-cols-2">
+            <div class="mt-6 grid gap-5 sm:grid-cols-2">
                 {% for setting in settings %}
                 {% if setting.key not in hidden_keys %}
                 <div>
@@ -475,27 +549,27 @@
                         <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                             <input type="checkbox" name="{{ setting.key }}" value="true"
                                    {% if setting.value %}checked{% endif %}
-                                   class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                   class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                             Enabled
                         </label>
                     {% elif setting.allowed %}
                         <select name="{{ setting.key }}"
                                 {% if setting.required %}required{% endif %}
-                                class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             {% for option in setting.allowed %}
                             <option value="{{ option }}" {% if option == setting.value %}selected{% endif %}>{{ option | replace('_', ' ') | title }}</option>
                             {% endfor %}
                         </select>
-                    {% elif setting.value_type == 'json' %}
+                            {% elif setting.value_type == 'json' %}
                         {% if domain == 'projects' and setting.key == 'region_pm_assignments' %}
-                        <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
+                        <div class="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/60 sm:col-span-2">
                             <div class="grid gap-3">
                                 {% for region in region_pm_regions or [] %}
-                                <div class="grid gap-3 sm:grid-cols-4">
+                                <div class="grid gap-3 sm:grid-cols-3">
                                     <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
                                     <div>
                                         <select name="region_pm_manager_{{ region }}"
-                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                                             <option value="">Project Manager</option>
                                             {% for tech in technicians or [] %}
                                             {% if tech.person %}
@@ -507,22 +581,9 @@
                                         </select>
                                     </div>
                                     <div>
-                                        <select name="region_pm_assistant_{{ region }}"
-                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                            <option value="">Assistant PM</option>
-                                            {% for tech in technicians or [] %}
-                                            {% if tech.person %}
-                                            <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
-                                                {{ tech.person.first_name }} {{ tech.person.last_name }}
-                                            </option>
-                                            {% endif %}
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div>
                                         <select name="region_pm_spc_{{ region }}"
-                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                            <option value="">SPCs</option>
+                                                class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">Site Project Coordinator</option>
                                             {% for tech in technicians or [] %}
                                             {% if tech.person %}
                                             <option value="{{ tech.person.id }}" {% if region_pm_assignments[region].spc_person_id == tech.person.id|string %}selected{% endif %}>
@@ -536,16 +597,41 @@
                                 {% endfor %}
                             </div>
                         </div>
+                        {% elif domain == 'comms' and setting.key == 'quote_banking_details' %}
+                        <div class="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/60 sm:col-span-2">
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Bank Name</label>
+                                    <input type="text" name="quote_bank_name" value="{{ quote_banking_details.bank_name }}"
+                                           class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Account Number</label>
+                                    <input type="text" name="quote_account_number" value="{{ quote_banking_details.account_number }}"
+                                           class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Account Name</label>
+                                    <input type="text" name="quote_account_name" value="{{ quote_banking_details.account_name }}"
+                                           class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Additional Info</label>
+                                    <textarea name="quote_additional_info" rows="3"
+                                              class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ quote_banking_details.additional_info }}</textarea>
+                                </div>
+                            </div>
+                        </div>
                         {% elif domain == 'comms' and setting.key == 'region_ticket_assignments' %}
-                        <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:col-span-2">
+                        <div class="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/60 sm:col-span-2">
                             <div class="grid gap-3">
                                 {% for region in region_ticket_regions or [] %}
-                                <div class="grid gap-3 sm:grid-cols-4">
+                                <div class="grid gap-3 sm:grid-cols-3">
                                     <div class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ region }}</div>
                                     <div>
                                         <select name="region_ticket_manager_{{ region }}"
-                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                            <option value="">Ticket Manager</option>
+                                                class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">Project Manager</option>
                                             {% for tech in technicians or [] %}
                                             {% if tech.person %}
                                             <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].manager_person_id == tech.person.id|string %}selected{% endif %}>
@@ -556,22 +642,9 @@
                                         </select>
                                     </div>
                                     <div>
-                                        <select name="region_ticket_assistant_{{ region }}"
-                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                            <option value="">Assistant Manager</option>
-                                            {% for tech in technicians or [] %}
-                                            {% if tech.person %}
-                                            <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].assistant_person_id == tech.person.id|string %}selected{% endif %}>
-                                                {{ tech.person.first_name }} {{ tech.person.last_name }}
-                                            </option>
-                                            {% endif %}
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div>
                                         <select name="region_ticket_spc_{{ region }}"
-                                                class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                                            <option value="">SPCs</option>
+                                                class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">Site Project Coordinator</option>
                                             {% for tech in technicians or [] %}
                                             {% if tech.person %}
                                             <option value="{{ tech.person.id }}" {% if region_ticket_assignments[region].spc_person_id == tech.person.id|string %}selected{% endif %}>
@@ -587,20 +660,20 @@
                         </div>
                         {% else %}
                         <textarea name="{{ setting.key }}" rows="8"
-                                  class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-mono shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ setting.display_value }}</textarea>
+                                  class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm font-mono transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">{{ setting.display_value }}</textarea>
                         {% endif %}
                     {% elif setting.value_type == 'integer' %}
                         <input type="number" name="{{ setting.key }}" value="{{ setting.value }}"
                                {% if setting.min_value is not none %}min="{{ setting.min_value }}"{% endif %}
                                {% if setting.max_value is not none %}max="{{ setting.max_value }}"{% endif %}
                                {% if setting.required %}required{% endif %}
-                               class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                               class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                     {% else %}
                         <input type="{% if setting.is_secret %}password{% else %}text{% endif %}" name="{{ setting.key }}"
                                value="{% if setting.is_secret %}{% else %}{{ setting.value }}{% endif %}"
                                placeholder="{% if setting.is_secret %}••••••{% endif %}"
                                {% if setting.required and not (setting.is_secret and setting.value) %}required{% endif %}
-                               class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                               class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         {% if setting.is_secret and setting.value %}
                         <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Stored value hidden.</p>
                         {% endif %}
@@ -612,45 +685,53 @@
             {% endif %}
         </div>
 
-        <div class="flex items-center justify-end gap-3">
-            <a href="/admin/system/settings?domain={{ domain }}" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Cancel</a>
+        <div class="animate-fade-in-up flex items-center justify-end gap-3" style="animation-delay: 200ms">
+            <a href="/admin/system/settings?domain={{ domain }}" class="inline-flex items-center rounded-xl border border-slate-200/60 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Cancel</a>
             {{ submit_button("Save Changes") }}
         </div>
     </form>
 
+    {# ── Comms: Ticket Types + Sales Details + Banking ── #}
     {% if domain == "comms" %}
-    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 250ms">
         <div class="flex items-center justify-between">
-            <div>
-                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Ticket Type Settings</h2>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage ticket types and default priorities.</p>
+            <div class="flex items-start gap-3">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20">
+                    <svg class="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+                </div>
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Ticket Type Settings</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage ticket types and default priorities.</p>
+                </div>
             </div>
             <button type="button" id="add-ticket-type"
-                    class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    class="inline-flex items-center gap-2 rounded-xl border border-slate-200/60 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-all hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 Add Type
             </button>
         </div>
-        <div class="mt-4 overflow-x-auto">
-            <table class="min-w-full text-sm">
+        {% set pad = 'px-6 py-3' %}
+        {% call table_shell(table_id="ticket-types-table", title="Ticket Types", color="blue", count=(ticket_types_list | length) if ticket_types_list else 0) %}
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
                 <thead class="text-xs uppercase text-slate-500 dark:text-slate-400">
-                    <tr>
-                        <th class="px-2 py-2 text-left">Name</th>
-                        <th class="px-2 py-2 text-left">Priority</th>
-                        <th class="px-2 py-2 text-left">Active</th>
-                        <th class="px-2 py-2 text-right">Remove</th>
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                        <th scope="col" class="{{ pad }} text-left font-semibold tracking-wider">Name</th>
+                        <th scope="col" class="{{ pad }} text-left font-semibold tracking-wider">Priority</th>
+                        <th scope="col" class="{{ pad }} text-left font-semibold tracking-wider">Active</th>
+                        <th scope="col" class="{{ pad }} text-right font-semibold tracking-wider">Remove</th>
                     </tr>
                 </thead>
-                <tbody id="ticket-types-body">
+                <tbody id="ticket-types-body" class="divide-y divide-slate-200 dark:divide-slate-700">
                     {% for item in ticket_types_list or [] %}
-                    <tr class="border-t border-slate-100 dark:border-slate-700">
-                        <td class="px-2 py-2">
-                            <input type="text" name="ticket_type_name_{{ loop.index0 }}"
+                    {% call table_row(color="blue") %}
+                        <td class="{{ pad }}">
+                            <input type="text" name="ticket_type_name_{{ loop.index0 }}" form="settings-form"
                                    value="{{ item.name }}"
-                                   class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </td>
-                        <td class="px-2 py-2">
-                            <select name="ticket_type_priority_{{ loop.index0 }}"
-                                    class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <td class="{{ pad }}">
+                            <select name="ticket_type_priority_{{ loop.index0 }}" form="settings-form"
+                                    class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                                 <option value="" {% if not item.priority %}selected{% endif %}>No default</option>
                                 <option value="lower" {% if item.priority == 'lower' %}selected{% endif %}>Lower</option>
                                 <option value="low" {% if item.priority == 'low' %}selected{% endif %}>Low</option>
@@ -660,52 +741,57 @@
                                 <option value="urgent" {% if item.priority == 'urgent' %}selected{% endif %}>Urgent</option>
                             </select>
                         </td>
-                        <td class="px-2 py-2">
+                        <td class="{{ pad }}">
                             <label class="inline-flex items-center gap-2">
-                                <input type="checkbox" name="ticket_type_active_{{ loop.index0 }}" value="true"
+                                <input type="checkbox" name="ticket_type_active_{{ loop.index0 }}" value="true" form="settings-form"
                                        {% if item.is_active %}checked{% endif %}
-                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                       class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                                 <span class="text-xs text-slate-600 dark:text-slate-300">Enabled</span>
                             </label>
                         </td>
-                        <td class="px-2 py-2 text-right">
-                            <button type="button" class="remove-ticket-type text-xs text-red-600 hover:text-red-700">Remove</button>
+                        <td class="{{ pad }} text-right">
+                            <button type="button" class="remove-ticket-type inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors">Remove</button>
                         </td>
-                    </tr>
+                    {% endcall %}
                     {% endfor %}
                 </tbody>
             </table>
-        </div>
-        <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Disabled items stay in history but won’t show up in ticket creation.</p>
+        {% endcall %}
+        <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Disabled items stay in history but won't show up in ticket creation.</p>
     </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="flex items-center justify-between">
+
+    {# ── Sales Details / Branding ── #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 300ms">
+        <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 dark:from-amber-500/20 dark:to-orange-500/20">
+                <svg class="h-5 w-5 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+            </div>
             <div>
-                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Branding</h2>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Upload your company logo and favicon.</p>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Sales Details</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Branding assets and banking details for quotes.</p>
             </div>
         </div>
         <form method="POST" action="/admin/system/settings/branding" enctype="multipart/form-data" class="mt-6 space-y-4">
             {% include "components/forms/csrf_input.html" %}
             <div class="grid gap-4 sm:grid-cols-2">
                 <div>
-                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Logo</label>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Logo</label>
                     <input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                           class="mt-1 block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:text-slate-300 dark:file:bg-slate-700 dark:file:text-slate-200">
+                           class="mt-1 block w-full text-sm text-slate-600 file:mr-4 file:rounded-xl file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-indigo-700 hover:file:bg-indigo-100 dark:text-slate-300 dark:file:bg-indigo-900/20 dark:file:text-indigo-400">
                     {% if request.state.branding and request.state.branding.logo_url %}
                     <div class="mt-3 flex items-center gap-3">
-                        <img src="{{ request.state.branding.logo_url }}" alt="Brand logo" class="h-10 w-10 rounded-lg border border-slate-200 object-contain dark:border-slate-700">
+                        <img src="{{ request.state.branding.logo_url }}" alt="Brand logo" class="h-10 w-10 rounded-xl border border-slate-200/60 object-contain dark:border-slate-700/60">
                         <span class="text-xs text-slate-500 dark:text-slate-400">Current logo</span>
                     </div>
                     {% endif %}
                 </div>
                 <div>
-                    <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Favicon</label>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Favicon</label>
                     <input type="file" name="favicon" accept="image/png,image/svg+xml,image/x-icon,image/vnd.microsoft.icon"
-                           class="mt-1 block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:text-slate-300 dark:file:bg-slate-700 dark:file:text-slate-200">
+                           class="mt-1 block w-full text-sm text-slate-600 file:mr-4 file:rounded-xl file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-indigo-700 hover:file:bg-indigo-100 dark:text-slate-300 dark:file:bg-indigo-900/20 dark:file:text-indigo-400">
                     {% if request.state.branding and request.state.branding.favicon_url %}
                     <div class="mt-3 flex items-center gap-3">
-                        <img src="{{ request.state.branding.favicon_url }}" alt="Favicon" class="h-8 w-8 rounded border border-slate-200 object-contain dark:border-slate-700">
+                        <img src="{{ request.state.branding.favicon_url }}" alt="Favicon" class="h-8 w-8 rounded-lg border border-slate-200/60 object-contain dark:border-slate-700/60">
                         <span class="text-xs text-slate-500 dark:text-slate-400">Current favicon</span>
                     </div>
                     {% endif %}
@@ -713,94 +799,120 @@
             </div>
             {{ submit_button("Upload branding", loading_label="Uploading...") }}
         </form>
+        <div class="mt-6 rounded-xl border border-slate-200/60 bg-slate-50/50 p-5 dark:border-slate-700/60 dark:bg-slate-800/60">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Banking Details</h3>
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Bank Name</label>
+                    <input type="text" name="quote_bank_name" value="{{ quote_banking_details.bank_name }}" form="settings-form"
+                           class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Account Number</label>
+                    <input type="text" name="quote_account_number" value="{{ quote_banking_details.account_number }}" form="settings-form"
+                           class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Account Name</label>
+                    <input type="text" name="quote_account_name" value="{{ quote_banking_details.account_name }}" form="settings-form"
+                           class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Additional Info</label>
+                    <textarea name="quote_additional_info" rows="3" form="settings-form"
+                              class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ quote_banking_details.additional_info }}</textarea>
+                </div>
+            </div>
+        </div>
     </div>
     {% endif %}
 
-    {% if domain == "comms" %}
-    <script>
-        (function () {
-            const tbody = document.getElementById("ticket-types-body");
-            const addBtn = document.getElementById("add-ticket-type");
-            if (!tbody || !addBtn) {
-                return;
-            }
-            const nextIndex = () => {
-                const rows = tbody.querySelectorAll("tr");
-                return rows.length;
-            };
-            const bindRemove = (row) => {
-                const removeBtn = row.querySelector(".remove-ticket-type");
-                if (!removeBtn) {
-                    return;
-                }
-                removeBtn.addEventListener("click", () => {
-                    row.remove();
-                });
-            };
-            tbody.querySelectorAll("tr").forEach(bindRemove);
-            addBtn.addEventListener("click", () => {
-                const idx = nextIndex();
-                const row = document.createElement("tr");
-                row.className = "border-t border-slate-100 dark:border-slate-700";
-                row.innerHTML = `
-                    <td class="px-2 py-2">
-                        <input type="text" name="ticket_type_name_${idx}"
-                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    </td>
-                    <td class="px-2 py-2">
-                        <select name="ticket_type_priority_${idx}"
-                                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                            <option value="" selected>No default</option>
-                            <option value="lower">Lower</option>
-                            <option value="low">Low</option>
-                            <option value="medium">Medium</option>
-                            <option value="normal">Normal</option>
-                            <option value="high">High</option>
-                            <option value="urgent">Urgent</option>
-                        </select>
-                    </td>
-                    <td class="px-2 py-2">
-                        <label class="inline-flex items-center gap-2">
-                            <input type="checkbox" name="ticket_type_active_${idx}" value="true" checked
-                                   class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
-                            <span class="text-xs text-slate-600 dark:text-slate-300">Enabled</span>
-                        </label>
-                    </td>
-                    <td class="px-2 py-2 text-right">
-                        <button type="button" class="remove-ticket-type text-xs text-red-600 hover:text-red-700">Remove</button>
-                    </td>
-                `;
-                tbody.appendChild(row);
-                bindRemove(row);
-            });
-        })();
-    </script>
-    {% endif %}
-
+    {# ── Notification: SMTP Test ── #}
     {% if domain == "notification" %}
-    <!-- SMTP Test Section -->
-    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 250ms">
         <div class="flex items-center justify-between">
-            <div>
-                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">SMTP Connection Test</h2>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Test your email server configuration before sending notifications.</p>
+            <div class="flex items-start gap-3">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/10 to-green-500/10 dark:from-emerald-500/20 dark:to-green-500/20">
+                    <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">SMTP Connection Test</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Test your email server configuration before sending notifications.</p>
+                </div>
             </div>
             <button type="button"
                     hx-post="/admin/system/settings/test-smtp"
                     hx-target="#smtp-test-result"
                     hx-swap="innerHTML"
                     hx-indicator="#smtp-test-spinner"
-                    class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    class="inline-flex items-center gap-2 rounded-xl border border-slate-200/60 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400">
                 <svg id="smtp-test-spinner" class="htmx-indicator h-4 w-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 <svg class="h-4 w-4 htmx-indicator-hide" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 Test Connection
             </button>
         </div>
-    <div id="smtp-test-result" class="mt-4"></div>
-</div>
+        <div id="smtp-test-result" class="mt-4"></div>
+    </div>
     {% endif %}
 
     {% endif %}
 
 </div>
 {% endblock %}
+
+{% if domain == "comms" %}
+{% block scripts %}
+<script>
+(function () {
+    const tbody = document.getElementById("ticket-types-body");
+    const addBtn = document.getElementById("add-ticket-type");
+    if (!tbody || !addBtn) return;
+
+    const nextIndex = () => tbody.querySelectorAll("tr").length;
+
+    const bindRemove = (row) => {
+        const removeBtn = row.querySelector(".remove-ticket-type");
+        if (!removeBtn) return;
+        removeBtn.addEventListener("click", () => row.remove());
+    };
+    tbody.querySelectorAll("tr").forEach(bindRemove);
+
+    addBtn.addEventListener("click", () => {
+        const idx = nextIndex();
+        const row = document.createElement("tr");
+        row.className = "border-t border-slate-100 dark:border-slate-700";
+        row.innerHTML = `
+            <td class="px-6 py-3">
+                <input type="text" name="ticket_type_name_${idx}" form="settings-form"
+                       class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+            </td>
+            <td class="px-6 py-3">
+                <select name="ticket_type_priority_${idx}" form="settings-form"
+                        class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+                    <option value="" selected>No default</option>
+                    <option value="lower">Lower</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                </select>
+            </td>
+            <td class="px-6 py-3">
+                <label class="inline-flex items-center gap-2">
+                    <input type="checkbox" name="ticket_type_active_${idx}" value="true" checked form="settings-form"
+                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
+                    <span class="text-xs text-slate-600 dark:text-slate-300">Enabled</span>
+                </label>
+            </td>
+            <td class="px-6 py-3 text-right">
+                <button type="button" class="remove-ticket-type inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors">Remove</button>
+            </td>
+        `;
+        tbody.appendChild(row);
+        bindRemove(row);
+    });
+})();
+</script>
+{% endblock %}
+{% endif %}

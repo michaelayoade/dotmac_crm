@@ -39,10 +39,11 @@ def _get_redis() -> Redis | None:
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         try:
             import redis
+
             _redis_client = redis.from_url(redis_url, decode_responses=True)
             _redis_client.ping()
         except Exception as e:
-            logger.debug(f"erp_stats_redis_unavailable error={e}")
+            logger.debug("erp_stats_redis_unavailable error=%s", e)
             return None
     return _redis_client
 
@@ -115,10 +116,10 @@ def record_sync_result(result: SyncResult, mode: str = "recently_updated") -> No
         pipe.ltrim(_HISTORY_KEY, 0, _HISTORY_MAX_SIZE - 1)
 
         pipe.execute()
-        logger.debug(f"Recorded ERP sync stats: {result.total_synced} items synced")
+        logger.debug("erp_sync_stats_recorded total=%s", result.total_synced)
 
     except Exception as e:
-        logger.warning(f"Failed to record sync stats to Redis: {e}")
+        logger.warning("erp_sync_stats_record_failed error=%s", e)
 
 
 def get_daily_stats(date: datetime | None = None) -> dict:
@@ -157,7 +158,7 @@ def get_daily_stats(date: datetime | None = None) -> dict:
         }
 
     except Exception as e:
-        logger.warning(f"Failed to get daily stats from Redis: {e}")
+        logger.warning("erp_daily_stats_fetch_failed error=%s", e)
         return {
             "projects": 0,
             "tickets": 0,
@@ -184,7 +185,7 @@ def get_last_sync() -> dict | None:
             return None
         return json.loads(data)
     except Exception as e:
-        logger.warning(f"Failed to get last sync from Redis: {e}")
+        logger.warning("erp_last_sync_fetch_failed error=%s", e)
         return None
 
 
@@ -206,7 +207,7 @@ def get_sync_history(limit: int = 10) -> list[dict]:
         entries = cast(list[str], redis.lrange(_HISTORY_KEY, 0, limit - 1))
         return [json.loads(entry) for entry in entries]
     except Exception as e:
-        logger.warning(f"Failed to get sync history from Redis: {e}")
+        logger.warning("erp_sync_history_fetch_failed error=%s", e)
         return []
 
 
@@ -229,10 +230,11 @@ def clear_stats() -> None:
         redis.delete(_INV_LAST_SYNC_KEY, _INV_HISTORY_KEY)
         logger.info("Cleared all ERP sync stats")
     except Exception as e:
-        logger.warning(f"Failed to clear stats from Redis: {e}")
+        logger.warning("erp_stats_clear_failed error=%s", e)
 
 
 # ============ Inventory Sync Stats ============
+
 
 def record_inventory_sync_result(
     items_created: int,
@@ -316,10 +318,10 @@ def record_inventory_sync_result(
         pipe.ltrim(_INV_HISTORY_KEY, 0, _HISTORY_MAX_SIZE - 1)
 
         pipe.execute()
-        logger.debug(f"Recorded inventory sync stats: {total} items synced")
+        logger.debug("inv_sync_stats_recorded total=%s", total)
 
     except Exception as e:
-        logger.warning(f"Failed to record inventory sync stats to Redis: {e}")
+        logger.warning("inv_sync_stats_record_failed error=%s", e)
 
 
 def get_last_inventory_sync() -> dict | None:
@@ -339,7 +341,7 @@ def get_last_inventory_sync() -> dict | None:
             return None
         return json.loads(data)
     except Exception as e:
-        logger.warning(f"Failed to get last inventory sync from Redis: {e}")
+        logger.warning("inv_last_sync_fetch_failed error=%s", e)
         return None
 
 
@@ -361,7 +363,7 @@ def get_inventory_sync_history(limit: int = 10) -> list[dict]:
         entries = cast(list[str], redis.lrange(_INV_HISTORY_KEY, 0, limit - 1))
         return [json.loads(entry) for entry in entries]
     except Exception as e:
-        logger.warning(f"Failed to get inventory sync history from Redis: {e}")
+        logger.warning("inv_sync_history_fetch_failed error=%s", e)
         return []
 
 
@@ -459,10 +461,10 @@ def record_shift_sync_result(
         pipe.ltrim(_SHIFT_HISTORY_KEY, 0, _HISTORY_MAX_SIZE - 1)
 
         pipe.execute()
-        logger.debug(f"Recorded shift sync stats: {total} items synced")
+        logger.debug("shift_sync_stats_recorded total=%s", total)
 
     except Exception as e:
-        logger.warning(f"Failed to record shift sync stats to Redis: {e}")
+        logger.warning("shift_sync_stats_record_failed error=%s", e)
 
 
 def get_last_shift_sync() -> dict | None:
@@ -482,7 +484,7 @@ def get_last_shift_sync() -> dict | None:
             return None
         return json.loads(data)
     except Exception as e:
-        logger.warning(f"Failed to get last shift sync from Redis: {e}")
+        logger.warning("shift_last_sync_fetch_failed error=%s", e)
         return None
 
 
@@ -504,7 +506,7 @@ def get_shift_sync_history(limit: int = 10) -> list[dict]:
         entries = cast(list[str], redis.lrange(_SHIFT_HISTORY_KEY, 0, limit - 1))
         return [json.loads(entry) for entry in entries]
     except Exception as e:
-        logger.warning(f"Failed to get shift sync history from Redis: {e}")
+        logger.warning("shift_sync_history_fetch_failed error=%s", e)
         return []
 
 
@@ -555,10 +557,10 @@ def record_material_request_sync_result(
         pipe.ltrim(_MR_HISTORY_KEY, 0, _HISTORY_MAX_SIZE - 1)
 
         pipe.execute()
-        logger.debug(f"Recorded material request sync stats: mr={material_request_id} success={success}")
+        logger.debug("mr_sync_stats_recorded mr=%s success=%s", material_request_id, success)
 
     except Exception as e:
-        logger.warning(f"Failed to record material request sync stats to Redis: {e}")
+        logger.warning("mr_sync_stats_record_failed error=%s", e)
 
 
 def get_last_material_request_sync() -> dict | None:
@@ -573,7 +575,7 @@ def get_last_material_request_sync() -> dict | None:
             return None
         return json.loads(data)
     except Exception as e:
-        logger.warning(f"Failed to get last material request sync from Redis: {e}")
+        logger.warning("mr_last_sync_fetch_failed error=%s", e)
         return None
 
 
@@ -587,7 +589,7 @@ def get_material_request_sync_history(limit: int = 10) -> list[dict]:
         entries = cast(list[str], redis.lrange(_MR_HISTORY_KEY, 0, limit - 1))
         return [json.loads(entry) for entry in entries]
     except Exception as e:
-        logger.warning(f"Failed to get material request sync history from Redis: {e}")
+        logger.warning("mr_sync_history_fetch_failed error=%s", e)
         return []
 
 
@@ -637,9 +639,9 @@ def record_contact_sync_result(
         pipe.ltrim(_CONTACT_HISTORY_KEY, 0, _HISTORY_MAX_SIZE - 1)
         pipe.execute()
 
-        logger.debug(f"Recorded contact sync stats: {total} items synced")
+        logger.debug("contact_sync_stats_recorded total=%s", total)
     except Exception as e:
-        logger.warning(f"Failed to record contact sync stats to Redis: {e}")
+        logger.warning("contact_sync_stats_record_failed error=%s", e)
 
 
 def get_last_contact_sync() -> dict | None:
@@ -654,8 +656,22 @@ def get_last_contact_sync() -> dict | None:
             return None
         return json.loads(data)
     except Exception as e:
-        logger.warning(f"Failed to get last contact sync from Redis: {e}")
+        logger.warning("contact_last_sync_fetch_failed error=%s", e)
         return None
+
+
+def get_contact_sync_history(limit: int = 10) -> list[dict]:
+    """Get recent contact sync history."""
+    redis = _get_redis()
+    if not redis:
+        return []
+
+    try:
+        entries = cast(list[str], redis.lrange(_CONTACT_HISTORY_KEY, 0, limit - 1))
+        return [json.loads(entry) for entry in entries]
+    except Exception as e:
+        logger.warning("contact_sync_history_fetch_failed error=%s", e)
+        return []
 
 
 # ============ Team Sync Stats ============
@@ -708,9 +724,9 @@ def record_team_sync_result(
         pipe.ltrim(_TEAM_HISTORY_KEY, 0, _HISTORY_MAX_SIZE - 1)
         pipe.execute()
 
-        logger.debug(f"Recorded team sync stats: {total} items synced")
+        logger.debug("team_sync_stats_recorded total=%s", total)
     except Exception as e:
-        logger.warning(f"Failed to record team sync stats to Redis: {e}")
+        logger.warning("team_sync_stats_record_failed error=%s", e)
 
 
 def get_last_team_sync() -> dict | None:
@@ -725,5 +741,5 @@ def get_last_team_sync() -> dict | None:
             return None
         return json.loads(data)
     except Exception as e:
-        logger.warning(f"Failed to get last team sync from Redis: {e}")
+        logger.warning("team_last_sync_fetch_failed error=%s", e)
         return None

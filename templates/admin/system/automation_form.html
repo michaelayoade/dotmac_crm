@@ -1,22 +1,12 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import submit_button %}
+{% from "components/ui/macros.html" import page_header, submit_button %}
 {% block title %}{{ 'Edit' if rule else 'New' }} Automation Rule - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6" x-data="automationForm()">
 
-    <!-- Header -->
-    <div>
-        <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
-            <a href="/admin/system/configuration" class="hover:text-primary-600">System</a>
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            <a href="/admin/system/automations" class="hover:text-primary-600">Automations</a>
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            <span class="text-slate-900 dark:text-white">{{ 'Edit' if rule else 'New Rule' }}</span>
-        </nav>
-        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit Automation Rule' if rule else 'Create Automation Rule' }}</h1>
-    </div>
+    {{ page_header(('Edit Automation Rule' if rule else 'Create Automation Rule'), ('Modify automation triggers and actions' if rule else 'Set up event-driven automations'), color="indigo", color2="violet", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "/admin/system/automations", "label": "Automations"}, {"href": "", "label": ("Edit" if rule else "New")}]) }}
 
     {% if errors %}
     <div class="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
@@ -34,23 +24,23 @@
         <input type="hidden" name="actions_json" :value="actionsJson">
 
         <!-- Section 1: Basic Info -->
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Basic Information</h2>
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div class="sm:col-span-2">
                     <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Rule Name *</label>
                     <input type="text" name="name" value="{{ rule.name if rule else '' }}" required
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                           class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                 </div>
                 <div class="sm:col-span-2">
                     <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Description</label>
                     <textarea name="description" rows="2"
-                              class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ rule.description if rule and rule.description else '' }}</textarea>
+                              class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">{{ rule.description if rule and rule.description else '' }}</textarea>
                 </div>
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Event Type *</label>
                     <select name="event_type" required
-                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         <option value="">Select event...</option>
                         {% for et in event_types %}
                         <option value="{{ et.value }}" {% if rule and rule.event_type == et.value %}selected{% endif %}>{{ et.label }}</option>
@@ -61,19 +51,19 @@
                     <div>
                         <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Priority</label>
                         <input type="number" name="priority" value="{{ rule.priority if rule else 0 }}" min="0"
-                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                               class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Cooldown (sec)</label>
                         <input type="number" name="cooldown_seconds" value="{{ rule.cooldown_seconds if rule else 0 }}" min="0"
-                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                               class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Section 2: Conditions -->
-        <div class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="mt-6 rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <div class="flex items-center justify-between mb-4">
                 <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Conditions</h2>
                 <button type="button" @click="addCondition()"
@@ -86,9 +76,9 @@
             <template x-for="(cond, idx) in conditions" :key="idx">
                 <div class="mb-3 flex items-center gap-3">
                     <input type="text" x-model="cond.field" placeholder="e.g. payload.priority"
-                           class="block w-1/3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                           class="block w-1/3 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                     <select x-model="cond.op"
-                            class="block w-1/5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            class="block w-1/5 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         <option value="eq">equals</option>
                         <option value="neq">not equals</option>
                         <option value="in">in list</option>
@@ -103,7 +93,7 @@
                     </select>
                     <div class="w-1/3">
                         <input type="text" x-model="cond.value" placeholder="value" x-show="!['exists','not_exists'].includes(cond.op)"
-                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                               class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         <p class="mt-1 text-[11px] text-slate-400 dark:text-slate-500" x-show="['in','not_in'].includes(cond.op)">
                             Use comma-separated values or a JSON array (e.g. ["high","urgent"]).
                         </p>
@@ -119,7 +109,7 @@
         </div>
 
         <!-- Section 3: Actions -->
-        <div class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="mt-6 rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <div class="flex items-center justify-between mb-4">
                 <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Actions</h2>
                 <button type="button" @click="addAction()"
@@ -132,7 +122,7 @@
                 <div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-600 dark:bg-slate-700/50">
                     <div class="flex items-center justify-between mb-3">
                         <select x-model="action.action_type"
-                                class="block w-1/3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-1/3 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <option value="set_field">Set Field</option>
                             <option value="add_tag">Add Tag</option>
                             <option value="assign_conversation">Assign Conversation</option>
@@ -150,76 +140,76 @@
                     <template x-if="action.action_type === 'set_field'">
                         <div class="grid grid-cols-3 gap-3">
                             <input type="text" x-model="action.params.entity" placeholder="entity (ticket, project, ...)"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="text" x-model="action.params.field" placeholder="field name"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="text" x-model="action.params.value" placeholder="value"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </template>
                     <!-- add_tag params -->
                     <template x-if="action.action_type === 'add_tag'">
                         <div class="grid grid-cols-2 gap-3">
                             <input type="text" x-model="action.params.entity" placeholder="entity (ticket, project, ...)"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="text" x-model="action.params.tag" placeholder="tag"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </template>
                     <!-- assign_conversation params -->
                     <template x-if="action.action_type === 'assign_conversation'">
                         <div>
                             <input type="text" x-model="action.params.agent_id" placeholder="Agent ID (UUID)"
-                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </template>
                     <!-- assign_conversation_auto params -->
                     <template x-if="action.action_type === 'assign_conversation_auto'">
                         <div class="grid grid-cols-2 gap-3">
                             <input type="text" x-model="action.params.team_id" placeholder="Team ID (optional)"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="number" min="1" x-model="action.params.online_window_minutes" placeholder="Online window (minutes, default 60)"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="text" x-model="action.params.eligible_statuses" placeholder="Eligible statuses (comma list, default online,away)"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="text" x-model="action.params.load_statuses" placeholder="Load statuses (comma list, default open,pending,snoozed)"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="number" min="0" x-model="action.params.max_assigned" placeholder="Max assigned per agent (optional)"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </template>
                     <!-- send_notification params -->
                     <template x-if="action.action_type === 'send_notification'">
                         <div class="grid grid-cols-1 gap-3">
                             <input type="text" x-model="action.params.recipient" placeholder="Recipient email"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="text" x-model="action.params.subject" placeholder="Subject"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <textarea x-model="action.params.body" placeholder="Body" rows="2"
-                                      class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+                                      class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700"></textarea>
                         </div>
                     </template>
                     <!-- create_work_order params -->
                     <template x-if="action.action_type === 'create_work_order'">
                         <div class="grid grid-cols-2 gap-3">
                             <input type="text" x-model="action.params.title" placeholder="Work order title"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                             <input type="text" x-model="action.params.assigned_technician_id" placeholder="Technician ID (optional)"
-                                   class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </template>
                     <!-- emit_event params -->
                     <template x-if="action.action_type === 'emit_event'">
                         <div>
                             <input type="text" x-model="action.params.event_type" placeholder="Event type (e.g. ticket.updated)"
-                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </template>
                     <!-- reject_creation params -->
                     <template x-if="action.action_type === 'reject_creation'">
                         <div>
                             <input type="text" x-model="action.params.message" placeholder="Rejection message (e.g. A ticket of this type already exists)"
-                                   class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                   class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </template>
                 </div>
@@ -230,12 +220,12 @@
         </div>
 
         <!-- Section 4: Options -->
-        <div class="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="mt-6 rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Options</h2>
             <label class="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="stop_after_match" value="1"
                        {% if rule and rule.stop_after_match %}checked{% endif %}
-                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                       class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                 <span class="text-slate-700 dark:text-slate-300">Stop evaluating further rules after this one matches</span>
             </label>
         </div>

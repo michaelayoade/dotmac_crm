@@ -48,9 +48,7 @@ class EventDispatcher:
         """
         from app.models.event_store import EventStatus, EventStore
 
-        logger.debug(
-            f"Dispatching event {event.event_type.value} (id={event.event_id})"
-        )
+        logger.debug(f"Dispatching event {event.event_type.value} (id={event.event_id})")
 
         # 1. Persist event before processing using an isolated session
         event_record_id = None
@@ -75,9 +73,7 @@ class EventDispatcher:
             event_record_id = persist_record.id
         except Exception as persist_exc:
             # If we can't persist, still try to process but log the error
-            logger.warning(
-                f"Failed to persist event {event.event_id} to event_store: {persist_exc}"
-            )
+            logger.warning(f"Failed to persist event {event.event_id} to event_store: {persist_exc}")
             persist_session.rollback()
         finally:
             persist_session.close()
@@ -89,14 +85,13 @@ class EventDispatcher:
                 handler.handle(db, event)
             except Exception as exc:
                 handler_name = handler.__class__.__name__
-                logger.exception(
-                    f"Handler {handler_name} failed for event "
-                    f"{event.event_type.value}: {exc}"
+                logger.exception(f"Handler {handler_name} failed for event {event.event_type.value}: {exc}")
+                failed_handlers.append(
+                    {
+                        "handler": handler_name,
+                        "error": str(exc),
+                    }
                 )
-                failed_handlers.append({
-                    "handler": handler_name,
-                    "error": str(exc),
-                })
 
         # 3. Update event status
         if event_record_id:
@@ -114,9 +109,7 @@ class EventDispatcher:
                 event_record.processed_at = datetime.now(UTC)
                 update_session.commit()
             except Exception as update_exc:
-                logger.warning(
-                    f"Failed to update event_store status for {event.event_id}: {update_exc}"
-                )
+                logger.warning(f"Failed to update event_store status for {event.event_id}: {update_exc}")
                 update_session.rollback()
             finally:
                 update_session.close()
@@ -156,9 +149,7 @@ class EventDispatcher:
                 failed_list = failed_raw.get("handlers") or []
             else:
                 failed_list = failed_raw
-            failed_handler_names = {
-                fh["handler"] for fh in failed_list if isinstance(fh, dict) and fh.get("handler")
-            }
+            failed_handler_names = {fh["handler"] for fh in failed_list if isinstance(fh, dict) and fh.get("handler")}
 
         # Update retry count and status
         event_record.retry_count += 1
@@ -175,14 +166,13 @@ class EventDispatcher:
             try:
                 handler.handle(db, event)
             except Exception as exc:
-                logger.exception(
-                    f"Handler {handler_name} failed on retry for event "
-                    f"{event.event_type.value}: {exc}"
+                logger.exception(f"Handler {handler_name} failed on retry for event {event.event_type.value}: {exc}")
+                new_failures.append(
+                    {
+                        "handler": handler_name,
+                        "error": str(exc),
+                    }
                 )
-                new_failures.append({
-                    "handler": handler_name,
-                    "error": str(exc),
-                })
 
         # Update final status
         if new_failures:
@@ -217,13 +207,16 @@ def _initialize_handlers(dispatcher: EventDispatcher) -> None:
     from app.services.events.handlers.automation import AutomationHandler
     from app.services.events.handlers.erp_sync import ERPSyncHandler
     from app.services.events.handlers.notification import NotificationHandler
+    from app.services.events.handlers.splynx_customer import SplynxCustomerHandler
     from app.services.events.handlers.webhook import WebhookHandler
+
     dispatcher.register_handler(WebhookHandler())
     dispatcher.register_handler(NotificationHandler())
     dispatcher.register_handler(ERPSyncHandler())
+    dispatcher.register_handler(SplynxCustomerHandler())
     dispatcher.register_handler(AutomationHandler())  # Must be last
 
-    logger.info("Event handlers initialized: webhook, notification, erp_sync, automation")
+    logger.info("Event handlers initialized: webhook, notification, erp_sync, splynx_customer, automation")
 
 
 def emit_event(
@@ -273,6 +266,7 @@ def emit_event(
             account_id=sub.account_id,
         )
     """
+
     # Normalize UUIDs
     def to_uuid(value: UUID | str | None) -> UUID | None:
         if value is None:
@@ -311,8 +305,6 @@ def emit_event(
     dispatcher = get_dispatcher()
     dispatcher.dispatch(db, event)
 
-    logger.info(
-        f"Event emitted: {event_type.value} (id={event.event_id})"
-    )
+    logger.info(f"Event emitted: {event_type.value} (id={event.event_id})")
 
     return event

@@ -36,9 +36,7 @@ class CircuitBreaker:
         reference_time = self._state.opened_at or self._state.last_failure_time
         if not reference_time:
             return True
-        return self._now() - reference_time >= timedelta(
-            seconds=self.recovery_timeout
-        )
+        return self._now() - reference_time >= timedelta(seconds=self.recovery_timeout)
 
     def _on_success(self) -> None:
         self._state.failure_count = 0

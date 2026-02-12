@@ -116,11 +116,11 @@ def send_eta_notification(db: Session, work_order_id: str) -> bool:
             )
 
             subject = f"Your technician {technician_name} is on the way!"
-            body = f"""Dear {context['customer_name']},
+            body = f"""Dear {context["customer_name"]},
 
 Your technician {technician_name} is on the way and will arrive at approximately {eta_time}.
 
-Service: {context['work_order_title']}
+Service: {context["work_order_title"]}
 
 Please ensure someone is available at the service location.
 
@@ -226,7 +226,7 @@ def send_technician_assigned_notification(db: Session, work_order_id: str) -> bo
             )
 
             subject = "Your Technician Has Been Assigned"
-            body = f"""Dear {context['customer_name']},
+            body = f"""Dear {context["customer_name"]},
 
 A technician has been assigned to your service request.
 
@@ -234,7 +234,7 @@ Technician: {technician_name}
 Date: {scheduled_date}
 Time: {scheduled_time}
 
-Service: {context['work_order_title']}
+Service: {context["work_order_title"]}
 
 You'll receive an update when the technician is on their way.
 
@@ -314,17 +314,17 @@ def send_work_order_completed_notification(db: Session, work_order_id: str) -> b
         )
 
         subject = f"Service Completed - Work Order #{context['work_order_number']}"
-        body = f"""Dear {context['customer_name']},
+        body = f"""Dear {context["customer_name"]},
 
 Your service has been completed.
 
-Work Order: #{context['work_order_number']}
-Service: {context['work_order_title']}
+Work Order: #{context["work_order_number"]}
+Service: {context["work_order_title"]}
 Completed By: {technician_name}
-Completed At: {context['completed_at']}
+Completed At: {context["completed_at"]}
 
 Summary:
-{context['completion_notes']}
+{context["completion_notes"]}
 
 If you have any questions or concerns about the work performed, please contact us.
 

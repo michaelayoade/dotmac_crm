@@ -312,11 +312,7 @@ class ChatwootImporter:
                     db.flush()
 
                 # Find or create CrmAgent
-                existing_agent = (
-                    db.query(CrmAgent)
-                    .filter(CrmAgent.person_id == person.id)
-                    .first()
-                )
+                existing_agent = db.query(CrmAgent).filter(CrmAgent.person_id == person.id).first()
 
                 if existing_agent:
                     existing_agent.metadata_ = {
@@ -470,9 +466,7 @@ class ChatwootImporter:
                 # Check if conversation exists by chatwoot_id in metadata
                 existing = (
                     db.query(Conversation)
-                    .filter(
-                        cast(Conversation.metadata_, JSONB).contains({"chatwoot_id": cw_id})
-                    )
+                    .filter(cast(Conversation.metadata_, JSONB).contains({"chatwoot_id": cw_id}))
                     .first()
                 )
 
@@ -496,10 +490,7 @@ class ChatwootImporter:
                     conv = Conversation(
                         person_id=person.id,
                         status=_map_conversation_status(conv_data.get("status")),
-                        subject=_truncate(
-                            conv_data.get("additional_attributes", {}).get("subject"),
-                            200
-                        ),
+                        subject=_truncate(conv_data.get("additional_attributes", {}).get("subject"), 200),
                         last_message_at=last_message_at,
                         is_active=True,
                         metadata_={
@@ -585,11 +576,7 @@ class ChatwootImporter:
             external_id = f"chatwoot-{cw_id}"
 
             # Check if message already exists
-            existing = (
-                db.query(Message)
-                .filter(Message.external_id == external_id)
-                .first()
-            )
+            existing = db.query(Message).filter(Message.external_id == external_id).first()
 
             if existing:
                 result.messages.skipped += 1

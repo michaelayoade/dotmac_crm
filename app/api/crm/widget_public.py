@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import random
 import re
+import threading
+import time
+import uuid
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
@@ -38,6 +42,36 @@ from app.services.crm.chat_widget import (
 )
 
 logger = get_logger(__name__)
+_WEBCHAT_SAMPLE_RATE = 0.02
+_WEBCHAT_STATS: dict[str, int | float] = {"count": 0, "errors": 0, "last_log": 0.0}
+_WEBCHAT_STATS_LOCK = threading.Lock()
+_WEBCHAT_METRICS_INTERVAL_SECONDS = 60.0
+
+
+def _should_sample_webchat() -> bool:
+    return random.random() < _WEBCHAT_SAMPLE_RATE
+
+
+def _record_webchat_stat(ok: bool) -> None:
+    with _WEBCHAT_STATS_LOCK:
+        _WEBCHAT_STATS["count"] += 1
+        if not ok:
+            _WEBCHAT_STATS["errors"] += 1
+        now = time.monotonic()
+        if now - _WEBCHAT_STATS["last_log"] >= _WEBCHAT_METRICS_INTERVAL_SECONDS:
+            count = _WEBCHAT_STATS["count"]
+            errors = _WEBCHAT_STATS["errors"]
+            error_rate = errors / count if count else 0.0
+            logger.info(
+                "webchat_metrics count=%s errors=%s error_rate=%.3f",
+                count,
+                errors,
+                error_rate,
+            )
+            _WEBCHAT_STATS["count"] = 0
+            _WEBCHAT_STATS["errors"] = 0
+            _WEBCHAT_STATS["last_log"] = now
+
 
 router = APIRouter(prefix="/widget", tags=["widget-public"])
 
@@ -227,7 +261,7 @@ def create_session(
     ip_address = _get_client_ip(request)
 
     # Check IP-based rate limit for session creation
-    allowed, remaining = check_session_creation_rate(
+    allowed, _remaining = check_session_creation_rate(
         ip_address or "unknown",
         limit=config.rate_limit_sessions_per_ip,
     )
@@ -386,6 +420,12 @@ def send_message(
 
     Creates conversation if needed, creates message, broadcasts via WebSocket.
     """
+    trace_id = str(uuid.uuid4())
+    start_time = time.monotonic()
+    sampled = _should_sample_webchat()
+    if sampled:
+        logger.info("webchat_message_received trace_id=%s session_id=%s", trace_id, session_id)
+
     session = _get_session_from_token(db, x_visitor_token)
 
     if str(session.id) != str(session_id):
@@ -410,10 +450,22 @@ def send_message(
             db,
             session,
             body=payload.body,
+            trace_id=trace_id,
         )
     except Exception as e:
-        logger.error("widget_message_error session_id=%s error=%s", session_id, e)
+        _record_webchat_stat(ok=False)
+        logger.error("widget_message_error trace_id=%s session_id=%s error=%s", trace_id, session_id, e)
         raise HTTPException(status_code=500, detail="Failed to send message")
+
+    _record_webchat_stat(ok=True)
+    if sampled:
+        logger.info(
+            "webchat_message_processed trace_id=%s session_id=%s conversation_id=%s latency_ms=%s",
+            trace_id,
+            session_id,
+            message.conversation_id,
+            int((time.monotonic() - start_time) * 1000),
+        )
 
     return WidgetMessageResponse(
         message_id=message.id,
@@ -457,9 +509,7 @@ def get_messages(
 
     # Query messages
     query = (
-        db.query(Message)
-        .filter(Message.conversation_id == session.conversation_id)
-        .order_by(Message.created_at.asc())
+        db.query(Message).filter(Message.conversation_id == session.conversation_id).order_by(Message.created_at.asc())
     )
 
     messages = query.offset(offset).limit(limit + 1).all()

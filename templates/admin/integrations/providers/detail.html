@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, table_shell, table_row, empty_state %}
 
 {% block title %}{{ provider.name }} - Payment Providers{% endblock %}
 
@@ -7,14 +7,16 @@
 <div class="space-y-6">
     <!-- Header -->
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex items-center gap-4">
-            <a href="/admin/integrations/providers" class="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-            </a>
-            <div>
-                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ provider.name }}</h1>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Payment Provider</p>
-            </div>
+        <div>
+            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
+                <a href="/admin/integrations" class="hover:text-primary-600">Integrations</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <a href="/admin/integrations/providers" class="hover:text-primary-600">Providers</a>
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <span class="text-slate-900 dark:text-white">{{ provider.name }}</span>
+            </nav>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ provider.name }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Payment Provider</p>
         </div>
     </div>
 
@@ -44,43 +46,41 @@
     </div>
 
     <!-- Events -->
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Recent Events</h2>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Event Type</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Created</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    {% for event in events %}
-                    {% set status_val = event.status.value if event.status else 'pending' %}
-                    <tr>
-                        <td class="px-6 py-4 text-sm text-slate-900 dark:text-white">{{ event.event_type or '-' }}</td>
-                        <td class="px-6 py-4">
-                            {% if status_val == 'processed' %}
-                            <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Processed</span>
-                            {% elif status_val == 'failed' %}
-                            <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">Failed</span>
-                            {% else %}
-                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Pending</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ event.created_at.strftime('%b %d %H:%M') if event.created_at else '-' }}</td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="3" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No events yet</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="provider-events-table", title="Recent Events", color="primary") %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Event Type</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Status</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Created</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for event in events %}
+                {% set status_val = event.status.value if event.status else 'pending' %}
+                {% call table_row(color="primary") %}
+                    <td class="{{ pad }} text-sm text-slate-900 dark:text-white">{{ event.event_type or '-' }}</td>
+                    <td class="{{ pad }}">
+                        {% if status_val == 'processed' %}
+                        <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Processed</span>
+                        {% elif status_val == 'failed' %}
+                        <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">Failed</span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">Pending</span>
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ event.created_at.strftime('%b %d %H:%M') if event.created_at else '-' }}</td>
+                {% endcall %}
+                {% else %}
+                <tr>
+                    <td colspan="3" class="px-6 py-12">
+                        {{ empty_state("No events yet", "Recent provider events will appear here.") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
 </div>
 {% endblock %}

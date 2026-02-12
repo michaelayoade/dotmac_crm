@@ -321,9 +321,12 @@ def _build_email_message(
             content_base64 = attachment.get("content_base64")
             if not content_base64:
                 continue
+            content = None
             try:
                 content = base64.b64decode(content_base64)
             except Exception:
+                logger.debug("Failed to decode attachment content; skipping.", exc_info=True)
+            if content is None:
                 continue
             maintype, subtype = mime_type.split("/", 1) if "/" in mime_type else ("application", "octet-stream")
             part = MIMEBase(maintype, subtype)
@@ -386,7 +389,13 @@ def test_smtp_connection(
                 server.quit()
 
 
-def send_password_reset_email(db: Session, to_email: str, reset_token: str, person_name: str | None = None) -> bool:
+def send_password_reset_email(
+    db: Session,
+    to_email: str,
+    reset_token: str,
+    person_name: str | None = None,
+    reset_path: str = "/auth/reset-password",
+) -> bool:
     """
     Send a password reset email.
 
@@ -400,7 +409,7 @@ def send_password_reset_email(db: Session, to_email: str, reset_token: str, pers
         True if email was sent successfully, False otherwise
     """
     app_url = _get_app_url(db)
-    reset_url = f"{app_url}/auth/reset-password?token={reset_token}"
+    reset_url = f"{app_url}{reset_path}?token={reset_token}"
 
     # Get configurable expiry minutes
     expiry_minutes = resolve_value(db, SettingDomain.auth, "password_reset_expiry_minutes") or 60

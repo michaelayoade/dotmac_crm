@@ -3,6 +3,7 @@
 Provides optional caching layer to reduce database queries for session
 validation. Cache misses fall back to database queries transparently.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,6 +33,7 @@ def _get_redis() -> Redis | None:
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         try:
             import redis
+
             _redis_client = redis.from_url(redis_url, decode_responses=True)
             # Test connection
             _redis_client.ping()

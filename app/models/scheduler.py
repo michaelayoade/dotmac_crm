@@ -17,23 +17,17 @@ class ScheduleType(enum.Enum):
 class ScheduledTask(Base):
     __tablename__ = "scheduled_tasks"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     task_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    schedule_type: Mapped[ScheduleType] = mapped_column(
-        Enum(ScheduleType), default=ScheduleType.interval
-    )
+    schedule_type: Mapped[ScheduleType] = mapped_column(Enum(ScheduleType), default=ScheduleType.interval)
     interval_seconds: Mapped[int] = mapped_column(Integer, default=3600)
     args_json: Mapped[list | None] = mapped_column(MutableList.as_mutable(JSON()))
     kwargs_json: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON()))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

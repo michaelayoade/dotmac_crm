@@ -24,9 +24,7 @@ router = APIRouter(prefix="/vendor", tags=["vendor-portal"])
 
 
 def require_vendor_context(request: Request, db: Session):
-    context = vendor_portal.get_context(
-        db, request.cookies.get(vendor_portal.SESSION_COOKIE_NAME)
-    )
+    context = vendor_portal.get_context(db, request.cookies.get(vendor_portal.SESSION_COOKIE_NAME))
     if not context:
         raise HTTPException(status_code=401, detail="Vendor session required")
     return context
@@ -43,9 +41,7 @@ def available_projects(
     db: Session = Depends(get_db),
 ):
     context = require_vendor_context(request, db)
-    items = vendor_service.installation_projects.list_available_for_vendor(
-        db, str(context["vendor"].id), limit, offset
-    )
+    items = vendor_service.installation_projects.list_available_for_vendor(db, str(context["vendor"].id), limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -60,9 +56,7 @@ def my_projects(
     db: Session = Depends(get_db),
 ):
     context = require_vendor_context(request, db)
-    items = vendor_service.installation_projects.list_for_vendor(
-        db, str(context["vendor"].id), limit, offset
-    )
+    items = vendor_service.installation_projects.list_for_vendor(db, str(context["vendor"].id), limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -156,9 +150,7 @@ def submit_quote(
     db: Session = Depends(get_db),
 ):
     context = require_vendor_context(request, db)
-    return vendor_service.project_quotes.submit(
-        db, quote_id, vendor_id=str(context["vendor"].id)
-    )
+    return vendor_service.project_quotes.submit(db, quote_id, vendor_id=str(context["vendor"].id))
 
 
 @router.post(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.base_page import BasePage
 
 
@@ -26,15 +27,15 @@ class VendorProjectsPage(BasePage):
 
     def expect_mine_loaded(self) -> None:
         """Assert my projects page is loaded."""
-        expect(self.page.get_by_role("heading", name="My Project", exact=True).or_(
-            self.page.get_by_role("heading", name="Project", exact=True)
-        ).first).to_be_visible()
+        expect(
+            self.page.get_by_role("heading", name="My Project", exact=True)
+            .or_(self.page.get_by_role("heading", name="Project", exact=True))
+            .first
+        ).to_be_visible()
 
     def get_project_count(self) -> int:
         """Get count of projects displayed."""
-        rows = self.page.locator("table tbody tr").or_(
-            self.page.locator("[data-testid='project-item']")
-        )
+        rows = self.page.locator("table tbody tr").or_(self.page.locator("[data-testid='project-item']"))
         return rows.count()
 
     def click_project(self, project_name: str) -> None:

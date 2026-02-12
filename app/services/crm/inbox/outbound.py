@@ -3,15 +3,16 @@
 Handles sending messages across email, WhatsApp, Facebook Messenger,
 Instagram DM, and chat widget channels.
 """
+
 from __future__ import annotations
 
 import base64
 import os
-import random
+import secrets
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from typing import cast as typing_cast
 
 import httpx
@@ -30,13 +31,14 @@ from app.logic.crm_inbox_logic import (
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
 from app.models.person import ChannelType as PersonChannelType
-from app.models.person import PersonChannel
+from app.models.person import Person, PersonChannel
 from app.schemas.crm.conversation import MessageCreate
 from app.schemas.crm.inbox import InboxSendRequest
 from app.services import email as email_service
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox import cache as inbox_cache
+from app.services.crm.inbox._core import _store_external_message_id
 from app.services.crm.inbox.circuit_breaker import CircuitBreaker, CircuitOpenError
 from app.services.crm.inbox.errors import (
     InboxConfigError,
@@ -53,7 +55,6 @@ from app.services.crm.inbox_connectors import (
     _resolve_integration_target,
     _smtp_config_from_connector,
 )
-from app.services.crm.inbox_normalizers import _normalize_email_address
 
 if TYPE_CHECKING:
     from app.models.connector import ConnectorConfig
@@ -115,11 +116,51 @@ def _is_transient_exception(exc: Exception, status_code: int | None = None) -> b
 
 def _sleep_with_backoff(attempt: int, base: float, max_backoff: float) -> None:
     backoff = min(base * (2 ** max(attempt - 1, 0)), max_backoff)
-    time.sleep(backoff + random.uniform(0, backoff * 0.25))
+    jitter = backoff * (secrets.randbelow(2500) / 10000)
+    time.sleep(backoff + jitter)
 
 
 def _now():
     return datetime.now(UTC)
+
+
+def _broadcast_outbound_summary(db: Session, conversation: Conversation, message: Message) -> None:
+    """Push updated preview/last-message time to subscribed inbox sidebars."""
+    try:
+        from app.websocket.broadcaster import broadcast_conversation_summary
+
+        unread_count = (
+            db.query(func.count(Message.id))
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .filter(Message.status == MessageStatus.received)
+            .filter(Message.read_at.is_(None))
+            .scalar()
+            or 0
+        )
+        preview = (message.body or "").strip()
+        if len(preview) > 100:
+            preview = f"{preview[:100]}..."
+        broadcast_conversation_summary(
+            str(conversation.id),
+            {
+                "preview": preview or "New message sent",
+                "last_message_at": (
+                    (message.sent_at or message.created_at).isoformat()
+                    if (message.sent_at or message.created_at)
+                    else None
+                ),
+                "channel": message.channel_type.value if message.channel_type else None,
+                "unread_count": int(unread_count),
+            },
+        )
+    except Exception:
+        logger.debug(
+            "broadcast_outbound_summary_failed conversation_id=%s message_id=%s",
+            conversation.id,
+            message.id,
+            exc_info=True,
+        )
 
 
 def _render_personalization(body: str, personalization: dict | None) -> str:
@@ -212,9 +253,9 @@ def _resolve_reply_author(db: Session, conversation: Conversation, message: Mess
 
         person = db.get(Person, message.author_id)
         if person:
-            full_name = person.display_name or " ".join(
-                part for part in [person.first_name, person.last_name] if part
-            ).strip()
+            full_name = (
+                person.display_name or " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+            )
             return full_name or "Agent"
     return "Agent"
 
@@ -265,9 +306,7 @@ def _build_reply_context(
         "metadata": reply_metadata,
         "email_in_reply_to": email_in_reply_to,
         "email_references": email_references,
-        "whatsapp_reply_message_id": reply_msg.external_id
-        if reply_msg.channel_type == ChannelType.whatsapp
-        else None,
+        "whatsapp_reply_message_id": reply_msg.external_id if reply_msg.channel_type == ChannelType.whatsapp else None,
     }
 
 
@@ -313,9 +352,12 @@ def _prepare_email_attachments(attachments: list[dict] | None) -> list[dict] | N
         if not stored_name:
             continue
         file_path = Path(settings.message_attachment_upload_dir) / stored_name
+        content = None
         try:
             content = file_path.read_bytes()
         except Exception:
+            logger.debug("Failed to read attachment bytes: %s", file_path, exc_info=True)
+        if content is None:
             continue
         prepared.append(
             {
@@ -359,9 +401,7 @@ def _get_last_inbound_message(db: Session, conversation_id) -> Message | None:
     )
 
 
-def _get_last_inbound_message_for_channel(
-    db: Session, conversation_id, channel_type: ChannelType
-) -> Message | None:
+def _get_last_inbound_message_for_channel(db: Session, conversation_id, channel_type: ChannelType) -> Message | None:
     """Get the last inbound message for a conversation and channel."""
     return (
         db.query(Message)
@@ -487,12 +527,11 @@ def _send_email_message(
     db.commit()
     db.refresh(message)
     inbox_cache.invalidate_inbox_list()
+    _broadcast_outbound_summary(db, conversation, message)
 
     from app.websocket.broadcaster import broadcast_message_status
 
-    broadcast_message_status(
-        str(message.id), str(message.conversation_id), message.status.value
-    )
+    broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
 
     if raise_on_failure and not sent:
         raise TransientOutboundError("Email send failed")
@@ -531,6 +570,17 @@ def _send_whatsapp_message(
     if not phone_number_id:
         raise InboxConfigError("whatsapp_phone_number_missing", "WhatsApp phone_number_id missing")
 
+    display_body = rendered_body
+    reply_metadata = _merge_reply_metadata(reply_context)
+    if payload.whatsapp_template_name:
+        display_body = rendered_body or f"[Template] {payload.whatsapp_template_name}"
+        reply_metadata = dict(reply_metadata or {})
+        reply_metadata["whatsapp_template"] = {
+            "name": payload.whatsapp_template_name,
+            "language": payload.whatsapp_template_language,
+            "components": payload.whatsapp_template_components or [],
+        }
+
     message = conversation_service.Messages.create(
         db,
         MessageCreate(
@@ -542,8 +592,8 @@ def _send_whatsapp_message(
             direction=MessageDirection.outbound,
             status=MessageStatus.queued,
             subject=payload.subject,
-            body=rendered_body,
-            metadata_=_merge_reply_metadata(reply_context),
+            body=display_body,
+            metadata_=reply_metadata,
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
@@ -584,7 +634,20 @@ def _send_whatsapp_message(
                     }
 
     base_url = config.base_url or "https://graph.facebook.com/v19.0"
-    if media_payload:
+    if payload.whatsapp_template_name:
+        template_payload: dict[str, Any] = {
+            "name": payload.whatsapp_template_name,
+            "language": {"code": payload.whatsapp_template_language},
+        }
+        if payload.whatsapp_template_components:
+            template_payload["components"] = payload.whatsapp_template_components
+        payload_data = {
+            "messaging_product": "whatsapp",
+            "to": person_channel.address,
+            "type": "template",
+            "template": template_payload,
+        }
+    elif media_payload:
         payload_data = {
             "messaging_product": "whatsapp",
             "to": person_channel.address,
@@ -598,9 +661,7 @@ def _send_whatsapp_message(
             "text": {"body": rendered_body},
         }
     if reply_context and reply_context.get("whatsapp_reply_message_id"):
-        payload_data["context"] = {
-            "message_id": reply_context["whatsapp_reply_message_id"]
-        }
+        payload_data["context"] = {"message_id": reply_context["whatsapp_reply_message_id"]}
     headers = {"Authorization": f"Bearer {token}"}
     if config.headers:
         headers.update(config.headers)
@@ -622,7 +683,7 @@ def _send_whatsapp_message(
         response = WHATSAPP_CIRCUIT.call(_do_call)
         data = response.json() if response.content else {}
         message.status = MessageStatus.sent
-        message.external_id = data.get("messages", [{}])[0].get("id")
+        _store_external_message_id(message, data.get("messages", [{}])[0].get("id"))
     except CircuitOpenError as exc:
         message.status = MessageStatus.failed
         _set_message_send_error(message, "whatsapp", str(exc))
@@ -664,23 +725,18 @@ def _send_whatsapp_message(
                     status_code=401,
                 )
             elif _is_transient_exception(exc, status_code=status_code):
-                retry_error = TransientOutboundError(
-                    f"WhatsApp send failed (status={status_code})"
-                )
+                retry_error = TransientOutboundError(f"WhatsApp send failed (status={status_code})")
             else:
-                retry_error = PermanentOutboundError(
-                    f"WhatsApp send failed (status={status_code})"
-                )
+                retry_error = PermanentOutboundError(f"WhatsApp send failed (status={status_code})")
 
     db.commit()
     db.refresh(message)
     inbox_cache.invalidate_inbox_list()
+    _broadcast_outbound_summary(db, conversation, message)
 
     from app.websocket.broadcaster import broadcast_message_status
 
-    broadcast_message_status(
-        str(message.id), str(message.conversation_id), message.status.value
-    )
+    broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
 
     if retry_error:
         raise retry_error
@@ -702,6 +758,7 @@ def _send_facebook_message(
 ) -> Message:
     """Send a message via Facebook Messenger channel."""
     from app.services import meta_messaging
+
     _enforce_rate_limit(payload.channel_type, target, target.connector_config if target else None)
 
     account_id = _resolve_meta_account_id(db, conversation.id, payload.channel_type)
@@ -740,7 +797,7 @@ def _send_facebook_message(
             account_id=account_id,
         )
         message.status = MessageStatus.sent
-        message.external_id = result.get("message_id")
+        _store_external_message_id(message, result.get("message_id"))
     except CircuitOpenError as exc:
         message.status = MessageStatus.failed
         _set_message_send_error(message, "facebook_messenger", str(exc))
@@ -763,12 +820,11 @@ def _send_facebook_message(
     db.commit()
     db.refresh(message)
     inbox_cache.invalidate_inbox_list()
+    _broadcast_outbound_summary(db, conversation, message)
 
     from app.websocket.broadcaster import broadcast_message_status
 
-    broadcast_message_status(
-        str(message.id), str(message.conversation_id), message.status.value
-    )
+    broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
 
     if retry_error:
         raise retry_error
@@ -790,6 +846,7 @@ def _send_instagram_message(
 ) -> Message:
     """Send a message via Instagram DM channel."""
     from app.services import meta_messaging
+
     _enforce_rate_limit(payload.channel_type, target, target.connector_config if target else None)
 
     account_id = _resolve_meta_account_id(db, conversation.id, payload.channel_type)
@@ -828,12 +885,31 @@ def _send_instagram_message(
             account_id=account_id,
         )
         message.status = MessageStatus.sent
-        message.external_id = result.get("message_id")
+        _store_external_message_id(message, result.get("message_id"))
     except CircuitOpenError as exc:
         message.status = MessageStatus.failed
         _set_message_send_error(message, "instagram_dm", str(exc))
         if raise_on_failure:
             retry_error = TransientOutboundError("Instagram circuit open")
+    except httpx.HTTPStatusError as exc:
+        message.status = MessageStatus.failed
+        status_code = exc.response.status_code if exc.response is not None else None
+        response_text = exc.response.text if exc.response is not None else None
+        _set_message_send_error(
+            message,
+            "instagram_dm",
+            str(exc),
+            status_code=status_code,
+            response_text=response_text,
+        )
+        if isinstance(message.metadata_, dict) and message.metadata_.get("send_error"):
+            # Preserve raw Meta error body for debugging.
+            message.metadata_["send_error"]["meta_error"] = response_text or ""
+        if raise_on_failure:
+            if _is_transient_exception(exc, status_code=status_code):
+                retry_error = TransientOutboundError("Instagram send failed")
+            else:
+                retry_error = PermanentOutboundError("Instagram send failed")
     except Exception as exc:
         logger.error(
             "instagram_dm_send_failed conversation_id=%s error=%s",
@@ -851,12 +927,11 @@ def _send_instagram_message(
     db.commit()
     db.refresh(message)
     inbox_cache.invalidate_inbox_list()
+    _broadcast_outbound_summary(db, conversation, message)
 
     from app.websocket.broadcaster import broadcast_message_status
 
-    broadcast_message_status(
-        str(message.id), str(message.conversation_id), message.status.value
-    )
+    broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
 
     if retry_error:
         raise retry_error
@@ -873,6 +948,7 @@ def _send_chat_widget_message(
     rendered_body: str,
     author_id: str | None,
     reply_context: dict | None,
+    trace_id: str | None,
 ) -> Message:
     """Send a message via chat widget channel.
 
@@ -898,6 +974,7 @@ def _send_chat_widget_message(
     db.commit()
     db.refresh(message)
     inbox_cache.invalidate_inbox_list()
+    _broadcast_outbound_summary(db, conversation, message)
 
     # Broadcast to admin subscribers
     from app.websocket.broadcaster import (
@@ -907,20 +984,23 @@ def _send_chat_widget_message(
     )
 
     broadcast_new_message(message, conversation)
-    broadcast_message_status(
-        str(message.id), str(message.conversation_id), message.status.value
-    )
+    broadcast_message_status(str(message.id), str(message.conversation_id), message.status.value)
 
     # Broadcast to widget visitor via their WebSocket
     from app.models.crm.chat_widget import WidgetVisitorSession
 
     widget_session = (
-        db.query(WidgetVisitorSession)
-        .filter(WidgetVisitorSession.conversation_id == conversation.id)
-        .first()
+        db.query(WidgetVisitorSession).filter(WidgetVisitorSession.conversation_id == conversation.id).first()
     )
     if widget_session:
         broadcast_to_widget_visitor(str(widget_session.id), message)
+
+    logger.info(
+        "webchat_message_sent trace_id=%s message_id=%s conversation_id=%s",
+        trace_id,
+        message.id,
+        conversation.id,
+    )
 
     return message
 
@@ -936,6 +1016,7 @@ def send_message(
     author_id: str | None = None,
     *,
     raise_on_failure: bool = False,
+    trace_id: str | None = None,
 ) -> Message:
     """Send a message through the specified channel.
 
@@ -951,9 +1032,7 @@ def send_message(
         InboxError: If channel is not configured or message cannot be sent
     """
     try:
-        conversation = conversation_service.Conversations.get(
-            db, str(payload.conversation_id)
-        )
+        conversation = conversation_service.Conversations.get(db, str(payload.conversation_id))
         person = conversation.person
         if not person:
             raise InboxNotFoundError("contact_not_found", "Contact not found")
@@ -972,22 +1051,16 @@ def send_message(
         resolved_channel_target_id = payload.channel_target_id
 
         if USE_INBOX_LOGIC_SERVICE:
-            requested_channel_type: LogicChannelType = typing_cast(
-                LogicChannelType, payload.channel_type.value
-            )
+            requested_channel_type: LogicChannelType = typing_cast(LogicChannelType, payload.channel_type.value)
             last_inbound_channel_type: LogicChannelType | None = typing_cast(
                 LogicChannelType | None,
-                last_inbound.channel_type.value
-                if last_inbound and last_inbound.channel_type
-                else None,
+                last_inbound.channel_type.value if last_inbound and last_inbound.channel_type else None,
             )
             ctx = MessageContext(
                 conversation_id=str(conversation.id),
                 person_id=str(person.id),
                 requested_channel_type=requested_channel_type,
-                requested_channel_target_id=str(payload.channel_target_id)
-                if payload.channel_target_id
-                else None,
+                requested_channel_target_id=str(payload.channel_target_id) if payload.channel_target_id else None,
                 last_inbound_channel_type=last_inbound_channel_type,
                 last_inbound_channel_target_id=str(last_inbound.channel_target_id)
                 if last_inbound and last_inbound.channel_target_id
@@ -999,14 +1072,10 @@ def send_message(
             )
             decision = _logic_service.decide_send_message(ctx)
             if decision.status == "deny":
-                raise InboxValidationError(
-                    "message_not_allowed", decision.reason or "Message not allowed"
-                )
+                raise InboxValidationError("message_not_allowed", decision.reason or "Message not allowed")
 
             if decision.channel_type != payload.channel_type.value:
-                payload = payload.model_copy(
-                    update={"channel_type": ChannelType(decision.channel_type)}
-                )
+                payload = payload.model_copy(update={"channel_type": ChannelType(decision.channel_type)})
 
             if decision.channel_target_id and not payload.channel_target_id:
                 resolved_channel_target_id = coerce_uuid(decision.channel_target_id)
@@ -1018,23 +1087,16 @@ def send_message(
                 )
 
             if last_inbound and last_inbound.channel_target_id:
-                if (
-                    resolved_channel_target_id
-                    and last_inbound.channel_target_id != resolved_channel_target_id
-                ):
+                if resolved_channel_target_id and last_inbound.channel_target_id != resolved_channel_target_id:
                     raise InboxValidationError(
                         "reply_target_mismatch",
                         "Reply channel target does not match the originating target",
                     )
                 resolved_channel_target_id = last_inbound.channel_target_id
 
-        person_channel = _resolve_person_channel_for_message(
-            db, person, payload.channel_type
-        )
+        person_channel = _resolve_person_channel_for_message(db, person, payload.channel_type)
         if not person_channel:
-            raise InboxValidationError(
-                "contact_channel_missing", "Contact channel not found"
-            )
+            raise InboxValidationError("contact_channel_missing", "Contact channel not found")
 
         target = None
         if resolved_channel_target_id:
@@ -1046,11 +1108,7 @@ def send_message(
         if not target:
             target = _resolve_integration_target(db, payload.channel_type, None)
 
-        config = (
-            _resolve_connector_config(db, target, payload.channel_type)
-            if target
-            else None
-        )
+        config = _resolve_connector_config(db, target, payload.channel_type) if target else None
         reply_context = None
         if payload.reply_to_message_id:
             reply_context = _resolve_reply_context(
@@ -1063,9 +1121,7 @@ def send_message(
             last_inbound_email = (
                 last_inbound
                 if last_inbound and last_inbound.channel_type == ChannelType.email
-                else _get_last_inbound_message_for_channel(
-                    db, conversation.id, ChannelType.email
-                )
+                else _get_last_inbound_message_for_channel(db, conversation.id, ChannelType.email)
             )
             reply_subject = None
             if payload.reply_to_message_id:
@@ -1075,21 +1131,21 @@ def send_message(
             if not reply_subject and last_inbound_email and last_inbound_email.subject:
                 reply_subject = last_inbound_email.subject
             if reply_subject:
-                payload = payload.model_copy(
-                    update={"subject": _build_reply_subject(payload.subject, reply_subject)}
-                )
+                payload = payload.model_copy(update={"subject": _build_reply_subject(payload.subject, reply_subject)})
 
-            if not payload.reply_to_message_id and not reply_context and last_inbound_email:
-                if (
+            if (
+                not payload.reply_to_message_id
+                and not reply_context
+                and last_inbound_email
+                and (
                     not target
                     or not last_inbound_email.channel_target_id
                     or last_inbound_email.channel_target_id == target.id
-                ):
-                    reply_context = _build_reply_context(
-                        db, conversation, last_inbound_email.id
-                    )
+                )
+            ):
+                reply_context = _build_reply_context(db, conversation, last_inbound_email.id)
 
-        rendered_body = _render_personalization(payload.body, payload.personalization)
+        rendered_body = _render_personalization(payload.body or "", payload.personalization)
 
         if payload.channel_type == ChannelType.email:
             return _send_email_message(
@@ -1157,6 +1213,7 @@ def send_message(
                 rendered_body,
                 author_id,
                 reply_context,
+                trace_id,
             )
 
         raise InboxValidationError("channel_unsupported", "Unsupported channel type")
@@ -1168,6 +1225,7 @@ def send_message_with_retry(
     db: Session,
     payload: InboxSendRequest,
     author_id: str | None = None,
+    trace_id: str | None = None,
     *,
     max_attempts: int = 3,
     base_backoff: float = 0.5,
@@ -1188,37 +1246,38 @@ def send_message_with_retry(
                 payload,
                 author_id=author_id,
                 raise_on_failure=True,
+                trace_id=trace_id,
             )
             OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="sent").inc()
-            MESSAGE_PROCESSING_TIME.labels(
-                channel_type=channel_label, direction="outbound"
-            ).observe(time.perf_counter() - start)
+            MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="outbound").observe(
+                time.perf_counter() - start
+            )
             return message
         except TransientOutboundError as exc:
             last_exc = exc
             OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="retried").inc()
             if attempt >= max_attempts:
                 OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="failed").inc()
-                MESSAGE_PROCESSING_TIME.labels(
-                    channel_type=channel_label, direction="outbound"
-                ).observe(time.perf_counter() - start)
+                MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="outbound").observe(
+                    time.perf_counter() - start
+                )
                 raise
             _sleep_with_backoff(attempt, base_backoff, max_backoff)
         except PermanentOutboundError:
             OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="failed").inc()
-            MESSAGE_PROCESSING_TIME.labels(
-                channel_type=channel_label, direction="outbound"
-            ).observe(time.perf_counter() - start)
+            MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="outbound").observe(
+                time.perf_counter() - start
+            )
             raise
         except Exception:
             OUTBOUND_MESSAGES.labels(channel_type=channel_label, status="failed").inc()
-            MESSAGE_PROCESSING_TIME.labels(
-                channel_type=channel_label, direction="outbound"
-            ).observe(time.perf_counter() - start)
+            MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="outbound").observe(
+                time.perf_counter() - start
+            )
             raise
-    MESSAGE_PROCESSING_TIME.labels(
-        channel_type=channel_label, direction="outbound"
-    ).observe(time.perf_counter() - start)
+    MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="outbound").observe(
+        time.perf_counter() - start
+    )
     raise last_exc or TransientOutboundError("Outbound send failed")
 
 
@@ -1226,7 +1285,5 @@ def send_reply(db: Session, payload: InboxSendRequest, author_id: str | None = N
     return send_message(db, payload, author_id=author_id)
 
 
-def send_outbound_message(
-    db: Session, payload: InboxSendRequest, author_id: str | None = None
-) -> Message:
+def send_outbound_message(db: Session, payload: InboxSendRequest, author_id: str | None = None) -> Message:
     return send_message(db, payload, author_id=author_id)

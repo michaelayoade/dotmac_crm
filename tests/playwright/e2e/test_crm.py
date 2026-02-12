@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.admin.crm import ConversationPage, InboxPage
 
 
@@ -50,11 +51,11 @@ class TestCRMConversation:
         # If there are conversations, the thread should be visible
         ConversationPage(admin_page, settings.base_url)
         # Thread area should exist
-        expect(admin_page.locator("[data-testid='message-thread']").or_(
-            admin_page.locator(".message-thread").or_(
-                admin_page.get_by_role("textbox")
-            )
-        ).first).to_be_visible()
+        expect(
+            admin_page.locator("[data-testid='message-thread']")
+            .or_(admin_page.locator(".message-thread").or_(admin_page.get_by_role("textbox")))
+            .first
+        ).to_be_visible()
 
     def test_reply_input_visible(self, admin_page: Page, settings):
         """Reply input should be visible."""
@@ -62,9 +63,7 @@ class TestCRMConversation:
         inbox.goto()
         inbox.expect_loaded()
         # Reply input should exist
-        expect(admin_page.get_by_role("textbox").or_(
-            admin_page.get_by_placeholder("message")
-        ).first).to_be_visible()
+        expect(admin_page.get_by_role("textbox").or_(admin_page.get_by_placeholder("message")).first).to_be_visible()
 
 
 class TestCRMAPI:

@@ -2,6 +2,7 @@
 
 {% block title %}Fiber Strands - Admin{% endblock %}
 
+{% from "components/ui/macros.html" import table_shell, table_row, empty_state %}
 {% block content %}
 <div class="space-y-6">
     <!-- Header -->
@@ -56,36 +57,36 @@
     </div>
 
     <!-- Strands Table -->
-    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/50">
-                    <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cable / Strand</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Label</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Notes</th>
-                        <th scope="col" class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    {% for strand in strands %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="px-6 py-4">
-                            <div class="flex items-center gap-3">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
-                                    <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                                </div>
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="fiber-strands-table", color="primary") %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cable / Strand</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Label</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Notes</th>
+                    <th scope="col" class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for strand in strands %}
+                {% call table_row(color="primary") %}
+                    <td class="{{ pad }}">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+                                <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            </div>
                                 <div>
                                     <p class="text-sm font-medium text-slate-900 dark:text-white">{{ strand.cable_name }}</p>
                                     <p class="text-xs text-slate-500 dark:text-slate-400">Strand #{{ strand.strand_number }}</p>
-                                </div>
                             </div>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                        </div>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
                             <span class="text-sm text-slate-900 dark:text-white">{{ strand.label or '-' }}</span>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                    <td class="{{ pad }} whitespace-nowrap">
                             {% set status_val = strand.status.value if strand.status else 'available' %}
                             {% if status_val == 'available' %}
                             <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Available</span>
@@ -99,25 +100,22 @@
                             <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ status_val | replace('_', ' ') | title }}</span>
                             {% endif %}
                         </td>
-                        <td class="px-6 py-4">
+                    <td class="{{ pad }}">
                             <p class="text-sm text-slate-500 dark:text-slate-400 truncate max-w-xs">{{ strand.notes or '-' }}</p>
                         </td>
-                        <td class="px-6 py-4 text-right text-sm">
+                    <td class="{{ pad }} text-right text-sm">
                             <a href="/admin/network/fiber-strands/{{ strand.id }}/edit" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
                         </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="5" class="px-6 py-12 text-center">
-                            <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                            <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">No fiber strands</h3>
-                            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Get started by adding fiber strands.</p>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+                {% endcall %}
+                {% else %}
+                <tr>
+                    <td colspan="5" class="px-6 py-12">
+                        {{ empty_state("No fiber strands", "Get started by adding fiber strands.") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
 </div>
 {% endblock %}

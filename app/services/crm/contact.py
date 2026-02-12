@@ -16,6 +16,7 @@ from app.services.crm.contacts.service import (
     get_contact_tags,
     get_or_create_contact_by_channel,
     get_person_with_relationships,
+    update_contact_channels,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "get_contact_tags",
     "get_or_create_contact_by_channel",
     "get_person_with_relationships",
+    "update_contact_channels",
 ]

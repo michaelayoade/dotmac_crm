@@ -1,8 +1,11 @@
 import contextlib
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException
+from starlette.datastructures import UploadFile
 
 from app.config import settings
 
@@ -27,7 +30,7 @@ def _is_upload_like(item: object) -> bool:
 
 
 def _coerce_upload_files(
-    files: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | str | bytes | None,
+    files: UploadFile | Sequence[UploadFile | str] | str | bytes | None,
 ) -> list[UploadFile]:
     if files is None:
         return []
@@ -35,22 +38,24 @@ def _coerce_upload_files(
         if not files.filename:
             return []
         return [files]
-    if isinstance(files, list | tuple):
+    if isinstance(files, str | bytes):
+        return []
+    if isinstance(files, Sequence):
         uploads: list[UploadFile] = []
         for item in files:
             if isinstance(item, UploadFile):
                 if item.filename:
                     uploads.append(item)
             elif _is_upload_like(item) and getattr(item, "filename", None):
-                uploads.append(item)
+                uploads.append(cast(UploadFile, item))
         return uploads
-    if isinstance(files, str | bytes):
-        return []
     # Be permissive with unexpected types (e.g., stray form fields) to avoid 400s.
     return []
 
 
-def prepare_ticket_attachments(files: UploadFile | list[UploadFile] | None) -> list[dict]:
+def prepare_ticket_attachments(
+    files: UploadFile | Sequence[UploadFile | str] | str | bytes | None,
+) -> list[dict]:
     uploads = _coerce_upload_files(files)
     if not uploads:
         return []

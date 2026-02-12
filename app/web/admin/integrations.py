@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime
+from html import escape as html_escape
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -36,6 +37,7 @@ def get_db():
 def _base_context(request: Request, db: Session, active_page: str, active_menu: str = "integrations") -> dict:
     """Build base template context."""
     from app.web.admin import get_current_user, get_sidebar_stats
+
     return {
         "request": request,
         "active_page": active_page,
@@ -120,6 +122,7 @@ def _provider_view(provider: dict, connector: ConnectorConfig | None):
 
 # ==================== Connectors ====================
 
+
 @router.get("/connectors", response_class=HTMLResponse)
 def connectors_list(request: Request, db: Session = Depends(get_db)):
     """List all connector configurations."""
@@ -161,10 +164,12 @@ def connector_new(request: Request, db: Session = Depends(get_db)):
     from app.models.connector import ConnectorAuthType, ConnectorType
 
     context = _base_context(request, db, active_page="connectors")
-    context.update({
-        "connector_types": [t.value for t in ConnectorType],
-        "auth_types": [t.value for t in ConnectorAuthType],
-    })
+    context.update(
+        {
+            "connector_types": [t.value for t in ConnectorType],
+            "auth_types": [t.value for t in ConnectorAuthType],
+        }
+    )
     return templates.TemplateResponse("admin/integrations/connectors/new.html", context)
 
 
@@ -205,30 +210,28 @@ def connector_create(
         from app.models.connector import ConnectorAuthType, ConnectorType
 
         context = _base_context(request, db, active_page="connectors")
-        context.update({
-            "connector_types": [t.value for t in ConnectorType],
-            "auth_types": [t.value for t in ConnectorAuthType],
-            "error": str(exc),
-            "form": {
-                "name": name,
-                "connector_type": connector_type,
-                "auth_type": auth_type,
-                "base_url": base_url or "",
-                "timeout_sec": timeout_sec or "",
-                "auth_config": auth_config or "",
-                "headers": headers or "",
-                "retry_policy": retry_policy or "",
-                "metadata": metadata or "",
-                "notes": notes or "",
-                "is_active": is_active,
-            },
-        })
-        return templates.TemplateResponse(
-            "admin/integrations/connectors/new.html", context, status_code=400
+        context.update(
+            {
+                "connector_types": [t.value for t in ConnectorType],
+                "auth_types": [t.value for t in ConnectorAuthType],
+                "error": str(exc),
+                "form": {
+                    "name": name,
+                    "connector_type": connector_type,
+                    "auth_type": auth_type,
+                    "base_url": base_url or "",
+                    "timeout_sec": timeout_sec or "",
+                    "auth_config": auth_config or "",
+                    "headers": headers or "",
+                    "retry_policy": retry_policy or "",
+                    "metadata": metadata or "",
+                    "notes": notes or "",
+                    "is_active": is_active,
+                },
+            }
         )
-    return RedirectResponse(
-        url=f"/admin/integrations/connectors/{connector.id}", status_code=303
-    )
+        return templates.TemplateResponse("admin/integrations/connectors/new.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/integrations/connectors/{connector.id}", status_code=303)
 
 
 @router.get("/connectors/{connector_id}", response_class=HTMLResponse)
@@ -249,6 +252,7 @@ def connector_detail(request: Request, connector_id: str, db: Session = Depends(
 
 
 # ==================== Integration Targets ====================
+
 
 @router.get("/targets", response_class=HTMLResponse)
 def targets_list(request: Request, db: Session = Depends(get_db)):
@@ -301,10 +305,12 @@ def target_new(request: Request, db: Session = Depends(get_db)):
     )
 
     context = _base_context(request, db, active_page="targets")
-    context.update({
-        "target_types": [t.value for t in IntegrationTargetType],
-        "connectors": connectors,
-    })
+    context.update(
+        {
+            "target_types": [t.value for t in IntegrationTargetType],
+            "connectors": connectors,
+        }
+    )
     return templates.TemplateResponse("admin/integrations/targets/new.html", context)
 
 
@@ -343,24 +349,22 @@ def target_create(
             offset=0,
         )
         context = _base_context(request, db, active_page="targets")
-        context.update({
-            "target_types": [t.value for t in IntegrationTargetType],
-            "connectors": connectors,
-            "error": str(exc),
-            "form": {
-                "name": name,
-                "target_type": target_type,
-                "connector_config_id": connector_config_id or "",
-                "notes": notes or "",
-                "is_active": is_active,
-            },
-        })
-        return templates.TemplateResponse(
-            "admin/integrations/targets/new.html", context, status_code=400
+        context.update(
+            {
+                "target_types": [t.value for t in IntegrationTargetType],
+                "connectors": connectors,
+                "error": str(exc),
+                "form": {
+                    "name": name,
+                    "target_type": target_type,
+                    "connector_config_id": connector_config_id or "",
+                    "notes": notes or "",
+                    "is_active": is_active,
+                },
+            }
         )
-    return RedirectResponse(
-        url=f"/admin/integrations/targets/{target.id}", status_code=303
-    )
+        return templates.TemplateResponse("admin/integrations/targets/new.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/integrations/targets/{target.id}", status_code=303)
 
 
 @router.get("/targets/{target_id}", response_class=HTMLResponse)
@@ -381,6 +385,7 @@ def target_detail(request: Request, target_id: str, db: Session = Depends(get_db
 
 
 # ==================== Integration Jobs ====================
+
 
 @router.get("/jobs", response_class=HTMLResponse)
 def jobs_list(request: Request, db: Session = Depends(get_db)):
@@ -451,11 +456,13 @@ def job_new(request: Request, db: Session = Depends(get_db)):
     )
 
     context = _base_context(request, db, active_page="jobs")
-    context.update({
-        "job_types": [t.value for t in IntegrationJobType],
-        "schedule_types": [t.value for t in IntegrationScheduleType],
-        "targets": targets,
-    })
+    context.update(
+        {
+            "job_types": [t.value for t in IntegrationJobType],
+            "schedule_types": [t.value for t in IntegrationScheduleType],
+            "targets": targets,
+        }
+    )
     return templates.TemplateResponse("admin/integrations/jobs/new.html", context)
 
 
@@ -476,6 +483,7 @@ def job_create(
         if schedule_type == "interval" and not interval_value:
             raise ValueError("interval_minutes is required for interval schedules")
         from app.models.integration import IntegrationJobType, IntegrationScheduleType
+
         target_uuid = _parse_uuid(target_id, "target_id")
         if target_uuid is None:
             raise ValueError("target_id is required")
@@ -502,27 +510,25 @@ def job_create(
             offset=0,
         )
         context = _base_context(request, db, active_page="jobs")
-        context.update({
-            "job_types": [t.value for t in IntegrationJobType],
-            "schedule_types": [t.value for t in IntegrationScheduleType],
-            "targets": targets,
-            "error": str(exc),
-            "form": {
-                "target_id": target_id,
-                "name": name,
-                "job_type": job_type,
-                "schedule_type": schedule_type,
-                "interval_minutes": interval_minutes or "",
-                "notes": notes or "",
-                "is_active": is_active,
-            },
-        })
-        return templates.TemplateResponse(
-            "admin/integrations/jobs/new.html", context, status_code=400
+        context.update(
+            {
+                "job_types": [t.value for t in IntegrationJobType],
+                "schedule_types": [t.value for t in IntegrationScheduleType],
+                "targets": targets,
+                "error": str(exc),
+                "form": {
+                    "target_id": target_id,
+                    "name": name,
+                    "job_type": job_type,
+                    "schedule_type": schedule_type,
+                    "interval_minutes": interval_minutes or "",
+                    "notes": notes or "",
+                    "is_active": is_active,
+                },
+            }
         )
-    return RedirectResponse(
-        url=f"/admin/integrations/jobs/{job.id}", status_code=303
-    )
+        return templates.TemplateResponse("admin/integrations/jobs/new.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/integrations/jobs/{job.id}", status_code=303)
 
 
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)
@@ -553,6 +559,7 @@ def job_detail(request: Request, job_id: str, db: Session = Depends(get_db)):
 
 
 # ==================== Webhooks ====================
+
 
 @router.get("/webhooks", response_class=HTMLResponse)
 def webhooks_list(request: Request, db: Session = Depends(get_db)):
@@ -639,10 +646,12 @@ def webhook_new(request: Request, db: Session = Depends(get_db)):
     )
 
     context = _base_context(request, db, active_page="webhooks")
-    context.update({
-        "event_types": [t.value for t in WebhookEventType],
-        "connectors": connectors,
-    })
+    context.update(
+        {
+            "event_types": [t.value for t in WebhookEventType],
+            "connectors": connectors,
+        }
+    )
     return templates.TemplateResponse("admin/integrations/webhooks/new.html", context)
 
 
@@ -689,25 +698,23 @@ def webhook_create(
             offset=0,
         )
         context = _base_context(request, db, active_page="webhooks")
-        context.update({
-            "event_types": [t.value for t in WebhookEventType],
-            "connectors": connectors,
-            "error": str(exc),
-            "form": {
-                "name": name,
-                "url": url,
-                "connector_config_id": connector_config_id or "",
-                "secret": secret or "",
-                "event_types": event_types or [],
-                "is_active": is_active,
-            },
-        })
-        return templates.TemplateResponse(
-            "admin/integrations/webhooks/new.html", context, status_code=400
+        context.update(
+            {
+                "event_types": [t.value for t in WebhookEventType],
+                "connectors": connectors,
+                "error": str(exc),
+                "form": {
+                    "name": name,
+                    "url": url,
+                    "connector_config_id": connector_config_id or "",
+                    "secret": secret or "",
+                    "event_types": event_types or [],
+                    "is_active": is_active,
+                },
+            }
         )
-    return RedirectResponse(
-        url=f"/admin/integrations/webhooks/{endpoint.id}", status_code=303
-    )
+        return templates.TemplateResponse("admin/integrations/webhooks/new.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/integrations/webhooks/{endpoint.id}", status_code=303)
 
 
 @router.get("/webhooks/{endpoint_id}", response_class=HTMLResponse)
@@ -745,15 +752,18 @@ def webhook_detail(request: Request, endpoint_id: str, db: Session = Depends(get
     )
 
     context = _base_context(request, db, active_page="webhooks")
-    context.update({
-        "endpoint": endpoint,
-        "subscriptions": subscriptions,
-        "deliveries": deliveries,
-    })
+    context.update(
+        {
+            "endpoint": endpoint,
+            "subscriptions": subscriptions,
+            "deliveries": deliveries,
+        }
+    )
     return templates.TemplateResponse("admin/integrations/webhooks/detail.html", context)
 
 
 # ==================== Payment Providers ====================
+
 
 @router.get("/providers", response_class=HTMLResponse)
 def providers_list(request: Request, db: Session = Depends(get_db)):
@@ -769,10 +779,7 @@ def providers_list(request: Request, db: Session = Depends(get_db)):
     )
     connector_by_id = {str(c.id): c for c in connectors}
 
-    providers = [
-        _provider_view(p, connector_by_id.get(str(p.get("connector_config_id"))))
-        for p in providers_raw
-    ]
+    providers = [_provider_view(p, connector_by_id.get(str(p.get("connector_config_id")))) for p in providers_raw]
 
     stats_by_type: dict[str, int] = {}
     stats = {
@@ -861,9 +868,7 @@ def provider_create(
                 },
             }
         )
-        return templates.TemplateResponse(
-            "admin/integrations/providers/new.html", context, status_code=400
-        )
+        return templates.TemplateResponse("admin/integrations/providers/new.html", context, status_code=400)
 
     providers, setting = _load_payment_providers(db)
     now = datetime.now(UTC)
@@ -909,6 +914,7 @@ def provider_detail(provider_id: str, request: Request, db: Session = Depends(ge
 
 # ==================== CRM Channels ====================
 
+
 @router.get("/channels", response_class=HTMLResponse)
 def channels_list(request: Request, db: Session = Depends(get_db)):
     """List all CRM team channels."""
@@ -947,13 +953,15 @@ def channels_list(request: Request, db: Session = Depends(get_db)):
         stats_by_type[channel_type] = stats_by_type.get(channel_type, 0) + 1
 
     context = _base_context(request, db, active_page="channels")
-    context.update({
-        "channels": channels,
-        "team_map": team_map,
-        "stats": stats,
-        "channel_types": [t.value for t in ChannelType],
-        "recent_activities": recent_activity_for_paths(db, ["/admin/integrations/channels"]),
-    })
+    context.update(
+        {
+            "channels": channels,
+            "team_map": team_map,
+            "stats": stats,
+            "channel_types": [t.value for t in ChannelType],
+            "recent_activities": recent_activity_for_paths(db, ["/admin/integrations/channels"]),
+        }
+    )
     return templates.TemplateResponse("admin/integrations/channels/index.html", context)
 
 
@@ -983,11 +991,13 @@ def channel_new(request: Request, db: Session = Depends(get_db)):
     )
 
     context = _base_context(request, db, active_page="channels")
-    context.update({
-        "channel_types": [t.value for t in ChannelType],
-        "teams": teams,
-        "targets": targets,
-    })
+    context.update(
+        {
+            "channel_types": [t.value for t in ChannelType],
+            "teams": teams,
+            "targets": targets,
+        }
+    )
     return templates.TemplateResponse("admin/integrations/channels/new.html", context)
 
 
@@ -1042,24 +1052,22 @@ def channel_create(
             offset=0,
         )
         context = _base_context(request, db, active_page="channels")
-        context.update({
-            "channel_types": [t.value for t in ChannelType],
-            "teams": teams,
-            "targets": targets,
-            "error": str(exc),
-            "form": {
-                "team_id": team_id,
-                "channel_type": channel_type,
-                "channel_target_id": channel_target_id or "",
-                "is_active": is_active,
-            },
-        })
-        return templates.TemplateResponse(
-            "admin/integrations/channels/new.html", context, status_code=400
+        context.update(
+            {
+                "channel_types": [t.value for t in ChannelType],
+                "teams": teams,
+                "targets": targets,
+                "error": str(exc),
+                "form": {
+                    "team_id": team_id,
+                    "channel_type": channel_type,
+                    "channel_target_id": channel_target_id or "",
+                    "is_active": is_active,
+                },
+            }
         )
-    return RedirectResponse(
-        url=f"/admin/integrations/channels/{channel.id}", status_code=303
-    )
+        return templates.TemplateResponse("admin/integrations/channels/new.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/integrations/channels/{channel.id}", status_code=303)
 
 
 @router.get("/channels/{channel_id}", response_class=HTMLResponse)
@@ -1096,12 +1104,14 @@ def channel_detail(request: Request, channel_id: str, db: Session = Depends(get_
     )
 
     context = _base_context(request, db, active_page="channels")
-    context.update({
-        "channel": channel,
-        "teams": teams,
-        "targets": targets,
-        "channel_types": [t.value for t in ChannelType],
-    })
+    context.update(
+        {
+            "channel": channel,
+            "teams": teams,
+            "targets": targets,
+            "channel_types": [t.value for t in ChannelType],
+        }
+    )
     return templates.TemplateResponse("admin/integrations/channels/detail.html", context)
 
 
@@ -1155,19 +1165,17 @@ def channel_update(
             offset=0,
         )
         context = _base_context(request, db, active_page="channels")
-        context.update({
-            "channel": channel,
-            "teams": teams,
-            "targets": targets,
-            "channel_types": [t.value for t in ChannelType],
-            "error": str(exc),
-        })
-        return templates.TemplateResponse(
-            "admin/integrations/channels/detail.html", context, status_code=400
+        context.update(
+            {
+                "channel": channel,
+                "teams": teams,
+                "targets": targets,
+                "channel_types": [t.value for t in ChannelType],
+                "error": str(exc),
+            }
         )
-    return RedirectResponse(
-        url=f"/admin/integrations/channels/{channel.id}", status_code=303
-    )
+        return templates.TemplateResponse("admin/integrations/channels/detail.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/integrations/channels/{channel.id}", status_code=303)
 
 
 @router.post("/channels/{channel_id}/delete", response_class=HTMLResponse)
@@ -1196,8 +1204,8 @@ def channel_test(request: Request, channel_id: str, db: Session = Depends(get_db
     except HTTPException:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            'Channel not found.'
-            '</div>',
+            "Channel not found."
+            "</div>",
             status_code=404,
         )
 
@@ -1209,24 +1217,26 @@ def channel_test(request: Request, channel_id: str, db: Session = Depends(get_db
     if channel.is_active:
         return HTMLResponse(
             '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
-            f'Channel ({channel_type}) is active and ready.'
-            '</div>',
+            f"Channel ({channel_type}) is active and ready."
+            "</div>",
             status_code=200,
         )
     else:
         return HTMLResponse(
             '<div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">'
-            f'Channel ({channel_type}) is inactive.'
-            '</div>',
+            f"Channel ({channel_type}) is inactive."
+            "</div>",
             status_code=200,
         )
 
 
 # ==================== ERPNext Import ====================
 
+
 def _get_erpnext_env_config() -> dict[str, str | None]:
     """Get ERPNext configuration from environment variables."""
     from app.config import settings
+
     return {
         "url": settings.erpnext_url,
         "api_key": settings.erpnext_api_key,
@@ -1274,12 +1284,14 @@ def erpnext_import_page(request: Request, db: Session = Depends(get_db)):
     env_configured = _erpnext_env_configured()
 
     context = _base_context(request, db, active_page="erpnext")
-    context.update({
-        "connectors": all_connectors,
-        "erpnext_connectors": erpnext_connectors,
-        "env_configured": env_configured,
-        "env_url": env_config["url"],
-    })
+    context.update(
+        {
+            "connectors": all_connectors,
+            "erpnext_connectors": erpnext_connectors,
+            "env_configured": env_configured,
+            "env_url": env_config["url"],
+        }
+    )
     return templates.TemplateResponse("admin/integrations/erpnext/index.html", context)
 
 
@@ -1313,16 +1325,16 @@ def erpnext_test_connection(
         except HTTPException:
             return HTMLResponse(
                 '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-                'Connector not found.'
-                '</div>',
+                "Connector not found."
+                "</div>",
                 status_code=404,
             )
 
     if not base_url or not api_key or not api_secret:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            'Missing required credentials: base_url, api_key, api_secret'
-            '</div>',
+            "Missing required credentials: base_url, api_key, api_secret"
+            "</div>",
             status_code=400,
         )
 
@@ -1331,15 +1343,15 @@ def erpnext_test_connection(
         client.test_connection()
         return HTMLResponse(
             '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
-            f'Successfully connected to ERPNext at {base_url}'
-            '</div>',
+            f"Successfully connected to ERPNext at {base_url}"
+            "</div>",
             status_code=200,
         )
     except ERPNextError as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Connection failed: {e.message}'
-            '</div>',
+            f"Connection failed: {e.message}"
+            "</div>",
             status_code=400,
         )
 
@@ -1422,8 +1434,8 @@ def erpnext_run_import_htmx(
         except HTTPException:
             return HTMLResponse(
                 '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-                'Connector not found.'
-                '</div>',
+                "Connector not found."
+                "</div>",
                 status_code=404,
             )
 
@@ -1436,16 +1448,16 @@ def erpnext_run_import_htmx(
     if not base_url:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            'Missing base_url configuration.'
-            '</div>',
+            "Missing base_url configuration."
+            "</div>",
             status_code=400,
         )
 
     if not api_key or not api_secret:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            'Missing api_key or api_secret configuration.'
-            '</div>',
+            "Missing api_key or api_secret configuration."
+            "</div>",
             status_code=400,
         )
 
@@ -1460,13 +1472,46 @@ def erpnext_run_import_htmx(
 
         # Build summary HTML
         stats = result.to_dict()
-        total_created = sum(s["created"] for s in [stats["contacts"], stats["customers"], stats["tickets"], stats["projects"], stats["tasks"], stats["leads"], stats["quotes"]])
-        total_updated = sum(s["updated"] for s in [stats["contacts"], stats["customers"], stats["tickets"], stats["projects"], stats["tasks"], stats["leads"], stats["quotes"]])
-        total_errors = sum(s["errors"] for s in [stats["contacts"], stats["customers"], stats["tickets"], stats["projects"], stats["tasks"], stats["leads"], stats["quotes"]])
+        total_created = sum(
+            s["created"]
+            for s in [
+                stats["contacts"],
+                stats["customers"],
+                stats["tickets"],
+                stats["projects"],
+                stats["tasks"],
+                stats["leads"],
+                stats["quotes"],
+            ]
+        )
+        total_updated = sum(
+            s["updated"]
+            for s in [
+                stats["contacts"],
+                stats["customers"],
+                stats["tickets"],
+                stats["projects"],
+                stats["tasks"],
+                stats["leads"],
+                stats["quotes"],
+            ]
+        )
+        total_errors = sum(
+            s["errors"]
+            for s in [
+                stats["contacts"],
+                stats["customers"],
+                stats["tickets"],
+                stats["projects"],
+                stats["tasks"],
+                stats["leads"],
+                stats["quotes"],
+            ]
+        )
 
         status_class = "green" if stats["success"] else "red"
 
-        html = f'''
+        html = f"""
 <div class="rounded-lg border border-{status_class}-200 bg-{status_class}-50 p-4 dark:border-{status_class}-800 dark:bg-{status_class}-900/30">
     <h3 class="text-lg font-medium text-{status_class}-800 dark:text-{status_class}-200 mb-3">
         Import {"Completed" if stats["success"] else "Failed"}
@@ -1508,19 +1553,20 @@ def erpnext_run_import_htmx(
         </table>
     </div>
 </div>
-'''
+"""
         return HTMLResponse(html, status_code=200)
 
     except ERPNextError as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'ERPNext API error: {e.message}'
-            '</div>',
+            f"ERPNext API error: {e.message}"
+            "</div>",
             status_code=502,
         )
 
 
 # ==================== DotMac ERP Sync ====================
+
 
 def _humanize_time_ago(dt_str: str | None) -> str:
     """Convert ISO datetime string to human-readable time ago."""
@@ -1558,29 +1604,21 @@ def dotmac_erp_index(
     from app.models.domain_settings import SettingDomain
     from app.services import settings_spec
     from app.services.dotmac_erp import (
+        get_contact_sync_history,
         get_daily_stats,
         get_inventory_sync_history,
+        get_last_contact_sync,
         get_last_inventory_sync,
         get_last_sync,
         get_sync_history,
     )
 
     # Get configuration
-    enabled = settings_spec.resolve_value(
-        db, SettingDomain.integration, "dotmac_erp_sync_enabled"
-    )
-    base_url = settings_spec.resolve_value(
-        db, SettingDomain.integration, "dotmac_erp_base_url"
-    )
-    token = settings_spec.resolve_value(
-        db, SettingDomain.integration, "dotmac_erp_token"
-    )
-    timeout = settings_spec.resolve_value(
-        db, SettingDomain.integration, "dotmac_erp_timeout_seconds"
-    ) or 30
-    interval = settings_spec.resolve_value(
-        db, SettingDomain.integration, "dotmac_erp_sync_interval_minutes"
-    ) or 60
+    enabled = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_sync_enabled")
+    base_url = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_base_url")
+    token = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_token")
+    timeout = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_timeout_seconds") or 30
+    interval = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_sync_interval_minutes") or 60
 
     # Get outbound sync stats (push to ERP)
     daily_stats = get_daily_stats()
@@ -1590,39 +1628,41 @@ def dotmac_erp_index(
     # Get inventory sync stats (pull from ERP)
     last_inventory_sync = get_last_inventory_sync()
     inventory_history = get_inventory_sync_history(limit=10)
+    last_contact_sync = get_last_contact_sync()
+    contact_history = get_contact_sync_history(limit=10)
 
     # Format last sync times
     last_sync_ago = _humanize_time_ago(last_sync.get("timestamp") if last_sync else None)
-    last_inventory_sync_ago = _humanize_time_ago(
-        last_inventory_sync.get("timestamp") if last_inventory_sync else None
-    )
+    last_inventory_sync_ago = _humanize_time_ago(last_inventory_sync.get("timestamp") if last_inventory_sync else None)
+    last_contact_sync_ago = _humanize_time_ago(last_contact_sync.get("timestamp") if last_contact_sync else None)
 
     # Calculate total today
-    total_today = (
-        daily_stats.get("projects", 0)
-        + daily_stats.get("tickets", 0)
-        + daily_stats.get("work_orders", 0)
-    )
+    total_today = daily_stats.get("projects", 0) + daily_stats.get("tickets", 0) + daily_stats.get("work_orders", 0)
 
     context = _base_context(request, db, active_page="dotmac-erp")
-    context.update({
-        "enabled": bool(enabled),
-        "base_url": base_url or "",
-        "has_token": bool(token),
-        "timeout": timeout,
-        "interval": interval,
-        "daily_stats": daily_stats,
-        "total_today": total_today,
-        "last_sync": last_sync,
-        "last_sync_ago": last_sync_ago,
-        "history": history,
-        "last_inventory_sync": last_inventory_sync,
-        "last_inventory_sync_ago": last_inventory_sync_ago,
-        "inventory_history": inventory_history,
-        "humanize_time_ago": _humanize_time_ago,
-        "settings_saved": bool(saved),
-        "settings_error": error,
-    })
+    context.update(
+        {
+            "enabled": bool(enabled),
+            "base_url": base_url or "",
+            "has_token": bool(token),
+            "timeout": timeout,
+            "interval": interval,
+            "daily_stats": daily_stats,
+            "total_today": total_today,
+            "last_sync": last_sync,
+            "last_sync_ago": last_sync_ago,
+            "history": history,
+            "last_inventory_sync": last_inventory_sync,
+            "last_inventory_sync_ago": last_inventory_sync_ago,
+            "inventory_history": inventory_history,
+            "last_contact_sync": last_contact_sync,
+            "last_contact_sync_ago": last_contact_sync_ago,
+            "contact_history": contact_history,
+            "humanize_time_ago": _humanize_time_ago,
+            "settings_saved": bool(saved),
+            "settings_error": error,
+        }
+    )
     return templates.TemplateResponse("admin/integrations/dotmac_erp.html", context)
 
 
@@ -1732,8 +1772,8 @@ def dotmac_erp_test(request: Request, db: Session = Depends(get_db)):
         if not client:
             return HTMLResponse(
                 '<div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">'
-                'ERP sync is not configured. Please set the base URL and token in Settings.'
-                '</div>',
+                "ERP sync is not configured. Please set the base URL and token in Settings."
+                "</div>",
                 status_code=200,
             )
 
@@ -1743,23 +1783,23 @@ def dotmac_erp_test(request: Request, db: Session = Depends(get_db)):
         if success:
             return HTMLResponse(
                 '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
-                'Connection successful! API is reachable and authenticated.'
-                '</div>',
+                "Connection successful! API is reachable and authenticated."
+                "</div>",
                 status_code=200,
             )
         else:
             return HTMLResponse(
                 '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-                'Connection failed. Please check the base URL and token.'
-                '</div>',
+                "Connection failed. Please check the base URL and token."
+                "</div>",
                 status_code=200,
             )
 
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Connection error: {e!s}'
-            '</div>',
+            f"Connection error: {e!s}"
+            "</div>",
             status_code=200,
         )
 
@@ -1777,8 +1817,8 @@ def dotmac_erp_sync_now(
     if mode not in valid_modes:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Invalid mode. Must be one of: {", ".join(valid_modes)}'
-            '</div>',
+            f"Invalid mode. Must be one of: {', '.join(valid_modes)}"
+            "</div>",
             status_code=400,
         )
 
@@ -1789,17 +1829,17 @@ def dotmac_erp_sync_now(
         mode_label = "recently updated" if mode == "recently_updated" else "all active"
         return HTMLResponse(
             '<div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">'
-            f'Sync started for {mode_label} entities. Task ID: {task.id[:8]}...'
+            f"Sync started for {mode_label} entities. Task ID: {task.id[:8]}..."
             '<br><span class="text-xs">Refresh the page to see results.</span>'
-            '</div>',
+            "</div>",
             status_code=200,
         )
 
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Failed to queue sync task: {e!s}'
-            '</div>',
+            f"Failed to queue sync task: {e!s}"
+            "</div>",
             status_code=500,
         )
 
@@ -1815,16 +1855,41 @@ def dotmac_erp_inventory_sync_now(request: Request, db: Session = Depends(get_db
 
         return HTMLResponse(
             '<div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">'
-            f'Inventory sync started. Task ID: {task.id[:8]}...'
+            f"Inventory sync started. Task ID: {task.id[:8]}..."
             '<br><span class="text-xs">Refresh the page to see results.</span>'
-            '</div>',
+            "</div>",
             status_code=200,
         )
 
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f'Failed to queue inventory sync task: {e!s}'
-            '</div>',
+            f"Failed to queue inventory sync task: {e!s}"
+            "</div>",
+            status_code=500,
+        )
+
+
+@router.post("/dotmac-erp/contacts-sync", response_class=HTMLResponse)
+def dotmac_erp_contacts_sync_now(request: Request, db: Session = Depends(get_db)):
+    """Trigger manual contacts sync from DotMac ERP (HTMX)."""
+    from app.tasks.integrations import sync_dotmac_erp_contacts
+
+    try:
+        task = sync_dotmac_erp_contacts.delay()
+
+        return HTMLResponse(
+            '<div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">'
+            f"Contacts sync started. Task ID: {task.id[:8]}..."
+            '<br><span class="text-xs">Refresh the page to see results.</span>'
+            "</div>",
+            status_code=200,
+        )
+
+    except Exception as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f"Failed to queue contacts sync task: {html_escape(str(e))}"
+            "</div>",
             status_code=500,
         )

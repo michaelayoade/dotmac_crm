@@ -198,9 +198,7 @@ class ChatWidgetConfigManager:
         return db.get(ChatWidgetConfig, coerce_uuid(config_id))
 
     @staticmethod
-    def update(
-        db: Session, config_id: UUID | str, payload: ChatWidgetConfigUpdate
-    ) -> ChatWidgetConfig | None:
+    def update(db: Session, config_id: UUID | str, payload: ChatWidgetConfigUpdate) -> ChatWidgetConfig | None:
         """Update a widget configuration."""
         config = db.get(ChatWidgetConfig, coerce_uuid(config_id))
         if not config:
@@ -221,8 +219,7 @@ class ChatWidgetConfigManager:
         # Handle nested objects
         if "prechat_fields" in update_data and update_data["prechat_fields"] is not None:
             update_data["prechat_fields"] = [
-                f.model_dump() if isinstance(f, PrechatField) else f
-                for f in update_data["prechat_fields"]
+                f.model_dump() if isinstance(f, PrechatField) else f for f in update_data["prechat_fields"]
             ]
 
         if "business_hours" in update_data and update_data["business_hours"] is not None:
@@ -372,11 +369,7 @@ class WidgetVisitorManager:
     @staticmethod
     def get_session_by_token(db: Session, token: str) -> WidgetVisitorSession | None:
         """Get a session by visitor token."""
-        return (
-            db.query(WidgetVisitorSession)
-            .filter(WidgetVisitorSession.visitor_token == token)
-            .first()
-        )
+        return db.query(WidgetVisitorSession).filter(WidgetVisitorSession.visitor_token == token).first()
 
     @staticmethod
     def get_session(db: Session, session_id: UUID | str) -> WidgetVisitorSession | None:
@@ -396,11 +389,7 @@ class WidgetVisitorManager:
         email_normalized = email.strip().lower()
 
         # Find or create person
-        person = (
-            db.query(Person)
-            .filter(func.lower(Person.email) == email_normalized)
-            .first()
-        )
+        person = db.query(Person).filter(func.lower(Person.email) == email_normalized).first()
 
         if not person:
             # Create new person
@@ -421,6 +410,7 @@ class WidgetVisitorManager:
             if not existing_lead:
                 from app.schemas.crm.sales import LeadCreate
                 from app.services.crm import leads as leads_service
+
                 leads_service.create(db=db, payload=LeadCreate(person_id=person.id, title="Website chat"))
                 # Keep new widget visitors as leads; leads_service upgrades to contact by default.
                 person.party_status = PartyStatus.lead
@@ -520,6 +510,7 @@ def receive_widget_message(
     session: WidgetVisitorSession,
     body: str,
     metadata: dict | None = None,
+    trace_id: str | None = None,
 ) -> Message:
     """
     Handle incoming widget message.
@@ -591,7 +582,8 @@ def receive_widget_message(
         is_new_conversation = True
         db.commit()
         logger.info(
-            "widget_conversation_created conversation_id=%s session_id=%s",
+            "widget_conversation_created trace_id=%s conversation_id=%s session_id=%s",
+            trace_id,
             conversation.id,
             session.id,
         )
@@ -636,6 +628,7 @@ def receive_widget_message(
     apply_routing_rules(db, conversation=conversation, message=message)
     broadcast_new_message(message, conversation)
     from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+
     notify_assigned_agent_new_reply(db, conversation, message)
 
     # Build conversation summary
@@ -648,7 +641,8 @@ def receive_widget_message(
     broadcast_conversation_summary(str(conversation.id), summary)
 
     logger.info(
-        "widget_message_received message_id=%s conversation_id=%s session_id=%s",
+        "webchat_message_persisted trace_id=%s message_id=%s conversation_id=%s session_id=%s",
+        trace_id,
         message.id,
         conversation.id,
         session.id,
@@ -662,6 +656,7 @@ def send_widget_message(
     session: WidgetVisitorSession,
     body: str,
     author_id: UUID | str | None = None,
+    trace_id: str | None = None,
 ) -> Message:
     """
     Send a message from agent to widget visitor.
@@ -713,7 +708,8 @@ def send_widget_message(
     broadcast_new_message(message, conversation)
 
     logger.info(
-        "widget_message_sent message_id=%s conversation_id=%s session_id=%s",
+        "webchat_message_sent trace_id=%s message_id=%s conversation_id=%s session_id=%s",
+        trace_id,
         message.id,
         conversation.id,
         session.id,

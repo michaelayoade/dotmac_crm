@@ -46,9 +46,7 @@ def list_items(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = inventory_service.inventory_items.list(
-        db, is_active, search, order_by, order_dir, limit, offset
-    )
+    items = inventory_service.inventory_items.list(db, is_active, search, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -85,16 +83,12 @@ def list_locations(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = inventory_service.inventory_locations.list(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    items = inventory_service.inventory_locations.list(db, is_active, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
 @router.patch("/locations/{location_id}", response_model=InventoryLocationRead)
-def update_location(
-    location_id: str, payload: InventoryLocationUpdate, db: Session = Depends(get_db)
-):
+def update_location(location_id: str, payload: InventoryLocationUpdate, db: Session = Depends(get_db)):
     return inventory_service.inventory_locations.update(db, location_id, payload)
 
 
@@ -131,9 +125,7 @@ def list_stock(
 
 
 @router.patch("/stock/{stock_id}", response_model=InventoryStockRead)
-def update_stock(
-    stock_id: str, payload: InventoryStockUpdate, db: Session = Depends(get_db)
-):
+def update_stock(stock_id: str, payload: InventoryStockUpdate, db: Session = Depends(get_db)):
     return inventory_service.inventory_stocks.update(db, stock_id, payload)
 
 
@@ -167,16 +159,12 @@ def list_reservations(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = inventory_service.reservations.list(
-        db, item_id, work_order_id, status, order_by, order_dir, limit, offset
-    )
+    items = inventory_service.reservations.list(db, item_id, work_order_id, status, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
 @router.patch("/reservations/{reservation_id}", response_model=ReservationRead)
-def update_reservation(
-    reservation_id: str, payload: ReservationUpdate, db: Session = Depends(get_db)
-):
+def update_reservation(reservation_id: str, payload: ReservationUpdate, db: Session = Depends(get_db)):
     return inventory_service.reservations.update(db, reservation_id, payload)
 
 
@@ -201,9 +189,7 @@ def consume_reservation(reservation_id: str, db: Session = Depends(get_db)):
     response_model=WorkOrderMaterialRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_work_order_material(
-    payload: WorkOrderMaterialCreate, db: Session = Depends(get_db)
-):
+def create_work_order_material(payload: WorkOrderMaterialCreate, db: Session = Depends(get_db)):
     return inventory_service.work_order_materials.create(db, payload)
 
 
@@ -225,9 +211,7 @@ def list_work_order_materials(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = inventory_service.work_order_materials.list(
-        db, work_order_id, status, order_by, order_dir, limit, offset
-    )
+    items = inventory_service.work_order_materials.list(db, work_order_id, status, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -235,7 +219,5 @@ def list_work_order_materials(
     "/work-order-materials/{material_id}",
     response_model=WorkOrderMaterialRead,
 )
-def update_work_order_material(
-    material_id: str, payload: WorkOrderMaterialUpdate, db: Session = Depends(get_db)
-):
+def update_work_order_material(material_id: str, payload: WorkOrderMaterialUpdate, db: Session = Depends(get_db)):
     return inventory_service.work_order_materials.update(db, material_id, payload)

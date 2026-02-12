@@ -90,7 +90,6 @@ def _get_redis_client() -> redis.Redis | None:
         return None
 
 
-
 def _ensure_person(db: Session, person_id: str):
     person = db.get(Person, coerce_uuid(person_id))
     if not person:
@@ -104,13 +103,9 @@ class UserCredentials(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "provider" not in fields_set:
-            default_provider = settings_spec.resolve_value(
-                db, SettingDomain.auth, "default_auth_provider"
-            )
+            default_provider = settings_spec.resolve_value(db, SettingDomain.auth, "default_auth_provider")
             if default_provider:
-                data["provider"] = validate_enum(
-                    default_provider, AuthProvider, "provider"
-                )
+                data["provider"] = validate_enum(default_provider, AuthProvider, "provider")
         credential = UserCredential(**data)
         db.add(credential)
         db.commit()
@@ -139,10 +134,7 @@ class UserCredentials(ListResponseMixin):
         if person_id:
             query = query.filter(UserCredential.person_id == coerce_uuid(person_id))
         if provider:
-            query = query.filter(
-                UserCredential.provider
-                == validate_enum(provider, AuthProvider, "provider")
-            )
+            query = query.filter(UserCredential.provider == validate_enum(provider, AuthProvider, "provider"))
         if is_active is None:
             query = query.filter(UserCredential.is_active.is_(True))
         else:
@@ -228,10 +220,7 @@ class MFAMethods(ListResponseMixin):
         if person_id:
             query = query.filter(MFAMethod.person_id == coerce_uuid(person_id))
         if method_type:
-            query = query.filter(
-                MFAMethod.method_type
-                == validate_enum(method_type, MFAMethodType, "method_type")
-            )
+            query = query.filter(MFAMethod.method_type == validate_enum(method_type, MFAMethodType, "method_type"))
         if is_primary is not None:
             query = query.filter(MFAMethod.is_primary == is_primary)
         if enabled is not None:
@@ -298,13 +287,9 @@ class Sessions(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
-            default_status = settings_spec.resolve_value(
-                db, SettingDomain.auth, "default_session_status"
-            )
+            default_status = settings_spec.resolve_value(db, SettingDomain.auth, "default_session_status")
             if default_status:
-                data["status"] = validate_enum(
-                    default_status, SessionStatus, "status"
-                )
+                data["status"] = validate_enum(default_status, SessionStatus, "status")
         session = AuthSession(**data)
         db.add(session)
         db.commit()
@@ -332,10 +317,7 @@ class Sessions(ListResponseMixin):
         if person_id:
             query = query.filter(AuthSession.person_id == coerce_uuid(person_id))
         if status:
-            query = query.filter(
-                AuthSession.status
-                == validate_enum(status, SessionStatus, "status")
-            )
+            query = query.filter(AuthSession.status == validate_enum(status, SessionStatus, "status"))
         query = apply_ordering(
             query,
             order_by,
@@ -374,15 +356,11 @@ class Sessions(ListResponseMixin):
 
 class ApiKeys(ListResponseMixin):
     @staticmethod
-    def generate_with_rate_limit(
-        db: Session, payload: ApiKeyGenerateRequest, request: Request | None
-    ):
+    def generate_with_rate_limit(db: Session, payload: ApiKeyGenerateRequest, request: Request | None):
         client_ip = "unknown"
         if request is not None and request.client:
             client_ip = request.client.host
-        window_seconds = _auth_int_setting(
-            db, "api_key_rate_window_seconds", _API_KEY_WINDOW_SECONDS
-        )
+        window_seconds = _auth_int_setting(db, "api_key_rate_window_seconds", _API_KEY_WINDOW_SECONDS)
         max_per_window = _auth_int_setting(db, "api_key_rate_max", _API_KEY_MAX_PER_WINDOW)
         redis_client = _get_redis_client()
         if not redis_client:

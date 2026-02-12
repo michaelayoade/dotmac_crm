@@ -26,15 +26,11 @@ router = APIRouter(prefix="/comms", tags=["comms"])
     response_model=CustomerNotificationRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_customer_notification(
-    payload: CustomerNotificationCreate, db: Session = Depends(get_db)
-):
+def create_customer_notification(payload: CustomerNotificationCreate, db: Session = Depends(get_db)):
     return comms_service.customer_notifications.create(db, payload)
 
 
-@router.get(
-    "/customer-notifications/{event_id}", response_model=CustomerNotificationRead
-)
+@router.get("/customer-notifications/{event_id}", response_model=CustomerNotificationRead)
 def get_customer_notification(event_id: str, db: Session = Depends(get_db)):
     return comms_service.customer_notifications.get(db, event_id)
 
@@ -63,9 +59,7 @@ def list_customer_notifications(
     "/customer-notifications/{event_id}",
     response_model=CustomerNotificationRead,
 )
-def update_customer_notification(
-    event_id: str, payload: CustomerNotificationUpdate, db: Session = Depends(get_db)
-):
+def update_customer_notification(event_id: str, payload: CustomerNotificationUpdate, db: Session = Depends(get_db)):
     return comms_service.customer_notifications.update(db, event_id, payload)
 
 
@@ -92,9 +86,7 @@ def list_eta_updates(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = comms_service.eta_updates.list(
-        db, work_order_id, order_by, order_dir, limit, offset
-    )
+    items = comms_service.eta_updates.list(db, work_order_id, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -136,9 +128,7 @@ def delete_survey(survey_id: str, db: Session = Depends(get_db)):
     response_model=SurveyResponseRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_survey_response(
-    payload: SurveyResponseCreate, db: Session = Depends(get_db)
-):
+def create_survey_response(payload: SurveyResponseCreate, db: Session = Depends(get_db)):
     return comms_service.survey_responses.create(db, payload)
 
 

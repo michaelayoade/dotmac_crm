@@ -1,4 +1,5 @@
 """Subscriber API endpoints."""
+
 import math
 from uuid import UUID
 
@@ -148,6 +149,7 @@ def link_subscriber_to_organization(
 # Sync Endpoints (for external billing system integration)
 # ============================================================================
 
+
 @router.post("/sync", response_model=dict)
 def sync_subscribers(
     data: SubscriberBulkSync,
@@ -166,9 +168,7 @@ def sync_subscribers(
 
     for sub_data in data.subscribers:
         try:
-            existing = subscriber_service.get_by_external_id(
-                db, data.external_system, sub_data.external_id
-            )
+            existing = subscriber_service.get_by_external_id(db, data.external_system, sub_data.external_id)
 
             sync_data = sub_data.model_dump(
                 exclude={"person_email", "person_phone"},
@@ -189,10 +189,12 @@ def sync_subscribers(
 
         except Exception as e:
             db.rollback()
-            errors.append({
-                "external_id": sub_data.external_id,
-                "error": str(e),
-            })
+            errors.append(
+                {
+                    "external_id": sub_data.external_id,
+                    "error": str(e),
+                }
+            )
 
     return {
         "created": created,

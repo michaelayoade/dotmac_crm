@@ -86,9 +86,7 @@ class WorkLogs(ListResponseMixin):
             query = query.filter(WorkLog.is_active.is_(True))
         else:
             query = query.filter(WorkLog.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": WorkLog.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": WorkLog.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -127,9 +125,7 @@ class ExpenseLines(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "currency" not in fields_set:
-            default_currency = settings_spec.resolve_value(
-                db, SettingDomain.billing, "default_currency"
-            )
+            default_currency = settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
             if default_currency:
                 data["currency"] = default_currency
         line = ExpenseLine(**data)
@@ -165,9 +161,7 @@ class ExpenseLines(ListResponseMixin):
             query = query.filter(ExpenseLine.is_active.is_(True))
         else:
             query = query.filter(ExpenseLine.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": ExpenseLine.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": ExpenseLine.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -231,9 +225,7 @@ class CostRates(ListResponseMixin):
             query = query.filter(CostRate.is_active.is_(True))
         else:
             query = query.filter(CostRate.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": CostRate.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": CostRate.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -265,9 +257,7 @@ class BillingRates(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "currency" not in fields_set:
-            default_currency = settings_spec.resolve_value(
-                db, SettingDomain.billing, "default_currency"
-            )
+            default_currency = settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
             if default_currency:
                 data["currency"] = default_currency
         rate = BillingRate(**data)
@@ -297,9 +287,7 @@ class BillingRates(ListResponseMixin):
             query = query.filter(BillingRate.is_active.is_(True))
         else:
             query = query.filter(BillingRate.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": BillingRate.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": BillingRate.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -341,12 +329,7 @@ def _resolve_rate(db: Session, person_id: str, at_time) -> Decimal:
 def work_order_cost_summary(db: Session, work_order_id: str) -> dict:
     work_order_uuid = coerce_uuid(work_order_id)
     _ensure_work_order(db, work_order_id)
-    logs = (
-        db.query(WorkLog)
-        .filter(WorkLog.work_order_id == work_order_uuid)
-        .filter(WorkLog.is_active.is_(True))
-        .all()
-    )
+    logs = db.query(WorkLog).filter(WorkLog.work_order_id == work_order_uuid).filter(WorkLog.is_active.is_(True)).all()
     labor = Decimal("0.00")
     for log in logs:
         rate = log.hourly_rate or _resolve_rate(db, str(log.person_id), log.start_at)
@@ -370,27 +353,15 @@ def work_order_cost_summary(db: Session, work_order_id: str) -> dict:
 def project_cost_summary(db: Session, project_id: str) -> dict:
     project_uuid = coerce_uuid(project_id)
     _ensure_project(db, project_id)
-    work_orders = (
-        db.query(WorkOrder)
-        .filter(WorkOrder.project_id == project_uuid)
-        .all()
-    )
+    work_orders = db.query(WorkOrder).filter(WorkOrder.project_id == project_uuid).all()
     labor = Decimal("0.00")
     for order in work_orders:
-        logs = (
-            db.query(WorkLog)
-            .filter(WorkLog.work_order_id == order.id)
-            .filter(WorkLog.is_active.is_(True))
-            .all()
-        )
+        logs = db.query(WorkLog).filter(WorkLog.work_order_id == order.id).filter(WorkLog.is_active.is_(True)).all()
         for log in logs:
             rate = log.hourly_rate or _resolve_rate(db, str(log.person_id), log.start_at)
             labor += (Decimal(log.minutes) / Decimal("60.0")) * rate
     expenses = (
-        db.query(ExpenseLine)
-        .filter(ExpenseLine.project_id == project_id)
-        .filter(ExpenseLine.is_active.is_(True))
-        .all()
+        db.query(ExpenseLine).filter(ExpenseLine.project_id == project_id).filter(ExpenseLine.is_active.is_(True)).all()
     )
     expense_total = sum((line.amount for line in expenses), Decimal("0.00"))
     total = labor + expense_total

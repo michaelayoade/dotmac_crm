@@ -148,20 +148,24 @@ class TestHasAuditScope:
 
     def test_no_audit_scope_or_role(self):
         """Test without audit scope or role."""
-        result = auth_dependencies._has_audit_scope({
-            "scope": "read write",
-            "scopes": ["basic"],
-            "role": "user",
-            "roles": ["viewer"],
-        })
+        result = auth_dependencies._has_audit_scope(
+            {
+                "scope": "read write",
+                "scopes": ["basic"],
+                "role": "user",
+                "roles": ["viewer"],
+            }
+        )
         assert result is False
 
     def test_mixed_scope_and_role(self):
         """Test with both scope and role fields."""
-        result = auth_dependencies._has_audit_scope({
-            "scope": "basic",
-            "roles": ["admin"],  # admin role grants access
-        })
+        result = auth_dependencies._has_audit_scope(
+            {
+                "scope": "basic",
+                "roles": ["admin"],  # admin role grants access
+            }
+        )
         assert result is True
 
 

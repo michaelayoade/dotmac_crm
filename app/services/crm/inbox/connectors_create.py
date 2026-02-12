@@ -16,11 +16,7 @@ def _ensure_unique_connector_name(
     connector_type: ConnectorType,
 ) -> str:
     """Ensure a unique connector name, reusing if same type exists."""
-    existing = (
-        db.query(ConnectorConfig)
-        .filter(ConnectorConfig.name == name)
-        .first()
-    )
+    existing = db.query(ConnectorConfig).filter(ConnectorConfig.name == name).first()
     if not existing:
         return name
     if existing.connector_type == connector_type:
@@ -28,12 +24,7 @@ def _ensure_unique_connector_name(
     base = f"{name} ({connector_type.value.title()})"
     candidate = base
     idx = 2
-    while (
-        db.query(ConnectorConfig)
-        .filter(ConnectorConfig.name == candidate)
-        .first()
-        is not None
-    ):
+    while db.query(ConnectorConfig).filter(ConnectorConfig.name == candidate).first() is not None:
         candidate = f"{base} {idx}"
         idx += 1
     return candidate
@@ -129,6 +120,7 @@ def create_whatsapp_connector_target(
     db: Session,
     name: str,
     phone_number_id: str | None = None,
+    business_account_id: str | None = None,
     auth_config: dict | None = None,
     base_url: str | None = None,
     metadata: dict | None = None,
@@ -149,6 +141,8 @@ def create_whatsapp_connector_target(
     merged_metadata = dict(metadata or {})
     if phone_number_id:
         merged_metadata["phone_number_id"] = phone_number_id
+    if business_account_id:
+        merged_metadata["business_account_id"] = business_account_id
     config = (
         db.query(ConnectorConfig)
         .filter(ConnectorConfig.name == name)
@@ -170,6 +164,8 @@ def create_whatsapp_connector_target(
         merged = dict(config.metadata_ or {})
         if phone_number_id:
             merged["phone_number_id"] = phone_number_id
+        if business_account_id:
+            merged["business_account_id"] = business_account_id
         if metadata:
             merged.update(metadata)
         if merged:

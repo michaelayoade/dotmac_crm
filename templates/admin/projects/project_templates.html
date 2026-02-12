@@ -2,6 +2,7 @@
 
 {% block title %}Project Templates - Admin{% endblock %}
 
+{% from "components/ui/macros.html" import table_shell, table_row, empty_state %}
 {% block content %}
 <div class="space-y-6">
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -15,49 +16,50 @@
         </a>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/60">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Template</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project Type</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    {% if templates %}
-                    {% for template in templates %}
-                    <tr class="hover:bg-slate-100 dark:hover:!bg-slate-700/50">
-                        <td class="px-6 py-4 text-sm text-slate-900 dark:text-white">
-                            <p class="font-medium">{{ template.name }}</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">{{ template.id|string|truncate(8, True, '') }}</p>
-                        </td>
-                        <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
-                            {% if template.project_type %}
-                                {% if template.project_type.value is defined %}
-                                    {{ template.project_type.value | replace('_', ' ') | title }}
-                                {% else %}
-                                    {{ template.project_type | replace('_', ' ') | title }}
-                                {% endif %}
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="project-templates-table", color="primary") %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Template</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project Type</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% if templates %}
+                {% for template in templates %}
+                {% call table_row(color="primary") %}
+                    <td class="{{ pad }} text-sm text-slate-900 dark:text-white">
+                        <p class="font-medium">{{ template.name }}</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ template.id|string|truncate(8, True, '') }}</p>
+                    </td>
+                    <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">
+                        {% if template.project_type %}
+                            {% if template.project_type.value is defined %}
+                                {{ template.project_type.value | replace('_', ' ') | title }}
                             {% else %}
-                                —
+                                {{ template.project_type | replace('_', ' ') | title }}
                             {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-right text-sm">
-                            <a href="/admin/projects/templates/{{ template.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
-                            <a href="/admin/projects/templates/{{ template.id }}/edit" class="ml-3 text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% else %}
-                    {% set title = "No templates yet" %}
-                    {% set message = "Create a template to auto-generate project tasks." %}
-                    {% include "components/data/empty_state.html" %}
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} text-right text-sm">
+                        <a href="/admin/projects/templates/{{ template.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
+                        <a href="/admin/projects/templates/{{ template.id }}/edit" class="ml-3 text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
+                    </td>
+                {% endcall %}
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="3" class="px-6 py-12">
+                        {{ empty_state("No templates yet", "Create a template to auto-generate project tasks.") }}
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    {% endcall %}
 </div>
 {% endblock %}

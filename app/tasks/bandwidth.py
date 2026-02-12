@@ -4,6 +4,7 @@ Celery tasks for bandwidth data processing.
 These tasks consume the Redis stream produced by the poller service,
 insert samples into PostgreSQL, and push aggregates to VictoriaMetrics.
 """
+
 import asyncio
 import logging
 import os
@@ -143,13 +144,15 @@ def process_bandwidth_stream():
 
             try:
                 sample_at = datetime.fromisoformat(data[b"sample_at"].decode())
-                samples.append(BandwidthSample(
-                    subscription_id=UUID(data[b"subscription_id"].decode()),
-                    device_id=UUID(data[b"nas_device_id"].decode()) if data.get(b"nas_device_id") else None,
-                    rx_bps=int(data[b"rx_bps"]),
-                    tx_bps=int(data[b"tx_bps"]),
-                    sample_at=sample_at,
-                ))
+                samples.append(
+                    BandwidthSample(
+                        subscription_id=UUID(data[b"subscription_id"].decode()),
+                        device_id=UUID(data[b"nas_device_id"].decode()) if data.get(b"nas_device_id") else None,
+                        rx_bps=int(data[b"rx_bps"]),
+                        tx_bps=int(data[b"tx_bps"]),
+                        sample_at=sample_at,
+                    )
+                )
             except Exception as e:
                 logger.error(f"Failed to parse sample {msg_id}: {e}")
 
@@ -187,9 +190,7 @@ def cleanup_hot_data():
     cutoff = datetime.now(UTC) - timedelta(hours=retention_hours)
 
     try:
-        result = db.execute(
-            delete(BandwidthSample).where(BandwidthSample.sample_at < cutoff)
-        )
+        result = db.execute(delete(BandwidthSample).where(BandwidthSample.sample_at < cutoff))
         deleted = result.rowcount
         db.commit()
 
@@ -316,13 +317,19 @@ def bulk_insert_samples(
 
     objects = []
     for s in samples:
-        objects.append(BandwidthSample(
-            subscription_id=UUID(s["subscription_id"]) if isinstance(s["subscription_id"], str) else s["subscription_id"],
-            device_id=UUID(s["device_id"]) if s.get("device_id") and isinstance(s["device_id"], str) else s.get("device_id"),
-            rx_bps=int(s["rx_bps"]),
-            tx_bps=int(s["tx_bps"]),
-            sample_at=s["sample_at"],
-        ))
+        objects.append(
+            BandwidthSample(
+                subscription_id=UUID(s["subscription_id"])
+                if isinstance(s["subscription_id"], str)
+                else s["subscription_id"],
+                device_id=UUID(s["device_id"])
+                if s.get("device_id") and isinstance(s["device_id"], str)
+                else s.get("device_id"),
+                rx_bps=int(s["rx_bps"]),
+                tx_bps=int(s["tx_bps"]),
+                sample_at=s["sample_at"],
+            )
+        )
 
     db.bulk_save_objects(objects)
     db.commit()

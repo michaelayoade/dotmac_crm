@@ -136,6 +136,7 @@ class FakeGenieACSClient:
         self.calls.append(("get_device", {"device_id": device_id}))
         if self.should_fail:
             from app.services.genieacs import GenieACSError
+
             raise GenieACSError("Device not found")
         return {
             "DeviceId": device_id,

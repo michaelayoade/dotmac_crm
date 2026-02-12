@@ -1,19 +1,13 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, submit_button %}
+{% from "components/ui/macros.html" import page_header, danger_button, submit_button, action_button %}
 {% block title %}{{ form_title }} - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ form_title }}</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage role details and access level</p>
-        </div>
-        <a href="/admin/system/roles" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
-            Back to Roles
-        </a>
-    </div>
+    {% call page_header(form_title, "Manage role details and access level", color="indigo", color2="violet", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "/admin/system/roles", "label": "Roles"}, {"href": "", "label": ("Edit" if role else "New")}]) %}
+        {{ action_button("Back to Roles", "/admin/system/roles", variant="secondary", color="indigo") }}
+    {% endcall %}
 
     {% if error %}
     <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200">
@@ -21,22 +15,22 @@
     </div>
     {% endif %}
 
-    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div class="animate-fade-in-up overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 75ms">
         <form method="post" action="{{ action_url }}" class="space-y-6 p-6">
             <div>
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Role Name</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Role Name</label>
                 <input type="text" name="name" required
                        value="{{ role.name if role else '' }}"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div>
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Description</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Description</label>
                 <textarea name="description" rows="4"
-                          class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ role.description if role and role.description else '' }}</textarea>
+                          class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">{{ role.description if role and role.description else '' }}</textarea>
             </div>
             {% if permissions is defined %}
             <div>
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Permissions</label>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Permissions</label>
                 <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800">
                     <div class="flex-1">
                         <label class="sr-only" for="permission_search">Search permissions</label>
@@ -112,7 +106,7 @@
                                data-entity="{{ entity or '' }}">
                             <input type="checkbox" name="permission_ids" value="{{ permission_id }}"
                                    {% if selected_permission_ids and permission_id in selected_permission_ids %}checked{% endif %}
-                                   class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                   class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                             <span class="flex-1 min-w-0">
                                 <span class="flex items-center gap-2">
                                     <span class="font-medium text-slate-800 dark:text-slate-100">{{ action }}</span>
@@ -132,12 +126,12 @@
             <div class="flex items-center gap-2">
                 <input type="checkbox" name="is_active" id="is_active"
                        {% if role is none or role.is_active %}checked{% endif %}
-                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                       class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                 <label for="is_active" class="text-sm text-slate-700 dark:text-slate-300">Active</label>
             </div>
             <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
                 <a href="/admin/system/roles"
-                   class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">
+                   class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 transition-colors">
                     Cancel
                 </a>
                 {{ submit_button((submit_label), loading_label="Submitting...") }}

@@ -38,15 +38,11 @@ class TransitionCheck:
     reason: str | None = None
 
 
-def is_transition_allowed(
-    current: ConversationStatus, target: ConversationStatus
-) -> bool:
+def is_transition_allowed(current: ConversationStatus, target: ConversationStatus) -> bool:
     return target in _ALLOWED_TRANSITIONS.get(current, set())
 
 
-def validate_transition(
-    current: ConversationStatus, target: ConversationStatus
-) -> TransitionCheck:
+def validate_transition(current: ConversationStatus, target: ConversationStatus) -> TransitionCheck:
     if is_transition_allowed(current, target):
         return TransitionCheck(allowed=True)
     return TransitionCheck(

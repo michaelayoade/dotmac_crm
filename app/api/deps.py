@@ -28,30 +28,35 @@ def get_current_user(auth=Depends(require_user_auth)):
 def get_ticket_service():
     """Get ticket service from container."""
     from app.container import container
+
     return container.ticket_service()
 
 
 def get_ticket_comments_service():
     """Get ticket comments service from container."""
     from app.container import container
+
     return container.ticket_comments_service()
 
 
 def get_work_orders_service():
     """Get work orders service from container."""
     from app.container import container
+
     return container.work_orders_service()
 
 
 def get_projects_service():
     """Get projects service from container."""
     from app.container import container
+
     return container.projects_service()
 
 
 def get_project_tasks_service():
     """Get project tasks service from container."""
     from app.container import container
+
     return container.project_tasks_service()
 
 
@@ -59,18 +64,21 @@ def get_project_tasks_service():
 def get_ticket_query(db: Session = Depends(get_db)):
     """Get a TicketQuery builder with injected session."""
     from app.queries.tickets import TicketQuery
+
     return TicketQuery(db)
 
 
 def get_work_order_query(db: Session = Depends(get_db)):
     """Get a WorkOrderQuery builder with injected session."""
     from app.queries.workforce import WorkOrderQuery
+
     return WorkOrderQuery(db)
 
 
 def get_project_query(db: Session = Depends(get_db)):
     """Get a ProjectQuery builder with injected session."""
     from app.queries.projects import ProjectQuery
+
     return ProjectQuery(db)
 
 

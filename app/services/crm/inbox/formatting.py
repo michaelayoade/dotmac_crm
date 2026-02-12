@@ -215,9 +215,7 @@ def format_conversation_for_template(
     channel_target_id = None
     if latest_message:
         channel_type = (
-            latest_message.get("channel_type")
-            if isinstance(latest_message, dict)
-            else latest_message.channel_type
+            latest_message.get("channel_type") if isinstance(latest_message, dict) else latest_message.channel_type
         )
         if channel_type:
             channel = channel_type.value
@@ -243,11 +241,10 @@ def format_conversation_for_template(
                 if agent.person_id:
                     person = db.get(Person, agent.person_id)
                     if person:
-                        full_name = person.display_name or " ".join(
-                            part
-                            for part in [person.first_name, person.last_name]
-                            if part
-                        ).strip()
+                        full_name = (
+                            person.display_name
+                            or " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+                        )
                         assigned_to = {
                             "name": full_name or "Agent",
                             "initials": get_initials(full_name or "Agent"),
@@ -277,14 +274,32 @@ def format_conversation_for_template(
             has_attachments = bool(latest_message.get("has_attachments"))
         else:
             body = latest_message.body
-            metadata = (
-                latest_message.metadata_ if isinstance(latest_message.metadata_, dict) else None
-            )
+            metadata = latest_message.metadata_ if isinstance(latest_message.metadata_, dict) else None
             message_type = metadata.get("type") if metadata else None
             has_attachments = bool(getattr(latest_message, "attachments", None))
 
         body_text = body.strip() if isinstance(body, str) else ""
-        if body_text in {"[reaction message]", "[location message]"}:
+        is_document_placeholder = body_text == "[document message]"
+        attachment_name = None
+        if isinstance(metadata, dict):
+            meta_attachments = metadata.get("attachments")
+            if isinstance(meta_attachments, list):
+                for meta_attachment in meta_attachments:
+                    if not isinstance(meta_attachment, dict):
+                        continue
+                    payload_value = meta_attachment.get("payload")
+                    payload = payload_value if isinstance(payload_value, dict) else {}
+                    file_name = (
+                        meta_attachment.get("file_name")
+                        or payload.get("file_name")
+                        or payload.get("filename")
+                        or payload.get("name")
+                    )
+                    if isinstance(file_name, str) and file_name.strip():
+                        attachment_name = file_name.strip()
+                        break
+
+        if body_text in {"[reaction message]", "[location message]", "[document message]"}:
             body_text = ""
         message_type_value = message_type.lower() if isinstance(message_type, str) else None
 
@@ -346,6 +361,8 @@ def format_conversation_for_template(
                 preview = f"Reaction {reaction_emoji.strip()}"
             else:
                 preview = "Reaction received"
+        elif is_document_placeholder:
+            preview = f"Document: {attachment_name}" if attachment_name else "Document attached"
         elif has_attachments:
             preview = "Attachment (Image/File)"
         elif body_text:
@@ -356,11 +373,7 @@ def format_conversation_for_template(
     if isinstance(latest_message, dict):
         latest_message_at = latest_message.get("last_message_at")
     elif latest_message:
-        latest_message_at = (
-            latest_message.received_at
-            or latest_message.sent_at
-            or latest_message.created_at
-        )
+        latest_message_at = latest_message.received_at or latest_message.sent_at or latest_message.created_at
 
     inbox_label = None
     if include_inbox_label and channel_target_id:
@@ -441,9 +454,10 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         if msg.author_id:
             person = db.get(Person, msg.author_id)
             if person:
-                full_name = person.display_name or " ".join(
-                    part for part in [person.first_name, person.last_name] if part
-                ).strip()
+                full_name = (
+                    person.display_name
+                    or " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+                )
                 sender_name = full_name or "Internal Note"
                 sender_initials = get_initials(sender_name)
             else:
@@ -456,9 +470,10 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         if msg.author_id:
             person = db.get(Person, msg.author_id)
             if person:
-                full_name = person.display_name or " ".join(
-                    part for part in [person.first_name, person.last_name] if part
-                ).strip()
+                full_name = (
+                    person.display_name
+                    or " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+                )
                 sender_name = full_name or "Agent"
                 sender_initials = get_initials(sender_name)
         else:
@@ -486,14 +501,28 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
                 "file_size": attachment.file_size,
                 "url": url,
                 "content_id": content_id,
-                "is_image": bool(
-                    attachment.mime_type and attachment.mime_type.startswith("image/")
-                ),
+                "is_image": bool(attachment.mime_type and attachment.mime_type.startswith("image/")),
             }
         )
 
     metadata = msg.metadata_ or {}
     meta_attachments = metadata.get("attachments") if isinstance(metadata, dict) else None
+    attachment_name = None
+    if isinstance(meta_attachments, list):
+        for meta_attachment in meta_attachments:
+            if not isinstance(meta_attachment, dict):
+                continue
+            payload_value = meta_attachment.get("payload")
+            payload_data = payload_value if isinstance(payload_value, dict) else {}
+            file_name = (
+                meta_attachment.get("file_name")
+                or payload_data.get("file_name")
+                or payload_data.get("filename")
+                or payload_data.get("name")
+            )
+            if isinstance(file_name, str) and file_name.strip():
+                attachment_name = file_name.strip()
+                break
     attachment_caption = None
     if isinstance(meta_attachments, list):
         for idx, meta_attachment in enumerate(meta_attachments):
@@ -505,17 +534,10 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
                 caption = payload.get("caption")
                 if isinstance(caption, str) and caption.strip():
                     attachment_caption = caption.strip()
-            attachment_id = (
-                payload.get("attachment_id")
-                or payload.get("id")
-                or meta_attachment.get("id")
-            )
+            attachment_id = payload.get("attachment_id") or payload.get("id") or meta_attachment.get("id")
             url = payload.get("url") or meta_attachment.get("url")
             attachment_type = (
-                meta_attachment.get("type")
-                or payload.get("content_type")
-                or payload.get("mime_type")
-                or ""
+                meta_attachment.get("type") or payload.get("content_type") or payload.get("mime_type") or ""
             )
             is_image = attachment_type == "image" or str(attachment_type).startswith("image/")
             if not url and attachment_id:
@@ -544,8 +566,12 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         and content.strip().endswith("message]")
     ):
         content = attachment_caption or ""
-    if content.strip() in {"[reaction message]", "[location message]"}:
+    content_is_document_placeholder = content.strip() == "[document message]"
+    if content.strip() in {"[reaction message]", "[location message]", "[document message]"}:
         content = ""
+
+    if not content.strip() and content_is_document_placeholder and not (attachments or meta_attachments):
+        content = f"Document: {attachment_name}" if attachment_name else "Document attached"
 
     if not content.strip() and isinstance(metadata, dict):
         meta_type = metadata.get("type")
@@ -561,19 +587,11 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
             else:
                 content = "Reaction received"
         elif meta_type_value == "location":
-            loc_label = (
-                metadata.get("label")
-                or metadata.get("name")
-                or metadata.get("address")
-            )
+            loc_label = metadata.get("label") or metadata.get("name") or metadata.get("address")
             if not loc_label:
                 loc = metadata.get("location")
                 if isinstance(loc, dict):
-                    loc_label = (
-                        loc.get("label")
-                        or loc.get("name")
-                        or loc.get("address")
-                    )
+                    loc_label = loc.get("label") or loc.get("name") or loc.get("address")
             if loc_label:
                 content = f"📍 {loc_label}"
             else:
@@ -628,9 +646,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
                         reply_author = (
                             reply_person.display_name
                             or " ".join(
-                                part
-                                for part in [reply_person.first_name, reply_person.last_name]
-                                if part
+                                part for part in [reply_person.first_name, reply_person.last_name] if part
                             ).strip()
                             or "Agent"
                         )
@@ -695,18 +711,10 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
 
     tags = contact_service.get_contact_tags(db, resolved_person_id)
 
-    recent_tickets = contact_service.get_contact_recent_tickets(
-        db, resolved_person_id, subscriber_ids=None, limit=3
-    )
-    recent_projects = contact_service.get_contact_recent_projects(
-        db, resolved_person_id, subscriber_ids=None, limit=3
-    )
-    recent_tasks = contact_service.get_contact_recent_tasks(
-        db, resolved_person_id, subscriber_ids=None, limit=3
-    )
-    conversations_summary = contact_service.get_contact_conversations_summary(
-        db, resolved_person_id, limit=5
-    )
+    recent_tickets = contact_service.get_contact_recent_tickets(db, resolved_person_id, subscriber_ids=None, limit=3)
+    recent_projects = contact_service.get_contact_recent_projects(db, resolved_person_id, subscriber_ids=None, limit=3)
+    recent_tasks = contact_service.get_contact_recent_tasks(db, resolved_person_id, subscriber_ids=None, limit=3)
+    conversations_summary = contact_service.get_contact_conversations_summary(db, resolved_person_id, limit=5)
 
     recent_conversations = []
     recent_convs = contact_service.get_contact_recent_conversations(db, resolved_person_id, limit=5)
@@ -721,10 +729,8 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
         recent_conversations.append(
             {
                 "id": str(conv.id),
-                "subject": conv_payload.get("subject")
-                or f"Conversation {str(conv.id)[:8]}",
-                "status": conv_payload.get("status")
-                or (conv.status.value if conv.status else "open"),
+                "subject": conv_payload.get("subject") or f"Conversation {str(conv.id)[:8]}",
+                "status": conv_payload.get("status") or (conv.status.value if conv.status else "open"),
                 "updated_at": last_message_at.strftime("%Y-%m-%d %H:%M") if last_message_at else "N/A",
                 "preview": conv_payload.get("preview") or "No messages yet",
                 "channel": conv_payload.get("channel"),

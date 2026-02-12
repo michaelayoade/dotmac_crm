@@ -35,24 +35,31 @@ def vendor_projects_available(request: Request, db: Session = Depends(get_db)):
 def vendor_projects_mine(request: Request, db: Session = Depends(get_db)):
     return web_vendor_routes_service.vendor_projects_mine(request, db)
 
+
 @router.get("/fiber-map", response_class=HTMLResponse)
 def vendor_fiber_map(request: Request, db: Session = Depends(get_db)):
     return web_vendor_routes_service.vendor_fiber_map(request, db)
+
 
 @router.post("/fiber-map/update-position")
 async def vendor_fiber_map_update_position(request: Request, db: Session = Depends(get_db)):
     return await web_vendor_routes_service.vendor_fiber_map_update_position(request, db)
 
+
 @router.get("/fiber-map/nearest-cabinet")
 async def vendor_fiber_map_nearest_cabinet(request: Request, lat: float, lng: float, db: Session = Depends(get_db)):
     return await web_vendor_routes_service.vendor_fiber_map_nearest_cabinet(request, lat, lng, db)
+
 
 @router.get("/fiber-map/plan-options")
 async def vendor_fiber_map_plan_options(request: Request, lat: float, lng: float, db: Session = Depends(get_db)):
     return await web_vendor_routes_service.vendor_fiber_map_plan_options(request, lat, lng, db)
 
+
 @router.get("/fiber-map/route")
-async def vendor_fiber_map_route(request: Request, lat: float, lng: float, cabinet_id: str, db: Session = Depends(get_db)):
+async def vendor_fiber_map_route(
+    request: Request, lat: float, lng: float, cabinet_id: str, db: Session = Depends(get_db)
+):
     return await web_vendor_routes_service.vendor_fiber_map_route(request, lat, lng, cabinet_id, db)
 
 

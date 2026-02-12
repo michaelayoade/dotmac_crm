@@ -12,6 +12,7 @@ class ContactBase(BaseModel):
     first_name: str = Field(min_length=1, max_length=80)
     last_name: str = Field(min_length=1, max_length=80)
     display_name: str | None = Field(default=None, max_length=160)
+    splynx_id: str | None = Field(default=None, max_length=100)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=40)
     address_line1: str | None = Field(default=None, max_length=120)
@@ -35,6 +36,7 @@ class ContactUpdate(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=80)
     last_name: str | None = Field(default=None, min_length=1, max_length=80)
     display_name: str | None = Field(default=None, max_length=160)
+    splynx_id: str | None = Field(default=None, max_length=100)
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=40)
     address_line1: str | None = Field(default=None, max_length=120)

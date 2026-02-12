@@ -70,9 +70,7 @@ def list_agents(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crm_service.agents.list_response(
-        db, person_id, is_active, order_by, order_dir, limit, offset
-    )
+    return crm_service.agents.list_response(db, person_id, is_active, order_by, order_dir, limit, offset)
 
 
 @router.patch("/agents/{agent_id}", response_model=AgentRead)
@@ -85,9 +83,7 @@ def update_agent(agent_id: str, payload: AgentUpdate, db: Session = Depends(get_
     response_model=AgentTeamRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_agent_team(
-    agent_id: str, payload: AgentTeamCreate, db: Session = Depends(get_db)
-):
+def create_agent_team(agent_id: str, payload: AgentTeamCreate, db: Session = Depends(get_db)):
     data = payload.model_copy(update={"agent_id": agent_id})
     return crm_service.agent_teams.create(db, data)
 
@@ -97,9 +93,7 @@ def create_agent_team(
     response_model=TeamChannelRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_team_channel(
-    team_id: str, payload: TeamChannelCreate, db: Session = Depends(get_db)
-):
+def create_team_channel(team_id: str, payload: TeamChannelCreate, db: Session = Depends(get_db)):
     data = payload.model_copy(update={"team_id": team_id})
     return crm_service.team_channels.create(db, data)
 
@@ -114,9 +108,7 @@ def list_team_channels(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crm_service.team_channels.list_response(
-        db, team_id, channel_type, order_by, order_dir, limit, offset
-    )
+    return crm_service.team_channels.list_response(db, team_id, channel_type, order_by, order_dir, limit, offset)
 
 
 @router.post(
@@ -124,9 +116,7 @@ def list_team_channels(
     response_model=RoutingRuleRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_routing_rule(
-    team_id: str, payload: RoutingRuleCreate, db: Session = Depends(get_db)
-):
+def create_routing_rule(team_id: str, payload: RoutingRuleCreate, db: Session = Depends(get_db)):
     data = payload.model_copy(update={"team_id": team_id})
     return crm_service.routing_rules.create(db, data)
 
@@ -148,7 +138,5 @@ def list_routing_rules(
 
 
 @router.patch("/routing-rules/{rule_id}", response_model=RoutingRuleRead)
-def update_routing_rule(
-    rule_id: str, payload: RoutingRuleUpdate, db: Session = Depends(get_db)
-):
+def update_routing_rule(rule_id: str, payload: RoutingRuleUpdate, db: Session = Depends(get_db)):
     return crm_service.routing_rules.update(db, rule_id, payload)

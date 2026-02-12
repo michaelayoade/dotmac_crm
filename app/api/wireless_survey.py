@@ -62,9 +62,7 @@ def list_surveys(
     response_model=WirelessSiteSurveyRead,
     tags=["wireless-surveys"],
 )
-def update_survey(
-    survey_id: str, payload: WirelessSiteSurveyUpdate, db: Session = Depends(get_db)
-):
+def update_survey(survey_id: str, payload: WirelessSiteSurveyUpdate, db: Session = Depends(get_db)):
     """Update a wireless site survey."""
     return ws_service.wireless_surveys.update(db, survey_id, payload)
 
@@ -86,9 +84,7 @@ def delete_survey(survey_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     tags=["survey-points"],
 )
-def create_survey_point(
-    survey_id: str, payload: SurveyPointCreate, db: Session = Depends(get_db)
-):
+def create_survey_point(survey_id: str, payload: SurveyPointCreate, db: Session = Depends(get_db)):
     """Add a point to a survey. Elevation is automatically fetched."""
     return ws_service.survey_points.create(db, survey_id, payload)
 
@@ -118,9 +114,7 @@ def get_survey_point(point_id: str, db: Session = Depends(get_db)):
     response_model=SurveyPointRead,
     tags=["survey-points"],
 )
-def update_survey_point(
-    point_id: str, payload: SurveyPointUpdate, db: Session = Depends(get_db)
-):
+def update_survey_point(point_id: str, payload: SurveyPointUpdate, db: Session = Depends(get_db)):
     """Update a survey point. Elevation is refreshed if coordinates change."""
     return ws_service.survey_points.update(db, point_id, payload)
 
@@ -159,9 +153,7 @@ def analyze_los_path(
     db: Session = Depends(get_db),
 ):
     """Analyze line-of-sight between two survey points."""
-    return ws_service.survey_los.analyze_path(
-        db, survey_id, from_point_id, to_point_id, sample_count
-    )
+    return ws_service.survey_los.analyze_path(db, survey_id, from_point_id, to_point_id, sample_count)
 
 
 @router.get(

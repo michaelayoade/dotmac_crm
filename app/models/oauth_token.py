@@ -39,9 +39,7 @@ class OAuthToken(Base):
         Index("ix_oauth_tokens_provider", "provider"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     connector_config_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("connector_configs.id"), nullable=False
     )
@@ -66,9 +64,7 @@ class OAuthToken(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

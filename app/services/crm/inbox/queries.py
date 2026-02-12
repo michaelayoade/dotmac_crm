@@ -26,6 +26,7 @@ def list_inbox_conversations(
     db: Session,
     channel: ChannelType | None = None,
     status: ConversationStatus | None = None,
+    statuses: list[ConversationStatus] | None = None,
     search: str | None = None,
     assignment: str | None = None,
     assigned_person_id: str | None = None,
@@ -52,13 +53,11 @@ def list_inbox_conversations(
 
     if status:
         query = query.filter(Conversation.status == status)
+    elif statuses:
+        query = query.filter(Conversation.status.in_(statuses))
 
     if channel:
-        subq = (
-            db.query(Message.conversation_id)
-            .filter(Message.channel_type == channel)
-            .distinct()
-        )
+        subq = db.query(Message.conversation_id).filter(Message.channel_type == channel).distinct()
         query = query.filter(Conversation.id.in_(subq))
 
     if channel_target_id:
@@ -67,9 +66,7 @@ def list_inbox_conversations(
         except Exception:
             target_uuid = None
         if target_uuid:
-            target_subq = db.query(Message.conversation_id).filter(
-                Message.channel_target_id == target_uuid
-            )
+            target_subq = db.query(Message.conversation_id).filter(Message.channel_target_id == target_uuid)
             if channel:
                 target_subq = target_subq.filter(Message.channel_type == channel)
             query = query.filter(Conversation.id.in_(target_subq.distinct()))
@@ -120,9 +117,7 @@ def list_inbox_conversations(
         )
         # Find CrmTeams linked to those ServiceTeams
         crm_team_ids_subq = (
-            db.query(CrmTeam.id)
-            .filter(CrmTeam.service_team_id.in_(team_ids_subq))
-            .filter(CrmTeam.is_active.is_(True))
+            db.query(CrmTeam.id).filter(CrmTeam.service_team_id.in_(team_ids_subq)).filter(CrmTeam.is_active.is_(True))
         )
         # Find conversations assigned to those CRM teams
         team_conv_subq = (
@@ -152,20 +147,14 @@ def list_inbox_conversations(
             .filter(other.updated_at > Conversation.updated_at)
             .exists()
         )
-        query = query.filter(
-            ~((Conversation.status == ConversationStatus.resolved) & newer_open)
-        )
+        query = query.filter(~((Conversation.status == ConversationStatus.resolved) & newer_open))
 
     last_message_ts = func.coalesce(
         Message.received_at,
         Message.sent_at,
         Message.created_at,
     )
-    has_attachments = (
-        db.query(MessageAttachment.id)
-        .filter(MessageAttachment.message_id == Message.id)
-        .exists()
-    )
+    has_attachments = db.query(MessageAttachment.id).filter(MessageAttachment.message_id == Message.id).exists()
 
     # LATERAL subquery to fetch only the latest message per conversation.
     latest_message_subq = lateral(
@@ -297,7 +286,7 @@ def get_inbox_stats(db: Session) -> dict:
             stats["resolved"] = count
 
     stats["unread"] = int(
-        db.query(func.count(Message.id))
+        db.query(func.count(func.distinct(Message.conversation_id)))
         .join(Conversation, Conversation.id == Message.conversation_id)
         .filter(Conversation.is_active.is_(True))
         .filter(Message.direction == MessageDirection.inbound)
@@ -341,11 +330,7 @@ def get_channel_stats(db: Session) -> dict[str, int]:
             channel_stats[channel_type.value] = count
 
     # Add comments count
-    channel_stats["comments"] = (
-        db.query(SocialComment)
-        .filter(SocialComment.is_active.is_(True))
-        .count()
-    )
+    channel_stats["comments"] = db.query(SocialComment).filter(SocialComment.is_active.is_(True)).count()
 
     return channel_stats
 

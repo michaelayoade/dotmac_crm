@@ -3,6 +3,7 @@ import os
 import sqlite3
 import uuid
 from datetime import UTC
+
 import pytest
 from dotenv import load_dotenv
 from sqlalchemy import String, TypeDecorator, create_engine, event, text
@@ -40,6 +41,7 @@ def _patch_jose_datetime(monkeypatch):
 
     monkeypatch.setattr(jose_jwt, "datetime", _JoseDateTimeProxy, raising=False)
 
+
 # Register UUID adapter for SQLite - store as string
 sqlite3.register_adapter(uuid.UUID, lambda u: str(u))
 
@@ -75,24 +77,28 @@ _original_uuid_result_processor = sqltypes.Uuid.result_processor
 
 def _sqlite_uuid_bind_processor(self, dialect):
     if dialect.name == "sqlite":
+
         def process(value):
             if value is not None:
                 if isinstance(value, uuid.UUID):
                     return str(value)
                 return str(uuid.UUID(value)) if value else None
             return None
+
         return process
     return _original_uuid_bind_processor(self, dialect)
 
 
 def _sqlite_uuid_result_processor(self, dialect, coltype):
     if dialect.name == "sqlite":
+
         def process(value):
             if value is not None:
                 if isinstance(value, uuid.UUID):
                     return value
                 return uuid.UUID(value) if value else None
             return None
+
         return process
     return _original_uuid_result_processor(self, dialect, coltype)
 
@@ -111,9 +117,9 @@ def _patch_jsonb_for_sqlite():
     """Make JSONB compile as JSON for SQLite dialect."""
     from sqlalchemy.dialects.sqlite.base import SQLiteTypeCompiler
 
-    if not hasattr(SQLiteTypeCompiler, '_original_visit_JSONB'):
+    if not hasattr(SQLiteTypeCompiler, "_original_visit_JSONB"):
         # Store original if it exists, otherwise create a fallback
-        if hasattr(SQLiteTypeCompiler, 'visit_JSONB'):
+        if hasattr(SQLiteTypeCompiler, "visit_JSONB"):
             SQLiteTypeCompiler._original_visit_JSONB = SQLiteTypeCompiler.visit_JSONB
 
         def visit_JSONB(self, type_, **kw):
@@ -229,6 +235,7 @@ def person(db_session):
 
 class _StubSubscriber:
     """Stub subscriber for tests that expect subscriber fixture."""
+
     def __init__(self, person):
         self.id = uuid.uuid4()
         self.person_id = person.id
@@ -237,6 +244,7 @@ class _StubSubscriber:
 
 class _StubSubscriberAccount:
     """Stub subscriber account for tests that expect subscriber_account fixture."""
+
     def __init__(self, subscriber):
         self.id = uuid.uuid4()
         self.subscriber_id = subscriber.id
@@ -245,6 +253,7 @@ class _StubSubscriberAccount:
 
 class _StubSubscription:
     """Stub subscription for tests that expect subscription fixture."""
+
     def __init__(self, account):
         self.id = uuid.uuid4()
         self.account_id = account.id
@@ -272,6 +281,7 @@ def subscription(subscriber_account):
 @pytest.fixture()
 def network_device():
     """Stub network device fixture (NetworkDevice model removed)."""
+
     class _StubNetworkDevice:
         def __init__(self):
             self.id = uuid.uuid4()

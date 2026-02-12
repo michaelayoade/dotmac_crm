@@ -56,7 +56,8 @@ def _clean_html(value: str | None) -> str | None:
         return None
     # Simple HTML stripping - for production use a proper HTML parser
     import re
-    clean = re.sub(r'<[^>]+>', '', value)
+
+    clean = re.sub(r"<[^>]+>", "", value)
     return clean.strip() or None
 
 
@@ -140,6 +141,7 @@ GENDER_MAP = {
 # -----------------------------------------------------------------------------
 # Doctype Mappers
 # -----------------------------------------------------------------------------
+
 
 def map_hd_ticket(doc: dict[str, Any]) -> dict[str, Any]:
     """Map ERPNext HD Ticket to DotMac Ticket schema.
@@ -316,12 +318,18 @@ def map_customer(doc: dict[str, Any]) -> dict[str, Any]:
     - primary_address, customer_primary_address
     - primary_contact, customer_primary_contact
     """
+    # Extract Splynx ID from custom fields (Frappe custom fields are prefixed custom_*)
+    splynx_id = doc.get("custom_splynx_id") or doc.get("custom_splynx_customer_id")
+    if not splynx_id:
+        logger.debug("map_customer no splynx_id found for customer=%s", doc.get("name"))
+
     return {
         "name": doc.get("customer_name") or doc.get("name"),
         "legal_name": doc.get("customer_name"),
         "tax_id": doc.get("tax_id"),
         "website": doc.get("website"),
         "notes": f"Customer Group: {doc.get('customer_group', 'N/A')}\nTerritory: {doc.get('territory', 'N/A')}",
+        "_erpnext_splynx_id": splynx_id,
         # Metadata
         "_erpnext_name": doc.get("name"),
         "_erpnext_customer_type": doc.get("customer_type"),
@@ -398,13 +406,15 @@ def map_quotation(doc: dict[str, Any]) -> dict[str, Any]:
     # Extract line items
     items = []
     for item in doc.get("items", []):
-        items.append({
-            "description": item.get("item_name") or item.get("description"),
-            "quantity": item.get("qty", 1),
-            "unit_price": Decimal(str(item.get("rate", 0))),
-            "amount": Decimal(str(item.get("amount", 0))),
-            "_erpnext_item_code": item.get("item_code"),
-        })
+        items.append(
+            {
+                "description": item.get("item_name") or item.get("description"),
+                "quantity": item.get("qty", 1),
+                "unit_price": Decimal(str(item.get("rate", 0))),
+                "amount": Decimal(str(item.get("amount", 0))),
+                "_erpnext_item_code": item.get("item_code"),
+            }
+        )
 
     return {
         "quote_number": doc.get("name"),
@@ -426,53 +436,174 @@ def map_quotation(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 # -----------------------------------------------------------------------------
+# Child-Table / Communication Mappers
+# -----------------------------------------------------------------------------
+
+
+def map_hd_ticket_comment(comment_doc: dict[str, Any]) -> dict[str, Any]:
+    """Map an ERPNext HD Ticket comments child-table row to DotMac TicketComment.
+
+    ERPNext HD Ticket child table fields:
+    - name: Child row ID
+    - comment: Comment body (HTML)
+    - comment_by: Email of commenter
+    - comment_type: "Comment", "Info", etc.
+    - creation: Timestamp
+    """
+    return {
+        "body": _clean_html(comment_doc.get("comment") or comment_doc.get("content")) or "",
+        "is_internal": comment_doc.get("comment_type", "Comment") != "Comment",
+        "_erpnext_name": comment_doc.get("name"),
+        "_erpnext_comment_by": comment_doc.get("comment_by"),
+        "_erpnext_creation": comment_doc.get("creation"),
+    }
+
+
+def map_communication(comm_doc: dict[str, Any]) -> dict[str, Any]:
+    """Map a Frappe Communication document to DotMac TicketComment.
+
+    Communication doctype (email threads linked to HD Tickets):
+    - name: Communication ID
+    - subject: Email subject
+    - content: Email body (HTML)
+    - sender: Sender email
+    - sent_or_received: "Sent" or "Received"
+    - creation: Timestamp
+    """
+    subject = comm_doc.get("subject") or ""
+    content = _clean_html(comm_doc.get("content")) or ""
+    body = f"**{subject}**\n\n{content}" if subject else content
+
+    return {
+        "body": body,
+        "is_internal": comm_doc.get("sent_or_received") == "Sent",
+        "_erpnext_name": comm_doc.get("name"),
+        "_erpnext_sender": comm_doc.get("sender"),
+        "_erpnext_creation": comm_doc.get("creation"),
+    }
+
+
+def map_project_comment(comment_doc: dict[str, Any]) -> dict[str, Any]:
+    """Map an ERPNext Project/Task comments child-table row to DotMac ProjectComment.
+
+    Same structure as ticket comment mapper — used for both Project and Task comments.
+    """
+    return {
+        "body": _clean_html(comment_doc.get("comment") or comment_doc.get("content")) or "",
+        "is_internal": comment_doc.get("comment_type", "Comment") != "Comment",
+        "_erpnext_name": comment_doc.get("name"),
+        "_erpnext_comment_by": comment_doc.get("comment_by"),
+        "_erpnext_creation": comment_doc.get("creation"),
+    }
+
+
+# -----------------------------------------------------------------------------
 # Field Lists for API Queries
 # -----------------------------------------------------------------------------
 
 HD_TICKET_FIELDS = [
-    "name", "subject", "description", "status", "priority",
-    "raised_by", "customer", "contact", "ticket_type",
-    "resolution_details", "opening_date", "resolution_date",
-    "creation", "modified",
+    "name",
+    "subject",
+    "description",
+    "status",
+    "priority",
+    "raised_by",
+    "customer",
+    "contact",
+    "ticket_type",
+    "resolution_details",
+    "opening_date",
+    "resolution_date",
+    "creation",
+    "modified",
 ]
 
 PROJECT_FIELDS = [
-    "name", "project_name", "status", "priority", "notes",
-    "expected_start_date", "expected_end_date",
-    "actual_start_date", "actual_end_date",
-    "percent_complete", "customer",
-    "creation", "modified",
+    "name",
+    "project_name",
+    "status",
+    "priority",
+    "notes",
+    "expected_start_date",
+    "expected_end_date",
+    "actual_start_date",
+    "actual_end_date",
+    "percent_complete",
+    "customer",
+    "creation",
+    "modified",
 ]
 
 TASK_FIELDS = [
-    "name", "subject", "status", "priority", "description",
-    "project", "exp_start_date", "exp_end_date",
-    "progress", "parent_task",
-    "creation", "modified",
+    "name",
+    "subject",
+    "status",
+    "priority",
+    "description",
+    "project",
+    "exp_start_date",
+    "exp_end_date",
+    "progress",
+    "parent_task",
+    "creation",
+    "modified",
 ]
 
 CONTACT_FIELDS = [
-    "name", "first_name", "middle_name", "last_name",
-    "email_id", "phone", "mobile_no", "gender", "salutation",
-    "company_name", "creation", "modified",
+    "name",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "email_id",
+    "phone",
+    "mobile_no",
+    "gender",
+    "salutation",
+    "company_name",
+    "creation",
+    "modified",
 ]
 
 CUSTOMER_FIELDS = [
-    "name", "customer_name", "customer_type", "customer_group",
-    "territory", "tax_id", "website",
-    "customer_primary_contact", "customer_primary_address",
-    "creation", "modified",
+    "name",
+    "customer_name",
+    "customer_type",
+    "customer_group",
+    "territory",
+    "tax_id",
+    "website",
+    "customer_primary_contact",
+    "customer_primary_address",
+    "creation",
+    "modified",
 ]
 
 LEAD_FIELDS = [
-    "name", "lead_name", "company_name", "email_id",
-    "mobile_no", "phone", "status", "source", "territory",
-    "notes", "creation", "modified",
+    "name",
+    "lead_name",
+    "company_name",
+    "email_id",
+    "mobile_no",
+    "phone",
+    "status",
+    "source",
+    "territory",
+    "notes",
+    "creation",
+    "modified",
 ]
 
 QUOTATION_FIELDS = [
-    "name", "party_name", "quotation_to", "status",
-    "transaction_date", "valid_till",
-    "net_total", "grand_total", "currency",
-    "terms", "creation", "modified",
+    "name",
+    "party_name",
+    "quotation_to",
+    "status",
+    "transaction_date",
+    "valid_till",
+    "net_total",
+    "grand_total",
+    "currency",
+    "terms",
+    "creation",
+    "modified",
 ]

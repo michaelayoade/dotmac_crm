@@ -90,6 +90,32 @@ def _load_ticket_types(db: Session) -> tuple[list[dict], dict[str, str]]:
     return normalized, priority_map
 
 
+def _load_region_ticket_assignments(db: Session) -> dict[str, dict[str, str]]:
+    raw = settings_spec.resolve_value(db, SettingDomain.comms, "region_ticket_assignments")
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, str]] = {}
+    for region, entry in raw.items():
+        if isinstance(entry, dict):
+            manager_id = entry.get("manager_person_id") or entry.get("ticket_manager_person_id") or ""
+            spc_id = (
+                entry.get("spc_person_id")
+                or entry.get("assistant_person_id")
+                or entry.get("assistant_manager_person_id")
+                or ""
+            )
+        elif isinstance(entry, str):
+            manager_id = entry
+            spc_id = ""
+        else:
+            continue
+        normalized[str(region)] = {
+            "manager_person_id": str(manager_id) if manager_id else "",
+            "spc_person_id": str(spc_id) if spc_id else "",
+        }
+    return normalized
+
+
 def _coerce_uuid_optional(value: str | None, label: str) -> UUID | None:
     if not value:
         return None
@@ -99,6 +125,15 @@ def _coerce_uuid_optional(value: str | None, label: str) -> UUID | None:
         return coerce_uuid(value)
     except Exception as exc:
         raise ValueError(f"Invalid {label}.") from exc
+
+
+def _coerce_uuid_list(values: list[str], label: str) -> list[UUID]:
+    ids: list[UUID] = []
+    for value in values:
+        coerced = _coerce_uuid_optional(value, label)
+        if coerced is not None:
+            ids.append(coerced)
+    return ids
 
 
 def _resolve_ticket_reference(db: Session, ticket_ref: str) -> tuple[Ticket, bool]:
@@ -172,7 +207,7 @@ def _build_activity_feed(db: Session, events: list) -> list[dict]:
         actor = people.get(str(event.actor_id)) if getattr(event, "actor_id", None) else None
         if actor:
             actor_name = f"{actor.first_name} {actor.last_name}"
-            actor_url = f"/admin/customers/person/{actor.id}"
+            actor_url = f"/admin/crm/contacts/{actor.id}"
         else:
             actor_name = "System"
             actor_url = None
@@ -307,14 +342,50 @@ def get_db():
         db.close()
 
 
+def _person_filter_label(person: Person) -> str:
+    if person.display_name:
+        return person.display_name
+    full_name = f"{person.first_name or ''} {person.last_name or ''}".strip()
+    if full_name:
+        return full_name
+    return person.email or str(person.id)
+
+
+def _load_ticket_pm_spc_options(db: Session) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    rows = (
+        db.query(Ticket.ticket_manager_person_id, Ticket.assistant_manager_person_id)
+        .filter(Ticket.is_active.is_(True))
+        .all()
+    )
+    pm_ids = {str(manager_id) for manager_id, _ in rows if manager_id}
+    spc_ids = {str(spc_id) for _, spc_id in rows if spc_id}
+    all_ids = pm_ids | spc_ids
+    if not all_ids:
+        return [], []
+
+    people = db.query(Person).filter(Person.id.in_([coerce_uuid(person_id) for person_id in all_ids])).all()
+    labels = {str(person.id): _person_filter_label(person) for person in people}
+
+    pm_options = [
+        {"value": person_id, "label": labels[person_id]}
+        for person_id in sorted(pm_ids, key=lambda pid: labels.get(pid, ""))
+    ]
+    spc_options = [
+        {"value": person_id, "label": labels[person_id]}
+        for person_id in sorted(spc_ids, key=lambda pid: labels.get(pid, ""))
+    ]
+    return pm_options, spc_options
+
+
 @router.get("/tickets", response_class=HTMLResponse)
 def tickets_list(
     request: Request,
     search: str | None = None,
     status: str | None = None,
-    priority: str | None = None,
-    channel: str | None = None,
+    ticket_type: str | None = None,
     assigned: str | None = None,
+    pm: str | None = None,
+    spc: str | None = None,
     subscriber: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
@@ -331,9 +402,28 @@ def tickets_list(
 
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
+    current_person_id = current_user.get("person_id") if current_user else None
     assigned_to_person_id = None
-    if assigned == "me":
-        assigned_to_person_id = current_user.get("person_id") if current_user else None
+    if assigned == "me" and current_person_id:
+        assigned_to_person_id = current_person_id
+
+    pm_person_id = None
+    if pm == "me":
+        pm_person_id = current_person_id
+    elif pm:
+        try:
+            pm_person_id = coerce_uuid(pm)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid PM filter") from exc
+
+    spc_person_id = None
+    if spc == "me":
+        spc_person_id = current_person_id
+    elif spc:
+        try:
+            spc_person_id = coerce_uuid(spc)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid SPC filter") from exc
 
     subscriber_id = None
     subscriber_missing = False
@@ -358,10 +448,11 @@ def tickets_list(
             TicketQuery(db)
             .by_subscriber(subscriber_id)
             .by_status(status if status else None)
-            .by_priority(priority if priority else None)
-            .by_channel(channel if channel else None)
+            .by_ticket_type(ticket_type if ticket_type else None)
             .search(search if search else None)
             .by_assigned_to(assigned_to_person_id)
+            .by_ticket_manager(pm_person_id)
+            .by_assistant_manager(spc_person_id)
             .active_only()
         )
         total = base_query.count()
@@ -371,6 +462,11 @@ def tickets_list(
 
     # Get stats by status
     stats = tickets_service.tickets.status_stats(db)
+    ticket_types, _ticket_type_priority_map = _load_ticket_types(db)
+    ticket_type_options = [item.get("name") for item in ticket_types if item.get("is_active") and item.get("name")]
+    if ticket_type and ticket_type not in ticket_type_options:
+        ticket_type_options = [ticket_type, *ticket_type_options]
+    pm_options, spc_options = _load_ticket_pm_spc_options(db)
     csrf_token = get_csrf_token(request)
 
     if request.headers.get("HX-Request"):
@@ -382,9 +478,10 @@ def tickets_list(
                 "csrf_token": csrf_token,
                 "search": search,
                 "status": status,
-                "priority": priority,
-                "channel": channel,
+                "ticket_type": ticket_type,
                 "assigned": assigned,
+                "pm": pm,
+                "spc": spc,
                 "subscriber": subscriber,
                 "subscriber_display": subscriber_display,
                 "subscriber_url": subscriber_url,
@@ -404,9 +501,13 @@ def tickets_list(
             "csrf_token": csrf_token,
             "search": search,
             "status": status,
-            "priority": priority,
-            "channel": channel,
+            "ticket_type": ticket_type,
+            "ticket_type_options": ticket_type_options,
             "assigned": assigned,
+            "pm": pm,
+            "spc": spc,
+            "pm_options": pm_options,
+            "spc_options": spc_options,
             "subscriber": subscriber,
             "subscriber_display": subscriber_display,
             "subscriber_url": subscriber_url,
@@ -562,6 +663,7 @@ def ticket_create(
             "accounts": accounts,
             "technicians": technicians,
             "region_options": REGION_OPTIONS,
+            "region_ticket_assignments": _load_region_ticket_assignments(db),
             "ticket_types": ticket_types,
             "ticket_type_priority_map": ticket_type_priority_map,
             "action_url": "/admin/support/tickets",
@@ -684,6 +786,7 @@ async def ticket_create_post(
 
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
+    accounts: list[dict[str, str]] = []  # subscriber_service removed
     try:
         upload_list: list[UploadFile] = []
         if attachments:
@@ -758,22 +861,30 @@ async def ticket_create_post(
             customer_person_id,
             customer_search,
         )
+        form_assignee_ids: list[str] = []
         try:
             form = await request.form()
-            form_assignees = form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids")
-            if form_assignees is not None:
-                assigned_to_person_ids = form_assignees
+            form_assignee_ids = [
+                item
+                for item in (form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids"))
+                if isinstance(item, str)
+            ]
+            if form_assignee_ids:
+                assigned_to_person_ids = form_assignee_ids
         except Exception:
-            form_assignees = []
+            logger.debug("Failed to parse ticket assignees from form.", exc_info=True)
         normalized_assignees = [item for item in (assigned_to_person_ids or []) if item]
-        primary_assignee = normalized_assignees[0] if normalized_assignees else assigned_to_person_id
-        payload_data = {
+        assignee_ids = _coerce_uuid_list(normalized_assignees, "technician")
+        primary_assignee_id = (
+            assignee_ids[0] if assignee_ids else _coerce_uuid_optional(assigned_to_person_id, "technician")
+        )
+        payload_data: dict[str, Any] = {
             "title": title,
             "description": description if description else None,
             "subscriber_id": _coerce_uuid_optional(subscriber_id, "subscriber"),
             "lead_id": _coerce_uuid_optional(lead_id, "lead"),
             "customer_person_id": resolved_customer_person_id,
-            "assigned_to_person_id": _coerce_uuid_optional(primary_assignee, "technician"),
+            "assigned_to_person_id": primary_assignee_id,
             "ticket_manager_person_id": _coerce_uuid_optional(ticket_manager_person_id, "ticket_manager"),
             "assistant_manager_person_id": _coerce_uuid_optional(assistant_manager_person_id, "assistant_manager"),
             "region": region.strip() if region else None,
@@ -790,9 +901,7 @@ async def ticket_create_post(
             "metadata_": metadata_value,
         }
         if assigned_to_person_ids is not None:
-            payload_data["assigned_to_person_ids"] = [
-                _coerce_uuid_optional(item, "technician") for item in normalized_assignees
-            ]
+            payload_data["assigned_to_person_ids"] = assignee_ids
         payload = TicketCreate(**payload_data)
         ticket = tickets_service.tickets.create(db=db, payload=payload)
         if conversation_id:
@@ -821,7 +930,6 @@ async def ticket_create_post(
         error_status = e.status_code if isinstance(e, HTTPException) else 400
 
         # Re-fetch data for form
-        accounts: list[dict[str, str]] = []  # subscriber_service removed
         technicians = dispatch_service.technicians.list(
             db=db,
             person_id=None,
@@ -849,6 +957,7 @@ async def ticket_create_post(
                 "accounts": accounts,
                 "technicians": technicians,
                 "region_options": REGION_OPTIONS,
+                "region_ticket_assignments": _load_region_ticket_assignments(db),
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
                 "action_url": "/admin/support/tickets",
@@ -923,6 +1032,7 @@ def ticket_edit(
             "accounts": accounts,
             "technicians": technicians,
             "region_options": REGION_OPTIONS,
+            "region_ticket_assignments": _load_region_ticket_assignments(db),
             "ticket_types": ticket_types,
             "ticket_type_priority_map": ticket_type_priority_map,
             "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
@@ -967,9 +1077,11 @@ async def ticket_edit_post(
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
     from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin.projects import REGION_OPTIONS
 
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
+    accounts: list[dict[str, str]] = []  # subscriber_service removed
     try:
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
     except Exception:
@@ -980,7 +1092,6 @@ async def ticket_edit_post(
         )
 
     if ticket.status in {TicketStatus.closed, TicketStatus.canceled}:
-        accounts: list[dict[str, str]] = []  # subscriber_service removed
         technicians = dispatch_service.technicians.list(
             db=db,
             person_id=None,
@@ -1010,6 +1121,7 @@ async def ticket_edit_post(
                 "accounts": accounts,
                 "technicians": technicians,
                 "region_options": REGION_OPTIONS,
+                "region_ticket_assignments": _load_region_ticket_assignments(db),
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
                 "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
@@ -1127,21 +1239,29 @@ async def ticket_edit_post(
             customer_person_id,
             customer_search,
         )
+        form_assignee_ids: list[str] = []
         try:
             form = await request.form()
-            form_assignees = form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids")
-            if form_assignees is not None:
-                assigned_to_person_ids = form_assignees
+            form_assignee_ids = [
+                item
+                for item in (form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids"))
+                if isinstance(item, str)
+            ]
+            if form_assignee_ids:
+                assigned_to_person_ids = form_assignee_ids
         except Exception:
-            form_assignees = []
+            logger.debug("Failed to parse ticket assignees from edit form.", exc_info=True)
         normalized_assignees = [item for item in (assigned_to_person_ids or []) if item]
-        primary_assignee = normalized_assignees[0] if normalized_assignees else assigned_to_person_id
+        assignee_ids = _coerce_uuid_list(normalized_assignees, "technician")
+        primary_assignee_id = (
+            assignee_ids[0] if assignee_ids else _coerce_uuid_optional(assigned_to_person_id, "technician")
+        )
         update_data: dict[str, Any] = {
             "title": title,
             "description": description if description else None,
             "subscriber_id": _coerce_uuid_optional(subscriber_id, "subscriber"),
             "customer_person_id": resolved_customer_person_id,
-            "assigned_to_person_id": _coerce_uuid_optional(primary_assignee, "technician"),
+            "assigned_to_person_id": primary_assignee_id,
             "ticket_manager_person_id": _coerce_uuid_optional(ticket_manager_person_id, "ticket_manager"),
             "assistant_manager_person_id": _coerce_uuid_optional(assistant_manager_person_id, "assistant_manager"),
             "region": region.strip() if region else None,
@@ -1153,9 +1273,7 @@ async def ticket_edit_post(
             "tags": tag_list,
         }
         if assigned_to_person_ids is not None:
-            update_data["assigned_to_person_ids"] = [
-                _coerce_uuid_optional(item, "technician") for item in normalized_assignees
-            ]
+            update_data["assigned_to_person_ids"] = assignee_ids
 
         if new_status == TicketStatus.resolved and not ticket.resolved_at:
             update_data["resolved_at"] = datetime.now(UTC)
@@ -1230,7 +1348,7 @@ async def ticket_edit_post(
         return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
-        accounts: list[dict[str, str]] = []  # subscriber_service removed
+        accounts = []  # subscriber_service removed
         technicians = dispatch_service.technicians.list(
             db=db,
             person_id=None,
@@ -1260,6 +1378,7 @@ async def ticket_edit_post(
                 "accounts": accounts,
                 "technicians": technicians,
                 "region_options": REGION_OPTIONS,
+                "region_ticket_assignments": _load_region_ticket_assignments(db),
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
                 "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
@@ -1333,7 +1452,7 @@ def ticket_detail(
 
         expense_totals = get_cached_expense_totals(db, "ticket", str(ticket.id))
     except Exception:
-        pass  # ERP sync not configured or failed
+        logger.debug("ERP expense totals unavailable for ticket.", exc_info=True)
 
     # Fetch material requests linked to this ticket
     ticket_material_requests = []
@@ -1344,7 +1463,7 @@ def ticket_detail(
             db, ticket_id=str(ticket.id), order_by="created_at", order_dir="desc", limit=20, offset=0
         )
     except Exception:
-        pass
+        logger.debug("ERP expense totals fetch failed for ticket.", exc_info=True)
 
     ticket_attachments = []
     try:

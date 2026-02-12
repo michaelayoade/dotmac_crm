@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import submit_button %}
+{% from "components/ui/macros.html" import submit_button, table_shell, table_row, empty_state %}
 
 {% block title %}{{ 'Edit' if mr else 'New' }} Material Request - Admin{% endblock %}
 
@@ -9,13 +9,15 @@
         <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
             <a href="/admin/operations/material-requests" class="hover:text-teal-600 dark:hover:text-teal-400">Material Requests</a>
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            <span class="font-medium text-slate-900 dark:text-white">New Request</span>
+            <span class="font-medium text-slate-900 dark:text-white">{{ 'Edit Request' if mr else 'New Request' }}</span>
         </nav>
-        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">New Material Request</h1>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Request materials and equipment for a ticket or project</p>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit Material Request' if mr else 'New Material Request' }}</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {{ 'Update details for this material request' if mr else 'Request materials and equipment for a ticket or project' }}
+        </p>
     </div>
 
-    <form method="POST" action="/admin/operations/material-requests/new" class="space-y-6">
+    <form method="POST" action="{{ '/admin/operations/material-requests/' ~ mr.id ~ '/edit' if mr else '/admin/operations/material-requests/new' }}" class="space-y-6">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
 
         <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 50ms;">
@@ -33,7 +35,7 @@
                         <select name="priority" id="priority"
                                 class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
                             {% for p in priorities %}
-                            <option value="{{ p }}" {{ 'selected' if p == 'medium' }}>{{ p|capitalize }}</option>
+                            <option value="{{ p }}" {{ 'selected' if (mr and mr.priority and mr.priority.value == p) or (not mr and p == 'medium') }}>{{ p|capitalize }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -43,7 +45,7 @@
                         <label for="ticket_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Linked Ticket</label>
                         <input type="text" name="ticket_id" id="ticket_id"
                                value="{{ ticket_id or '' }}"
-                               placeholder="Ticket UUID (optional)"
+                               placeholder="Ticket Number (e.g., 9590)"
                                class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
                     </div>
 
@@ -52,7 +54,7 @@
                         <label for="project_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Linked Project</label>
                         <input type="text" name="project_id" id="project_id"
                                value="{{ project_id or '' }}"
-                               placeholder="Project UUID (optional)"
+                               placeholder="Project Number (e.g., PROJ-926)"
                                class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
                     </div>
 
@@ -61,19 +63,224 @@
                         <label for="notes" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Notes</label>
                         <textarea name="notes" id="notes" rows="3"
                                   placeholder="Describe what materials are needed and why..."
-                                  class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white"></textarea>
+                                  class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">{{ mr.notes if mr else '' }}</textarea>
                     </div>
                 </div>
             </div>
         </div>
+
+        {% if not mr %}
+        <div class="animate-fade-in-up" style="animation-delay: 100ms;" data-mr-items>
+            {% set items_icon %}
+            <svg class="h-4.5 w-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            {% endset %}
+            {% set item_actions %}
+            <button type="button" data-add-mr-item class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                Add Item
+            </button>
+            {% endset %}
+            {% set pad = 'px-6 py-3' %}
+            {% call table_shell(table_id="material-request-items-form-table", title="Requested Items", icon=items_icon, color="teal", actions=item_actions) %}
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Item</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">SKU</th>
+                            <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Quantity</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notes</th>
+                            <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700" data-mr-item-rows>
+                        {% if inventory_items %}
+                        <tr data-mr-item-row>
+                            <td class="{{ pad }}">
+                                <select name="item_id"
+                                        class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                                    <option value="">Select an item</option>
+                                    {% for inv in inventory_items %}
+                                    <option value="{{ inv.id }}">{{ inv.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td class="{{ pad }} text-slate-500 dark:text-slate-400">
+                                <span data-mr-item-sku>-</span>
+                            </td>
+                            <td class="{{ pad }} text-right">
+                                <input type="number" name="quantity" min="1" value="1"
+                                       class="w-24 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-right transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            </td>
+                            <td class="{{ pad }}">
+                                <input type="text" name="item_notes" placeholder="Optional notes"
+                                       class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            </td>
+                            <td class="{{ pad }} text-right">
+                                <button type="button" data-remove-mr-item class="text-xs text-red-500 hover:text-red-700 dark:text-red-400" disabled>Remove</button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        {{ empty_state("No inventory items", "Add inventory items before creating a request.", colspan=5) }}
+                        {% endif %}
+                    </tbody>
+                </table>
+            {% endcall %}
+        </div>
+        {% endif %}
+
+        {% if mr %}
+        <div class="animate-fade-in-up" style="animation-delay: 100ms;">
+            {% set items_icon %}
+            <svg class="h-4.5 w-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            {% endset %}
+            {% set pad = 'px-6 py-3' %}
+            {% call table_shell(table_id="material-request-items-edit-table", title="Requested Items", icon=items_icon, color="teal", count=mr.items|length, search=False) %}
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Item</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">SKU</th>
+                            <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Quantity</th>
+                            <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notes</th>
+                            <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% if mr.items %}
+                        {% for item in mr.items %}
+                        <tr>
+                            <td class="{{ pad }} font-medium text-slate-900 dark:text-white">{{ item.item.name if item.item else '-' }}</td>
+                            <td class="{{ pad }} text-slate-500 dark:text-slate-400">{{ item.item.sku if item.item else '-' }}</td>
+                            <td class="{{ pad }} text-right font-semibold text-slate-900 dark:text-white">{{ item.quantity }}</td>
+                            <td class="{{ pad }} text-slate-500 dark:text-slate-400">{{ item.notes or '-' }}</td>
+                            <td class="{{ pad }} text-right">
+                                <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/items/{{ item.id }}/remove" class="inline">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                    <button type="submit" class="text-xs text-red-500 hover:text-red-700 dark:text-red-400" aria-label="Remove item">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        {{ empty_state("No items added yet", "Add inventory items below.", colspan=5) }}
+                        {% endif %}
+                    </tbody>
+                </table>
+            {% endcall %}
+        </div>
+
+        {% if inventory_items %}
+        <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 125ms;">
+            <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h3 class="font-semibold text-slate-900 dark:text-white">Add Item</h3>
+            </div>
+            <div class="p-6">
+                <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/items/add" class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <div class="flex-1">
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Item</label>
+                        <select name="item_id" required
+                                class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            <option value="">Select an item</option>
+                            {% for inv in inventory_items %}
+                            <option value="{{ inv.id }}">{{ inv.name }}{% if inv.sku %} ({{ inv.sku }}){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="w-24">
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Qty</label>
+                        <input type="number" name="quantity" required min="1" value="1"
+                               class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Notes</label>
+                        <input type="text" name="notes" placeholder="Optional notes"
+                               class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                    </div>
+                    {{ submit_button("Add", color="teal", size="sm") }}
+                </form>
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
 
         <div class="flex items-center justify-end gap-3">
             <a href="/admin/operations/material-requests"
                class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors">
                 Cancel
             </a>
-            {{ submit_button("Create Request", loading_label="Creating...", color="teal") }}
+            {{ submit_button("Update Request" if mr else "Create & Submit", loading_label="Saving..." if mr else "Creating...", color="teal") }}
         </div>
     </form>
 </div>
+
+{% if not mr and inventory_items %}
+<script>
+(() => {
+    const section = document.querySelector("[data-mr-items]");
+    if (!section) return;
+    const rows = section.querySelector("[data-mr-item-rows]");
+    const addButton = section.querySelector("[data-add-mr-item]");
+    if (!rows || !addButton) return;
+
+    const inventory = [
+        {% for inv in inventory_items %}
+        { id: {{ inv.id | tojson }}, sku: {{ (inv.sku or '') | tojson }}, name: {{ inv.name | tojson }} },
+        {% endfor %}
+    ];
+
+    function updateRowSku(row) {
+        const select = row.querySelector("select[name='item_id']");
+        const sku = row.querySelector("[data-mr-item-sku]");
+        if (!select || !sku) return;
+        const match = inventory.find((item) => item.id === select.value);
+        sku.textContent = match && match.sku ? match.sku : "-";
+    }
+
+    function updateRemoveButtons() {
+        const allRows = rows.querySelectorAll("[data-mr-item-row]");
+        allRows.forEach((row, idx) => {
+            const remove = row.querySelector("[data-remove-mr-item]");
+            if (remove) {
+                remove.disabled = allRows.length === 1;
+            }
+            row.dataset.rowIndex = String(idx);
+        });
+    }
+
+    function wireRow(row) {
+        const remove = row.querySelector("[data-remove-mr-item]");
+        if (remove) {
+            remove.addEventListener("click", () => {
+                row.remove();
+                updateRemoveButtons();
+            });
+        }
+        const select = row.querySelector("select[name='item_id']");
+        if (select) {
+            select.addEventListener("change", () => updateRowSku(row));
+            updateRowSku(row);
+        }
+    }
+
+    addButton.addEventListener("click", () => {
+        const firstRow = rows.querySelector("[data-mr-item-row]");
+        if (!firstRow) return;
+        const clone = firstRow.cloneNode(true);
+        clone.querySelectorAll("input, select").forEach((input) => {
+            if (input.tagName === "SELECT") {
+                input.value = "";
+            } else {
+                input.value = input.name === "quantity" ? "1" : "";
+            }
+        });
+        rows.appendChild(clone);
+        wireRow(clone);
+        updateRemoveButtons();
+    });
+
+    rows.querySelectorAll("[data-mr-item-row]").forEach((row) => wireRow(row));
+    updateRemoveButtons();
+})();
+</script>
+{% endif %}
 {% endblock %}

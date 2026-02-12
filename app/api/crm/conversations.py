@@ -53,9 +53,7 @@ def list_conversations(
 
 
 @router.patch("/{conversation_id}", response_model=ConversationRead)
-def update_conversation(
-    conversation_id: str, payload: ConversationUpdate, db: Session = Depends(get_db)
-):
+def update_conversation(conversation_id: str, payload: ConversationUpdate, db: Session = Depends(get_db)):
     return crm_service.conversations.update(db, conversation_id, payload)
 
 
@@ -129,6 +127,4 @@ def list_tags(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crm_service.conversation_tags.list_response(
-        db, conversation_id, order_by, order_dir, limit, offset
-    )
+    return crm_service.conversation_tags.list_response(db, conversation_id, order_by, order_dir, limit, offset)

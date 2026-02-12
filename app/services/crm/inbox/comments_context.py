@@ -9,6 +9,7 @@ from urllib.parse import quote
 from sqlalchemy.orm import Session
 
 from app.logging import get_logger
+from app.models.crm.comments import SocialCommentPlatform
 from app.models.domain_settings import SettingDomain, SettingValueType
 from app.schemas.settings import DomainSettingUpdate
 from app.services import domain_settings as domain_settings_service
@@ -19,7 +20,6 @@ from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.search import normalize_search
 
 logger = get_logger(__name__)
-
 
 
 def _group_comment_authors(comments: list) -> list[dict]:
@@ -96,7 +96,7 @@ def build_comment_list_items(
                 continue
         created_at = comment.created_time or comment.created_at
         inbox_label = entry.get("inbox_label") if include_inbox_label else None
-        href = f"/admin/crm/inbox?channel=comments&comment_id={comment.id}"
+        href = f"/admin/crm/inbox?comment_id={comment.id}"
         if target_id:
             href += f"&target_id={quote(target_id, safe='')}"
         if search:
@@ -170,9 +170,7 @@ async def load_comments_context(
     did_sync = False
 
     if fetch:
-        last_sync_raw = settings_spec.resolve_value(
-            db, SettingDomain.comms, "comments_last_sync_at"
-        )
+        last_sync_raw = settings_spec.resolve_value(db, SettingDomain.comms, "comments_last_sync_at")
         should_sync = True
         if isinstance(last_sync_raw, str) and last_sync_raw.strip():
             try:
@@ -222,10 +220,14 @@ async def load_comments_context(
     if cached_comments is not None:
         comments = cached_comments
     else:
-        platform = None
+        platform: SocialCommentPlatform | None = None
         account_id = None
         if target_filter:
-            platform, account_id = target_filter
+            platform_value, account_id = target_filter
+            try:
+                platform = SocialCommentPlatform(platform_value)
+            except Exception:
+                platform = None
         comments = comments_service.list_social_comments(
             db,
             search=normalized_search,
@@ -256,10 +258,7 @@ async def load_comments_context(
                 and target_filter
                 and (
                     selected_comment.platform.value != target_filter[0]
-                    or (
-                        target_filter[1]
-                        and selected_comment.source_account_id != target_filter[1]
-                    )
+                    or (target_filter[1] and selected_comment.source_account_id != target_filter[1])
                 )
             ):
                 selected_comment = None
@@ -271,9 +270,7 @@ async def load_comments_context(
         if cached_replies is not None:
             comment_replies = cached_replies
         else:
-            comment_replies = comments_service.list_social_comment_replies(
-                db, str(selected_comment.id)
-            )
+            comment_replies = comments_service.list_social_comment_replies(db, str(selected_comment.id))
             inbox_cache.set(
                 thread_cache_key,
                 comment_replies,

@@ -67,16 +67,20 @@ async def load_inbox_list(
 
     channel_enum = None
     status_enum = None
+    status_enums = None
     if channel:
         try:
             channel_enum = ChannelType(channel)
         except ValueError:
             channel_enum = None
     if status:
-        try:
-            status_enum = ConversationStatus(status)
-        except ValueError:
-            status_enum = None
+        if status == "needs_action":
+            status_enums = [ConversationStatus.open, ConversationStatus.snoozed]
+        else:
+            try:
+                status_enum = ConversationStatus(status)
+            except ValueError:
+                status_enum = None
 
     exclude_superseded = status != ConversationStatus.resolved.value if status else True
     assignment_filter = (assignment or "").strip().lower()
@@ -98,6 +102,7 @@ async def load_inbox_list(
             db,
             channel=channel_enum,
             status=status_enum,
+            statuses=status_enums,
             search=normalized_search,
             assignment=assignment,
             assigned_person_id=assigned_person_id,

@@ -4,6 +4,7 @@ Queue Mapping Service for bandwidth monitoring.
 Manages the mapping between MikroTik queue names and subscriptions,
 allowing the poller to associate bandwidth samples with the correct subscriber.
 """
+
 import logging
 import uuid
 
@@ -274,9 +275,7 @@ class QueueMappingService:
             logger.info(f"Updated queue mapping: {queue_name} -> {subscription_id}")
             return existing
 
-        return QueueMappingService.create(
-            db, nas_device_id, queue_name, subscription_id
-        )
+        return QueueMappingService.create(db, nas_device_id, queue_name, subscription_id)
 
     @staticmethod
     def remove_subscription_mappings(

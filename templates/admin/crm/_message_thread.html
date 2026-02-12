@@ -250,7 +250,7 @@
                             {% endif %}
                         </div>
                         <div class="flex items-center gap-2 mt-1.5 px-1">
-                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%H:%M') }}</span>
+                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
                             <button type="button"
                                     data-quote-button
                                     data-quote-id="{{ msg.id }}"
@@ -324,7 +324,7 @@
                             {% endif %}
                         </div>
                         <div class="flex items-center gap-2 mt-1.5 px-1 justify-end">
-                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%H:%M') }}</span>
+                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
                             <button type="button"
                                     data-quote-button
                                     data-quote-id="{{ msg.id }}"
@@ -442,14 +442,29 @@
     </div>
     <form method="POST"
           action="/admin/crm/inbox/conversation/{{ conversation.id }}/message"
+          hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/message"
+          hx-target="#message-thread"
+          hx-swap="innerHTML transition:false"
+          hx-on::after-request="
+              if (!event.detail.successful) {
+                  this.dataset.submitting = '';
+                  var btn = this.querySelector('button[type=submit]');
+                  if (btn) { btn.disabled = false; btn.classList.remove('opacity-60', 'pointer-events-none'); }
+                  var errEl = this.querySelector('[x-ref=messageError]');
+                  if (errEl) { errEl.textContent = 'Failed to send. Please try again.'; }
+              }
+              htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML transition:false'});
+          "
           class="max-w-3xl mx-auto"
-          x-on:submit.prevent="
+          x-on:submit="
               if ($el.dataset.submitting === '1') {
+                  $event.preventDefault();
                   return;
               }
               const text = ($refs.messageInput?.value || '').trim();
               const hasAttachments = pendingAttachments && pendingAttachments.length > 0;
               if (!text && !hasAttachments) {
+                  $event.preventDefault();
                   if ($refs.messageError) {
                       $refs.messageError.textContent = 'Enter a message or attach a file.';
                   }
@@ -467,7 +482,6 @@
                   submitBtn.disabled = true;
                   submitBtn.classList.add('opacity-60', 'pointer-events-none');
               }
-              $el.submit();
           ">
         <div class="flex items-end gap-3">
             <!-- Attachment button -->
@@ -544,6 +558,18 @@
         </div>
 
         <input type="hidden" name="reply_to_message_id" :value="$root.replyTo ? $root.replyTo.id : ''">
+        <input type="hidden"
+               name="idempotency_key"
+               x-ref="idempotencyKey"
+               x-init="
+                   if (!$el.value) {
+                       if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                           $el.value = window.crypto.randomUUID();
+                       } else {
+                           $el.value = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                       }
+                   }
+               ">
         <input type="hidden" name="attachments" x-ref="messageAttachments">
         <p x-ref="messageError" class="mt-2 text-[11px] text-red-500 dark:text-red-400"></p>
 

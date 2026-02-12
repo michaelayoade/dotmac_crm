@@ -50,9 +50,7 @@ async def inbox_websocket(websocket: WebSocket):
         await manager.unregister_connection(user_id, websocket)
 
 
-async def _handle_client_message(
-    user_id: str, websocket: WebSocket, raw_data: str, manager
-):
+async def _handle_client_message(user_id: str, websocket: WebSocket, raw_data: str, manager):
     """Process incoming client message."""
     try:
         data = json.loads(raw_data)
@@ -64,9 +62,7 @@ async def _handle_client_message(
 
         elif message.type == InboundMessageType.UNSUBSCRIBE:
             if message.conversation_id:
-                await manager.unsubscribe_conversation(
-                    user_id, message.conversation_id
-                )
+                await manager.unsubscribe_conversation(user_id, message.conversation_id)
 
         elif message.type == InboundMessageType.TYPING:
             if message.conversation_id:
@@ -75,14 +71,10 @@ async def _handle_client_message(
                     data={
                         "user_id": user_id,
                         "conversation_id": message.conversation_id,
-                        "is_typing": message.data.get("is_typing", True)
-                        if message.data
-                        else True,
+                        "is_typing": message.data.get("is_typing", True) if message.data else True,
                     },
                 )
-                await manager.broadcast_to_conversation(
-                    message.conversation_id, typing_event
-                )
+                await manager.broadcast_to_conversation(message.conversation_id, typing_event)
 
         elif message.type == InboundMessageType.PING:
             await manager.send_heartbeat(user_id, websocket)

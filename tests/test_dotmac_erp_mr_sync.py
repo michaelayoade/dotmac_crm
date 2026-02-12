@@ -17,6 +17,7 @@ from app.services.dotmac_erp.material_request_sync import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def mock_client():
     return MagicMock()
@@ -42,6 +43,7 @@ def full_mr(db_session, material_request_with_item):
 # MaterialRequestSyncResult
 # ---------------------------------------------------------------------------
 
+
 class TestMaterialRequestSyncResult:
     def test_defaults(self):
         r = MaterialRequestSyncResult()
@@ -63,6 +65,7 @@ class TestMaterialRequestSyncResult:
 # ---------------------------------------------------------------------------
 # Payload mapping
 # ---------------------------------------------------------------------------
+
 
 class TestMapMaterialRequest:
     def test_basic_payload(self, mr_sync, full_mr):
@@ -104,6 +107,7 @@ class TestMapMaterialRequest:
 # ---------------------------------------------------------------------------
 # sync_material_request
 # ---------------------------------------------------------------------------
+
 
 class TestSyncMaterialRequest:
     def test_success(self, mr_sync, mock_client, full_mr, db_session):
@@ -174,6 +178,7 @@ class TestSyncMaterialRequest:
 # ---------------------------------------------------------------------------
 # Factory function
 # ---------------------------------------------------------------------------
+
 
 class TestFactory:
     def test_raises_when_not_configured(self, db_session):

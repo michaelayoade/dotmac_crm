@@ -29,9 +29,7 @@ class MessageTemplates(ListResponseMixin):
         return template
 
     @staticmethod
-    def update(
-        db: Session, template_id: str, payload: MessageTemplateUpdate
-    ) -> CrmMessageTemplate:
+    def update(db: Session, template_id: str, payload: MessageTemplateUpdate) -> CrmMessageTemplate:
         template = MessageTemplates.get(db, template_id)
         data = payload.model_dump(exclude_none=True)
         for key, value in data.items():

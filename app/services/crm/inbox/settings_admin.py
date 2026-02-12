@@ -7,8 +7,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.domain_settings import SettingDomain, SettingValueType
+from app.models.crm.conversation import ConversationAssignment
+from app.models.crm.presence import AgentPresence
+from app.models.crm.sales import Lead
 from app.models.crm.team import CrmAgent, CrmAgentTeam
+from app.models.domain_settings import SettingDomain, SettingValueType
 from app.schemas.crm.team import AgentCreate, AgentTeamCreate, TeamCreate
 from app.schemas.settings import DomainSettingUpdate
 from app.services import crm as crm_service
@@ -67,9 +70,7 @@ def update_notification_settings(
                 ok=False,
                 error_detail="Not authorized to update notification settings",
             )
-        reminder_delay = _coerce_int(
-            "crm_inbox_reply_reminder_delay_seconds", reminder_delay_seconds
-        )
+        reminder_delay = _coerce_int("crm_inbox_reply_reminder_delay_seconds", reminder_delay_seconds)
         repeat_enabled = bool(reminder_repeat_enabled)
         reminder_repeat_interval = _coerce_int(
             "crm_inbox_reply_reminder_repeat_interval_seconds",
@@ -79,13 +80,9 @@ def update_notification_settings(
             "crm_inbox_notification_auto_dismiss_seconds",
             notification_auto_dismiss_seconds,
         )
-        settings_service = domain_settings_service.DomainSettings(
-            SettingDomain.notification
-        )
+        settings_service = domain_settings_service.DomainSettings(SettingDomain.notification)
 
-        spec = settings_spec.get_spec(
-            SettingDomain.notification, "crm_inbox_reply_reminder_delay_seconds"
-        )
+        spec = settings_spec.get_spec(SettingDomain.notification, "crm_inbox_reply_reminder_delay_seconds")
         if spec:
             value_text, value_json = settings_spec.normalize_for_db(spec, reminder_delay)
             settings_service.upsert_by_key(
@@ -98,9 +95,7 @@ def update_notification_settings(
                 ),
             )
 
-        spec = settings_spec.get_spec(
-            SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled"
-        )
+        spec = settings_spec.get_spec(SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled")
         if spec:
             value_text, value_json = settings_spec.normalize_for_db(spec, repeat_enabled)
             settings_service.upsert_by_key(
@@ -118,9 +113,7 @@ def update_notification_settings(
             "crm_inbox_reply_reminder_repeat_interval_seconds",
         )
         if spec:
-            value_text, value_json = settings_spec.normalize_for_db(
-                spec, reminder_repeat_interval
-            )
+            value_text, value_json = settings_spec.normalize_for_db(spec, reminder_repeat_interval)
             settings_service.upsert_by_key(
                 db,
                 "crm_inbox_reply_reminder_repeat_interval_seconds",
@@ -136,9 +129,7 @@ def update_notification_settings(
             "crm_inbox_notification_auto_dismiss_seconds",
         )
         if spec:
-            value_text, value_json = settings_spec.normalize_for_db(
-                spec, auto_dismiss_seconds
-            )
+            value_text, value_json = settings_spec.normalize_for_db(spec, auto_dismiss_seconds)
             settings_service.upsert_by_key(
                 db,
                 "crm_inbox_notification_auto_dismiss_seconds",
@@ -222,9 +213,7 @@ def create_agent_team(
 ) -> ActionResult:
     try:
         if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
-            return ActionResult(
-                ok=False, error_detail="Not authorized to assign agent to team"
-            )
+            return ActionResult(ok=False, error_detail="Not authorized to assign agent to team")
         payload = AgentTeamCreate(
             agent_id=coerce_uuid(agent_id),
             team_id=coerce_uuid(team_id),
@@ -280,6 +269,38 @@ def activate_agent(
         return ActionResult(ok=True)
     except Exception as exc:
         return ActionResult(ok=False, error_detail=str(exc) or "Failed to update agent")
+
+
+def hard_delete_agent(
+    db: Session,
+    *,
+    agent_id: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Not authorized to delete agents")
+        agent = db.get(CrmAgent, coerce_uuid(agent_id))
+        if not agent:
+            return ActionResult(ok=False, error_detail="Agent not found")
+
+        # Remove hard-FK children first, then null optional references, then delete agent.
+        db.query(AgentPresence).filter(AgentPresence.agent_id == agent.id).delete(synchronize_session=False)
+        db.query(CrmAgentTeam).filter(CrmAgentTeam.agent_id == agent.id).delete(synchronize_session=False)
+        db.query(ConversationAssignment).filter(ConversationAssignment.agent_id == agent.id).update(
+            {"agent_id": None}, synchronize_session=False
+        )
+        db.query(Lead).filter(Lead.owner_agent_id == agent.id).update(
+            {"owner_agent_id": None},
+            synchronize_session=False,
+        )
+        db.delete(agent)
+        db.commit()
+        return ActionResult(ok=True)
+    except Exception as exc:
+        db.rollback()
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to delete agent")
 
 
 def remove_agent_team(

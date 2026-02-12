@@ -19,9 +19,7 @@ router = APIRouter(prefix="/wireless-masts")
     status_code=status.HTTP_201_CREATED,
     tags=["wireless-masts"],
 )
-def create_wireless_mast(
-    payload: WirelessMastCreate, db: Session = Depends(get_db)
-):
+def create_wireless_mast(payload: WirelessMastCreate, db: Session = Depends(get_db)):
     return wireless_mast_service.wireless_masts.create(db, payload)
 
 

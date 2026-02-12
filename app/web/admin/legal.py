@@ -89,16 +89,18 @@ def legal_documents_list(
     }
 
     context = _base_context(request, db)
-    context.update({
-        "documents": documents,
-        "stats": stats,
-        "document_types": [t.value for t in LegalDocumentType],
-        "document_type_filter": document_type,
-        "is_published_filter": is_published,
-        "page": page,
-        "per_page": per_page,
-        "total_pages": total_pages,
-    })
+    context.update(
+        {
+            "documents": documents,
+            "stats": stats,
+            "document_types": [t.value for t in LegalDocumentType],
+            "document_type_filter": document_type,
+            "is_published_filter": is_published,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+        }
+    )
 
     return templates.TemplateResponse("admin/system/legal/index.html", context)
 
@@ -107,11 +109,13 @@ def legal_documents_list(
 def legal_document_new(request: Request, db: Session = Depends(get_db)):
     """New legal document form."""
     context = _base_context(request, db)
-    context.update({
-        "document": None,
-        "document_types": [(t.value, t.value.replace("_", " ").title()) for t in LegalDocumentType],
-        "action": "create",
-    })
+    context.update(
+        {
+            "document": None,
+            "document_types": [(t.value, t.value.replace("_", " ").title()) for t in LegalDocumentType],
+            "action": "create",
+        }
+    )
     return templates.TemplateResponse("admin/system/legal/form.html", context)
 
 
@@ -147,26 +151,22 @@ def legal_document_create(
         )
 
         document = legal_service.legal_documents.create(db=db, payload=payload)
-        return RedirectResponse(
-            url=f"/admin/system/legal/{document.id}", status_code=303
-        )
+        return RedirectResponse(url=f"/admin/system/legal/{document.id}", status_code=303)
     except Exception as e:
         context = _base_context(request, db)
-        context.update({
-            "document": None,
-            "document_types": [(t.value, t.value.replace("_", " ").title()) for t in LegalDocumentType],
-            "action": "create",
-            "error": str(e),
-        })
-        return templates.TemplateResponse(
-            "admin/system/legal/form.html", context, status_code=400
+        context.update(
+            {
+                "document": None,
+                "document_types": [(t.value, t.value.replace("_", " ").title()) for t in LegalDocumentType],
+                "action": "create",
+                "error": str(e),
+            }
         )
+        return templates.TemplateResponse("admin/system/legal/form.html", context, status_code=400)
 
 
 @router.get("/{document_id}", response_class=HTMLResponse)
-def legal_document_detail(
-    request: Request, document_id: str, db: Session = Depends(get_db)
-):
+def legal_document_detail(request: Request, document_id: str, db: Session = Depends(get_db)):
     """View legal document details."""
     document = legal_service.legal_documents.get(db=db, document_id=document_id)
     if not document:
@@ -182,9 +182,7 @@ def legal_document_detail(
 
 
 @router.get("/{document_id}/edit", response_class=HTMLResponse)
-def legal_document_edit(
-    request: Request, document_id: str, db: Session = Depends(get_db)
-):
+def legal_document_edit(request: Request, document_id: str, db: Session = Depends(get_db)):
     """Edit legal document form."""
     document = legal_service.legal_documents.get(db=db, document_id=document_id)
     if not document:
@@ -195,11 +193,13 @@ def legal_document_edit(
         )
 
     context = _base_context(request, db)
-    context.update({
-        "document": document,
-        "document_types": [(t.value, t.value.replace("_", " ").title()) for t in LegalDocumentType],
-        "action": "edit",
-    })
+    context.update(
+        {
+            "document": document,
+            "document_types": [(t.value, t.value.replace("_", " ").title()) for t in LegalDocumentType],
+            "action": "edit",
+        }
+    )
     return templates.TemplateResponse("admin/system/legal/form.html", context)
 
 
@@ -234,9 +234,7 @@ def legal_document_update(
             effective_date=eff_date,
         )
 
-        document = legal_service.legal_documents.update(
-            db=db, document_id=document_id, payload=payload
-        )
+        document = legal_service.legal_documents.update(db=db, document_id=document_id, payload=payload)
         if not document:
             return templates.TemplateResponse(
                 "admin/errors/404.html",
@@ -244,21 +242,19 @@ def legal_document_update(
                 status_code=404,
             )
 
-        return RedirectResponse(
-            url=f"/admin/system/legal/{document.id}", status_code=303
-        )
+        return RedirectResponse(url=f"/admin/system/legal/{document.id}", status_code=303)
     except Exception as e:
         document = legal_service.legal_documents.get(db=db, document_id=document_id)
         context = _base_context(request, db)
-        context.update({
-            "document": document,
-            "document_types": [(t.value, t.value.replace("_", " ").title()) for t in LegalDocumentType],
-            "action": "edit",
-            "error": str(e),
-        })
-        return templates.TemplateResponse(
-            "admin/system/legal/form.html", context, status_code=400
+        context.update(
+            {
+                "document": document,
+                "document_types": [(t.value, t.value.replace("_", " ").title()) for t in LegalDocumentType],
+                "action": "edit",
+                "error": str(e),
+            }
         )
+        return templates.TemplateResponse("admin/system/legal/form.html", context, status_code=400)
 
 
 @router.post("/{document_id}/upload", response_class=HTMLResponse)
@@ -279,9 +275,7 @@ async def legal_document_upload(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ]
         if file.content_type not in allowed_types:
-            raise ValueError(
-                "File type not allowed. Allowed types: PDF, HTML, TXT, DOC, DOCX"
-            )
+            raise ValueError("File type not allowed. Allowed types: PDF, HTML, TXT, DOC, DOCX")
 
         # Read file content
         content = await file.read()
@@ -305,22 +299,16 @@ async def legal_document_upload(
                 status_code=404,
             )
 
-        return RedirectResponse(
-            url=f"/admin/system/legal/{document.id}", status_code=303
-        )
+        return RedirectResponse(url=f"/admin/system/legal/{document.id}", status_code=303)
     except Exception as e:
         context = _base_context(request, db)
         document = legal_service.legal_documents.get(db=db, document_id=document_id)
         context.update({"document": document, "error": str(e)})
-        return templates.TemplateResponse(
-            "admin/system/legal/detail.html", context, status_code=400
-        )
+        return templates.TemplateResponse("admin/system/legal/detail.html", context, status_code=400)
 
 
 @router.post("/{document_id}/delete-file", response_class=HTMLResponse)
-def legal_document_delete_file(
-    request: Request, document_id: str, db: Session = Depends(get_db)
-):
+def legal_document_delete_file(request: Request, document_id: str, db: Session = Depends(get_db)):
     """Delete the file associated with a legal document."""
     document = legal_service.legal_documents.delete_file(db=db, document_id=document_id)
     if not document:
@@ -333,9 +321,7 @@ def legal_document_delete_file(
 
 
 @router.post("/{document_id}/publish", response_class=HTMLResponse)
-def legal_document_publish(
-    request: Request, document_id: str, db: Session = Depends(get_db)
-):
+def legal_document_publish(request: Request, document_id: str, db: Session = Depends(get_db)):
     """Publish a legal document."""
     payload = LegalDocumentUpdate(
         title=None,
@@ -344,9 +330,7 @@ def legal_document_publish(
         is_published=True,
         is_current=True,
     )
-    document = legal_service.legal_documents.update(
-        db=db, document_id=document_id, payload=payload
-    )
+    document = legal_service.legal_documents.update(db=db, document_id=document_id, payload=payload)
     if not document:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -357,9 +341,7 @@ def legal_document_publish(
 
 
 @router.post("/{document_id}/unpublish", response_class=HTMLResponse)
-def legal_document_unpublish(
-    request: Request, document_id: str, db: Session = Depends(get_db)
-):
+def legal_document_unpublish(request: Request, document_id: str, db: Session = Depends(get_db)):
     """Unpublish a legal document."""
     payload = LegalDocumentUpdate(
         title=None,
@@ -367,9 +349,7 @@ def legal_document_unpublish(
         version=None,
         is_published=False,
     )
-    document = legal_service.legal_documents.update(
-        db=db, document_id=document_id, payload=payload
-    )
+    document = legal_service.legal_documents.update(db=db, document_id=document_id, payload=payload)
     if not document:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -380,9 +360,7 @@ def legal_document_unpublish(
 
 
 @router.post("/{document_id}/delete", response_class=HTMLResponse)
-def legal_document_delete(
-    request: Request, document_id: str, db: Session = Depends(get_db)
-):
+def legal_document_delete(request: Request, document_id: str, db: Session = Depends(get_db)):
     """Delete a legal document."""
     success = legal_service.legal_documents.delete(db=db, document_id=document_id)
     if not success:

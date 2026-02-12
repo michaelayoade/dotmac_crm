@@ -12,7 +12,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
 from app.models.subscriber import Organization
 from app.services import settings_spec
-from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPError
+from app.services.dotmac_erp.client import DotMacERPClient
 
 logger = logging.getLogger(__name__)
 
@@ -294,12 +294,14 @@ class DotMacERPContactSync:
             if existing:
                 existing.is_primary = ch.get("is_primary", False)
             else:
-                self.db.add(PersonChannel(
-                    person_id=person.id,
-                    channel_type=ch_type,
-                    address=ch_address,
-                    is_primary=ch.get("is_primary", False),
-                ))
+                self.db.add(
+                    PersonChannel(
+                        person_id=person.id,
+                        channel_type=ch_type,
+                        address=ch_address,
+                        is_primary=ch.get("is_primary", False),
+                    )
+                )
             result.channels_upserted += 1
 
         if contact_id:

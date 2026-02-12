@@ -30,8 +30,8 @@ def _tile_name(latitude: float, longitude: float) -> tuple[str, int, int]:
 
 
 def _tile_indexes(latitude: float, longitude: float, lat_floor: int, lon_floor: int) -> tuple[int, int]:
-    row = int(round((lat_floor + 1 - latitude) * SRTM_SAMPLES_PER_DEGREE))
-    col = int(round((longitude - lon_floor) * SRTM_SAMPLES_PER_DEGREE))
+    row = round((lat_floor + 1 - latitude) * SRTM_SAMPLES_PER_DEGREE)
+    col = round((longitude - lon_floor) * SRTM_SAMPLES_PER_DEGREE)
     row = _clamp(row, 0, SRTM_SAMPLES_PER_DEGREE)
     col = _clamp(col, 0, SRTM_SAMPLES_PER_DEGREE)
     return row, col

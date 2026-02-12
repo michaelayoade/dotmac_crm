@@ -33,23 +33,25 @@ def get_email_channel_state(db: Session) -> dict | None:
         pop3 = state.get("pop3")
         logger.info(
             "crm_inbox_email_state %s",
-            _safe_log_json({
-                "target_id": state.get("target_id"),
-                "connector_id": state.get("connector_id"),
-                "smtp": {
-                    "host": smtp.get("host") if isinstance(smtp, dict) else None,
-                    "port": smtp.get("port") if isinstance(smtp, dict) else None,
-                },
-                "imap": {
-                    "host": imap.get("host") if isinstance(imap, dict) else None,
-                    "port": imap.get("port") if isinstance(imap, dict) else None,
-                },
-                "pop3": {
-                    "host": pop3.get("host") if isinstance(pop3, dict) else None,
-                    "port": pop3.get("port") if isinstance(pop3, dict) else None,
-                },
-                "poll_interval_seconds": state.get("poll_interval_seconds"),
-            }),
+            _safe_log_json(
+                {
+                    "target_id": state.get("target_id"),
+                    "connector_id": state.get("connector_id"),
+                    "smtp": {
+                        "host": smtp.get("host") if isinstance(smtp, dict) else None,
+                        "port": smtp.get("port") if isinstance(smtp, dict) else None,
+                    },
+                    "imap": {
+                        "host": imap.get("host") if isinstance(imap, dict) else None,
+                        "port": imap.get("port") if isinstance(imap, dict) else None,
+                    },
+                    "pop3": {
+                        "host": pop3.get("host") if isinstance(pop3, dict) else None,
+                        "port": pop3.get("port") if isinstance(pop3, dict) else None,
+                    },
+                    "poll_interval_seconds": state.get("poll_interval_seconds"),
+                }
+            ),
         )
     return state
 
@@ -110,6 +112,7 @@ def build_whatsapp_state_for_target(
         "auth_config": auth_config,
         "base_url": config.base_url,
         "phone_number_id": metadata.get("phone_number_id"),
+        "business_account_id": metadata.get("business_account_id"),
         "rate_limit_per_minute": metadata.get("rate_limit_per_minute"),
         "is_active": bool(target.is_active),
         "connector_active": bool(config.is_active),

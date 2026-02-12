@@ -1,0 +1,132 @@
+{% from "components/ui/macros.html" import typeahead_input %}
+{# ── Resolve Gate Interstitial ─────────────────────────────────
+   Shown inside #message-thread when an agent resolves a conversation
+   whose person has no active Lead.  Three options:
+   1. Create Lead & Resolve
+   2. Link to Existing Contact & Resolve
+   3. Resolve Without Lead
+   ────────────────────────────────────────────────────────────── #}
+
+<div class="flex flex-col items-center justify-center min-h-[60vh] px-6 py-12 animate-fade-in-up">
+    <div class="w-full max-w-md space-y-5">
+        {# Header #}
+        <div class="text-center space-y-2">
+            <div class="mx-auto w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 dark:bg-amber-500/15 dark:border-amber-400/20">
+                <svg class="w-6 h-6 text-amber-500 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold text-slate-900 dark:text-white font-display">No lead for this contact</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Choose how to handle this conversation before resolving.</p>
+        </div>
+
+        {# Option 1: Create Lead & Resolve #}
+        <button
+            hx-post="/admin/crm/inbox/conversation/{{ conversation_id }}/resolve-with-lead"
+            hx-target="#message-thread"
+            hx-swap="innerHTML"
+            hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+            class="group w-full rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-left transition-all hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:shadow-lg hover:shadow-emerald-500/5 dark:border-emerald-500/15 dark:bg-emerald-500/5 dark:hover:bg-emerald-500/10 dark:hover:border-emerald-400/25">
+            <div class="flex items-start gap-3">
+                <div class="mt-0.5 flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors dark:bg-emerald-500/15 dark:group-hover:bg-emerald-500/25">
+                    <svg class="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15"/>
+                    </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <span class="block text-sm font-semibold text-emerald-700 dark:text-emerald-300">Create Lead & Resolve</span>
+                    <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Create a new lead for this contact, then mark resolved.</span>
+                </div>
+                <svg class="w-4 h-4 text-slate-400 dark:text-slate-500 mt-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </div>
+        </button>
+
+        {# Option 2: Link to Existing Contact & Resolve #}
+        <div x-data="{ expanded: false }"
+             class="rounded-2xl border border-primary-500/20 bg-primary-500/5 transition-all dark:border-primary-500/15 dark:bg-primary-500/5"
+             :class="expanded ? 'shadow-lg shadow-primary-500/5 border-primary-500/30 dark:border-primary-400/25' : 'hover:bg-primary-500/10 hover:border-primary-500/30 hover:shadow-lg hover:shadow-primary-500/5 dark:hover:bg-primary-500/10 dark:hover:border-primary-400/25'">
+            <button type="button"
+                    @click="expanded = !expanded"
+                    class="group w-full p-4 text-left"
+                    :aria-expanded="expanded"
+                    aria-controls="link-contact-form">
+                <div class="flex items-start gap-3">
+                    <div class="mt-0.5 flex-shrink-0 w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center dark:bg-primary-500/15"
+                         :class="expanded ? 'bg-primary-500/20 dark:bg-primary-500/25' : 'group-hover:bg-primary-500/20 dark:group-hover:bg-primary-500/25'">
+                        <svg class="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <span class="block text-sm font-semibold text-primary-700 dark:text-primary-300">Link to Existing Contact & Resolve</span>
+                        <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Merge this person into an existing contact, then mark resolved.</span>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-400 dark:text-slate-500 mt-1 flex-shrink-0 transition-transform"
+                         :class="expanded ? 'rotate-90' : ''"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </div>
+            </button>
+            <div x-show="expanded" x-collapse x-cloak id="link-contact-form">
+                <form hx-post="/admin/crm/inbox/conversation/{{ conversation_id }}/link-and-resolve"
+                      hx-target="#message-thread"
+                      hx-swap="innerHTML"
+                      hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                      class="px-4 pb-4 pt-0 space-y-3">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-300">Search for contact</label>
+                    {{ typeahead_input(
+                        name="person_id",
+                        url="/api/search/people",
+                        placeholder="Name, email or phone...",
+                        required=true,
+                        variant="compact"
+                    ) }}
+                    <button type="submit"
+                            class="w-full rounded-xl bg-primary-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-primary-500 transition-colors focus:ring-2 focus:ring-primary-500/20 focus:outline-none dark:bg-primary-500 dark:hover:bg-primary-400">
+                        Link & Resolve
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        {# Option 3: Resolve Without Lead #}
+        <button
+            hx-post="/admin/crm/inbox/conversation/{{ conversation_id }}/resolve-without-lead"
+            hx-target="#message-thread"
+            hx-swap="innerHTML"
+            hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+            class="group w-full rounded-2xl border border-slate-200/60 bg-white/50 p-4 text-left transition-all hover:bg-slate-50 hover:border-slate-300/60 hover:shadow-lg hover:shadow-slate-500/5 dark:border-slate-700/40 dark:bg-slate-800/30 dark:hover:bg-slate-800/50 dark:hover:border-slate-600/50">
+            <div class="flex items-start gap-3">
+                <div class="mt-0.5 flex-shrink-0 w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-slate-200 transition-colors dark:bg-slate-700/50 dark:group-hover:bg-slate-700">
+                    <svg class="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <span class="block text-sm font-semibold text-slate-700 dark:text-slate-300">Resolve Without Lead</span>
+                    <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Mark resolved without creating a lead. Good for spam or one-off queries.</span>
+                </div>
+                <svg class="w-4 h-4 text-slate-400 dark:text-slate-500 mt-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </div>
+        </button>
+
+        {# Cancel link #}
+        <div class="text-center pt-1">
+            <a hx-get="/admin/crm/inbox/conversation/{{ conversation_id }}"
+               hx-target="#message-thread"
+               hx-swap="innerHTML"
+               class="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 cursor-pointer transition-colors dark:text-slate-400 dark:hover:text-slate-300">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                </svg>
+                Cancel &amp; return to conversation
+            </a>
+        </div>
+    </div>
+</div>

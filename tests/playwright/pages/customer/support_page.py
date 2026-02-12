@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.base_page import BasePage
 
 
@@ -26,15 +27,11 @@ class CustomerSupportPage(BasePage):
 
     def click_new_ticket(self) -> None:
         """Click new ticket button."""
-        self.page.get_by_role("button", name="New").or_(
-            self.page.get_by_role("link", name="New")
-        ).first.click()
+        self.page.get_by_role("button", name="New").or_(self.page.get_by_role("link", name="New")).first.click()
 
     def get_ticket_count(self) -> int:
         """Get count of tickets displayed."""
-        rows = self.page.locator("table tbody tr").or_(
-            self.page.locator("[data-testid='ticket-item']")
-        )
+        rows = self.page.locator("table tbody tr").or_(self.page.locator("[data-testid='ticket-item']"))
         return rows.count()
 
     def click_ticket_row(self, ticket_id: str) -> None:
@@ -61,6 +58,4 @@ class CustomerSupportPage(BasePage):
 
     def contact_support(self) -> None:
         """Open contact support form."""
-        self.page.get_by_role("button", name="Contact").or_(
-            self.page.get_by_role("link", name="Contact")
-        ).first.click()
+        self.page.get_by_role("button", name="Contact").or_(self.page.get_by_role("link", name="Contact")).first.click()

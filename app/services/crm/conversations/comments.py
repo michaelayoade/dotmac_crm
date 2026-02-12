@@ -43,9 +43,7 @@ def _ensure_comment_contact(db: Session, payload: dict[str, Any]) -> None:
     if not address:
         return
     channel_type = (
-        CrmChannelType.facebook_messenger
-        if platform == SocialCommentPlatform.facebook
-        else CrmChannelType.instagram_dm
+        CrmChannelType.facebook_messenger if platform == SocialCommentPlatform.facebook else CrmChannelType.instagram_dm
     )
     try:
         contact_service.get_or_create_contact_by_channel(
@@ -180,9 +178,7 @@ async def fetch_and_store_social_comments(
             post_id = post.get("id")
             if not post_id:
                 continue
-            comments = await meta_pages.get_post_comments(
-                db, page_id, post_id, limit=comment_limit
-            )
+            comments = await meta_pages.get_post_comments(db, page_id, post_id, limit=comment_limit)
             for comment in comments:
                 if not comment.get("id"):
                     continue
@@ -211,16 +207,12 @@ async def fetch_and_store_social_comments(
         ig_account_id = account.get("account_id")
         if not ig_account_id:
             continue
-        media_items = await meta_pages.get_instagram_media(
-            db, ig_account_id, limit=post_limit
-        )
+        media_items = await meta_pages.get_instagram_media(db, ig_account_id, limit=post_limit)
         for media in media_items:
             media_id = media.get("id")
             if not media_id:
                 continue
-            comments = await meta_pages.get_instagram_media_comments(
-                db, ig_account_id, media_id, limit=comment_limit
-            )
+            comments = await meta_pages.get_instagram_media_comments(db, ig_account_id, media_id, limit=comment_limit)
             for comment in comments:
                 if not comment.get("id"):
                     continue

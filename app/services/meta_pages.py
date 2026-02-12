@@ -70,6 +70,7 @@ async def _request_with_retry(
             continue
         return response
 
+
 def _get_meta_graph_base_url(db: Session) -> str:
     version = resolve_value(db, SettingDomain.comms, "meta_graph_api_version")
     if not version:
@@ -664,14 +665,16 @@ def get_connected_pages(db: Session) -> list[dict[str, Any]]:
     pages = []
     for token in tokens:
         metadata = token.metadata_ or {}
-        pages.append({
-            "page_id": token.external_account_id,
-            "name": token.external_account_name,
-            "category": metadata.get("category"),
-            "picture": metadata.get("picture"),
-            "token_expires_at": token.token_expires_at,
-            "needs_refresh": token.should_refresh(),
-        })
+        pages.append(
+            {
+                "page_id": token.external_account_id,
+                "name": token.external_account_name,
+                "category": metadata.get("category"),
+                "picture": metadata.get("picture"),
+                "token_expires_at": token.token_expires_at,
+                "needs_refresh": token.should_refresh(),
+            }
+        )
 
     return pages
 
@@ -693,12 +696,14 @@ def get_connected_instagram_accounts(db: Session) -> list[dict[str, Any]]:
     accounts = []
     for token in tokens:
         metadata = token.metadata_ or {}
-        accounts.append({
-            "account_id": token.external_account_id,
-            "username": token.external_account_name,
-            "profile_picture_url": metadata.get("profile_picture_url"),
-            "token_expires_at": token.token_expires_at,
-            "needs_refresh": token.should_refresh(),
-        })
+        accounts.append(
+            {
+                "account_id": token.external_account_id,
+                "username": token.external_account_name,
+                "profile_picture_url": metadata.get("profile_picture_url"),
+                "token_expires_at": token.token_expires_at,
+                "needs_refresh": token.should_refresh(),
+            }
+        )
 
     return accounts

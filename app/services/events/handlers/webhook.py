@@ -87,9 +87,7 @@ class WebhookHandler:
         # Map to webhook event type
         webhook_event_type = EVENT_TYPE_TO_WEBHOOK.get(event.event_type)
         if webhook_event_type is None:
-            logger.debug(
-                f"No webhook event type mapping for {event.event_type.value}"
-            )
+            logger.debug(f"No webhook event type mapping for {event.event_type.value}")
             return
 
         # Find active subscriptions for this event type
@@ -101,9 +99,7 @@ class WebhookHandler:
         )
 
         if not subscriptions:
-            logger.debug(
-                f"No webhook subscriptions for event type {webhook_event_type.value}"
-            )
+            logger.debug(f"No webhook subscriptions for event type {webhook_event_type.value}")
             return
 
         # Create delivery records
@@ -111,9 +107,7 @@ class WebhookHandler:
         for subscription in subscriptions:
             # Verify endpoint is active
             if not subscription.endpoint or not subscription.endpoint.is_active:
-                logger.debug(
-                    f"Skipping inactive endpoint for subscription {subscription.id}"
-                )
+                logger.debug(f"Skipping inactive endpoint for subscription {subscription.id}")
                 continue
 
             delivery = WebhookDelivery(
@@ -137,9 +131,6 @@ class WebhookHandler:
             for delivery_id in delivery_ids:
                 deliver_webhook.delay(delivery_id)
 
-            logger.info(
-                f"Queued {len(delivery_ids)} webhook deliveries for "
-                f"event {event.event_type.value}"
-            )
+            logger.info(f"Queued {len(delivery_ids)} webhook deliveries for event {event.event_type.value}")
         except Exception as exc:
             logger.error(f"Failed to queue webhook delivery tasks: {exc}")

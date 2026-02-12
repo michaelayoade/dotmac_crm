@@ -79,9 +79,7 @@ def _point_in_polygon(lon: float, lat: float, points: list[tuple[float, float]])
     for i in range(len(points)):
         xi, yi = points[i]
         xj, yj = points[j]
-        intersect = ((yi > lat) != (yj > lat)) and (
-            lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-12) + xi
-        )
+        intersect = ((yi > lat) != (yj > lat)) and (lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-12) + xi)
         if intersect:
             inside = not inside
         j = i
@@ -102,9 +100,7 @@ def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     d_lon = math.radians(lon2 - lon1)
     a = (
         math.sin(d_lat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(d_lon / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lon / 2) ** 2
     )
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return radius * c
@@ -146,8 +142,7 @@ class CoverageAreas(ListResponseMixin):
             query = query.filter(CoverageArea.zone_key == zone_key)
         if buildout_status:
             query = query.filter(
-                CoverageArea.buildout_status
-                == validate_enum(buildout_status, BuildoutStatus, "buildout_status")
+                CoverageArea.buildout_status == validate_enum(buildout_status, BuildoutStatus, "buildout_status")
             )
         if is_active is None:
             query = query.filter(CoverageArea.is_active.is_(True))
@@ -209,10 +204,7 @@ class ServiceQualifications(ListResponseMixin):
     ):
         query = db.query(ServiceQualification)
         if status:
-            query = query.filter(
-                ServiceQualification.status
-                == validate_enum(status, QualificationStatus, "status")
-            )
+            query = query.filter(ServiceQualification.status == validate_enum(status, QualificationStatus, "status"))
         if coverage_area_id:
             query = query.filter(ServiceQualification.coverage_area_id == coverage_area_id)
         query = apply_ordering(
@@ -280,9 +272,8 @@ class ServiceQualifications(ListResponseMixin):
 
             if not reasons:
                 status = QualificationStatus.eligible
-            elif (
-                area.buildout_status != BuildoutStatus.ready
-                and all(reason.startswith("buildout_status") for reason in reasons)
+            elif area.buildout_status != BuildoutStatus.ready and all(
+                reason.startswith("buildout_status") for reason in reasons
             ):
                 status = QualificationStatus.needs_buildout
 
@@ -379,10 +370,7 @@ class BuildoutRequests(ListResponseMixin):
     ):
         query = db.query(BuildoutRequest)
         if status:
-            query = query.filter(
-                BuildoutRequest.status
-                == validate_enum(status, BuildoutRequestStatus, "status")
-            )
+            query = query.filter(BuildoutRequest.status == validate_enum(status, BuildoutRequestStatus, "status"))
         if coverage_area_id:
             query = query.filter(BuildoutRequest.coverage_area_id == coverage_area_id)
         query = apply_ordering(
@@ -462,10 +450,7 @@ class BuildoutProjects(ListResponseMixin):
     ):
         query = db.query(BuildoutProject)
         if status:
-            query = query.filter(
-                BuildoutProject.status
-                == validate_enum(status, BuildoutProjectStatus, "status")
-            )
+            query = query.filter(BuildoutProject.status == validate_enum(status, BuildoutProjectStatus, "status"))
         if coverage_area_id:
             query = query.filter(BuildoutProject.coverage_area_id == coverage_area_id)
         query = apply_ordering(
@@ -534,10 +519,7 @@ class BuildoutMilestones(ListResponseMixin):
         if project_id:
             query = query.filter(BuildoutMilestone.project_id == project_id)
         if status:
-            query = query.filter(
-                BuildoutMilestone.status
-                == validate_enum(status, BuildoutMilestoneStatus, "status")
-            )
+            query = query.filter(BuildoutMilestone.status == validate_enum(status, BuildoutMilestoneStatus, "status"))
         query = apply_ordering(
             query,
             order_by,

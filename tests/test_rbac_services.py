@@ -10,9 +10,7 @@ from app.services import rbac as rbac_service
 
 def test_role_permission_link_flow(db_session):
     role = rbac_service.roles.create(db_session, RoleCreate(name="Support"))
-    permission = rbac_service.permissions.create(
-        db_session, PermissionCreate(key="tickets.read", name="Read Tickets")
-    )
+    permission = rbac_service.permissions.create(db_session, PermissionCreate(key="tickets.read", name="Read Tickets"))
     link = rbac_service.role_permissions.create(
         db_session,
         RolePermissionCreate(role_id=role.id, permission_id=permission.id),

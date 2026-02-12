@@ -69,9 +69,7 @@ def _ensure_entity(db: Session, entity_type: WorkflowEntityType, entity_id: str)
 
 def _resolve_sla_target(db: Session, policy_id: str, priority: str | None) -> SlaTarget:
     query = (
-        db.query(SlaTarget)
-        .filter(SlaTarget.policy_id == coerce_uuid(policy_id))
-        .filter(SlaTarget.is_active.is_(True))
+        db.query(SlaTarget).filter(SlaTarget.policy_id == coerce_uuid(policy_id)).filter(SlaTarget.is_active.is_(True))
     )
     if priority:
         match = query.filter(SlaTarget.priority == priority).first()
@@ -108,13 +106,11 @@ class TicketTransitions(ListResponseMixin):
         query = db.query(TicketStatusTransition)
         if from_status:
             query = query.filter(
-                TicketStatusTransition.from_status
-                == validate_enum(from_status, TicketStatus, "from_status").value
+                TicketStatusTransition.from_status == validate_enum(from_status, TicketStatus, "from_status").value
             )
         if to_status:
             query = query.filter(
-                TicketStatusTransition.to_status
-                == validate_enum(to_status, TicketStatus, "to_status").value
+                TicketStatusTransition.to_status == validate_enum(to_status, TicketStatus, "to_status").value
             )
         if is_active is None:
             query = query.filter(TicketStatusTransition.is_active.is_(True))
@@ -190,8 +186,7 @@ class WorkOrderTransitions(ListResponseMixin):
             )
         if to_status:
             query = query.filter(
-                WorkOrderStatusTransition.to_status
-                == validate_enum(to_status, WorkOrderStatus, "to_status").value
+                WorkOrderStatusTransition.to_status == validate_enum(to_status, WorkOrderStatus, "to_status").value
             )
         if is_active is None:
             query = query.filter(WorkOrderStatusTransition.is_active.is_(True))
@@ -262,13 +257,11 @@ class ProjectTaskTransitions(ListResponseMixin):
         query = db.query(ProjectTaskStatusTransition)
         if from_status:
             query = query.filter(
-                ProjectTaskStatusTransition.from_status
-                == validate_enum(from_status, TaskStatus, "from_status").value
+                ProjectTaskStatusTransition.from_status == validate_enum(from_status, TaskStatus, "from_status").value
             )
         if to_status:
             query = query.filter(
-                ProjectTaskStatusTransition.to_status
-                == validate_enum(to_status, TaskStatus, "to_status").value
+                ProjectTaskStatusTransition.to_status == validate_enum(to_status, TaskStatus, "to_status").value
             )
         if is_active is None:
             query = query.filter(ProjectTaskStatusTransition.is_active.is_(True))
@@ -290,9 +283,7 @@ class ProjectTaskTransitions(ListResponseMixin):
         return transition
 
     @staticmethod
-    def update(
-        db: Session, transition_id: str, payload: ProjectTaskStatusTransitionUpdate
-    ):
+    def update(db: Session, transition_id: str, payload: ProjectTaskStatusTransitionUpdate):
         transition = _get_by_id(db, ProjectTaskStatusTransition, transition_id)
         if not transition:
             raise HTTPException(status_code=404, detail="Project task transition not found")
@@ -344,10 +335,7 @@ class SlaPolicies(ListResponseMixin):
     ):
         query = db.query(SlaPolicy)
         if entity_type:
-            query = query.filter(
-                SlaPolicy.entity_type
-                == validate_enum(entity_type, WorkflowEntityType, "entity_type")
-            )
+            query = query.filter(SlaPolicy.entity_type == validate_enum(entity_type, WorkflowEntityType, "entity_type"))
         if is_active is None:
             query = query.filter(SlaPolicy.is_active.is_(True))
         else:
@@ -462,13 +450,9 @@ class SlaClocks(ListResponseMixin):
         target = _resolve_sla_target(db, str(payload.policy_id), payload.priority)
         started_at = payload.started_at or datetime.now(UTC)
         due_at = started_at + timedelta(minutes=target.target_minutes)
-        default_status = settings_spec.resolve_value(
-            db, SettingDomain.workflow, "default_sla_clock_status"
-        )
+        default_status = settings_spec.resolve_value(db, SettingDomain.workflow, "default_sla_clock_status")
         status_value = (
-            validate_enum(default_status, SlaClockStatus, "status")
-            if default_status
-            else SlaClockStatus.running
+            validate_enum(default_status, SlaClockStatus, "status") if default_status else SlaClockStatus.running
         )
         clock = SlaClock(
             policy_id=payload.policy_id,
@@ -507,16 +491,11 @@ class SlaClocks(ListResponseMixin):
         if policy_id:
             query = query.filter(SlaClock.policy_id == policy_id)
         if entity_type:
-            query = query.filter(
-                SlaClock.entity_type
-                == validate_enum(entity_type, WorkflowEntityType, "entity_type")
-            )
+            query = query.filter(SlaClock.entity_type == validate_enum(entity_type, WorkflowEntityType, "entity_type"))
         if entity_id:
             query = query.filter(SlaClock.entity_id == entity_id)
         if status:
-            query = query.filter(
-                SlaClock.status == validate_enum(status, SlaClockStatus, "status")
-            )
+            query = query.filter(SlaClock.status == validate_enum(status, SlaClockStatus, "status"))
         query = apply_ordering(
             query,
             order_by,
@@ -552,13 +531,9 @@ class SlaBreaches(ListResponseMixin):
         if not clock:
             raise HTTPException(status_code=404, detail="SLA clock not found")
         breached_at = payload.breached_at or datetime.now(UTC)
-        default_status = settings_spec.resolve_value(
-            db, SettingDomain.workflow, "default_sla_breach_status"
-        )
+        default_status = settings_spec.resolve_value(db, SettingDomain.workflow, "default_sla_breach_status")
         status_value = (
-            validate_enum(default_status, SlaBreachStatus, "status")
-            if default_status
-            else SlaBreachStatus.open
+            validate_enum(default_status, SlaBreachStatus, "status") if default_status else SlaBreachStatus.open
         )
         breach = SlaBreach(
             clock_id=payload.clock_id,
@@ -594,9 +569,7 @@ class SlaBreaches(ListResponseMixin):
         if clock_id:
             query = query.filter(SlaBreach.clock_id == clock_id)
         if status:
-            query = query.filter(
-                SlaBreach.status == validate_enum(status, SlaBreachStatus, "status")
-            )
+            query = query.filter(SlaBreach.status == validate_enum(status, SlaBreachStatus, "status"))
         query = apply_ordering(
             query,
             order_by,
@@ -631,11 +604,7 @@ def _requires_transition(
     from_status: str,
     to_status: str,
 ) -> TicketStatusTransition | WorkOrderStatusTransition | ProjectTaskStatusTransition | None:
-    transitions = (
-        db.query(transition_model)
-        .filter(transition_model.is_active.is_(True))
-        .all()
-    )
+    transitions = db.query(transition_model).filter(transition_model.is_active.is_(True)).all()
     if not transitions:
         return None
     match = (
@@ -670,17 +639,13 @@ def transition_ticket(db: Session, ticket_id: str, payload: StatusTransitionRequ
     return ticket
 
 
-def transition_work_order(
-    db: Session, work_order_id: str, payload: StatusTransitionRequest
-):
+def transition_work_order(db: Session, work_order_id: str, payload: StatusTransitionRequest):
     work_order = _get_by_id(db, WorkOrder, work_order_id)
     if not work_order:
         raise HTTPException(status_code=404, detail="Work order not found")
     to_status = validate_enum(payload.to_status, WorkOrderStatus, "to_status")
     from_status = work_order.status.value
-    rule = _requires_transition(
-        db, WorkOrderStatusTransition, from_status, to_status.value
-    )
+    rule = _requires_transition(db, WorkOrderStatusTransition, from_status, to_status.value)
     if rule and rule.requires_note and not payload.note:
         raise HTTPException(status_code=400, detail="Transition note required")
     work_order.status = to_status
@@ -694,17 +659,13 @@ def transition_work_order(
     return work_order
 
 
-def transition_project_task(
-    db: Session, task_id: str, payload: StatusTransitionRequest
-):
+def transition_project_task(db: Session, task_id: str, payload: StatusTransitionRequest):
     task = _get_by_id(db, ProjectTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Project task not found")
     to_status = validate_enum(payload.to_status, TaskStatus, "to_status")
     from_status = task.status.value
-    rule = _requires_transition(
-        db, ProjectTaskStatusTransition, from_status, to_status.value
-    )
+    rule = _requires_transition(db, ProjectTaskStatusTransition, from_status, to_status.value)
     if rule and rule.requires_note and not payload.note:
         raise HTTPException(status_code=400, detail="Transition note required")
     task.status = to_status
@@ -777,12 +738,14 @@ class TicketAssignments:
         else:
             # Default to open tickets (not resolved/closed/canceled)
             query = query.filter(
-                Ticket.status.in_([
-                    TicketStatus.new,
-                    TicketStatus.open,
-                    TicketStatus.pending,
-                    TicketStatus.on_hold,
-                ])
+                Ticket.status.in_(
+                    [
+                        TicketStatus.new,
+                        TicketStatus.open,
+                        TicketStatus.pending,
+                        TicketStatus.on_hold,
+                    ]
+                )
             )
 
         return query.scalar() or 0
@@ -834,15 +797,12 @@ class TicketAssignments:
             )
 
         # Left join with ticket counts and order by count (nulls first = 0 tickets)
-        query = (
-            query.outerjoin(
-                ticket_count_subquery,
-                CrmAgent.person_id == ticket_count_subquery.c.assigned_to_person_id,
-            )
-            .order_by(
-                func.coalesce(ticket_count_subquery.c.ticket_count, 0).asc(),
-                CrmAgent.created_at.asc(),  # Tie-breaker: oldest agent first
-            )
+        query = query.outerjoin(
+            ticket_count_subquery,
+            CrmAgent.person_id == ticket_count_subquery.c.assigned_to_person_id,
+        ).order_by(
+            func.coalesce(ticket_count_subquery.c.ticket_count, 0).asc(),
+            CrmAgent.created_at.asc(),  # Tie-breaker: oldest agent first
         )
 
         return query.first()

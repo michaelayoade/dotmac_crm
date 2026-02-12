@@ -1,8 +1,9 @@
 """Subscriber and reseller schemas."""
+
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.subscriber import SubscriberStatus
 
@@ -10,8 +11,10 @@ from app.models.subscriber import SubscriberStatus
 # Subscriber Schemas (for external sync)
 # ============================================================================
 
+
 class SubscriberBase(BaseModel):
     """Base subscriber schema."""
+
     person_id: UUID | None = None
     organization_id: UUID | None = None
     external_id: str | None = None
@@ -38,11 +41,18 @@ class SubscriberBase(BaseModel):
 
 class SubscriberCreate(SubscriberBase):
     """Schema for creating a subscriber."""
+
     pass
 
 
 class SubscriberUpdate(BaseModel):
-    """Schema for updating a subscriber."""
+    """Schema for updating a subscriber.
+
+    Only exposes fields that may be edited manually.  Other fields
+    (service_name, service_plan, balance, etc.) are managed exclusively
+    by the external sync pipeline and should not be set via this schema.
+    """
+
     person_id: UUID | None = None
     organization_id: UUID | None = None
     status: SubscriberStatus | None = None
@@ -51,6 +61,7 @@ class SubscriberUpdate(BaseModel):
 
 class SubscriberSyncData(BaseModel):
     """Schema for syncing subscriber data from external system."""
+
     external_id: str = Field(..., description="ID in external system")
     subscriber_number: str | None = None
     account_number: str | None = None
@@ -78,36 +89,41 @@ class SubscriberSyncData(BaseModel):
 
 class SubscriberBulkSync(BaseModel):
     """Schema for bulk sync from external system."""
+
     external_system: str = Field(..., description="External system identifier")
     subscribers: list[SubscriberSyncData]
 
 
 class PersonSummary(BaseModel):
     """Summary of linked person."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     first_name: str
     last_name: str
     email: str | None = None
     phone: str | None = None
 
-    class Config:
-        from_attributes = True
-
 
 class OrganizationSummary(BaseModel):
     """Summary of linked organization."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
-
-    class Config:
-        from_attributes = True
 
 
 class SubscriberResponse(BaseModel):
     """Schema for subscriber response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     person_id: UUID | None = None
     organization_id: UUID | None = None
+    sales_order_id: UUID | None = None
     external_id: str | None = None
     external_system: str | None = None
     subscriber_number: str | None = None
@@ -138,12 +154,10 @@ class SubscriberResponse(BaseModel):
     person: PersonSummary | None = None
     organization: OrganizationSummary | None = None
 
-    class Config:
-        from_attributes = True
-
 
 class SubscriberListResponse(BaseModel):
     """Schema for paginated subscriber list."""
+
     items: list[SubscriberResponse]
     total: int
     page: int
@@ -153,30 +167,9 @@ class SubscriberListResponse(BaseModel):
 
 class SubscriberStats(BaseModel):
     """Schema for subscriber statistics."""
+
     total: int
     active: int
     suspended: int
     terminated: int
     pending: int
-
-
-# ============================================================================
-# Reseller Schemas
-# ============================================================================
-
-class ResellerCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=160)
-    code: str | None = Field(default=None, max_length=60)
-    contact_email: str | None = Field(default=None, max_length=255)
-    contact_phone: str | None = Field(default=None, max_length=40)
-    is_active: bool = True
-    notes: str | None = None
-
-
-class ResellerUpdate(BaseModel):
-    name: str | None = Field(default=None, max_length=160)
-    code: str | None = Field(default=None, max_length=60)
-    contact_email: str | None = Field(default=None, max_length=255)
-    contact_phone: str | None = Field(default=None, max_length=40)
-    is_active: bool | None = None
-    notes: str | None = None

@@ -20,19 +20,16 @@ class ContractSignature(Base):
     - Digital fingerprint (ip_address, user_agent)
     - Context (account_id, document_id)
     """
+
     __tablename__ = "contract_signatures"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Links to related entities
     account_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True)  # FK to subscriber_accounts removed
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("legal_documents.id")
-    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("legal_documents.id"))
 
     # Signer information
     signer_name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -40,8 +37,7 @@ class ContractSignature(Base):
 
     # Signature timestamp
     signed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(UTC)
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
 
     # Digital fingerprint
@@ -55,13 +51,9 @@ class ContractSignature(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Timestamps
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
     # Relationships

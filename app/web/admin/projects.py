@@ -1,9 +1,11 @@
 """Admin projects web routes."""
 
 import json
+import logging
 from datetime import datetime
+from html import escape as html_escape
 
-from fastapi import APIRouter, Depends, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
@@ -24,6 +26,7 @@ from app.models.projects import (
     TaskPriority,
     TaskStatus,
 )
+from app.models.subscriber import Subscriber
 from app.schemas.projects import (
     ProjectCommentCreate,
     ProjectCreate,
@@ -90,6 +93,9 @@ def _log_activity(
         actor_id=actor_id,
         metadata=metadata,
     )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_project_reference(db: Session, project_ref: str):
@@ -164,7 +170,7 @@ def _build_activity_feed(db: Session, events: list, label: str) -> list[dict]:
         actor = people.get(str(event.actor_id)) if getattr(event, "actor_id", None) else None
         if actor:
             actor_name = f"{actor.first_name} {actor.last_name}"
-            actor_url = f"/admin/customers/person/{actor.id}"
+            actor_url = f"/admin/crm/contacts/{actor.id}"
         else:
             actor_name = "System"
             actor_url = None
@@ -252,9 +258,12 @@ def _task_form_context(
         db=db,
         subscriber_id=None,
         status=None,
+        project_type=None,
         priority=None,
         owner_person_id=None,
         manager_person_id=None,
+        project_manager_person_id=None,
+        assistant_manager_person_id=None,
         is_active=True,
         order_by="created_at",
         order_dir="desc",
@@ -309,11 +318,48 @@ def _task_form_context(
     return context
 
 
+def _person_filter_label(person: Person) -> str:
+    if person.display_name:
+        return person.display_name
+    full_name = f"{person.first_name or ''} {person.last_name or ''}".strip()
+    if full_name:
+        return full_name
+    return person.email or str(person.id)
+
+
+def _load_project_pm_spc_options(db: Session) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    rows = (
+        db.query(Project.project_manager_person_id, Project.assistant_manager_person_id)
+        .filter(Project.is_active.is_(True))
+        .all()
+    )
+    pm_ids = {str(manager_id) for manager_id, _ in rows if manager_id}
+    spc_ids = {str(spc_id) for _, spc_id in rows if spc_id}
+    all_ids = pm_ids | spc_ids
+    if not all_ids:
+        return [], []
+
+    people = db.query(Person).filter(Person.id.in_([coerce_uuid(person_id) for person_id in all_ids])).all()
+    labels = {str(person.id): _person_filter_label(person) for person in people}
+    pm_options = [
+        {"value": person_id, "label": labels[person_id]}
+        for person_id in sorted(pm_ids, key=lambda pid: labels.get(pid, ""))
+    ]
+    spc_options = [
+        {"value": person_id, "label": labels[person_id]}
+        for person_id in sorted(spc_ids, key=lambda pid: labels.get(pid, ""))
+    ]
+    return pm_options, spc_options
+
+
 @router.get("", response_class=HTMLResponse)
 def projects_list(
     request: Request,
     status: str | None = None,
-    priority: str | None = None,
+    project_type: str | None = None,
+    pm: str | None = None,
+    spc: str | None = None,
+    notice: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
@@ -321,14 +367,40 @@ def projects_list(
     """List all projects."""
     offset = (page - 1) * per_page
     from app.csrf import get_csrf_token
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    sidebar_stats = get_sidebar_stats(db)
+    current_user = get_current_user(request)
+    current_person_id = str(current_user.get("person_id")) if current_user and current_user.get("person_id") else None
+
+    pm_person_id = None
+    if pm == "me":
+        pm_person_id = current_person_id
+    elif pm:
+        try:
+            pm_person_id = str(coerce_uuid(pm))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid PM filter") from exc
+
+    spc_person_id = None
+    if spc == "me":
+        spc_person_id = current_person_id
+    elif spc:
+        try:
+            spc_person_id = str(coerce_uuid(spc))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid SPC filter") from exc
 
     projects = projects_service.projects.list(
         db=db,
         subscriber_id=None,
         status=status if status else None,
-        priority=priority if priority else None,
+        project_type=project_type if project_type else None,
+        priority=None,
         owner_person_id=None,
         manager_person_id=None,
+        project_manager_person_id=pm_person_id,
+        assistant_manager_person_id=spc_person_id,
         is_active=None,
         order_by="created_at",
         order_dir="desc",
@@ -340,9 +412,12 @@ def projects_list(
         db=db,
         subscriber_id=None,
         status=status if status else None,
-        priority=priority if priority else None,
+        project_type=project_type if project_type else None,
+        priority=None,
         owner_person_id=None,
         manager_person_id=None,
+        project_manager_person_id=pm_person_id,
+        assistant_manager_person_id=spc_person_id,
         is_active=None,
         order_by="created_at",
         order_dir="desc",
@@ -357,9 +432,12 @@ def projects_list(
         db=db,
         subscriber_id=None,
         status=None,
-        priority=priority if priority else None,
+        project_type=project_type if project_type else None,
+        priority=None,
         owner_person_id=None,
         manager_person_id=None,
+        project_manager_person_id=pm_person_id,
+        assistant_manager_person_id=spc_person_id,
         is_active=None,
         order_by="created_at",
         order_dir="desc",
@@ -370,11 +448,7 @@ def projects_list(
         status_value = project.status.value if project.status else ProjectStatus.planned.value
         status_counts[status_value] = status_counts.get(status_value, 0) + 1
     total_count = len(all_projects_unfiltered)
-
-    from app.web.admin import get_current_user, get_sidebar_stats
-
-    sidebar_stats = get_sidebar_stats(db)
-    current_user = get_current_user(request)
+    pm_options, spc_options = _load_project_pm_spc_options(db)
     csrf_token = get_csrf_token(request)
 
     return templates.TemplateResponse(
@@ -383,7 +457,12 @@ def projects_list(
             "request": request,
             "projects": projects,
             "status": status,
-            "priority": priority,
+            "project_type": project_type,
+            "project_types": [item.value for item in ProjectType],
+            "pm": pm,
+            "spc": spc,
+            "pm_options": pm_options,
+            "spc_options": spc_options,
             "page": page,
             "per_page": per_page,
             "total": total,
@@ -393,6 +472,7 @@ def projects_list(
             "csrf_token": csrf_token,
             "current_user": current_user,
             "sidebar_stats": sidebar_stats,
+            "notice": notice,
         },
     )
 
@@ -426,7 +506,7 @@ def project_new(request: Request, db: Session = Depends(get_db)):
 @router.post("", response_class=HTMLResponse)
 async def project_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
+    attachments = form.getlist("attachments")
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
@@ -490,6 +570,16 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
         payload_data["created_by_person_id"] = current_user.get("person_id")
 
     prepared_attachments: list[dict] = []
+    notice = None
+    person = None
+    if project["subscriber_id"]:
+        subscriber = db.get(Subscriber, coerce_uuid(project["subscriber_id"]))
+        person = subscriber.person if subscriber else None
+    if not person and project["owner_person_id"]:
+        person = db.get(Person, coerce_uuid(project["owner_person_id"]))
+    if person and person.splynx_id:
+        notice = "splynx_exists"
+
     try:
         from app.services import ticket_attachments as ticket_attachment_service
 
@@ -521,7 +611,10 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
                 }
             )
             vendor_service.installation_projects.create(db=db, payload=install_payload)
-        return RedirectResponse("/admin/projects", status_code=303)
+        redirect_url = "/admin/projects"
+        if notice:
+            redirect_url = f"{redirect_url}?notice={notice}"
+        return RedirectResponse(redirect_url, status_code=303)
     except Exception as exc:
         from app.services import ticket_attachments as ticket_attachment_service
 
@@ -596,9 +689,12 @@ def project_tasks_list(
         db=db,
         subscriber_id=None,
         status=None,
+        project_type=None,
         priority=None,
         owner_person_id=None,
         manager_person_id=None,
+        project_manager_person_id=None,
+        assistant_manager_person_id=None,
         is_active=True,
         order_by="name",
         order_dir="asc",
@@ -656,7 +752,7 @@ def project_task_new(request: Request, db: Session = Depends(get_db)):
 @router.post("/tasks", response_class=HTMLResponse)
 async def project_task_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
+    attachments = form.getlist("attachments")
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
@@ -673,9 +769,13 @@ async def project_task_create(request: Request, db: Session = Depends(get_db)):
         "due_at": _form_str(form.get("due_at")).strip(),
         "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
-    form_assignees = form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids")
-    if form_assignees is not None:
-        task["assigned_to_person_ids"] = [item for item in form_assignees if item]
+    form_assignee_ids: list[str] = [
+        item
+        for item in (form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids"))
+        if isinstance(item, str)
+    ]
+    if form_assignee_ids:
+        task["assigned_to_person_ids"] = [item for item in form_assignee_ids if item]
     if not task["project_id"]:
         context = _task_form_context(request, db, task, "/admin/projects/tasks", "Project is required.")
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
@@ -1540,7 +1640,7 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
 
         expense_totals = get_cached_expense_totals(db, "project", str(project.id))
     except Exception:
-        pass  # ERP sync not configured or failed
+        logger.debug("ERP expense totals unavailable for project.", exc_info=True)
 
     # Fetch material requests linked to this project
     project_material_requests = []
@@ -1551,7 +1651,7 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
             db, project_id=str(project.id), order_by="created_at", order_dir="desc", limit=20, offset=0
         )
     except Exception:
-        pass
+        logger.debug("ERP expense totals fetch failed for project.", exc_info=True)
 
     return templates.TemplateResponse(
         "admin/projects/project_detail.html",
@@ -1579,7 +1679,7 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
-    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
+    attachments = form.getlist("attachments")
     if not body:
         return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
     prepared_attachments: list[dict] = []
@@ -1608,10 +1708,21 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
             actor_id=str(current_user.get("person_id")) if current_user else None,
         )
         return RedirectResponse(f"/admin/projects/{project.number or project.id}", status_code=303)
+    except HTTPException as exc:
+        from app.services import ticket_attachments as ticket_attachment_service
+
+        ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
+        logger.warning(
+            "project_comment_attachment_error project_ref=%s detail=%s",
+            project_ref,
+            getattr(exc, "detail", None),
+        )
+        raise
     except Exception:
         from app.services import ticket_attachments as ticket_attachment_service
 
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
+        logger.exception("project_comment_create_failed project_ref=%s", project_ref)
         context = {
             "request": request,
             "message": "Unable to add comment",
@@ -1668,7 +1779,7 @@ def _get_project_labels(db: Session, project, assigned_vendor_id: str | None = N
             vendor = vendor_service.vendors.get(db=db, vendor_id=assigned_vendor_id)
             labels["assigned_vendor_label"] = vendor.name
         except Exception:
-            pass
+            logger.debug("Failed to resolve assigned vendor label.", exc_info=True)
     return labels
 
 
@@ -1714,7 +1825,15 @@ def project_edit(request: Request, project_ref: str, db: Session = Depends(get_d
         "completed_at": _fmt_dt(project.completed_at),
         "region": project.region or "",
         "is_active": bool(project.is_active),
+        "attachments": [],
     }
+    if project.metadata_:
+        if isinstance(project.metadata_, dict):
+            attachments = project.metadata_.get("attachments") or []
+            if isinstance(attachments, list):
+                project_data["attachments"] = attachments
+        elif isinstance(project.metadata_, list):
+            project_data["attachments"] = project.metadata_
     install_projects = vendor_service.installation_projects.list(
         db=db,
         status=None,
@@ -1746,7 +1865,7 @@ def project_edit(request: Request, project_ref: str, db: Session = Depends(get_d
 @router.post("/{project_ref}/edit", response_class=HTMLResponse)
 async def project_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
     form = await request.form()
-    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
+    attachments = form.getlist("attachments")
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
@@ -1893,6 +2012,78 @@ async def project_update(request: Request, project_ref: str, db: Session = Depen
         return templates.TemplateResponse("admin/projects/project_form.html", context)
 
 
+@router.post("/{project_ref}/status", response_class=HTMLResponse)
+async def project_status_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
+    """Quick inline status update for a project."""
+    from app.web.admin import get_current_user
+
+    form = await request.form()
+    status_raw = form.get("status")
+    status_value = status_raw.strip() if isinstance(status_raw, str) else ""
+    try:
+        project, _should_redirect = _resolve_project_reference(db, project_ref)
+        old_status = project.status.value if project.status else None
+        payload = ProjectUpdate.model_validate({"status": status_value})
+        projects_service.projects.update(db=db, project_id=str(project.id), payload=payload)
+        current_user = get_current_user(request)
+        _log_activity(
+            db=db,
+            request=request,
+            action="status_change",
+            entity_type="project",
+            entity_id=str(project.id),
+            actor_id=str(current_user.get("person_id")) if current_user else None,
+            metadata={"from": old_status, "to": status_value},
+        )
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                content="",
+                headers={"HX-Redirect": f"/admin/projects/{project.number or project.id}"},
+            )
+        return RedirectResponse(f"/admin/projects/{project.number or project.id}", status_code=303)
+    except Exception as exc:
+        error = html_escape(exc.detail if hasattr(exc, "detail") else str(exc))
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(content=f'<p class="text-red-600 text-sm">{error}</p>', status_code=422)
+        return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
+
+
+@router.post("/{project_ref}/priority", response_class=HTMLResponse)
+async def project_priority_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
+    """Quick inline priority update for a project."""
+    from app.web.admin import get_current_user
+
+    form = await request.form()
+    priority_raw = form.get("priority")
+    priority_value = priority_raw.strip() if isinstance(priority_raw, str) else ""
+    try:
+        project, _should_redirect = _resolve_project_reference(db, project_ref)
+        old_priority = project.priority.value if project.priority else None
+        payload = ProjectUpdate.model_validate({"priority": priority_value})
+        projects_service.projects.update(db=db, project_id=str(project.id), payload=payload)
+        current_user = get_current_user(request)
+        _log_activity(
+            db=db,
+            request=request,
+            action="priority_change",
+            entity_type="project",
+            entity_id=str(project.id),
+            actor_id=str(current_user.get("person_id")) if current_user else None,
+            metadata={"from": old_priority, "to": priority_value},
+        )
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                content="",
+                headers={"HX-Redirect": f"/admin/projects/{project.number or project.id}"},
+            )
+        return RedirectResponse(f"/admin/projects/{project.number or project.id}", status_code=303)
+    except Exception as exc:
+        error = html_escape(exc.detail if hasattr(exc, "detail") else str(exc))
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(content=f'<p class="text-red-600 text-sm">{error}</p>', status_code=422)
+        return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
+
+
 @router.post("/{project_ref}/delete", response_class=HTMLResponse)
 def project_delete(request: Request, project_ref: str, db: Session = Depends(get_db)):
     project, _should_redirect = _resolve_project_reference(db, project_ref)
@@ -1965,7 +2156,7 @@ async def project_task_comment_create(request: Request, task_ref: str, db: Sessi
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
-    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
+    attachments = form.getlist("attachments")
     if not body:
         return RedirectResponse(f"/admin/projects/tasks/{task_ref}", status_code=303)
     prepared_attachments: list[dict] = []
@@ -2053,7 +2244,7 @@ def project_task_edit(request: Request, task_ref: str, db: Session = Depends(get
 @router.post("/tasks/{task_ref}/edit", response_class=HTMLResponse)
 async def project_task_update(request: Request, task_ref: str, db: Session = Depends(get_db)):
     form = await request.form()
-    attachments = [item for item in form.getlist("attachments") if isinstance(item, UploadFile)]
+    attachments = form.getlist("attachments")
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
@@ -2073,9 +2264,13 @@ async def project_task_update(request: Request, task_ref: str, db: Session = Dep
         "due_at": _form_str(form.get("due_at")).strip(),
         "effort_hours": _form_str(form.get("effort_hours")).strip(),
     }
-    form_assignees = form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids")
-    if form_assignees is not None:
-        task["assigned_to_person_ids"] = [item for item in form_assignees if item]
+    form_assignee_ids: list[str] = [
+        item
+        for item in (form.getlist("assigned_to_person_ids[]") or form.getlist("assigned_to_person_ids"))
+        if isinstance(item, str)
+    ]
+    if form_assignee_ids:
+        task["assigned_to_person_ids"] = [item for item in form_assignee_ids if item]
     if not task["project_id"]:
         context = _task_form_context(
             request,

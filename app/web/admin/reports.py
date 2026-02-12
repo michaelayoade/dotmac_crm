@@ -1,4 +1,5 @@
 """Admin reports web routes."""
+
 import csv
 import io
 from datetime import UTC, datetime, timedelta
@@ -92,13 +93,19 @@ def churn_report_redirect():
 # Network Usage Report
 # =============================================================================
 
+
 @router.get("/network", response_class=HTMLResponse)
 def network_report(
     request: Request,
     db: Session = Depends(get_db),
+    period_days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
 ):
     """Network usage report."""
     user = get_current_user(request)
+    start_dt, end_dt = _parse_date_range(period_days, start_date, end_date)
+    day_span = max(1, min((end_dt.date() - start_dt.date()).days + 1, 120))
 
     # Placeholder data - in a real implementation this would pull from
     # bandwidth metrics or network monitoring
@@ -112,13 +119,16 @@ def network_report(
     # Placeholder chart data
     chart_data = []
     now = datetime.now(UTC)
-    for i in range(24):
-        hour = now - timedelta(hours=23 - i)
-        chart_data.append({
-            "time": hour.strftime("%H:00"),
-            "download": 3.5 + (i % 5) * 0.5,
-            "upload": 1.2 + (i % 3) * 0.3,
-        })
+    points = min(24, day_span)
+    for i in range(points):
+        hour = now - timedelta(hours=points - 1 - i)
+        chart_data.append(
+            {
+                "time": hour.strftime("%H:00"),
+                "download": 3.5 + (i % 5) * 0.5,
+                "upload": 1.2 + (i % 3) * 0.3,
+            }
+        )
 
     return templates.TemplateResponse(
         "admin/reports/network.html",
@@ -129,6 +139,9 @@ def network_report(
             "sidebar_stats": get_sidebar_stats(db),
             "stats": stats,
             "chart_data": chart_data,
+            "period_days": period_days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
         },
     )
 
@@ -136,6 +149,7 @@ def network_report(
 # =============================================================================
 # Technician Performance Report
 # =============================================================================
+
 
 def _get_technician_stats(
     db: Session,
@@ -190,25 +204,23 @@ def _get_technician_stats(
         completion_rate = (completed / total_assigned * 100) if total_assigned > 0 else 0
         rating = min(5, max(1, int(completion_rate / 20))) if total_assigned > 0 else 3
 
-        technician_stats.append({
-            "name": tech_name,
-            "total_jobs": total_assigned,
-            "completed_jobs": completed,
-            "avg_hours": avg_hours,
-            "rating": rating,
-            "completion_rate": round(completion_rate, 1),
-        })
+        technician_stats.append(
+            {
+                "name": tech_name,
+                "total_jobs": total_assigned,
+                "completed_jobs": completed,
+                "avg_hours": avg_hours,
+                "rating": rating,
+                "completion_rate": round(completion_rate, 1),
+            }
+        )
 
     # Sort by completed jobs (descending)
     technician_stats.sort(key=lambda x: x["completed_jobs"], reverse=True)
 
     # Job type breakdown
     job_type_breakdown: dict[str, int] = {}
-    work_orders = (
-        db.query(WorkOrder)
-        .filter(WorkOrder.created_at >= start_date)
-        .all()
-    )
+    work_orders = db.query(WorkOrder).filter(WorkOrder.created_at >= start_date).all()
     for wo in work_orders:
         work_type = wo.work_type.value if wo.work_type else "other"
         job_type_breakdown[work_type] = job_type_breakdown.get(work_type, 0) + 1
@@ -239,8 +251,7 @@ def technician_report(
 
     start_dt, end_dt = _parse_date_range(days, start_date, end_date)
 
-    technician_stats, total_jobs_completed, job_type_breakdown, recent_completions = \
-        _get_technician_stats(db, start_dt)
+    technician_stats, total_jobs_completed, job_type_breakdown, recent_completions = _get_technician_stats(db, start_dt)
 
     # Summary stats
     avg_completion_hours = 2.5  # Placeholder
@@ -281,15 +292,17 @@ def technician_report_export(
     # Format for CSV
     export_data = []
     for i, tech in enumerate(technician_stats, 1):
-        export_data.append({
-            "Rank": i,
-            "Technician": tech["name"],
-            "Total Jobs": tech["total_jobs"],
-            "Completed Jobs": tech["completed_jobs"],
-            "Completion Rate (%)": tech["completion_rate"],
-            "Avg Hours": tech["avg_hours"],
-            "Rating": tech["rating"],
-        })
+        export_data.append(
+            {
+                "Rank": i,
+                "Technician": tech["name"],
+                "Total Jobs": tech["total_jobs"],
+                "Completed Jobs": tech["completed_jobs"],
+                "Completion Rate (%)": tech["completion_rate"],
+                "Avg Hours": tech["avg_hours"],
+                "Rating": tech["rating"],
+            }
+        )
 
     filename = f"technician_performance_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
@@ -298,6 +311,7 @@ def technician_report_export(
 # =============================================================================
 # CRM Performance Report
 # =============================================================================
+
 
 @router.get("/crm-performance", response_class=HTMLResponse)
 def crm_performance_report(
@@ -348,15 +362,26 @@ def crm_performance_report(
     # Summary stats
     total_conversations = sum(agent["total_conversations"] for agent in agent_stats)
     resolved_conversations = sum(agent["resolved_conversations"] for agent in agent_stats)
-    resolution_rate = (resolved_conversations / total_conversations * 100) if total_conversations > 0 else 0
+    resolution_rate = resolved_conversations / total_conversations * 100 if total_conversations > 0 else 0
 
-    # Average FRT across agents (only count agents with data)
-    frt_values = [a["avg_first_response_minutes"] for a in agent_stats if a["avg_first_response_minutes"] is not None]
-    avg_frt = sum(frt_values) / len(frt_values) if frt_values else None
+    # Weighted average FRT across agents (weight by total conversations with valid FRT)
+    total_team_response_minutes = sum(
+        (a["avg_first_response_minutes"] or 0) * a["total_conversations"]
+        for a in agent_stats
+        if a["avg_first_response_minutes"] is not None
+    )
+    total_convos_with_frt = sum(
+        a["total_conversations"] for a in agent_stats if a["avg_first_response_minutes"] is not None
+    )
+    avg_frt = total_team_response_minutes / total_convos_with_frt if total_convos_with_frt > 0 else None
 
-    # Average resolution time across agents
-    resolution_values = [a["avg_resolution_minutes"] for a in agent_stats if a["avg_resolution_minutes"] is not None]
-    avg_resolution = sum(resolution_values) / len(resolution_values) if resolution_values else None
+    # Weighted average resolution time across agents (weight by resolved conversations)
+    total_resolution_minutes = sum(
+        (a["avg_resolution_minutes"] or 0) * a["resolved_conversations"]
+        for a in agent_stats
+        if a["avg_resolution_minutes"] is not None
+    )
+    avg_resolution_time = total_resolution_minutes / resolved_conversations if resolved_conversations > 0 else None
 
     # Get teams and agents for filter dropdowns
     teams = crm_team_service.Teams.list(
@@ -410,7 +435,7 @@ def crm_performance_report(
             "resolved_conversations": resolved_conversations,
             "resolution_rate": resolution_rate,
             "avg_frt_minutes": avg_frt,
-            "avg_resolution_minutes": avg_resolution,
+            "avg_resolution_minutes": avg_resolution_time,
             "total_messages": inbox_stats.get("messages", {}).get("total", 0),
             "inbound_messages": inbox_stats.get("messages", {}).get("inbound", 0),
             "outbound_messages": inbox_stats.get("messages", {}).get("outbound", 0),
@@ -463,17 +488,24 @@ def crm_performance_report_export(
     for i, agent in enumerate(agent_stats, 1):
         resolution_rate = (
             agent["resolved_conversations"] / agent["total_conversations"] * 100
-            if agent["total_conversations"] > 0 else 0
+            if agent["total_conversations"] > 0
+            else 0
         )
-        export_data.append({
-            "Rank": i,
-            "Agent": agent["name"],
-            "Total Conversations": agent["total_conversations"],
-            "Resolved": agent["resolved_conversations"],
-            "Resolution Rate (%)": round(resolution_rate, 1),
-            "Avg First Response (min)": round(agent["avg_first_response_minutes"], 1) if agent["avg_first_response_minutes"] else "",
-            "Avg Resolution Time (min)": round(agent["avg_resolution_minutes"], 1) if agent["avg_resolution_minutes"] else "",
-        })
+        export_data.append(
+            {
+                "Rank": i,
+                "Agent": agent["name"],
+                "Total Conversations": agent["total_conversations"],
+                "Resolved": agent["resolved_conversations"],
+                "Resolution Rate (%)": round(resolution_rate, 1),
+                "Avg First Response (min)": round(agent["avg_first_response_minutes"], 1)
+                if agent["avg_first_response_minutes"]
+                else "",
+                "Avg Resolution Time (min)": round(agent["avg_resolution_minutes"], 1)
+                if agent["avg_resolution_minutes"]
+                else "",
+            }
+        )
 
     filename = f"crm_performance_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)

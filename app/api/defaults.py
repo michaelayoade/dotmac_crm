@@ -15,6 +15,7 @@ router = APIRouter(prefix="/defaults", tags=["defaults"])
 
 class InvoiceDefaultsResponse(BaseModel):
     """Response model for invoice defaults."""
+
     currency: str
     payment_terms_days: int
     issued_at: str
@@ -24,6 +25,7 @@ class InvoiceDefaultsResponse(BaseModel):
 
 class CustomerDefaultsResponse(BaseModel):
     """Response model for customer defaults."""
+
     status: str
     is_active: bool
     country_code: str
@@ -35,6 +37,7 @@ class CustomerDefaultsResponse(BaseModel):
 
 class SubscriptionDefaultsResponse(BaseModel):
     """Response model for subscription defaults."""
+
     billing_cycle: str
     currency: str
     status: str
@@ -44,6 +47,7 @@ class SubscriptionDefaultsResponse(BaseModel):
 
 class TicketDefaultsResponse(BaseModel):
     """Response model for ticket defaults."""
+
     priority: str
     category_id: str | None = None
     status: str
@@ -51,6 +55,7 @@ class TicketDefaultsResponse(BaseModel):
 
 class CurrencySettingsResponse(BaseModel):
     """Response model for currency settings."""
+
     default_currency: str
     supported_currencies: list[str]
     decimal_places: int
@@ -58,22 +63,21 @@ class CurrencySettingsResponse(BaseModel):
 
 class DueDateCalculationRequest(BaseModel):
     """Request body for due date calculation."""
+
     issued_at: str | None = None
     payment_terms_days: int | None = None
 
 
 class DueDateCalculationResponse(BaseModel):
     """Response for due date calculation."""
+
     issued_at: str
     payment_terms_days: int
     due_at: str
 
 
 @router.get("/invoice", response_model=InvoiceDefaultsResponse)
-async def get_invoice_defaults(
-    db: Session = Depends(get_db),
-    _user=Depends(require_user_auth)
-):
+async def get_invoice_defaults(db: Session = Depends(get_db), _user=Depends(require_user_auth)):
     """
     Get default values for creating a new invoice.
 
@@ -86,11 +90,7 @@ async def get_invoice_defaults(
 
 
 @router.get("/customer/{customer_type}", response_model=CustomerDefaultsResponse)
-async def get_customer_defaults(
-    customer_type: str,
-    db: Session = Depends(get_db),
-    _user=Depends(require_user_auth)
-):
+async def get_customer_defaults(customer_type: str, db: Session = Depends(get_db), _user=Depends(require_user_auth)):
     """
     Get default values for creating a new customer.
 
@@ -108,10 +108,7 @@ async def get_customer_defaults(
 
 
 @router.get("/subscription", response_model=SubscriptionDefaultsResponse)
-async def get_subscription_defaults(
-    db: Session = Depends(get_db),
-    _user=Depends(require_user_auth)
-):
+async def get_subscription_defaults(db: Session = Depends(get_db), _user=Depends(require_user_auth)):
     """
     Get default values for creating a new subscription.
 
@@ -123,10 +120,7 @@ async def get_subscription_defaults(
 
 
 @router.get("/ticket", response_model=TicketDefaultsResponse)
-async def get_ticket_defaults(
-    db: Session = Depends(get_db),
-    _user=Depends(require_user_auth)
-):
+async def get_ticket_defaults(db: Session = Depends(get_db), _user=Depends(require_user_auth)):
     """
     Get default values for creating a new support ticket.
 
@@ -138,10 +132,7 @@ async def get_ticket_defaults(
 
 
 @router.get("/currency", response_model=CurrencySettingsResponse)
-async def get_currency_settings(
-    db: Session = Depends(get_db),
-    _user=Depends(require_user_auth)
-):
+async def get_currency_settings(db: Session = Depends(get_db), _user=Depends(require_user_auth)):
     """
     Get currency-related settings.
 
@@ -154,9 +145,7 @@ async def get_currency_settings(
 
 @router.post("/calculate-due-date", response_model=DueDateCalculationResponse)
 async def calculate_due_date(
-    request: DueDateCalculationRequest,
-    db: Session = Depends(get_db),
-    _user=Depends(require_user_auth)
+    request: DueDateCalculationRequest, db: Session = Depends(get_db), _user=Depends(require_user_auth)
 ):
     """
     Calculate the due date based on issue date and payment terms.
@@ -170,10 +159,7 @@ async def calculate_due_date(
     if request.issued_at:
         issued_at = date.fromisoformat(request.issued_at)
 
-    due_date = service.calculate_due_date(
-        issued_at=issued_at,
-        payment_terms_days=request.payment_terms_days
-    )
+    due_date = service.calculate_due_date(issued_at=issued_at, payment_terms_days=request.payment_terms_days)
 
     # Get the actual values used
     if issued_at is None:
@@ -185,7 +171,5 @@ async def calculate_due_date(
         payment_terms = defaults["payment_terms_days"]
 
     return DueDateCalculationResponse(
-        issued_at=issued_at.isoformat(),
-        payment_terms_days=payment_terms,
-        due_at=due_date.isoformat()
+        issued_at=issued_at.isoformat(), payment_terms_days=payment_terms, due_at=due_date.isoformat()
     )

@@ -17,6 +17,7 @@ from app.logging import get_logger
 from app.models.crm.conversation import MessageAttachment
 from app.schemas.crm.inbox import EmailWebhookPayload
 from app.services.crm import inbox as inbox_service
+from app.services.webhook_dead_letter import write_dead_letter
 
 SMTPController: Any
 try:
@@ -132,11 +133,7 @@ def _handle_message(
             try:
                 parsed_date = parsedate_to_datetime(date_header)
                 if parsed_date:
-                    received_at = (
-                        parsed_date.astimezone(UTC)
-                        if parsed_date.tzinfo
-                        else parsed_date.replace(tzinfo=UTC)
-                    )
+                    received_at = parsed_date.astimezone(UTC) if parsed_date.tzinfo else parsed_date.replace(tzinfo=UTC)
             except Exception:
                 received_at = None
         text_body, html_body = _extract_bodies(msg)
@@ -180,11 +177,7 @@ def _handle_message(
                 return
             attachments = _extract_attachments(msg)
             if attachments:
-                existing = (
-                    db.query(MessageAttachment)
-                    .filter(MessageAttachment.message_id == message.id)
-                    .count()
-                )
+                existing = db.query(MessageAttachment).filter(MessageAttachment.message_id == message.id).count()
                 if existing == 0:
                     for attachment in attachments:
                         db.add(
@@ -202,8 +195,20 @@ def _handle_message(
                     db.commit()
         finally:
             db.close()
-    except Exception:
+    except Exception as exc:
         logger.exception("smtp_inbound_processing_failed")
+        # Persist enough context to diagnose/replay — avoid storing full
+        # raw bytes (may be very large with attachments).
+        write_dead_letter(
+            channel="smtp",
+            raw_payload={
+                "mailfrom": mailfrom,
+                "rcpttos": rcpttos,
+                "data_size": len(data) if data else 0,
+            },
+            error=exc,
+            message_id=None,
+        )
 
 
 class CRMInboundSMTPHandler:
@@ -211,13 +216,7 @@ class CRMInboundSMTPHandler:
 
     def __init__(self, allowed_recipients: set[str] | None):
         if allowed_recipients:
-            normalized = {
-                addr
-                for addr in (
-                    _normalize_email_address(raw) for raw in allowed_recipients
-                )
-                if addr
-            }
+            normalized = {addr for addr in (_normalize_email_address(raw) for raw in allowed_recipients) if addr}
             self.allowed_recipients: set[str] | None = normalized
         else:
             self.allowed_recipients = None
@@ -225,11 +224,7 @@ class CRMInboundSMTPHandler:
     async def handle_DATA(self, server, session, envelope):
         to_addresses = list(envelope.rcpt_tos or [])
         if self.allowed_recipients:
-            normalized_to = {
-                _normalize_email_address(addr)
-                for addr in to_addresses
-                if _normalize_email_address(addr)
-            }
+            normalized_to = {_normalize_email_address(addr) for addr in to_addresses if _normalize_email_address(addr)}
             matched = any(addr in self.allowed_recipients for addr in normalized_to)
             if not matched:
                 logger.info(
@@ -268,7 +263,7 @@ def start_smtp_inbound_server() -> None:
     if not enabled:
         return
 
-    host = os.getenv("CRM_SMTP_INBOUND_HOST", "0.0.0.0")
+    host = os.getenv("CRM_SMTP_INBOUND_HOST", "127.0.0.1")
     port = int(os.getenv("CRM_SMTP_INBOUND_PORT", "2525"))
     recipients_env = os.getenv("CRM_SMTP_INBOUND_RECIPIENTS", "").strip()
     allowed_recipients = None

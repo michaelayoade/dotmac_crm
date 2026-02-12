@@ -12,16 +12,10 @@ from app.models.crm.enums import CampaignRecipientStatus, CampaignStatus, Campai
 class Campaign(Base):
     __tablename__ = "crm_campaigns"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    campaign_type: Mapped[CampaignType] = mapped_column(
-        Enum(CampaignType), default=CampaignType.one_time
-    )
-    status: Mapped[CampaignStatus] = mapped_column(
-        Enum(CampaignStatus), default=CampaignStatus.draft
-    )
+    campaign_type: Mapped[CampaignType] = mapped_column(Enum(CampaignType), default=CampaignType.one_time)
+    status: Mapped[CampaignStatus] = mapped_column(Enum(CampaignStatus), default=CampaignStatus.draft)
 
     # Email fields
     subject: Mapped[str | None] = mapped_column(String(200))
@@ -47,9 +41,7 @@ class Campaign(Base):
     opened_count: Mapped[int] = mapped_column(Integer, default=0)
     clicked_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id")
-    )
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     campaign_sender_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("crm_campaign_senders.id")
     )
@@ -59,9 +51,7 @@ class Campaign(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -78,12 +68,8 @@ class Campaign(Base):
 class CampaignStep(Base):
     __tablename__ = "crm_campaign_steps"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    campaign_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crm_campaigns.id"), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_campaigns.id"), nullable=False)
     step_index: Mapped[int] = mapped_column(Integer, default=0)
     name: Mapped[str | None] = mapped_column(String(200))
     subject: Mapped[str | None] = mapped_column(String(200))
@@ -91,9 +77,7 @@ class CampaignStep(Base):
     body_text: Mapped[str | None] = mapped_column(Text)
     delay_days: Mapped[int] = mapped_column(Integer, default=0)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -119,32 +103,20 @@ class CampaignRecipient(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    campaign_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crm_campaigns.id"), nullable=False
-    )
-    person_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id"), nullable=False
-    )
-    step_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crm_campaign_steps.id")
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_campaigns.id"), nullable=False)
+    person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
+    step_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_campaign_steps.id"))
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[CampaignRecipientStatus] = mapped_column(
         Enum(CampaignRecipientStatus), default=CampaignRecipientStatus.pending
     )
-    notification_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("notifications.id")
-    )
+    notification_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("notifications.id"))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_reason: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     campaign = relationship("Campaign", back_populates="recipients")
     person = relationship("Person")

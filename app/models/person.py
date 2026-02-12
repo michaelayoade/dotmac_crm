@@ -34,14 +34,16 @@ class PersonStatus(enum.Enum):
 
 class PartyStatus(enum.Enum):
     """Lifecycle status for unified party model."""
-    lead = "lead"           # Prospect, minimal info
-    contact = "contact"     # Known individual, verified
-    customer = "customer"   # Converted (accepted quote/signed up)
+
+    lead = "lead"  # Prospect, minimal info
+    contact = "contact"  # Known individual, verified
+    customer = "customer"  # Converted (accepted quote/signed up)
     subscriber = "subscriber"  # Active billing account
 
 
 class ChannelType(enum.Enum):
     """Communication channel types for PersonChannel."""
+
     email = "email"
     phone = "phone"
     sms = "sms"
@@ -54,9 +56,7 @@ class ChannelType(enum.Enum):
 class Person(Base):
     __tablename__ = "people"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     first_name: Mapped[str] = mapped_column(String(80), nullable=False)
     last_name: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -72,9 +72,7 @@ class Person(Base):
     date_of_birth: Mapped[date | None] = mapped_column(Date)
     gender: Mapped[Gender] = mapped_column(Enum(Gender), default=Gender.unknown)
 
-    preferred_contact_method: Mapped[ContactMethod | None] = mapped_column(
-        Enum(ContactMethod)
-    )
+    preferred_contact_method: Mapped[ContactMethod | None] = mapped_column(Enum(ContactMethod))
     locale: Mapped[str | None] = mapped_column(String(16))
     timezone: Mapped[str | None] = mapped_column(String(64))
 
@@ -86,30 +84,21 @@ class Person(Base):
     country_code: Mapped[str | None] = mapped_column(String(2))
 
     # Unified party model fields
-    party_status: Mapped[PartyStatus] = mapped_column(
-        Enum(PartyStatus), default=PartyStatus.contact
-    )
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id")
-    )
+    party_status: Mapped[PartyStatus] = mapped_column(Enum(PartyStatus), default=PartyStatus.contact)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"))
 
     # External integrations
     erp_customer_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)
+    erpnext_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)
 
-    status: Mapped[PersonStatus] = mapped_column(
-        Enum(PersonStatus), default=PersonStatus.active
-    )
+    status: Mapped[PersonStatus] = mapped_column(Enum(PersonStatus), default=PersonStatus.active)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     marketing_opt_in: Mapped[bool] = mapped_column(Boolean, default=False)
 
     notes: Mapped[str | None] = mapped_column(Text)
-    metadata_: Mapped[dict | None] = mapped_column(
-        "metadata", MutableDict.as_mutable(JSON())
-    )
+    metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON()))
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -120,7 +109,7 @@ class Person(Base):
         back_populates="people",
         foreign_keys=[organization_id],
     )
-    # subscribers = relationship("Subscriber", back_populates="person")  # Model removed
+    subscribers = relationship("Subscriber", back_populates="person", foreign_keys="Subscriber.person_id")
     channels = relationship("PersonChannel", back_populates="person", cascade="all, delete-orphan")
     status_logs = relationship(
         "PersonStatusLog",
@@ -141,23 +130,23 @@ class Person(Base):
     def person_id(cls):
         return cls.id
 
+    @hybrid_property
+    def splynx_id(self):
+        if not self.metadata_ or not isinstance(self.metadata_, dict):
+            return None
+        return self.metadata_.get("splynx_id")
+
 
 class PersonChannel(Base):
     """Communication channels for a person (email, phone, social, etc.)."""
+
     __tablename__ = "person_channels"
     __table_args__ = (
-        UniqueConstraint(
-            "person_id", "channel_type", "address",
-            name="uq_person_channels_person_type_address"
-        ),
+        UniqueConstraint("person_id", "channel_type", "address", name="uq_person_channels_person_type_address"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    person_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id"), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
     channel_type: Mapped[ChannelType] = mapped_column(Enum(ChannelType), nullable=False)
     address: Mapped[str] = mapped_column(String(255), nullable=False)
     label: Mapped[str | None] = mapped_column(String(60))  # "Work", "Personal", etc.
@@ -166,9 +155,7 @@ class PersonChannel(Base):
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON()))
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -178,25 +165,18 @@ class PersonChannel(Base):
 
 class PersonStatusLog(Base):
     """Audit log for person party status transitions."""
+
     __tablename__ = "person_status_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    person_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id"), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
     from_status: Mapped[PartyStatus | None] = mapped_column(Enum(PartyStatus))
     to_status: Mapped[PartyStatus] = mapped_column(Enum(PartyStatus), nullable=False)
-    changed_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id")
-    )
+    changed_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     reason: Mapped[str | None] = mapped_column(String(255))
     metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON()))
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     person = relationship("Person", back_populates="status_logs", foreign_keys=[person_id])
     changed_by = relationship("Person", foreign_keys=[changed_by_id])
@@ -204,23 +184,16 @@ class PersonStatusLog(Base):
 
 class PersonMergeLog(Base):
     """Audit log for person merge operations."""
+
     __tablename__ = "person_merge_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     source_person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    target_person_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id"), nullable=False
-    )
-    merged_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id")
-    )
+    target_person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
+    merged_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     source_snapshot: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON()))
 
-    merged_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    merged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     target_person = relationship("Person", foreign_keys=[target_person_id])
     merged_by = relationship("Person", foreign_keys=[merged_by_id])

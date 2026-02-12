@@ -69,12 +69,8 @@ def list_work_orders(
     )
 
 
-@router.patch(
-    "/work-orders/{work_order_id}", response_model=WorkOrderRead, tags=["work-orders"]
-)
-def update_work_order(
-    work_order_id: str, payload: WorkOrderUpdate, db: Session = Depends(get_db)
-):
+@router.patch("/work-orders/{work_order_id}", response_model=WorkOrderRead, tags=["work-orders"])
+def update_work_order(work_order_id: str, payload: WorkOrderUpdate, db: Session = Depends(get_db)):
     return workforce_service.work_orders.update(db, work_order_id, payload)
 
 
@@ -102,9 +98,7 @@ def work_order_cost_summary(work_order_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     tags=["work-order-assignments"],
 )
-def create_work_order_assignment(
-    payload: WorkOrderAssignmentCreate, db: Session = Depends(get_db)
-):
+def create_work_order_assignment(payload: WorkOrderAssignmentCreate, db: Session = Depends(get_db)):
     return workforce_service.work_order_assignments.create(db, payload)
 
 
@@ -141,9 +135,7 @@ def list_work_order_assignments(
     response_model=WorkOrderAssignmentRead,
     tags=["work-order-assignments"],
 )
-def update_work_order_assignment(
-    assignment_id: str, payload: WorkOrderAssignmentUpdate, db: Session = Depends(get_db)
-):
+def update_work_order_assignment(assignment_id: str, payload: WorkOrderAssignmentUpdate, db: Session = Depends(get_db)):
     return workforce_service.work_order_assignments.update(db, assignment_id, payload)
 
 
@@ -199,9 +191,7 @@ def list_work_order_notes(
     response_model=WorkOrderNoteRead,
     tags=["work-order-notes"],
 )
-def update_work_order_note(
-    note_id: str, payload: WorkOrderNoteUpdate, db: Session = Depends(get_db)
-):
+def update_work_order_note(note_id: str, payload: WorkOrderNoteUpdate, db: Session = Depends(get_db)):
     return workforce_service.work_order_notes.update(db, note_id, payload)
 
 

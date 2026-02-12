@@ -206,7 +206,5 @@ def test_list_settings_response(db_session):
         "refresh_cookie_secure",
         DomainSettingUpdate(value_json=True),
     )
-    response = settings_api.list_auth_settings_response(
-        db_session, None, "key", "asc", 10, 0
-    )
+    response = settings_api.list_auth_settings_response(db_session, None, "key", "asc", 10, 0)
     assert response["count"] == 2

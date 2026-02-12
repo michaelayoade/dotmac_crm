@@ -42,9 +42,7 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     tags=["notification-templates"],
 )
-def create_template(
-    payload: NotificationTemplateCreate, db: Session = Depends(get_db)
-):
+def create_template(payload: NotificationTemplateCreate, db: Session = Depends(get_db)):
     return notification_service.templates.create(db, payload)
 
 
@@ -71,9 +69,7 @@ def list_templates(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return notification_service.templates.list_response(
-        db, channel, is_active, order_by, order_dir, limit, offset
-    )
+    return notification_service.templates.list_response(db, channel, is_active, order_by, order_dir, limit, offset)
 
 
 @router.patch(
@@ -81,9 +77,7 @@ def list_templates(
     response_model=NotificationTemplateRead,
     tags=["notification-templates"],
 )
-def update_template(
-    template_id: str, payload: NotificationTemplateUpdate, db: Session = Depends(get_db)
-):
+def update_template(template_id: str, payload: NotificationTemplateUpdate, db: Session = Depends(get_db)):
     return notification_service.templates.update(db, template_id, payload)
 
 
@@ -112,9 +106,7 @@ def create_notification(payload: NotificationCreate, db: Session = Depends(get_d
     status_code=status.HTTP_201_CREATED,
     tags=["notifications"],
 )
-def create_notifications_bulk(
-    payload: NotificationBulkCreateRequest, db: Session = Depends(get_db)
-):
+def create_notifications_bulk(payload: NotificationBulkCreateRequest, db: Session = Depends(get_db)):
     response = notification_service.notifications.bulk_create_response(db, payload)
     return NotificationBulkCreateResponse(**response)
 
@@ -124,9 +116,7 @@ def create_notifications_bulk(
     response_model=NotificationDeliveryBulkUpdateResponse,
     tags=["notification-deliveries"],
 )
-def update_notification_deliveries_bulk(
-    payload: NotificationDeliveryBulkUpdateRequest, db: Session = Depends(get_db)
-):
+def update_notification_deliveries_bulk(payload: NotificationDeliveryBulkUpdateRequest, db: Session = Depends(get_db)):
     response = notification_service.deliveries.bulk_update_response(db, payload)
     return NotificationDeliveryBulkUpdateResponse(**response)
 
@@ -165,9 +155,7 @@ def list_notifications(
     response_model=NotificationRead,
     tags=["notifications"],
 )
-def update_notification(
-    notification_id: str, payload: NotificationUpdate, db: Session = Depends(get_db)
-):
+def update_notification(notification_id: str, payload: NotificationUpdate, db: Session = Depends(get_db)):
     return notification_service.notifications.update(db, notification_id, payload)
 
 
@@ -186,9 +174,7 @@ def delete_notification(notification_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     tags=["notification-deliveries"],
 )
-def create_delivery(
-    payload: NotificationDeliveryCreate, db: Session = Depends(get_db)
-):
+def create_delivery(payload: NotificationDeliveryCreate, db: Session = Depends(get_db)):
     return notification_service.deliveries.create(db, payload)
 
 
@@ -226,9 +212,7 @@ def list_deliveries(
     response_model=NotificationDeliveryRead,
     tags=["notification-deliveries"],
 )
-def update_delivery(
-    delivery_id: str, payload: NotificationDeliveryUpdate, db: Session = Depends(get_db)
-):
+def update_delivery(delivery_id: str, payload: NotificationDeliveryUpdate, db: Session = Depends(get_db)):
     return notification_service.deliveries.update(db, delivery_id, payload)
 
 
@@ -247,9 +231,7 @@ def delete_delivery(delivery_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     tags=["alert-notification-policies"],
 )
-def create_alert_notification_policy(
-    payload: AlertNotificationPolicyCreate, db: Session = Depends(get_db)
-):
+def create_alert_notification_policy(payload: AlertNotificationPolicyCreate, db: Session = Depends(get_db)):
     return notification_service.alert_notification_policies.create(db, payload)
 
 
@@ -328,9 +310,7 @@ def list_alert_notification_logs(
     status_code=status.HTTP_201_CREATED,
     tags=["alert-notification-policy-steps"],
 )
-def create_alert_notification_policy_step(
-    payload: AlertNotificationPolicyStepCreate, db: Session = Depends(get_db)
-):
+def create_alert_notification_policy_step(payload: AlertNotificationPolicyStepCreate, db: Session = Depends(get_db)):
     return notification_service.alert_notification_policy_steps.create(db, payload)
 
 
@@ -415,9 +395,7 @@ def list_on_call_rotations(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return notification_service.on_call_rotations.list_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return notification_service.on_call_rotations.list_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.patch(
@@ -425,9 +403,7 @@ def list_on_call_rotations(
     response_model=OnCallRotationRead,
     tags=["on-call-rotations"],
 )
-def update_on_call_rotation(
-    rotation_id: str, payload: OnCallRotationUpdate, db: Session = Depends(get_db)
-):
+def update_on_call_rotation(rotation_id: str, payload: OnCallRotationUpdate, db: Session = Depends(get_db)):
     return notification_service.on_call_rotations.update(db, rotation_id, payload)
 
 
@@ -446,9 +422,7 @@ def delete_on_call_rotation(rotation_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     tags=["on-call-rotation-members"],
 )
-def create_on_call_rotation_member(
-    payload: OnCallRotationMemberCreate, db: Session = Depends(get_db)
-):
+def create_on_call_rotation_member(payload: OnCallRotationMemberCreate, db: Session = Depends(get_db)):
     return notification_service.on_call_rotation_members.create(db, payload)
 
 
@@ -485,9 +459,7 @@ def list_on_call_rotation_members(
     response_model=OnCallRotationMemberRead,
     tags=["on-call-rotation-members"],
 )
-def update_on_call_rotation_member(
-    member_id: str, payload: OnCallRotationMemberUpdate, db: Session = Depends(get_db)
-):
+def update_on_call_rotation_member(member_id: str, payload: OnCallRotationMemberUpdate, db: Session = Depends(get_db)):
     return notification_service.on_call_rotation_members.update(db, member_id, payload)
 
 

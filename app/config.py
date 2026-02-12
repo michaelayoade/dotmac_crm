@@ -27,30 +27,18 @@ class Settings:
     dem_data_dir: str = os.getenv("DEM_DATA_DIR", "data/dem/srtm")
 
     # Ticket attachment settings
-    ticket_attachment_upload_dir: str = os.getenv(
-        "TICKET_ATTACHMENT_UPLOAD_DIR", "static/uploads/tickets"
-    )
-    ticket_attachment_url_prefix: str = os.getenv(
-        "TICKET_ATTACHMENT_URL_PREFIX", "/static/uploads/tickets"
-    )
-    ticket_attachment_max_size_bytes: int = int(
-        os.getenv("TICKET_ATTACHMENT_MAX_SIZE_BYTES", str(5 * 1024 * 1024))
-    )
+    ticket_attachment_upload_dir: str = os.getenv("TICKET_ATTACHMENT_UPLOAD_DIR", "static/uploads/tickets")
+    ticket_attachment_url_prefix: str = os.getenv("TICKET_ATTACHMENT_URL_PREFIX", "/static/uploads/tickets")
+    ticket_attachment_max_size_bytes: int = int(os.getenv("TICKET_ATTACHMENT_MAX_SIZE_BYTES", str(5 * 1024 * 1024)))
     ticket_attachment_allowed_types: str = os.getenv(
         "TICKET_ATTACHMENT_ALLOWED_TYPES",
         "image/jpeg,image/png,image/gif,image/webp,application/pdf",
     )
 
     # CRM message attachment settings
-    message_attachment_upload_dir: str = os.getenv(
-        "MESSAGE_ATTACHMENT_UPLOAD_DIR", "static/uploads/messages"
-    )
-    message_attachment_url_prefix: str = os.getenv(
-        "MESSAGE_ATTACHMENT_URL_PREFIX", "/static/uploads/messages"
-    )
-    message_attachment_max_size_bytes: int = int(
-        os.getenv("MESSAGE_ATTACHMENT_MAX_SIZE_BYTES", str(5 * 1024 * 1024))
-    )
+    message_attachment_upload_dir: str = os.getenv("MESSAGE_ATTACHMENT_UPLOAD_DIR", "static/uploads/messages")
+    message_attachment_url_prefix: str = os.getenv("MESSAGE_ATTACHMENT_URL_PREFIX", "/static/uploads/messages")
+    message_attachment_max_size_bytes: int = int(os.getenv("MESSAGE_ATTACHMENT_MAX_SIZE_BYTES", str(5 * 1024 * 1024)))
     message_attachment_allowed_types: str = os.getenv(
         "MESSAGE_ATTACHMENT_ALLOWED_TYPES",
         "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,image/heic-sequence,image/heif-sequence,application/pdf",
@@ -59,12 +47,8 @@ class Settings:
     # Branding assets (logo & favicon)
     branding_upload_dir: str = os.getenv("BRANDING_UPLOAD_DIR", "static/uploads/branding")
     branding_url_prefix: str = os.getenv("BRANDING_URL_PREFIX", "/static/uploads/branding")
-    branding_logo_max_size_bytes: int = int(
-        os.getenv("BRANDING_LOGO_MAX_SIZE_BYTES", str(2 * 1024 * 1024))
-    )
-    branding_favicon_max_size_bytes: int = int(
-        os.getenv("BRANDING_FAVICON_MAX_SIZE_BYTES", str(512 * 1024))
-    )
+    branding_logo_max_size_bytes: int = int(os.getenv("BRANDING_LOGO_MAX_SIZE_BYTES", str(2 * 1024 * 1024)))
+    branding_favicon_max_size_bytes: int = int(os.getenv("BRANDING_FAVICON_MAX_SIZE_BYTES", str(512 * 1024)))
 
     # Meta Graph API settings
     meta_graph_api_version: str = os.getenv("META_GRAPH_API_VERSION", "v19.0")

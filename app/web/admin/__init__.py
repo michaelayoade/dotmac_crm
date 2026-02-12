@@ -26,8 +26,8 @@ from app.web.admin.notifications import router as notifications_router
 from app.web.admin.operations import router as operations_router
 from app.web.admin.projects import router as projects_router
 from app.web.admin.reports import router as reports_router
-from app.web.admin.resellers import router as resellers_router
 from app.web.admin.service_teams import router as service_teams_router
+from app.web.admin.subscribers import router as subscribers_router
 from app.web.admin.surveys import router as surveys_router
 from app.web.admin.system import router as system_router
 from app.web.admin.tickets import router as tickets_router
@@ -85,10 +85,10 @@ router.include_router(inventory_router)
 router.include_router(gis_router)
 router.include_router(integrations_router)
 router.include_router(vendors_router)
-router.include_router(resellers_router)
 router.include_router(campaigns_router)
 router.include_router(surveys_router)
 router.include_router(crm_router)
+router.include_router(subscribers_router)
 router.include_router(notifications_router)
 router.include_router(network_router)
 router.include_router(legal_router, prefix="/system")

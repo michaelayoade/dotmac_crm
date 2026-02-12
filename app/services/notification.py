@@ -132,10 +132,7 @@ class Templates(ListResponseMixin):
     ):
         query = db.query(NotificationTemplate)
         if channel:
-            query = query.filter(
-                NotificationTemplate.channel
-                == validate_enum(channel, NotificationChannel, "channel")
-            )
+            query = query.filter(NotificationTemplate.channel == validate_enum(channel, NotificationChannel, "channel"))
         if is_active is None:
             query = query.filter(NotificationTemplate.is_active.is_(True))
         else:
@@ -236,15 +233,9 @@ class Notifications(ListResponseMixin):
     ):
         query = db.query(Notification)
         if channel:
-            query = query.filter(
-                Notification.channel
-                == validate_enum(channel, NotificationChannel, "channel")
-            )
+            query = query.filter(Notification.channel == validate_enum(channel, NotificationChannel, "channel"))
         if status:
-            query = query.filter(
-                Notification.status
-                == validate_enum(status, NotificationStatus, "status")
-            )
+            query = query.filter(Notification.status == validate_enum(status, NotificationStatus, "status"))
         if is_active is None:
             query = query.filter(Notification.is_active.is_(True))
         else:
@@ -311,10 +302,7 @@ class Deliveries(ListResponseMixin):
         if notification_id:
             query = query.filter(NotificationDelivery.notification_id == notification_id)
         if status:
-            query = query.filter(
-                NotificationDelivery.status
-                == validate_enum(status, DeliveryStatus, "status")
-            )
+            query = query.filter(NotificationDelivery.status == validate_enum(status, DeliveryStatus, "status"))
         if is_active is None:
             query = query.filter(NotificationDelivery.is_active.is_(True))
         else:
@@ -401,18 +389,13 @@ class AlertNotificationPolicies(ListResponseMixin):
         query = db.query(AlertNotificationPolicy)
         if channel:
             query = query.filter(
-                AlertNotificationPolicy.channel
-                == validate_enum(channel, NotificationChannel, "channel")
+                AlertNotificationPolicy.channel == validate_enum(channel, NotificationChannel, "channel")
             )
         if status:
-            query = query.filter(
-                AlertNotificationPolicy.status
-                == validate_enum(status, AlertStatus, "status")
-            )
+            query = query.filter(AlertNotificationPolicy.status == validate_enum(status, AlertStatus, "status"))
         if severity_min:
             query = query.filter(
-                AlertNotificationPolicy.severity_min
-                == validate_enum(severity_min, AlertSeverity, "severity_min")
+                AlertNotificationPolicy.severity_min == validate_enum(severity_min, AlertSeverity, "severity_min")
             )
         if is_active is None:
             query = query.filter(AlertNotificationPolicy.is_active.is_(True))
@@ -512,9 +495,7 @@ class AlertNotificationPolicies(ListResponseMixin):
                 .all()
             )
             if not steps:
-                channel_value = policy.channel or validate_enum(
-                    default_channel, NotificationChannel, "channel"
-                )
+                channel_value = policy.channel or validate_enum(default_channel, NotificationChannel, "channel")
                 steps = [
                     AlertNotificationPolicyStep(
                         policy_id=policy.id,
@@ -522,8 +503,7 @@ class AlertNotificationPolicies(ListResponseMixin):
                         delay_minutes=max(default_delay_minutes, 0),
                         channel=channel_value,
                         recipient=policy.recipient or default_recipient,
-                        template_id=policy.template_id
-                        or (default_template_id if default_template_id else None),
+                        template_id=policy.template_id or (default_template_id if default_template_id else None),
                         rotation_id=default_rotation_id if default_rotation_id else None,
                         severity_min=policy.severity_min,
                         status=policy.status,
@@ -556,9 +536,7 @@ class AlertNotificationPolicies(ListResponseMixin):
                     f"Alert {alert.id} is {status.value}. "
                     f"Metric {alert.metric_type.value} measured {alert.measured_value}."
                 )
-                template_id = step.template_id or (
-                    default_template_id if default_template_id else None
-                )
+                template_id = step.template_id or (default_template_id if default_template_id else None)
                 if template_id:
                     template = db.get(NotificationTemplate, template_id)
                     if template:
@@ -647,10 +625,7 @@ class AlertNotificationPolicySteps(ListResponseMixin):
         if policy_id:
             query = query.filter(AlertNotificationPolicyStep.policy_id == policy_id)
         if status:
-            query = query.filter(
-                AlertNotificationPolicyStep.status
-                == validate_enum(status, AlertStatus, "status")
-            )
+            query = query.filter(AlertNotificationPolicyStep.status == validate_enum(status, AlertStatus, "status"))
         if is_active is None:
             query = query.filter(AlertNotificationPolicyStep.is_active.is_(True))
         else:
@@ -659,7 +634,10 @@ class AlertNotificationPolicySteps(ListResponseMixin):
             query,
             order_by,
             order_dir,
-            {"created_at": AlertNotificationPolicyStep.created_at, "step_index": AlertNotificationPolicyStep.step_index},
+            {
+                "created_at": AlertNotificationPolicyStep.created_at,
+                "step_index": AlertNotificationPolicyStep.step_index,
+            },
         )
         return apply_pagination(query, limit, offset).all()
 

@@ -37,41 +37,49 @@ if TYPE_CHECKING:
 
 def _ticket_query_factory(db: Session):
     from app.queries.tickets import TicketQuery
+
     return TicketQuery(db)
 
 
 def _work_order_query_factory(db: Session):
     from app.queries.workforce import WorkOrderQuery
+
     return WorkOrderQuery(db)
 
 
 def _project_query_factory(db: Session):
     from app.queries.projects import ProjectQuery
+
     return ProjectQuery(db)
 
 
 def _get_ticket_service():
     from app.services.tickets import tickets
+
     return tickets
 
 
 def _get_ticket_comments_service():
     from app.services.tickets import ticket_comments
+
     return ticket_comments
 
 
 def _get_work_orders_service():
     from app.services.workforce import work_orders
+
     return work_orders
 
 
 def _get_projects_service():
     from app.services.projects import projects
+
     return projects
 
 
 def _get_project_tasks_service():
     from app.services.projects import project_tasks
+
     return project_tasks
 
 

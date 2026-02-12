@@ -85,9 +85,7 @@ def list_geo_locations(
     response_model=GeoLocationRead,
     tags=["gis-locations"],
 )
-def update_geo_location(
-    location_id: str, payload: GeoLocationUpdate, db: Session = Depends(get_db)
-):
+def update_geo_location(location_id: str, payload: GeoLocationUpdate, db: Session = Depends(get_db)):
     return gis_service.geo_locations.update(db, location_id, payload)
 
 
@@ -114,9 +112,7 @@ def find_nearby_locations(
     db: Session = Depends(get_db),
 ):
     """Find locations within a radius of a point using PostGIS spatial query."""
-    return gis_service.geo_locations.find_nearby(
-        db, latitude, longitude, radius, location_type, limit
-    )
+    return gis_service.geo_locations.find_nearby(db, latitude, longitude, radius, location_type, limit)
 
 
 @router.get(

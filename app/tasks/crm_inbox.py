@@ -31,10 +31,16 @@ def send_outbound_message_task(payload: dict, author_id: str | None = None):
     session = SessionLocal()
     try:
         request = InboxSendRequest.model_validate(payload)
+        trace_id = None
+        if isinstance(payload, dict):
+            metadata = payload.get("metadata")
+            if isinstance(metadata, dict):
+                trace_id = metadata.get("trace_id")
         return inbox_service.send_message_with_retry(
             session,
             request,
             author_id=author_id,
+            trace_id=trace_id,
             max_attempts=2,
             base_backoff=0.5,
             max_backoff=2.0,

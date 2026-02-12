@@ -861,20 +861,12 @@ def sync_chatwoot(
 
     try:
         # Get Chatwoot configuration from settings
-        base_url = _coerce_str(
-            settings_spec.resolve_value(
-                session, SettingDomain.integration, "chatwoot_base_url"
-            )
-        )
+        base_url = _coerce_str(settings_spec.resolve_value(session, SettingDomain.integration, "chatwoot_base_url"))
         access_token = _coerce_str(
-            settings_spec.resolve_value(
-                session, SettingDomain.integration, "chatwoot_access_token"
-            )
+            settings_spec.resolve_value(session, SettingDomain.integration, "chatwoot_access_token")
         )
         account_id = _coerce_int(
-            settings_spec.resolve_value(
-                session, SettingDomain.integration, "chatwoot_account_id"
-            ),
+            settings_spec.resolve_value(session, SettingDomain.integration, "chatwoot_account_id"),
             default=1,
         )
 

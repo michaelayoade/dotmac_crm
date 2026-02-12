@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import danger_button, status_badge %}
+{% from "components/ui/macros.html" import danger_button, status_badge, table_shell, table_row, empty_state %}
 
 {% block title %}{{ location.name }} - Inventory - Admin{% endblock %}
 
@@ -58,44 +58,40 @@
                 </div>
             </div>
 
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                    <h2 class="font-semibold text-slate-900 dark:text-white">Stock Levels</h2>
+            {% set pad = 'px-6 py-3' %}
+            {% call table_shell(table_id="location-stock-table", title="Stock Levels", color="primary") %}
+                {% if stocks %}
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                            <th class="{{ pad }} text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Item</th>
+                            <th class="{{ pad }} text-right text-xs font-semibold text-slate-500 dark:text-slate-400">On Hand</th>
+                            <th class="{{ pad }} text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Reserved</th>
+                            <th class="{{ pad }} text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Available</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% for stock in stocks %}
+                        {% call table_row(color="primary") %}
+                            <td class="{{ pad }}">
+                                <p class="text-sm font-medium text-slate-900 dark:text-white">{{ stock.item.name if stock.item else '-' }}</p>
+                                <p class="text-xs text-slate-500 dark:text-slate-400">{{ stock.item.sku if stock.item and stock.item.sku else 'No SKU' }}</p>
+                            </td>
+                            <td class="{{ pad }} text-right text-sm font-medium text-slate-900 dark:text-white">{{ stock.quantity_on_hand }}</td>
+                            <td class="{{ pad }} text-right text-sm text-amber-600 dark:text-amber-400">{{ stock.reserved_quantity }}</td>
+                            <td class="{{ pad }} text-right text-sm font-medium {% if stock.quantity_on_hand - stock.reserved_quantity > 0 %}text-green-600 dark:text-green-400{% else %}text-red-600 dark:text-red-400{% endif %}">
+                                {{ stock.quantity_on_hand - stock.reserved_quantity }}
+                            </td>
+                        {% endcall %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="px-6 py-12">
+                    {{ empty_state("No stock records for this location", "Stock will appear once items are received.") }}
                 </div>
-                <div class="p-6">
-                    {% if stocks %}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                            <thead>
-                                <tr>
-                                    <th class="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Item</th>
-                                    <th class="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">On Hand</th>
-                                    <th class="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Reserved</th>
-                                    <th class="px-4 py-2 text-right text-xs font-semibold text-slate-500 dark:text-slate-400">Available</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                                {% for stock in stocks %}
-                                <tr>
-                                    <td class="px-4 py-3">
-                                        <p class="text-sm font-medium text-slate-900 dark:text-white">{{ stock.item.name if stock.item else '-' }}</p>
-                                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ stock.item.sku if stock.item and stock.item.sku else 'No SKU' }}</p>
-                                    </td>
-                                    <td class="px-4 py-3 text-right text-sm font-medium text-slate-900 dark:text-white">{{ stock.quantity_on_hand }}</td>
-                                    <td class="px-4 py-3 text-right text-sm text-amber-600 dark:text-amber-400">{{ stock.reserved_quantity }}</td>
-                                    <td class="px-4 py-3 text-right text-sm font-medium {% if stock.quantity_on_hand - stock.reserved_quantity > 0 %}text-green-600 dark:text-green-400{% else %}text-red-600 dark:text-red-400{% endif %}">
-                                        {{ stock.quantity_on_hand - stock.reserved_quantity }}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <p class="text-sm text-slate-500 dark:text-slate-400">No stock records for this location.</p>
-                    {% endif %}
-                </div>
-            </div>
+                {% endif %}
+            {% endcall %}
         </div>
 
         <div class="space-y-6">

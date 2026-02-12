@@ -21,6 +21,7 @@ def register_error_handlers(app) -> None:
         if request.headers.get("HX-Request") == "true":
             response.headers["HX-Redirect"] = exc.redirect_url
         return response
+
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
         detail = exc.detail
@@ -64,9 +65,7 @@ def register_error_handlers(app) -> None:
             errors.append(error_copy)
         return JSONResponse(
             status_code=422,
-            content=_error_payload(
-                "validation_error", "Validation error", errors
-            ),
+            content=_error_payload("validation_error", "Validation error", errors),
         )
 
     @app.exception_handler(Exception)
@@ -80,7 +79,5 @@ def register_error_handlers(app) -> None:
         )
         return JSONResponse(
             status_code=500,
-            content=_error_payload(
-                "internal_error", "Internal server error", None
-            ),
+            content=_error_payload("internal_error", "Internal server error", None),
         )

@@ -15,9 +15,5 @@ def get_current_agent_id(db: Session, person_id: str | None) -> str | None:
         person_uuid = coerce_uuid(person_id)
     except Exception:
         return None
-    agent = (
-        db.query(CrmAgent)
-        .filter(CrmAgent.person_id == person_uuid, CrmAgent.is_active.is_(True))
-        .first()
-    )
+    agent = db.query(CrmAgent).filter(CrmAgent.person_id == person_uuid, CrmAgent.is_active.is_(True)).first()
     return str(agent.id) if agent else None

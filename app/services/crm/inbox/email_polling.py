@@ -110,7 +110,6 @@ class EmailPoller:
 email_poller = EmailPoller()
 
 
-
 def _extract_bodies(msg: email.message.Message) -> tuple[str | None, str | None]:
     text_body = None
     html_body = None
@@ -200,13 +199,7 @@ def _imap_poll(
     use_ssl = bool(imap_config.get("use_ssl", True))
     username = auth_config.get("username")
     password = auth_config.get("password")
-    if (
-        not host
-        or not isinstance(username, str)
-        or not isinstance(password, str)
-        or not username
-        or not password
-):
+    if not host or not isinstance(username, str) or not isinstance(password, str) or not username or not password:
         raise HTTPException(status_code=400, detail="IMAP config incomplete")
 
     metadata = dict(config.metadata_ or {})
@@ -322,9 +315,7 @@ def _imap_poll(
                     parsed_date = parsedate_to_datetime(date_header)
                     if parsed_date:
                         received_at = (
-                            parsed_date.astimezone(UTC)
-                            if parsed_date.tzinfo
-                            else parsed_date.replace(tzinfo=UTC)
+                            parsed_date.astimezone(UTC) if parsed_date.tzinfo else parsed_date.replace(tzinfo=UTC)
                         )
                 except Exception:
                     received_at = None
@@ -378,7 +369,7 @@ def _imap_poll(
                 last_uid_val,
             )
         except Exception:
-            pass
+            logger.debug("Failed to parse received email message; skipping.", exc_info=True)
 
     for uid in uids:
         uid_value = uid.decode() if isinstance(uid, bytes) else str(uid)
@@ -416,11 +407,7 @@ def _imap_poll(
             try:
                 parsed_date = parsedate_to_datetime(date_header)
                 if parsed_date:
-                    received_at = (
-                        parsed_date.astimezone(UTC)
-                        if parsed_date.tzinfo
-                        else parsed_date.replace(tzinfo=UTC)
-                    )
+                    received_at = parsed_date.astimezone(UTC) if parsed_date.tzinfo else parsed_date.replace(tzinfo=UTC)
             except Exception:
                 received_at = None
         text_body, html_body = _extract_bodies(msg)
@@ -482,13 +469,7 @@ def _pop3_poll(
     use_ssl = bool(pop3_config.get("use_ssl", True))
     username = auth_config.get("username")
     password = auth_config.get("password")
-    if (
-        not host
-        or not isinstance(username, str)
-        or not isinstance(password, str)
-        or not username
-        or not password
-    ):
+    if not host or not isinstance(username, str) or not isinstance(password, str) or not username or not password:
         raise HTTPException(status_code=400, detail="POP3 config incomplete")
 
     metadata = dict(config.metadata_ or {})
@@ -508,7 +489,7 @@ def _pop3_poll(
     client.user(username)
     client.pass_(password)
 
-    resp, listings, _ = client.uidl()
+    _resp, listings, _ = client.uidl()
     if not listings:
         client.quit()
         return 0
@@ -546,11 +527,7 @@ def _pop3_poll(
             try:
                 parsed_date = parsedate_to_datetime(date_header)
                 if parsed_date:
-                    received_at = (
-                        parsed_date.astimezone(UTC)
-                        if parsed_date.tzinfo
-                        else parsed_date.replace(tzinfo=UTC)
-                    )
+                    received_at = parsed_date.astimezone(UTC) if parsed_date.tzinfo else parsed_date.replace(tzinfo=UTC)
             except Exception:
                 received_at = None
         text_body, html_body = _extract_bodies(msg)

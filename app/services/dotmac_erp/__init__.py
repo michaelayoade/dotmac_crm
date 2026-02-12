@@ -29,6 +29,7 @@ from app.services.dotmac_erp.shift_sync import (
     dotmac_erp_shift_sync,
 )
 from app.services.dotmac_erp.stats import (
+    get_contact_sync_history,
     get_daily_stats,
     get_inventory_sync_history,
     get_last_contact_sync,
@@ -79,6 +80,7 @@ __all__ = [
     "dotmac_erp_shift_sync",
     "dotmac_erp_sync",
     "dotmac_erp_team_sync",
+    "get_contact_sync_history",
     "get_daily_stats",
     "get_inventory_sync_history",
     "get_last_contact_sync",

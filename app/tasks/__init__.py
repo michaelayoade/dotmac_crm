@@ -22,18 +22,21 @@ from app.tasks.crm_inbox import (
     send_reply_reminders_task,
 )
 from app.tasks.gis import sync_gis_sources
-from app.tasks.integrations import run_integration_job
-from app.tasks.integrations import sync_dotmac_erp
-from app.tasks.integrations import sync_dotmac_erp_contacts
-from app.tasks.integrations import sync_dotmac_erp_entity
-from app.tasks.integrations import sync_dotmac_erp_inventory
-from app.tasks.integrations import sync_dotmac_erp_shifts
-from app.tasks.integrations import sync_dotmac_erp_teams
-from app.tasks.integrations import sync_chatwoot
-from app.tasks.integrations import sync_material_request_to_erp
+from app.tasks.integrations import (
+    run_integration_job,
+    sync_chatwoot,
+    sync_dotmac_erp,
+    sync_dotmac_erp_contacts,
+    sync_dotmac_erp_entity,
+    sync_dotmac_erp_inventory,
+    sync_dotmac_erp_shifts,
+    sync_dotmac_erp_teams,
+    sync_material_request_to_erp,
+)
 from app.tasks.notifications import deliver_notification_queue
 from app.tasks.oauth import check_token_health, refresh_expiring_tokens
 from app.tasks.subscribers import (
+    reconcile_subscriber_identity,
     sync_subscribers_from_splynx,
     sync_subscribers_from_ucrm,
     sync_subscribers_generic,
@@ -65,6 +68,7 @@ __all__ = [
     "process_scheduled_campaigns",
     "process_survey_triggers",
     "process_whatsapp_webhook",
+    "reconcile_subscriber_identity",
     "refresh_expiring_tokens",
     "retry_failed_deliveries",
     "run_integration_job",

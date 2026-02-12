@@ -1,78 +1,48 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, submit_button %}
+{% from "components/ui/macros.html" import page_header, stats_card, danger_button, submit_button, action_button %}
 {% block title %}{{ rule.name }} - Automation - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
 
-    <!-- Header -->
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
-                <a href="/admin/system/configuration" class="hover:text-primary-600">System</a>
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                <a href="/admin/system/automations" class="hover:text-primary-600">Automations</a>
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                <span class="text-slate-900 dark:text-white">{{ rule.name }}</span>
-            </nav>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ rule.name }}</h1>
-            {% if rule.description %}
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ rule.description }}</p>
-            {% endif %}
-        </div>
+    {# ── Header ── #}
+    {% call page_header(rule.name, rule.description | default("Automation rule"), color="indigo", color2="violet", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "/admin/system/automations", "label": "Automations"}, {"href": "", "label": rule.name}]) %}
         <div class="flex flex-wrap items-center gap-2">
-            <a href="/admin/system/automations/{{ rule.id }}/edit"
-               class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                Edit
-            </a>
+            {{ action_button("Edit", "/admin/system/automations/" ~ rule.id ~ "/edit", variant="secondary", color="indigo") }}
             <form method="post" action="/admin/system/automations/{{ rule.id }}/toggle" class="inline">
                 {% include "components/forms/csrf_input.html" %}
                 {% if rule.status.value == 'active' %}
-                <button type="submit" class="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-700 hover:bg-yellow-100 dark:border-yellow-600 dark:bg-yellow-500/10 dark:text-yellow-400">Pause</button>
+                <button type="submit" class="inline-flex items-center rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-2.5 text-sm font-medium text-yellow-700 hover:bg-yellow-100 dark:border-yellow-600 dark:bg-yellow-500/10 dark:text-yellow-400 transition-colors">Pause</button>
                 {% else %}
                 {{ submit_button("Activate", color="green") }}
                 {% endif %}
             </form>
             {{ danger_button("Delete", "Confirm Delete", "Delete this automation rule?", "/admin/system/automations/" ~ rule.id ~ "/delete", size="sm") }}
         </div>
-    </div>
+    {% endcall %}
 
-    <!-- Stats -->
+    {# ── Stats ── #}
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</p>
-            {% set status_colors = {
-                'active': 'text-green-600 dark:text-green-400',
-                'paused': 'text-yellow-600 dark:text-yellow-400',
-                'archived': 'text-slate-500 dark:text-slate-400',
-            } %}
-            <p class="mt-1 text-xl font-bold {{ status_colors.get(rule.status.value, 'text-slate-900') }}">{{ rule.status.value|capitalize }}</p>
+        <div class="animate-fade-in-up" style="animation-delay: 75ms">
+            {% set status_color = 'emerald' if rule.status.value == 'active' else ('amber' if rule.status.value == 'paused' else 'slate') %}
+            {{ stats_card("Status", rule.status.value | capitalize, color=status_color, icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>') }}
         </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Executions</p>
-            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ rule.execution_count }}</p>
+        <div class="animate-fade-in-up" style="animation-delay: 125ms">
+            {{ stats_card("Executions", rule.execution_count, color="indigo", color2="violet", icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>') }}
         </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</p>
-            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ rule.priority }}</p>
+        <div class="animate-fade-in-up" style="animation-delay: 175ms">
+            {{ stats_card("Priority", rule.priority, color="blue", icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>') }}
         </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Triggered</p>
-            <p class="mt-1 text-sm font-bold text-slate-900 dark:text-white">
-                {% if rule.last_triggered_at %}
-                {{ rule.last_triggered_at.strftime('%Y-%m-%d %H:%M') }}
-                {% else %}
-                Never
-                {% endif %}
-            </p>
+        <div class="animate-fade-in-up" style="animation-delay: 225ms">
+            {{ stats_card("Last Triggered", (rule.last_triggered_at.strftime('%b %d, %H:%M') if rule.last_triggered_at else 'Never'), color="slate", icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>') }}
         </div>
     </div>
 
     <!-- Config -->
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <!-- Conditions -->
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Configuration</h2>
             <dl class="space-y-3">
                 <div>
@@ -109,7 +79,7 @@
         </div>
 
         <!-- Actions -->
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Actions</h2>
             {% if rule.actions %}
             {% for a in rule.actions %}
@@ -131,7 +101,7 @@
     </div>
 
     <!-- Execution Logs -->
-    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Execution Logs</h2>
             <button type="button"

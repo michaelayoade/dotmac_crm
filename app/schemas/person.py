@@ -1,22 +1,24 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
-class PartyStatusEnum(str, Enum):
+class PartyStatusEnum(StrEnum):
     """Party lifecycle status for API responses."""
+
     lead = "lead"
     contact = "contact"
     customer = "customer"
     subscriber = "subscriber"
 
 
-class ChannelTypeEnum(str, Enum):
+class ChannelTypeEnum(StrEnum):
     """Channel types for API responses."""
+
     email = "email"
     phone = "phone"
     sms = "sms"
@@ -27,6 +29,7 @@ class ChannelTypeEnum(str, Enum):
 
 class PersonChannelBase(BaseModel):
     """Base schema for person communication channels."""
+
     channel_type: ChannelTypeEnum
     address: str = Field(min_length=1, max_length=255)
     label: str | None = Field(default=None, max_length=60)
@@ -91,6 +94,7 @@ class PersonBase(BaseModel):
 
 class PersonCreate(PersonBase):
     """Schema for creating a new person."""
+
     channels: list[PersonChannelCreate] = Field(default_factory=list)
 
 
@@ -139,18 +143,21 @@ class PersonRead(PersonBase):
 
 class PersonStatusTransition(BaseModel):
     """Schema for transitioning person party status."""
+
     new_status: PartyStatusEnum
     reason: str | None = Field(default=None, max_length=255)
 
 
 class PersonMergeRequest(BaseModel):
     """Schema for merging two person records."""
+
     source_id: UUID
     target_id: UUID
 
 
 class PersonMergeLogRead(BaseModel):
     """Schema for reading person merge audit log."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -163,6 +170,7 @@ class PersonMergeLogRead(BaseModel):
 
 class PersonStatusLogRead(BaseModel):
     """Schema for reading person status transition log."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID

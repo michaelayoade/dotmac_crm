@@ -33,19 +33,27 @@ def get_db():
 
 
 @router.get("", response_class=HTMLResponse)
-def inventory_index(request: Request, tab: str = "items", db: Session = Depends(get_db)):
+def inventory_index(request: Request, tab: str = "items", search: str | None = None, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     # Get inventory data
     items = inventory_service.inventory_items.list(
-        db=db, is_active=None, search=None, order_by="created_at", order_dir="desc", limit=100, offset=0
+        db=db, is_active=None, search=search or None, order_by="created_at", order_dir="desc", limit=100, offset=0
     )
     locations = inventory_service.inventory_locations.list(
         db=db, is_active=None, order_by="created_at", order_dir="desc", limit=100, offset=0
     )
+    stock_order_by = "quantity_on_hand" if tab == "stock" else "created_at"
+    stock_limit = 1000 if tab == "stock" else 100
     stocks = inventory_service.inventory_stocks.list(
-        db=db, item_id=None, location_id=None, is_active=None,
-        order_by="created_at", order_dir="desc", limit=100, offset=0
+        db=db,
+        item_id=None,
+        location_id=None,
+        is_active=None,
+        order_by=stock_order_by,
+        order_dir="desc",
+        limit=stock_limit,
+        offset=0,
     )
 
     # Calculate totals
@@ -63,6 +71,7 @@ def inventory_index(request: Request, tab: str = "items", db: Session = Depends(
         "stocks": stocks,
         "total_on_hand": total_on_hand,
         "total_reserved": total_reserved,
+        "search": search or "",
         "csrf_token": get_csrf_token(request),
     }
     return templates.TemplateResponse("admin/inventory/index.html", context)
@@ -135,8 +144,14 @@ def inventory_item_detail(request: Request, item_id: str, db: Session = Depends(
 
     item = inventory_service.inventory_items.get(db=db, item_id=item_id)
     stocks = inventory_service.inventory_stocks.list(
-        db=db, item_id=item_id, location_id=None, is_active=None,
-        order_by="created_at", order_dir="desc", limit=100, offset=0
+        db=db,
+        item_id=item_id,
+        location_id=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="desc",
+        limit=100,
+        offset=0,
     )
 
     total_on_hand = sum(s.quantity_on_hand for s in stocks)
@@ -161,10 +176,7 @@ def inventory_item_detail(request: Request, item_id: str, db: Session = Depends(
     actor_ids = {str(event.actor_id) for event in audit_events if getattr(event, "actor_id", None)}
     people = {}
     if actor_ids:
-        people = {
-            str(person.id): person
-            for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()
-        }
+        people = {str(person.id): person for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()}
     activities = []
     for event in audit_events:
         actor = people.get(str(event.actor_id)) if getattr(event, "actor_id", None) else None
@@ -354,9 +366,7 @@ def inventory_location_create(
 
 
 @router.get("/locations/{location_id}", response_class=HTMLResponse)
-def inventory_location_detail(
-    request: Request, location_id: str, db: Session = Depends(get_db)
-):
+def inventory_location_detail(request: Request, location_id: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     location = inventory_service.inventory_locations.get(db=db, location_id=location_id)
@@ -393,10 +403,7 @@ def inventory_location_detail(
     actor_ids = {str(event.actor_id) for event in audit_events if getattr(event, "actor_id", None)}
     people = {}
     if actor_ids:
-        people = {
-            str(person.id): person
-            for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()
-        }
+        people = {str(person.id): person for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()}
     activities = []
     for event in audit_events:
         actor = people.get(str(event.actor_id)) if getattr(event, "actor_id", None) else None
@@ -428,9 +435,7 @@ def inventory_location_detail(
 
 
 @router.get("/locations/{location_id}/edit", response_class=HTMLResponse)
-def inventory_location_edit(
-    request: Request, location_id: str, db: Session = Depends(get_db)
-):
+def inventory_location_edit(request: Request, location_id: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
     location = inventory_service.inventory_locations.get(db=db, location_id=location_id)
@@ -467,9 +472,7 @@ def inventory_location_update(
             address_id=UUID(address_id) if address_id else None,
             is_active=is_active == "true",
         )
-        inventory_service.inventory_locations.update(
-            db=db, location_id=location_id, payload=payload
-        )
+        inventory_service.inventory_locations.update(db=db, location_id=location_id, payload=payload)
         after = inventory_service.inventory_locations.get(db=db, location_id=location_id)
         metadata_payload = build_changes_metadata(before, after)
         current_user = get_current_user(request)
@@ -482,13 +485,9 @@ def inventory_location_update(
             actor_id=str(current_user.get("person_id")) if current_user else None,
             metadata=metadata_payload,
         )
-        return RedirectResponse(
-            url=f"/admin/inventory/locations/{location_id}", status_code=303
-        )
+        return RedirectResponse(url=f"/admin/inventory/locations/{location_id}", status_code=303)
     except Exception as e:
-        location = inventory_service.inventory_locations.get(
-            db=db, location_id=location_id
-        )
+        location = inventory_service.inventory_locations.get(db=db, location_id=location_id)
         context = {
             "request": request,
             "active_page": "inventory",

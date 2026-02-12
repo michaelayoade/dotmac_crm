@@ -89,7 +89,6 @@ async def start_meta_oauth(
     # Get Meta settings from database
     settings = meta_oauth.get_meta_settings(db)
     app_id = settings.get("meta_app_id")
-
     if not app_id:
         logger.error("meta_oauth_start_failed reason=meta_app_id_not_configured")
         return RedirectResponse(
@@ -101,9 +100,12 @@ async def start_meta_oauth(
     state = meta_oauth.generate_oauth_state()
 
     # Get or create connector config
-    config, target = _get_or_create_meta_connector(db)
+    config, _target = _get_or_create_meta_connector(db)
 
     # Store state with connector ID
+    redirect_uri = settings.get("meta_oauth_redirect_uri") or (
+        str(request.base_url).rstrip("/") + "/admin/crm/meta/callback"
+    )
     oauth_state.store_oauth_state(
         state,
         {
@@ -113,10 +115,6 @@ async def start_meta_oauth(
     )
 
     # Build OAuth URL
-    redirect_uri = settings.get("meta_oauth_redirect_uri") or (
-        str(request.base_url).rstrip("/") + "/admin/crm/meta/callback"
-    )
-
     api_version = meta_oauth._get_meta_graph_api_version(db)
     auth_url = meta_oauth.build_authorization_url(
         app_id=app_id,
@@ -177,7 +175,6 @@ async def meta_oauth_callback(
             status_code=303,
         )
     redirect_after = state_data.get("redirect_after", "/admin/crm/inbox/settings")
-
     # Get Meta settings from database
     settings = meta_oauth.get_meta_settings(db)
     app_id = settings.get("meta_app_id")
@@ -226,13 +223,10 @@ async def meta_oauth_callback(
         instagram_connected = 0
         page_ids: set[str] = set()
         instagram_ids: set[str] = set()
-
         # Store tokens for each page and linked Instagram accounts
         for page in pages:
             page_ids.add(page["id"])
-            meta_oauth.store_page_token(
-                db, connector_config_id, page, long_token, token_expires_at
-            )
+            meta_oauth.store_page_token(db, connector_config_id, page, long_token, token_expires_at)
             pages_connected += 1
 
             # Check for linked Instagram Business Account
@@ -246,9 +240,7 @@ async def meta_oauth_callback(
             )
             if ig_account:
                 instagram_ids.add(ig_account["id"])
-                meta_oauth.store_instagram_token(
-                    db, connector_config_id, ig_account, page_token, token_expires_at
-                )
+                meta_oauth.store_instagram_token(db, connector_config_id, ig_account, page_token, token_expires_at)
                 instagram_connected += 1
 
         meta_oauth.deactivate_missing_tokens(
@@ -297,9 +289,7 @@ async def disconnect_meta(
         .filter(ConnectorConfig.connector_type == ConnectorType.facebook)
         .first()
     )
-
     if target and target.connector_config:
-        # Deactivate all tokens
         count = meta_oauth.deactivate_tokens_for_connector(db, str(target.connector_config_id))
         logger.info(
             "meta_disconnected connector_id=%s tokens_deactivated=%d",

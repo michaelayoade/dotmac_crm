@@ -32,21 +32,13 @@ class SalesOrder(Base):
         UniqueConstraint("quote_id", name="uq_sales_orders_quote_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    quote_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crm_quotes.id")
-    )
-    person_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id"), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    quote_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_quotes.id"))
+    person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
     # account_id removed - SubscriberAccount model deleted
     # invoice_id removed - Invoice model deleted
     order_number: Mapped[str | None] = mapped_column(String(80))
-    status: Mapped[SalesOrderStatus] = mapped_column(
-        Enum(SalesOrderStatus), default=SalesOrderStatus.draft
-    )
+    status: Mapped[SalesOrderStatus] = mapped_column(Enum(SalesOrderStatus), default=SalesOrderStatus.draft)
     payment_status: Mapped[SalesOrderPaymentStatus] = mapped_column(
         Enum(SalesOrderPaymentStatus), default=SalesOrderPaymentStatus.pending
     )
@@ -54,12 +46,8 @@ class SalesOrder(Base):
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     tax_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
-    amount_paid: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2), default=Decimal("0.00")
-    )
-    balance_due: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2), default=Decimal("0.00")
-    )
+    amount_paid: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    balance_due: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     payment_due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deposit_required: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -70,9 +58,7 @@ class SalesOrder(Base):
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -87,15 +73,9 @@ class SalesOrder(Base):
 class SalesOrderLine(Base):
     __tablename__ = "sales_order_lines"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    sales_order_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sales_orders.id"), nullable=False
-    )
-    inventory_item_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("inventory_items.id")
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sales_order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("sales_orders.id"), nullable=False)
+    inventory_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("inventory_items.id"))
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("1.000"))
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
@@ -103,9 +83,7 @@ class SalesOrderLine(Base):
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

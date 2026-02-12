@@ -22,9 +22,7 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
     response_model=IntegrationTargetRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_integration_target(
-    payload: IntegrationTargetCreate, db: Session = Depends(get_db)
-):
+def create_integration_target(payload: IntegrationTargetCreate, db: Session = Depends(get_db)):
     return integration_service.integration_targets.create(db, payload)
 
 
@@ -49,9 +47,7 @@ def list_integration_targets(
 
 
 @router.patch("/targets/{target_id}", response_model=IntegrationTargetRead)
-def update_integration_target(
-    target_id: str, payload: IntegrationTargetUpdate, db: Session = Depends(get_db)
-):
+def update_integration_target(target_id: str, payload: IntegrationTargetUpdate, db: Session = Depends(get_db)):
     return integration_service.integration_targets.update(db, target_id, payload)
 
 
@@ -92,9 +88,7 @@ def list_integration_jobs(
 
 
 @router.patch("/jobs/{job_id}", response_model=IntegrationJobRead)
-def update_integration_job(
-    job_id: str, payload: IntegrationJobUpdate, db: Session = Depends(get_db)
-):
+def update_integration_job(job_id: str, payload: IntegrationJobUpdate, db: Session = Depends(get_db)):
     return integration_service.integration_jobs.update(db, job_id, payload)
 
 
@@ -128,6 +122,4 @@ def list_integration_runs(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return integration_service.integration_runs.list_response(
-        db, job_id, status, order_by, order_dir, limit, offset
-    )
+    return integration_service.integration_runs.list_response(db, job_id, status, order_by, order_dir, limit, offset)

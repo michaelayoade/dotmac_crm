@@ -254,6 +254,17 @@
                             </div>
                         </div>
                         {% endif %}
+                        {% if customer.erp_customer_id %}
+                        <div class="flex items-start gap-4">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-700/50">
+                                <svg class="h-5 w-5 text-slate-600 dark:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m-7 4h8a2 2 0 002-2V6a2 2 0 00-2-2H9l-2 2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                            </div>
+                            <div>
+                                <p class="text-xs font-medium text-slate-500 dark:text-slate-400">Customer ID</p>
+                                <p class="text-sm font-medium text-slate-900 dark:text-white">{{ customer.erp_customer_id }}</p>
+                            </div>
+                        </div>
+                        {% endif %}
                         {% if customer.address or (customer_type == 'organization' and customer.address_line_1) %}
                         <div class="flex items-start gap-4">
                             <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/30">

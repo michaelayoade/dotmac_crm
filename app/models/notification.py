@@ -49,9 +49,7 @@ class DeliveryStatus(enum.Enum):
 class NotificationTemplate(Base):
     __tablename__ = "notification_templates"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     code: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     channel: Mapped[NotificationChannel] = mapped_column(Enum(NotificationChannel))
@@ -59,9 +57,7 @@ class NotificationTemplate(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -72,39 +68,29 @@ class NotificationTemplate(Base):
 class Notification(Base):
     __tablename__ = "notifications"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    template_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("notification_templates.id")
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("notification_templates.id"))
     connector_config_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("connector_configs.id")
     )
     smtp_config_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("crm_campaign_smtp_configs.id")
     )
-    channel: Mapped[NotificationChannel] = mapped_column(
-        Enum(NotificationChannel), nullable=False
-    )
+    channel: Mapped[NotificationChannel] = mapped_column(Enum(NotificationChannel), nullable=False)
     recipient: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str | None] = mapped_column(String(200))
     body: Mapped[str | None] = mapped_column(Text)
     from_name: Mapped[str | None] = mapped_column(String(160))
     from_email: Mapped[str | None] = mapped_column(String(255))
     reply_to: Mapped[str | None] = mapped_column(String(255))
-    status: Mapped[NotificationStatus] = mapped_column(
-        Enum(NotificationStatus), default=NotificationStatus.queued
-    )
+    status: Mapped[NotificationStatus] = mapped_column(Enum(NotificationStatus), default=NotificationStatus.queued)
     send_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -116,9 +102,7 @@ class Notification(Base):
 class NotificationDelivery(Base):
     __tablename__ = "notification_deliveries"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     notification_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("notifications.id"), nullable=False
     )
@@ -127,9 +111,7 @@ class NotificationDelivery(Base):
     status: Mapped[DeliveryStatus] = mapped_column(Enum(DeliveryStatus))
     response_code: Mapped[str | None] = mapped_column(String(60))
     response_body: Mapped[str | None] = mapped_column(Text)
-    occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     notification = relationship("Notification", back_populates="deliveries")
@@ -137,36 +119,22 @@ class NotificationDelivery(Base):
 
 class AlertNotificationPolicy(Base):
     __tablename__ = "alert_notification_policies"
-    __table_args__ = (
-        UniqueConstraint("name", name="uq_alert_notification_policies_name"),
-    )
+    __table_args__ = (UniqueConstraint("name", name="uq_alert_notification_policies_name"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
-    channel: Mapped[NotificationChannel] = mapped_column(
-        Enum(NotificationChannel), nullable=False
-    )
+    channel: Mapped[NotificationChannel] = mapped_column(Enum(NotificationChannel), nullable=False)
     recipient: Mapped[str] = mapped_column(String(255), nullable=False)
     rule_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     device_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     interface_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    template_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("notification_templates.id")
-    )
-    severity_min: Mapped[AlertSeverity] = mapped_column(
-        Enum(AlertSeverity), default=AlertSeverity.warning
-    )
-    status: Mapped[AlertStatus] = mapped_column(
-        Enum(AlertStatus), default=AlertStatus.open
-    )
+    template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("notification_templates.id"))
+    severity_min: Mapped[AlertSeverity] = mapped_column(Enum(AlertSeverity), default=AlertSeverity.warning)
+    status: Mapped[AlertStatus] = mapped_column(Enum(AlertStatus), default=AlertStatus.open)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -179,19 +147,13 @@ class AlertNotificationPolicy(Base):
 class AlertNotificationLog(Base):
     __tablename__ = "alert_notification_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     alert_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     policy_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("alert_notification_policies.id"), nullable=False
     )
-    notification_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("notifications.id")
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    notification_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("notifications.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     policy = relationship("AlertNotificationPolicy", back_populates="notifications")
     notification = relationship("Notification")
@@ -201,17 +163,13 @@ class OnCallRotation(Base):
     __tablename__ = "on_call_rotations"
     __table_args__ = (UniqueConstraint("name", name="uq_on_call_rotations_name"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     timezone: Mapped[str] = mapped_column(String(60), default="UTC")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -223,9 +181,7 @@ class OnCallRotation(Base):
 class OnCallRotationMember(Base):
     __tablename__ = "on_call_rotation_members"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     rotation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("on_call_rotations.id"), nullable=False
     )
@@ -235,9 +191,7 @@ class OnCallRotationMember(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -248,38 +202,24 @@ class OnCallRotationMember(Base):
 class AlertNotificationPolicyStep(Base):
     __tablename__ = "alert_notification_policy_steps"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     policy_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("alert_notification_policies.id"), nullable=False
     )
     step_index: Mapped[int] = mapped_column(Integer, default=0)
     delay_minutes: Mapped[int] = mapped_column(Integer, default=0)
-    channel: Mapped[NotificationChannel] = mapped_column(
-        Enum(NotificationChannel), nullable=False
-    )
+    channel: Mapped[NotificationChannel] = mapped_column(Enum(NotificationChannel), nullable=False)
     recipient: Mapped[str | None] = mapped_column(String(255))
-    template_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("notification_templates.id")
-    )
+    template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("notification_templates.id"))
     connector_config_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("connector_configs.id")
     )
-    rotation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("on_call_rotations.id")
-    )
-    severity_min: Mapped[AlertSeverity] = mapped_column(
-        Enum(AlertSeverity), default=AlertSeverity.warning
-    )
-    status: Mapped[AlertStatus] = mapped_column(
-        Enum(AlertStatus), default=AlertStatus.open
-    )
+    rotation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("on_call_rotations.id"))
+    severity_min: Mapped[AlertSeverity] = mapped_column(Enum(AlertSeverity), default=AlertSeverity.warning)
+    status: Mapped[AlertStatus] = mapped_column(Enum(AlertStatus), default=AlertStatus.open)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

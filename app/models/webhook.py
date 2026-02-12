@@ -76,9 +76,7 @@ class WebhookEndpoint(Base):
     __tablename__ = "webhook_endpoints"
     __table_args__ = (UniqueConstraint("url", name="uq_webhook_endpoints_url"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     url: Mapped[str] = mapped_column(String(500), nullable=False)
     connector_config_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -87,9 +85,7 @@ class WebhookEndpoint(Base):
     secret: Mapped[str | None] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -100,26 +96,16 @@ class WebhookEndpoint(Base):
 
 class WebhookSubscription(Base):
     __tablename__ = "webhook_subscriptions"
-    __table_args__ = (
-        UniqueConstraint(
-            "endpoint_id", "event_type", name="uq_webhook_subscriptions_endpoint_event"
-        ),
-    )
+    __table_args__ = (UniqueConstraint("endpoint_id", "event_type", name="uq_webhook_subscriptions_endpoint_event"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     endpoint_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("webhook_endpoints.id"), nullable=False
     )
-    event_type: Mapped[WebhookEventType] = mapped_column(
-        Enum(WebhookEventType), default=WebhookEventType.custom
-    )
+    event_type: Mapped[WebhookEventType] = mapped_column(Enum(WebhookEventType), default=WebhookEventType.custom)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -131,18 +117,14 @@ class WebhookSubscription(Base):
 class WebhookDelivery(Base):
     __tablename__ = "webhook_deliveries"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     subscription_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("webhook_subscriptions.id"), nullable=False
     )
     endpoint_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("webhook_endpoints.id"), nullable=False
     )
-    event_type: Mapped[WebhookEventType] = mapped_column(
-        Enum(WebhookEventType), default=WebhookEventType.custom
-    )
+    event_type: Mapped[WebhookEventType] = mapped_column(Enum(WebhookEventType), default=WebhookEventType.custom)
     status: Mapped[WebhookDeliveryStatus] = mapped_column(
         Enum(WebhookDeliveryStatus), default=WebhookDeliveryStatus.pending
     )
@@ -153,9 +135,7 @@ class WebhookDelivery(Base):
     error: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict | None] = mapped_column(JSON)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     subscription = relationship("WebhookSubscription", back_populates="deliveries")
     endpoint = relationship("WebhookEndpoint")

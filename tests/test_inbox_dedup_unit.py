@@ -1,7 +1,5 @@
 from datetime import UTC, datetime
 
-import pytest
-
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.person import ChannelType as PersonChannelType

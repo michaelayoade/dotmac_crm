@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExpenseTotals:
     """Expense totals from ERP."""
+
     draft: float = 0.0
     submitted: float = 0.0
     approved: float = 0.0
@@ -204,5 +205,5 @@ def get_cached_expense_totals(
             cache_key = ERPExpenseCache._cache_key(entity_type, entity_id)
             r.setex(cache_key, 60, json.dumps(unavailable.to_dict()))
         except Exception:
-            pass
+            logger.debug("ERP expense cache set failed for unavailable state.", exc_info=True)
         return unavailable

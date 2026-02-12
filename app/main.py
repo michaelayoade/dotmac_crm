@@ -36,10 +36,10 @@ from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
 from app.api.rbac import router as rbac_router
 from app.api.sales import router as sales_router
-from app.api.service_teams import router as service_teams_router
 from app.api.sales_orders import router as sales_orders_router
 from app.api.scheduler import router as scheduler_router
 from app.api.search import router as search_router
+from app.api.service_teams import router as service_teams_router
 from app.api.settings import router as settings_router
 from app.api.subscribers import router as subscribers_router
 from app.api.tickets import router as tickets_router
@@ -235,8 +235,8 @@ async def branding_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-# CSRF Protection paths - only protect web admin forms
-_CSRF_PROTECTED_PATHS = ["/admin/", "/web/"]
+# CSRF Protection paths - protect web admin and vendor forms
+_CSRF_PROTECTED_PATHS = ["/admin/", "/web/", "/vendor/"]
 _CSRF_EXEMPT_PATHS = ["/api/", "/auth/", "/health", "/metrics", "/static/"]
 
 

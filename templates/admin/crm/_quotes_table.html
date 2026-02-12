@@ -1,22 +1,25 @@
-{% from "components/ui/macros.html" import danger_button, empty_state, icon_delete, icon_download, icon_edit, icon_view, pagination, row_action, status_badge %}
+{% from "components/ui/macros.html" import danger_button, empty_state, icon_delete, icon_download, icon_edit, icon_view, pagination, row_action, status_badge, table_shell, table_row %}
+{% set pad = 'px-6 py-3' %}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set can_delete_quotes = 'admin' in user_roles_lower %}
 
-<div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-    <div class="overflow-x-auto">
-        <table class="min-w-full">
+{% call table_shell(table_id="quotes-table", color="cyan", bulk_selectable=False, search=False) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
             <thead>
-                <tr class="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-slate-100/50 dark:border-slate-700/50 dark:from-slate-800/80 dark:to-slate-800/50">
-                    <th scope="col" class="w-12 px-3 py-3.5">
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="w-12 {{ pad }}">
                         <input type="checkbox"
                                data-select-all
                                class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-cyan-500 cursor-pointer">
                     </th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Quote</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Lead</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Contact</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Total</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Expires</th>
-                    <th scope="col" class="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Quote</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Lead</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Contact</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Total</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Expires</th>
+                    <th scope="col" class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -28,14 +31,14 @@
                 {% set quote_name = stored_name if stored_name else (contact.display_name if contact and contact.display_name else (contact.email if contact else '')) %}
                 {% set status_val = quote.status.value if quote.status else 'draft' %}
 
-                <tr class="group transition-colors hover:bg-gradient-to-r hover:from-cyan-50/50 hover:to-teal-50/30 dark:hover:from-cyan-900/10 dark:hover:to-teal-900/5">
-                    <td class="w-12 px-3 py-4">
+                {% call table_row(color="cyan") %}
+                    <td class="w-12 {{ pad }}">
                         <input type="checkbox"
                                data-quote-select
                                data-quote-id="{{ quote.id }}"
                                class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-cyan-500 cursor-pointer">
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4">
+                    <td class="whitespace-nowrap {{ pad }}">
                         <div class="flex items-center gap-3">
                             <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-teal-500 text-white font-semibold text-sm shadow-sm">
                                 {{ (quote_name[0] if quote_name else 'Q') | upper }}
@@ -51,7 +54,7 @@
                             </div>
                         </div>
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
+                    <td class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {% if lead %}
                         <a href="/admin/crm/leads/{{ lead.id }}" class="hover:text-cyan-600 dark:hover:text-cyan-400">
                             {{ lead.title if lead.title else (lead.id|string|truncate(8, True, '')) }}
@@ -60,14 +63,14 @@
                         <span class="text-slate-400">—</span>
                         {% endif %}
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
+                    <td class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {% if contact %}
                         {{ contact.display_name if contact.display_name else contact.email }}
                         {% else %}
                         <span class="text-slate-400">—</span>
                         {% endif %}
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4">
+                    <td class="whitespace-nowrap {{ pad }}">
                         {% if status_val == 'draft' %}
                         {{ status_badge("Draft", "pending") }}
                         {% elif status_val == 'sent' %}
@@ -82,24 +85,48 @@
                         {{ status_badge(status_val | replace('_', ' ') | title, "pending") }}
                         {% endif %}
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4">
+                    <td class="whitespace-nowrap {{ pad }}">
                         <span class="text-sm font-medium text-slate-900 dark:text-white">
                             {{ quote.currency }} {{ "{:,.2f}".format(quote.total or 0) }}
                         </span>
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4">
-                        <span class="text-sm text-slate-600 dark:text-slate-300">
-                            {{ quote.expires_at.strftime('%b %d, %Y') if quote.expires_at else '—' }}
+                    <td class="whitespace-nowrap {{ pad }}">
+                        {% if quote.expires_at %}
+                        {% set days_left = (quote.expires_at - today).days if today is defined and quote.expires_at else none %}
+                        {% if days_left is not none and days_left < 0 %}
+                        <span class="inline-flex items-center gap-1 text-sm font-medium text-red-600 dark:text-red-400">
+                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                            Expired
                         </span>
+                        {% elif days_left is not none and days_left <= 3 %}
+                        <span class="inline-flex items-center gap-1 text-sm font-medium text-red-600 dark:text-red-400">
+                            <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                            {{ quote.expires_at.strftime('%b %d, %Y') }} <span class="text-xs">({{ days_left }}d)</span>
+                        </span>
+                        {% elif days_left is not none and days_left <= 7 %}
+                        <span class="inline-flex items-center gap-1 text-sm font-medium text-amber-600 dark:text-amber-400">
+                            <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                            {{ quote.expires_at.strftime('%b %d, %Y') }} <span class="text-xs">({{ days_left }}d)</span>
+                        </span>
+                        {% else %}
+                        <span class="text-sm text-slate-600 dark:text-slate-300">
+                            {{ quote.expires_at.strftime('%b %d, %Y') }}
+                        </span>
+                        {% endif %}
+                        {% else %}
+                        <span class="text-sm text-slate-400">—</span>
+                        {% endif %}
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4 text-right">
+                    <td class="whitespace-nowrap {{ pad }} text-right">
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             {{ row_action("/admin/crm/quotes/" ~ quote.id, icon_view(), "View details", "cyan") }}
                             {{ row_action("/admin/crm/quotes/" ~ quote.id ~ "/edit", icon_edit(), "Edit quote", "slate") }}
+                            {% if can_delete_quotes %}
                             {{ danger_button("Delete", "Confirm Delete", "Delete this quote?", "/admin/crm/quotes/" ~ quote.id ~ "/delete", size="sm") }}
+                            {% endif %}
                         </div>
                     </td>
-                </tr>
+                {% endcall %}
                 {% endfor %}
                 {% else %}
                 <tr>
@@ -109,8 +136,7 @@
                 </tr>
                 {% endif %}
             </tbody>
-        </table>
-    </div>
+    </table>
 
     {# Pagination #}
     {% if total_pages > 1 %}
@@ -118,7 +144,7 @@
         {{ pagination(page, total_pages, total, "/admin/crm/quotes", {"status": status, "lead_id": lead_id, "search": search}) }}
     </div>
     {% endif %}
-</div>
+{% endcall %}
 
 <script>
 // Selection handling for this table partial

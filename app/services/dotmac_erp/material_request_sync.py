@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import logging
-import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
-from app.models.material_request import MaterialRequest, MaterialRequestItem
+from app.models.material_request import MaterialRequest
 from app.services.dotmac_erp.client import DotMacERPClient
 
 logger = logging.getLogger(__name__)
@@ -67,12 +66,14 @@ class DotMacERPMaterialRequestSync:
         items = []
         for item in mr.items:
             inv_item = item.item
-            items.append({
-                "item_code": inv_item.sku or str(inv_item.id),
-                "item_name": inv_item.name,
-                "quantity": item.quantity,
-                "notes": item.notes,
-            })
+            items.append(
+                {
+                    "item_code": inv_item.sku or str(inv_item.id),
+                    "item_name": inv_item.name,
+                    "quantity": item.quantity,
+                    "notes": item.notes,
+                }
+            )
 
         payload: dict = {
             "omni_id": str(mr.id),

@@ -30,14 +30,10 @@ class WirelessSiteSurvey(Base):
 
     __tablename__ = "wireless_site_surveys"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[SurveyStatus] = mapped_column(
-        Enum(SurveyStatus), default=SurveyStatus.draft
-    )
+    status: Mapped[SurveyStatus] = mapped_column(Enum(SurveyStatus), default=SurveyStatus.draft)
 
     # Survey bounds (calculated from points)
     min_latitude: Mapped[float | None] = mapped_column(Float)
@@ -55,16 +51,10 @@ class WirelessSiteSurvey(Base):
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
     # Assignment
-    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id")
-    )
-    project_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id")
-    )
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -83,16 +73,12 @@ class SurveyPoint(Base):
 
     __tablename__ = "survey_points"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     survey_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("wireless_site_surveys.id"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
-    point_type: Mapped[SurveyPointType] = mapped_column(
-        Enum(SurveyPointType), default=SurveyPointType.custom
-    )
+    point_type: Mapped[SurveyPointType] = mapped_column(Enum(SurveyPointType), default=SurveyPointType.custom)
 
     # Location
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
@@ -121,9 +107,7 @@ class SurveyPoint(Base):
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -139,18 +123,12 @@ class SurveyLosPath(Base):
 
     __tablename__ = "survey_los_paths"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     survey_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("wireless_site_surveys.id"), nullable=False
     )
-    from_point_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("survey_points.id"), nullable=False
-    )
-    to_point_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("survey_points.id"), nullable=False
-    )
+    from_point_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_points.id"), nullable=False)
+    to_point_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_points.id"), nullable=False)
 
     # Distance and bearing
     distance_m: Mapped[float | None] = mapped_column(Float)
@@ -174,9 +152,7 @@ class SurveyLosPath(Base):
     sample_count: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

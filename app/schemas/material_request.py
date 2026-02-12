@@ -42,6 +42,8 @@ class MaterialRequestCreate(MaterialRequestBase):
 
 class MaterialRequestUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+    ticket_id: UUID | None = None
+    project_id: UUID | None = None
     priority: MaterialRequestPriority | None = None
     notes: str | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")

@@ -70,15 +70,11 @@ def list_tickets(
 
 
 @router.patch("/tickets/{ticket_id}", response_model=TicketRead, tags=["tickets"])
-def update_ticket(
-    ticket_id: str, payload: TicketUpdate, db: Session = Depends(get_db)
-):
+def update_ticket(ticket_id: str, payload: TicketUpdate, db: Session = Depends(get_db)):
     return tickets_service.tickets.update(db, ticket_id, payload)
 
 
-@router.delete(
-    "/tickets/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["tickets"]
-)
+@router.delete("/tickets/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["tickets"])
 def delete_ticket(ticket_id: str, db: Session = Depends(get_db)):
     tickets_service.tickets.delete(db, ticket_id)
 
@@ -88,9 +84,7 @@ def delete_ticket(ticket_id: str, db: Session = Depends(get_db)):
     response_model=TicketBulkUpdateResponse,
     tags=["tickets"],
 )
-def bulk_update_tickets(
-    payload: TicketBulkUpdateRequest, db: Session = Depends(get_db)
-):
+def bulk_update_tickets(payload: TicketBulkUpdateRequest, db: Session = Depends(get_db)):
     response = tickets_service.tickets.bulk_update_response(
         db, [str(ticket_id) for ticket_id in payload.ticket_ids], payload.update
     )
@@ -113,9 +107,7 @@ def create_ticket_comment(payload: TicketCommentCreate, db: Session = Depends(ge
     status_code=status.HTTP_201_CREATED,
     tags=["ticket-comments"],
 )
-def create_ticket_comments_bulk(
-    payload: TicketCommentBulkCreateRequest, db: Session = Depends(get_db)
-):
+def create_ticket_comments_bulk(payload: TicketCommentBulkCreateRequest, db: Session = Depends(get_db)):
     response = tickets_service.ticket_comments.bulk_create_response(db, payload)
     return TicketCommentBulkCreateResponse(**response)
 
@@ -143,9 +135,7 @@ def list_ticket_comments(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return tickets_service.ticket_comments.list_response(
-        db, ticket_id, is_internal, order_by, order_dir, limit, offset
-    )
+    return tickets_service.ticket_comments.list_response(db, ticket_id, is_internal, order_by, order_dir, limit, offset)
 
 
 @router.patch(
@@ -153,9 +143,7 @@ def list_ticket_comments(
     response_model=TicketCommentRead,
     tags=["ticket-comments"],
 )
-def update_ticket_comment(
-    comment_id: str, payload: TicketCommentUpdate, db: Session = Depends(get_db)
-):
+def update_ticket_comment(comment_id: str, payload: TicketCommentUpdate, db: Session = Depends(get_db)):
     return tickets_service.ticket_comments.update(db, comment_id, payload)
 
 
@@ -211,9 +199,7 @@ def list_ticket_sla_events(
     response_model=TicketSlaEventRead,
     tags=["ticket-sla-events"],
 )
-def update_ticket_sla_event(
-    event_id: str, payload: TicketSlaEventUpdate, db: Session = Depends(get_db)
-):
+def update_ticket_sla_event(event_id: str, payload: TicketSlaEventUpdate, db: Session = Depends(get_db)):
     return tickets_service.ticket_sla_events.update(db, event_id, payload)
 
 
