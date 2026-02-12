@@ -55,6 +55,21 @@ def get_vendor_user(db: Session, person_id: str) -> VendorUser | None:
     return _get_vendor_user(db, person_id)
 
 
+def _vendor_is_active(vendor: Vendor | None) -> bool:
+    return bool(vendor and getattr(vendor, "is_active", False))
+
+
+def _person_is_active(person: Person | None) -> bool:
+    if not person:
+        return False
+    if not getattr(person, "is_active", False):
+        return False
+    # Be strict: inactive/archived people should not access the vendor portal.
+    status = getattr(person, "status", None)
+    status_value = getattr(status, "value", status)
+    return str(status_value or "").lower() == "active"
+
+
 def _create_session(
     username: str,
     person_id: str,
@@ -135,6 +150,13 @@ def _session_from_access_token(
     person = db.get(Person, vendor_user.person_id)
     if not person:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
+    if not _person_is_active(person):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Person is inactive")
+
+    vendor = db.get(Vendor, vendor_user.vendor_id)
+    if not _vendor_is_active(vendor):
+        # Vendor record can be deactivated independently of vendor_user links.
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Vendor is inactive")
 
     session_token = _create_session(
         username=username or person.email,
@@ -154,11 +176,14 @@ def get_context(db: Session, session_token: str | None) -> dict | None:
 
     person = db.get(Person, coerce_uuid(session["person_id"]))
     vendor = db.get(Vendor, coerce_uuid(session["vendor_id"]))
-    if not person or not vendor:
+    if not _person_is_active(person) or not _vendor_is_active(vendor):
+        # Session is no longer valid if either side is deactivated.
+        invalidate_session(session_token or "")
         return None
 
     vendor_user = _get_vendor_user(db, str(person.id))
     if not vendor_user:
+        invalidate_session(session_token or "")
         return None
 
     current_user = {
