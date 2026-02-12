@@ -91,7 +91,10 @@
     </div>
 
     <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <form id="projects-filter-form" class="flex flex-col gap-4 sm:flex-row sm:items-end">
+        <form id="projects-filter-form" method="get" action="/admin/projects" class="flex flex-col gap-4 sm:flex-row sm:items-end">
+            {# Preserve pagination size when applying filters; always reset to page 1. #}
+            <input type="hidden" name="per_page" value="{{ per_page }}">
+            <input type="hidden" name="page" value="1">
             <div class="flex-1">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Status</label>
                 <select name="status" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
