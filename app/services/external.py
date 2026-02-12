@@ -48,13 +48,10 @@ class ExternalReferences(ListResponseMixin):
     ):
         query = db.query(ExternalReference)
         if connector_config_id:
-            query = query.filter(
-                ExternalReference.connector_config_id == connector_config_id
-            )
+            query = query.filter(ExternalReference.connector_config_id == connector_config_id)
         if entity_type:
             query = query.filter(
-                ExternalReference.entity_type
-                == validate_enum(entity_type, ExternalEntityType, "entity_type")
+                ExternalReference.entity_type == validate_enum(entity_type, ExternalEntityType, "entity_type")
             )
         if entity_id:
             query = query.filter(ExternalReference.entity_id == entity_id)
@@ -106,8 +103,7 @@ def _get_reference_for_sync(db: Session, payload: ExternalReferenceSync) -> Exte
         .filter(ExternalReference.connector_config_id == payload.connector_config_id)
         .filter(ExternalReference.entity_type == payload.entity_type)
         .filter(
-            (ExternalReference.entity_id == payload.entity_id)
-            | (ExternalReference.external_id == payload.external_id)
+            (ExternalReference.entity_id == payload.entity_id) | (ExternalReference.external_id == payload.external_id)
         )
         .first()
     )

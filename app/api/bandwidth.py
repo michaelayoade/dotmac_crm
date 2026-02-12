@@ -4,6 +4,7 @@ Bandwidth API Router
 Provides endpoints for bandwidth time series data, real-time streaming,
 and usage statistics. Supports both admin and customer portal access.
 """
+
 import asyncio
 import logging
 from datetime import UTC, datetime
@@ -73,9 +74,7 @@ async def get_bandwidth_series(
     """
     bandwidth_samples.check_subscription_access(db, subscription_id, current_user)
 
-    result = await bandwidth_samples.get_bandwidth_series(
-        db, subscription_id, start_at, end_at, interval
-    )
+    result = await bandwidth_samples.get_bandwidth_series(db, subscription_id, start_at, end_at, interval)
 
     data = [BandwidthSeriesPoint(**point) for point in result["data"]]
     return BandwidthSeriesResponse(data=data, total=result["total"], source=result["source"])

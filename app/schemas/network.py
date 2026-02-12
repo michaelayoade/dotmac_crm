@@ -17,25 +17,25 @@ from app.models.network import (
 
 
 # Stub enums for removed models (schemas reference these but models removed)
-class DeviceStatus(str, enum.Enum):
+class DeviceStatus(enum.StrEnum):
     active = "active"
     inactive = "inactive"
     maintenance = "maintenance"
 
 
-class DeviceType(str, enum.Enum):
+class DeviceType(enum.StrEnum):
     ont = "ont"
     router = "router"
     switch = "switch"
     other = "other"
 
 
-class IPVersion(str, enum.Enum):
+class IPVersion(enum.StrEnum):
     ipv4 = "ipv4"
     ipv6 = "ipv6"
 
 
-class PortStatus(str, enum.Enum):
+class PortStatus(enum.StrEnum):
     available = "available"
     in_use = "in_use"
     disabled = "disabled"
@@ -43,7 +43,7 @@ class PortStatus(str, enum.Enum):
     up = "up"
 
 
-class PortType(str, enum.Enum):
+class PortType(enum.StrEnum):
     ethernet = "ethernet"
     fiber = "fiber"
     uplink = "uplink"
@@ -196,13 +196,9 @@ class IPAssignmentBase(BaseModel):
 class IPAssignmentCreate(IPAssignmentBase):
     @model_validator(mode="after")
     def _validate_ip_version(self) -> IPAssignmentCreate:
-        if self.ip_version == IPVersion.ipv4 and (
-            not self.ipv4_address_id or self.ipv6_address_id is not None
-        ):
+        if self.ip_version == IPVersion.ipv4 and (not self.ipv4_address_id or self.ipv6_address_id is not None):
             raise ValueError("ipv4 assignments require ipv4_address_id only.")
-        if self.ip_version == IPVersion.ipv6 and (
-            not self.ipv6_address_id or self.ipv4_address_id is not None
-        ):
+        if self.ip_version == IPVersion.ipv6 and (not self.ipv6_address_id or self.ipv4_address_id is not None):
             raise ValueError("ipv6 assignments require ipv6_address_id only.")
         return self
 
@@ -229,13 +225,9 @@ class IPAssignmentUpdate(BaseModel):
                 if self.ipv4_address_id is not None and self.ipv6_address_id is not None:
                     raise ValueError("Provide only one of ipv4_address_id or ipv6_address_id.")
                 return self
-            if self.ip_version == IPVersion.ipv4 and (
-                not self.ipv4_address_id or self.ipv6_address_id is not None
-            ):
+            if self.ip_version == IPVersion.ipv4 and (not self.ipv4_address_id or self.ipv6_address_id is not None):
                 raise ValueError("ipv4 assignments require ipv4_address_id only.")
-            if self.ip_version == IPVersion.ipv6 and (
-                not self.ipv6_address_id or self.ipv4_address_id is not None
-            ):
+            if self.ip_version == IPVersion.ipv6 and (not self.ipv6_address_id or self.ipv4_address_id is not None):
                 raise ValueError("ipv6 assignments require ipv6_address_id only.")
         return self
 
@@ -830,9 +822,7 @@ class FiberSpliceCreate(FiberSpliceBase):
         has_full = self.closure_id and self.from_strand_id and self.to_strand_id
         has_tray = self.tray_id and self.position
         if not has_full and not has_tray:
-            raise ValueError(
-                "Provide closure_id/from_strand_id/to_strand_id or tray_id/position."
-            )
+            raise ValueError("Provide closure_id/from_strand_id/to_strand_id or tray_id/position.")
         return self
 
 

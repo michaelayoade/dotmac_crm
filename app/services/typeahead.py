@@ -1,9 +1,9 @@
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.person import Person
 from app.models.dispatch import TechnicianProfile
-from app.models.subscriber import Organization, Reseller, Subscriber
+from app.models.person import Person
+from app.models.subscriber import Organization, Subscriber
 from app.models.vendor import Vendor
 from app.services.response import list_response
 
@@ -154,31 +154,6 @@ def vendors_response(db: Session, query: str, limit: int) -> dict:
     return list_response(vendors(db, query, limit), limit, 0)
 
 
-def resellers(db: Session, query: str, limit: int) -> list[dict]:
-    """Search reseller accounts by name."""
-    term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(Reseller)
-        .filter(
-            or_(
-                Reseller.name.ilike(like_term),
-                Reseller.code.ilike(like_term),
-            )
-        )
-        .filter(Reseller.is_active.is_(True))
-        .limit(limit)
-        .all()
-    )
-    return [{"id": r.id, "label": r.name} for r in results]
-
-
-def resellers_response(db: Session, query: str, limit: int) -> dict:
-    return list_response(resellers(db, query, limit), limit, 0)
-
-
 def organizations(db: Session, query: str, limit: int) -> list[dict]:
     """Search organizations by name."""
     term = (query or "").strip()
@@ -206,6 +181,7 @@ def organizations_response(db: Session, query: str, limit: int) -> dict:
 def network_devices_response(db: Session, query: str, limit: int) -> dict:
     """Search network devices by name."""
     from app.models.network import OLTDevice
+
     term = (query or "").strip()
     if not term:
         return list_response([], limit, 0)
@@ -229,6 +205,7 @@ def network_devices_response(db: Session, query: str, limit: int) -> dict:
 def pop_sites_response(db: Session, query: str, limit: int) -> dict:
     """Search POP sites by name."""
     from app.models.gis import GeoLocation, GeoLocationType
+
     term = (query or "").strip()
     if not term:
         return list_response([], limit, 0)
@@ -280,19 +257,21 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
         .all()
     )
     if customer_results:
-        categories.append({
-            "name": "Customers",
-            "icon": "users",
-            "items": [
-                {
-                    "id": str(p.id),
-                    "label": f"{p.first_name} {p.last_name}".strip() or p.email or "Person",
-                    "url": f"/admin/customers/{p.id}",
-                    "type": "customer",
-                }
-                for p in customer_results
-            ],
-        })
+        categories.append(
+            {
+                "name": "Customers",
+                "icon": "users",
+                "items": [
+                    {
+                        "id": str(p.id),
+                        "label": f"{p.first_name} {p.last_name}".strip() or p.email or "Person",
+                        "url": f"/admin/crm/contacts/{p.id}",
+                        "type": "customer",
+                    }
+                    for p in customer_results
+                ],
+            }
+        )
 
     # Search tickets
     ticket_results = (
@@ -307,19 +286,21 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
         .all()
     )
     if ticket_results:
-        categories.append({
-            "name": "Tickets",
-            "icon": "ticket",
-            "items": [
-                {
-                    "id": str(t.id),
-                    "label": t.title or f"Ticket {t.id}",
-                    "url": f"/admin/support/tickets/{t.id}",
-                    "type": "ticket",
-                }
-                for t in ticket_results
-            ],
-        })
+        categories.append(
+            {
+                "name": "Tickets",
+                "icon": "ticket",
+                "items": [
+                    {
+                        "id": str(t.id),
+                        "label": t.title or f"Ticket {t.id}",
+                        "url": f"/admin/support/tickets/{t.id}",
+                        "type": "ticket",
+                    }
+                    for t in ticket_results
+                ],
+            }
+        )
 
     # Search work orders
     work_order_results = (
@@ -334,18 +315,20 @@ def global_search(db: Session, query: str, limit_per_type: int = 3) -> dict:
         .all()
     )
     if work_order_results:
-        categories.append({
-            "name": "Work Orders",
-            "icon": "wrench",
-            "items": [
-                {
-                    "id": str(wo.id),
-                    "label": wo.title or f"Work Order {wo.id}",
-                    "url": f"/admin/operations/work-orders/{wo.id}",
-                    "type": "work_order",
-                }
-                for wo in work_order_results
-            ],
-        })
+        categories.append(
+            {
+                "name": "Work Orders",
+                "icon": "wrench",
+                "items": [
+                    {
+                        "id": str(wo.id),
+                        "label": wo.title or f"Work Order {wo.id}",
+                        "url": f"/admin/operations/work-orders/{wo.id}",
+                        "type": "work_order",
+                    }
+                    for wo in work_order_results
+                ],
+            }
+        )
 
     return {"categories": categories, "query": term}

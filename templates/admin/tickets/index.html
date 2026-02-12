@@ -49,55 +49,148 @@
     {# Status Filter Cards #}
     {% set base_url = '/admin/support/tickets' %}
     {% set sub_param = '&subscriber=' ~ subscriber if subscriber else '' %}
+    {% set type_param = '&ticket_type=' ~ ticket_type|urlencode if ticket_type else '' %}
     {% set assigned_param = '&assigned=' ~ assigned if assigned else '' %}
+    {% set pm_param = '&pm=' ~ pm if pm else '' %}
+    {% set spc_param = '&spc=' ~ spc if spc else '' %}
     <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6 animate-fade-in-up" style="animation-delay: 100ms;">
-        {{ status_filter_card("New", stats.new, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>', base_url ~ '?status=new' ~ sub_param ~ assigned_param, "blue", "indigo", status == 'new') }}
-        {{ status_filter_card("Open", stats.open, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>', base_url ~ '?status=open' ~ sub_param ~ assigned_param, "emerald", "green", status == 'open') }}
-        {{ status_filter_card("Pending", stats.pending, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=pending' ~ sub_param ~ assigned_param, "amber", "yellow", status == 'pending') }}
-        {{ status_filter_card("On Hold", stats.on_hold, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=on_hold' ~ sub_param ~ assigned_param, "orange", "red", status == 'on_hold') }}
-        {{ status_filter_card("Resolved", stats.resolved, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=resolved' ~ sub_param ~ assigned_param, "teal", "cyan", status == 'resolved') }}
-        {{ status_filter_card("Closed", stats.closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>', base_url ~ '?status=closed' ~ sub_param ~ assigned_param, "slate", "slate", status == 'closed') }}
+        {{ status_filter_card("New", stats.new, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>', base_url ~ '?status=new' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "blue", "indigo", status == 'new') }}
+        {{ status_filter_card("Open", stats.open, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>', base_url ~ '?status=open' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "emerald", "green", status == 'open') }}
+        {{ status_filter_card("Pending", stats.pending, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=pending' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "amber", "yellow", status == 'pending') }}
+        {{ status_filter_card("On Hold", stats.on_hold, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=on_hold' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "orange", "red", status == 'on_hold') }}
+        {{ status_filter_card("Resolved", stats.resolved, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=resolved' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "teal", "cyan", status == 'resolved') }}
+        {{ status_filter_card("Closed", stats.closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>', base_url ~ '?status=closed' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "slate", "slate", status == 'closed') }}
     </div>
 
     {# Filters #}
     {% call filter_bar() %}
-    <form hx-get="/admin/support/tickets" hx-target="#tickets-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
-        <div class="flex-1">
-            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Tickets</label>
-            {{ search_input("search", search or '', "Search by ticket ID, title, or description...", "amber", {"hx-get": "/admin/support/tickets", "hx-target": "#tickets-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+    <div class="flex flex-col gap-4">
+        <form id="tickets-filter-form" hx-get="/admin/support/tickets" hx-target="#tickets-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
+            <div class="flex-1">
+                <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Tickets</label>
+                {{ search_input("search", search or '', "Search by ticket ID, title, or description...", "amber", {"hx-get": "/admin/support/tickets", "hx-target": "#tickets-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+            </div>
+            {% if subscriber %}
+            <input type="hidden" name="subscriber" value="{{ subscriber }}" />
+            {% endif %}
+            <div class="w-full lg:w-44">
+                {{ filter_select("status", [
+                    {"value": "", "label": "All Status"},
+                    {"value": "new", "label": "New"},
+                    {"value": "open", "label": "Open"},
+                    {"value": "pending", "label": "Pending"},
+                    {"value": "waiting_on_customer", "label": "Waiting on Customer"},
+                    {"value": "lastmile_rerun", "label": "Lastmile Rerun"},
+                    {"value": "site_under_construction", "label": "Site Under Construction"},
+                    {"value": "on_hold", "label": "On Hold"},
+                    {"value": "resolved", "label": "Resolved"},
+                    {"value": "closed", "label": "Closed"},
+                    {"value": "canceled", "label": "Canceled"}
+                ], status or '', "Status", "amber") }}
+            </div>
+            <div class="w-full lg:w-44">
+                {% set type_filter_options = [{"value": "", "label": "All Ticket Types"}] %}
+                {% for item in ticket_type_options or [] %}
+                    {% set _ = type_filter_options.append({"value": item, "label": item}) %}
+                {% endfor %}
+                {{ filter_select("ticket_type", type_filter_options, ticket_type or '', "Ticket Type", "amber") }}
+            </div>
+            <div class="w-full lg:w-44">
+                {{ filter_select("assigned", [
+                    {"value": "", "label": "All Assignees"},
+                    {"value": "me", "label": "Assigned to Me"}
+                ], assigned or '', "Assigned", "amber") }}
+            </div>
+            <div class="w-full lg:w-44">
+                {% set pm_filter_options = [{"value": "", "label": "All Project Managers"}, {"value": "me", "label": "Me"}] %}
+                {% for option in pm_options or [] %}
+                    {% set _ = pm_filter_options.append(option) %}
+                {% endfor %}
+                {{ filter_select("pm", pm_filter_options, pm or '', "PM", "amber") }}
+            </div>
+            <div class="w-full lg:w-44">
+                {% set spc_filter_options = [{"value": "", "label": "All Site Coordinators"}, {"value": "me", "label": "Me"}] %}
+                {% for option in spc_options or [] %}
+                    {% set _ = spc_filter_options.append(option) %}
+                {% endfor %}
+                {{ filter_select("spc", spc_filter_options, spc or '', "SPC", "amber") }}
+            </div>
+            {% if status or ticket_type or assigned or pm or spc %}
+            {{ action_button("Clear Filters", "/admin/support/tickets" ~ ("?subscriber=" ~ subscriber if subscriber else ""), '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate", None, "md", "link", {"data-clear-filters": "tickets"}) }}
+            {% endif %}
+        </form>
+
+        <div class="flex justify-end">
+            <div id="tickets-column-picker" class="relative">
+                <button type="button" id="tickets-column-picker-toggle" class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M6 12h12m-9 5h6"/>
+                    </svg>
+                    Table Fields
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div id="tickets-column-picker-panel" class="absolute right-0 z-20 mt-2 hidden w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Show Columns</p>
+                    <div id="tickets-column-options" class="max-h-72 space-y-2 overflow-y-auto pr-1">
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="ticket" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500" checked>
+                            <span>Ticket ID</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="type" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500" checked>
+                            <span>Ticket Type</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="priority" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500" checked>
+                            <span>Priority</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="status" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500" checked>
+                            <span>Status</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="customer" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Customer</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="subscriber" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Subscriber</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="region" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Region</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="assigned" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Assigned</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="project_manager" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Project Manager</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="site_coordinator" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Site Coordinator</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="channel" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Channel</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="due_at" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Due Date</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="created" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Created</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
         </div>
-        {% if subscriber %}
-        <input type="hidden" name="subscriber" value="{{ subscriber }}" />
-        {% endif %}
-        <div class="w-full lg:w-44">
-            {{ filter_select("priority", [
-                {"value": "", "label": "All Priorities"},
-                {"value": "urgent", "label": "Urgent"},
-                {"value": "high", "label": "High"},
-                {"value": "normal", "label": "Normal"},
-                {"value": "low", "label": "Low"}
-            ], priority or '', "Priority", "amber") }}
-        </div>
-        <div class="w-full lg:w-44">
-            {{ filter_select("assigned", [
-                {"value": "", "label": "All Assignees"},
-                {"value": "me", "label": "Assigned to Me"}
-            ], assigned or '', "Assigned", "amber") }}
-        </div>
-        <div class="w-full lg:w-44">
-            {{ filter_select("channel", [
-                {"value": "", "label": "All Channels"},
-                {"value": "web", "label": "Web Portal"},
-                {"value": "email", "label": "Email"},
-                {"value": "phone", "label": "Phone"},
-                {"value": "chat", "label": "Live Chat"},
-                {"value": "api", "label": "API"}
-            ], channel or '', "Channel", "amber") }}
-        </div>
-        {% if status or priority or channel or assigned %}
-        {{ action_button("Clear Filters", "/admin/support/tickets" ~ ("?subscriber=" ~ subscriber if subscriber else ""), '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate") }}
-        {% endif %}
-    </form>
+    </div>
     {% endcall %}
 
     {# Tickets Table #}
@@ -107,4 +200,174 @@
 </div>
 
 {{ animation_styles() }}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const form = document.getElementById("tickets-filter-form");
+    if (!form) return;
+    const userId = "{{ (current_user.get('person_id') if current_user and current_user.get('person_id') else 'anon') }}";
+    const filterStorageKey = `admin:tickets:filters:${userId}`;
+    const columnStorageKey = `admin:tickets:columns:${userId}`;
+    const columnOptionInputs = Array.from(document.querySelectorAll("[data-ticket-column-option]"));
+    const columnPicker = document.getElementById("tickets-column-picker");
+    const columnPickerToggle = document.getElementById("tickets-column-picker-toggle");
+    const columnPickerPanel = document.getElementById("tickets-column-picker-panel");
+    const fields = ["status", "ticket_type", "assigned", "pm", "spc"];
+    const columnDefinitions = [
+        { key: "ticket", label: "Ticket ID", defaultVisible: true },
+        { key: "type", label: "Ticket Type", defaultVisible: true },
+        { key: "priority", label: "Priority", defaultVisible: true },
+        { key: "status", label: "Status", defaultVisible: true },
+        { key: "customer", label: "Customer", defaultVisible: false },
+        { key: "subscriber", label: "Subscriber", defaultVisible: false },
+        { key: "region", label: "Region", defaultVisible: false },
+        { key: "assigned", label: "Assigned", defaultVisible: false },
+        { key: "project_manager", label: "Project Manager", defaultVisible: false },
+        { key: "site_coordinator", label: "Site Coordinator", defaultVisible: false },
+        { key: "channel", label: "Channel", defaultVisible: false },
+        { key: "due_at", label: "Due Date", defaultVisible: false },
+        { key: "created", label: "Created", defaultVisible: false }
+    ];
+    const validColumnKeys = new Set(columnDefinitions.map((column) => column.key));
+    const url = new URL(window.location.href);
+
+    const readForm = () => {
+        const values = {};
+        fields.forEach((field) => {
+            const input = form.querySelector(`[name="${field}"]`);
+            values[field] = (input && input.value) ? input.value : "";
+        });
+        return values;
+    };
+
+    const saveFilters = () => {
+        window.localStorage.setItem(filterStorageKey, JSON.stringify(readForm()));
+    };
+
+    const getDefaultVisibleColumns = () => {
+        return columnDefinitions
+            .filter((column) => column.defaultVisible)
+            .map((column) => column.key);
+    };
+
+    const getVisibleColumns = () => {
+        const raw = window.localStorage.getItem(columnStorageKey);
+        if (!raw) return getDefaultVisibleColumns();
+        try {
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return getDefaultVisibleColumns();
+            const cleaned = parsed.filter((key) => typeof key === "string" && validColumnKeys.has(key));
+            return cleaned.length ? cleaned : getDefaultVisibleColumns();
+        } catch (_error) {
+            return getDefaultVisibleColumns();
+        }
+    };
+
+    const saveVisibleColumns = (columns) => {
+        window.localStorage.setItem(columnStorageKey, JSON.stringify(columns));
+    };
+
+    const applyVisibleColumns = () => {
+        const visible = new Set(getVisibleColumns());
+        columnDefinitions.forEach((column) => {
+            const cells = document.querySelectorAll(`[data-ticket-column="${column.key}"]`);
+            cells.forEach((cell) => {
+                cell.classList.toggle("hidden", !visible.has(column.key));
+            });
+        });
+    };
+
+    const syncColumnOptionInputs = () => {
+        const visible = new Set(getVisibleColumns());
+        columnOptionInputs.forEach((input) => {
+            input.checked = visible.has(input.value);
+        });
+    };
+
+    const clearButton = document.querySelector('[data-clear-filters="tickets"]');
+    if (clearButton) {
+        clearButton.addEventListener("click", () => window.localStorage.removeItem(filterStorageKey));
+    }
+
+    let hasQueryFilters = false;
+    fields.forEach((field) => {
+        if ((url.searchParams.get(field) || "").trim()) {
+            hasQueryFilters = true;
+        }
+    });
+
+    if (!hasQueryFilters) {
+        const raw = window.localStorage.getItem(filterStorageKey);
+        if (raw) {
+            try {
+                const saved = JSON.parse(raw);
+                const restoredUrl = new URL(window.location.href);
+                let shouldRestore = false;
+                fields.forEach((field) => {
+                    const value = (saved[field] || "").trim();
+                    if (value) {
+                        restoredUrl.searchParams.set(field, value);
+                        shouldRestore = true;
+                    }
+                });
+                if (shouldRestore) {
+                    window.location.replace(restoredUrl.toString());
+                    return;
+                }
+            } catch (_error) {
+            }
+        }
+    } else {
+        saveFilters();
+    }
+
+    fields.forEach((field) => {
+        const input = form.querySelector(`[name="${field}"]`);
+        if (input) {
+            input.addEventListener("change", saveFilters);
+        }
+    });
+
+    columnOptionInputs.forEach((input) => {
+        input.addEventListener("change", () => {
+            const current = new Set(getVisibleColumns());
+            if (input.checked) {
+                current.add(input.value);
+            } else {
+                current.delete(input.value);
+                if (current.size === 0) {
+                    input.checked = true;
+                    current.add(input.value);
+                }
+            }
+            saveVisibleColumns(Array.from(current));
+            syncColumnOptionInputs();
+            applyVisibleColumns();
+        });
+    });
+
+    if (columnPickerToggle && columnPickerPanel) {
+        columnPickerToggle.addEventListener("click", () => {
+            columnPickerPanel.classList.toggle("hidden");
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!columnPicker || !columnPickerPanel || columnPickerPanel.classList.contains("hidden")) {
+                return;
+            }
+            if (!columnPicker.contains(event.target)) {
+                columnPickerPanel.classList.add("hidden");
+            }
+        });
+    }
+
+    syncColumnOptionInputs();
+    applyVisibleColumns();
+
+    document.body.addEventListener("htmx:afterSwap", (event) => {
+        if (event.target && event.target.id === "tickets-table") {
+            applyVisibleColumns();
+        }
+    });
+});
+</script>
 {% endblock %}

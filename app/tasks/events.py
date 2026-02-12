@@ -55,21 +55,15 @@ def retry_failed_events():
                 success = dispatcher.retry_event(session, event_record)
                 if success:
                     succeeded += 1
-                    logger.info(
-                        f"Successfully retried event {event_record.event_id} "
-                        f"({event_record.event_type})"
-                    )
+                    logger.info(f"Successfully retried event {event_record.event_id} ({event_record.event_type})")
                 else:
                     failed += 1
                     logger.warning(
-                        f"Event {event_record.event_id} failed retry "
-                        f"(attempt {event_record.retry_count}/{MAX_RETRIES})"
+                        f"Event {event_record.event_id} failed retry (attempt {event_record.retry_count}/{MAX_RETRIES})"
                     )
             except Exception as exc:
                 failed += 1
-                logger.exception(
-                    f"Error retrying event {event_record.event_id}: {exc}"
-                )
+                logger.exception(f"Error retrying event {event_record.event_id}: {exc}")
                 session.rollback()
 
         result = {
@@ -151,9 +145,7 @@ def mark_stale_processing_events(stale_minutes: int = 30):
         for event_record in stuck_events:
             event_record.status = EventStatus.failed
             event_record.error = "Event processing timed out (marked as stale)"
-            logger.warning(
-                f"Marked stale processing event as failed: {event_record.event_id}"
-            )
+            logger.warning(f"Marked stale processing event as failed: {event_record.event_id}")
 
         session.commit()
 

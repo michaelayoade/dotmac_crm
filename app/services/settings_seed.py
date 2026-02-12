@@ -51,8 +51,7 @@ def seed_auth_settings(db: Session) -> None:
         key="refresh_cookie_secure",
         value_type=SettingValueType.boolean,
         value_text=os.getenv("REFRESH_COOKIE_SECURE", "false"),
-        value_json=os.getenv("REFRESH_COOKIE_SECURE", "false").lower()
-        in {"1", "true", "yes", "on"},
+        value_json=os.getenv("REFRESH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes", "on"},
     )
     auth_settings.ensure_by_key(
         db,
@@ -293,9 +292,7 @@ def seed_geocoding_settings(db: Session) -> None:
         db,
         key="base_url",
         value_type=SettingValueType.string,
-        value_text=os.getenv(
-            "GEOCODING_BASE_URL", "https://nominatim.openstreetmap.org"
-        ),
+        value_text=os.getenv("GEOCODING_BASE_URL", "https://nominatim.openstreetmap.org"),
     )
     geocoding_settings.ensure_by_key(
         db,
@@ -318,16 +315,8 @@ def seed_geocoding_settings(db: Session) -> None:
 
 
 def seed_scheduler_settings(db: Session) -> None:
-    broker = (
-        os.getenv("CELERY_BROKER_URL")
-        or os.getenv("REDIS_URL")
-        or "redis://localhost:6379/0"
-    )
-    backend = (
-        os.getenv("CELERY_RESULT_BACKEND")
-        or os.getenv("REDIS_URL")
-        or "redis://localhost:6379/1"
-    )
+    broker = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL") or "redis://localhost:6379/0"
+    backend = os.getenv("CELERY_RESULT_BACKEND") or os.getenv("REDIS_URL") or "redis://localhost:6379/1"
     scheduler_settings.ensure_by_key(
         db,
         key="broker_url",

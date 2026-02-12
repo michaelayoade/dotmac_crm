@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class InventorySyncResult:
     """Result of an inventory sync operation."""
+
     items_created: int = 0
     items_updated: int = 0
     locations_created: int = 0
@@ -30,9 +31,11 @@ class InventorySyncResult:
     @property
     def total_synced(self) -> int:
         return (
-            self.items_created + self.items_updated +
-            self.locations_created + self.locations_updated +
-            self.stock_updated
+            self.items_created
+            + self.items_updated
+            + self.locations_created
+            + self.locations_updated
+            + self.stock_updated
         )
 
     @property
@@ -60,18 +63,12 @@ class DotMacERPInventorySync:
             return self._client
 
         # Check if sync is enabled
-        enabled = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_sync_enabled"
-        )
+        enabled = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_sync_enabled")
         if not enabled:
             return None
 
-        base_url_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_base_url"
-        )
-        token_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_token"
-        )
+        base_url_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_base_url")
+        token_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_token")
 
         base_url = str(base_url_value) if base_url_value else None
         token = str(token_value) if token_value else None
@@ -80,9 +77,7 @@ class DotMacERPInventorySync:
             logger.warning("DotMac ERP sync enabled but not configured (missing URL or token)")
             return None
 
-        timeout_value = settings_spec.resolve_value(
-            self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds"
-        )
+        timeout_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds")
         if isinstance(timeout_value, int | str):
             timeout = int(timeout_value)
         else:
@@ -122,8 +117,7 @@ class DotMacERPInventorySync:
 
         # Build lookup map for locations (warehouses)
         locations_by_code = {
-            loc.code: loc
-            for loc in self.db.query(InventoryLocation).filter(InventoryLocation.code.isnot(None)).all()
+            loc.code: loc for loc in self.db.query(InventoryLocation).filter(InventoryLocation.code.isnot(None)).all()
         }
 
         try:
@@ -151,11 +145,7 @@ class DotMacERPInventorySync:
                             continue
 
                         # Find existing item by SKU
-                        existing = (
-                            self.db.query(InventoryItem)
-                            .filter(InventoryItem.sku == sku)
-                            .first()
-                        )
+                        existing = self.db.query(InventoryItem).filter(InventoryItem.sku == sku).first()
 
                         if existing:
                             # Update existing item
@@ -198,15 +188,15 @@ class DotMacERPInventorySync:
                                 )
 
                                 if stock:
-                                    stock.quantity_on_hand = int(on_hand) if on_hand else 0
-                                    stock.reserved_quantity = int(reserved) if reserved else 0
+                                    stock.quantity_on_hand = int(float(on_hand)) if on_hand else 0
+                                    stock.reserved_quantity = int(float(reserved)) if reserved else 0
                                     stock.is_active = True
                                 else:
                                     stock = InventoryStock(
                                         item_id=item.id,
                                         location_id=default_location.id,
-                                        quantity_on_hand=int(on_hand) if on_hand else 0,
-                                        reserved_quantity=int(reserved) if reserved else 0,
+                                        quantity_on_hand=int(float(on_hand)) if on_hand else 0,
+                                        reserved_quantity=int(float(reserved)) if reserved else 0,
                                         is_active=True,
                                     )
                                     self.db.add(stock)
@@ -261,11 +251,7 @@ class DotMacERPInventorySync:
                         continue
 
                     # Find existing location by code
-                    existing = (
-                        self.db.query(InventoryLocation)
-                        .filter(InventoryLocation.code == code)
-                        .first()
-                    )
+                    existing = self.db.query(InventoryLocation).filter(InventoryLocation.code == code).first()
 
                     if existing:
                         # Update existing location

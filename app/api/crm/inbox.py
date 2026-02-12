@@ -123,9 +123,7 @@ def create_email_connector(payload: EmailConnectorCreate, db: Session = Depends(
     response_model=IntegrationJobRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_email_polling_job(
-    payload: EmailPollingJobRequest, db: Session = Depends(get_db)
-):
+def create_email_polling_job(payload: EmailPollingJobRequest, db: Session = Depends(get_db)):
     interval_seconds = payload.interval_seconds
     if payload.interval_minutes is not None:
         interval_seconds = max(payload.interval_minutes, 1) * 60

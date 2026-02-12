@@ -33,9 +33,12 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
 def list_projects(
     subscriber_id: str | None = None,
     status: str | None = None,
+    project_type: str | None = None,
     priority: str | None = None,
     owner_person_id: str | None = None,
     manager_person_id: str | None = None,
+    project_manager_person_id: str | None = None,
+    assistant_manager_person_id: str | None = None,
     is_active: bool | None = None,
     order_by: str = Query(default="created_at"),
     order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
@@ -47,9 +50,12 @@ def list_projects(
         db,
         subscriber_id,
         status,
+        project_type,
         priority,
         owner_person_id,
         manager_person_id,
+        project_manager_person_id,
+        assistant_manager_person_id,
         is_active,
         order_by,
         order_dir,
@@ -59,15 +65,11 @@ def list_projects(
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
-def update_project(
-    project_id: str, payload: ProjectUpdate, db: Session = Depends(get_db)
-):
+def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depends(get_db)):
     return projects_service.projects.update(db, project_id, payload)
 
 
-@router.delete(
-    "/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["projects"]
-)
+@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["projects"])
 def delete_project(project_id: str, db: Session = Depends(get_db)):
     projects_service.projects.delete(db, project_id)
 
@@ -183,9 +185,7 @@ def list_project_tasks(
     response_model=ProjectTaskRead,
     tags=["project-tasks"],
 )
-def update_project_task(
-    task_id: str, payload: ProjectTaskUpdate, db: Session = Depends(get_db)
-):
+def update_project_task(task_id: str, payload: ProjectTaskUpdate, db: Session = Depends(get_db)):
     return projects_service.project_tasks.update(db, task_id, payload)
 
 

@@ -35,17 +35,11 @@ class ConnectorConfig(Base):
     __tablename__ = "connector_configs"
     __table_args__ = (UniqueConstraint("name", name="uq_connector_configs_name"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
-    connector_type: Mapped[ConnectorType] = mapped_column(
-        Enum(ConnectorType), default=ConnectorType.custom
-    )
+    connector_type: Mapped[ConnectorType] = mapped_column(Enum(ConnectorType), default=ConnectorType.custom)
     base_url: Mapped[str | None] = mapped_column(String(500))
-    auth_type: Mapped[ConnectorAuthType] = mapped_column(
-        Enum(ConnectorAuthType), default=ConnectorAuthType.none
-    )
+    auth_type: Mapped[ConnectorAuthType] = mapped_column(Enum(ConnectorAuthType), default=ConnectorAuthType.none)
     auth_config: Mapped[dict | None] = mapped_column(JSON)
     headers: Mapped[dict | None] = mapped_column(JSON)
     retry_policy: Mapped[dict | None] = mapped_column(JSON)
@@ -54,9 +48,7 @@ class ConnectorConfig(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

@@ -52,9 +52,7 @@ class TicketQuery(BaseQuery[Ticket]):
         if not subscriber_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            Ticket.subscriber_id == coerce_uuid(subscriber_id)
-        )
+        clone._query = clone._query.filter(Ticket.subscriber_id == coerce_uuid(subscriber_id))
         return clone
 
     def by_status(self, status: TicketStatus | str | None) -> TicketQuery:
@@ -72,10 +70,7 @@ class TicketQuery(BaseQuery[Ticket]):
         if not statuses:
             return self
         clone = self._clone()
-        status_enums = [
-            validate_enum(s, TicketStatus, "status") if isinstance(s, str) else s
-            for s in statuses
-        ]
+        status_enums = [validate_enum(s, TicketStatus, "status") if isinstance(s, str) else s for s in statuses]
         clone._query = clone._query.filter(Ticket.status.in_(status_enums))
         return clone
 
@@ -104,9 +99,7 @@ class TicketQuery(BaseQuery[Ticket]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            Ticket.created_by_person_id == coerce_uuid(person_id)
-        )
+        clone._query = clone._query.filter(Ticket.created_by_person_id == coerce_uuid(person_id))
         return clone
 
     def by_assigned_to(self, person_id: UUID | str | None) -> TicketQuery:
@@ -114,9 +107,31 @@ class TicketQuery(BaseQuery[Ticket]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            Ticket.assigned_to_person_id == coerce_uuid(person_id)
-        )
+        clone._query = clone._query.filter(Ticket.assigned_to_person_id == coerce_uuid(person_id))
+        return clone
+
+    def by_ticket_manager(self, person_id: UUID | str | None) -> TicketQuery:
+        """Filter by project manager person ID."""
+        if not person_id:
+            return self
+        clone = self._clone()
+        clone._query = clone._query.filter(Ticket.ticket_manager_person_id == coerce_uuid(person_id))
+        return clone
+
+    def by_assistant_manager(self, person_id: UUID | str | None) -> TicketQuery:
+        """Filter by site project coordinator person ID."""
+        if not person_id:
+            return self
+        clone = self._clone()
+        clone._query = clone._query.filter(Ticket.assistant_manager_person_id == coerce_uuid(person_id))
+        return clone
+
+    def by_ticket_type(self, ticket_type: str | None) -> TicketQuery:
+        """Filter by ticket type."""
+        if not ticket_type or not ticket_type.strip():
+            return self
+        clone = self._clone()
+        clone._query = clone._query.filter(Ticket.ticket_type == ticket_type.strip())
         return clone
 
     def unassigned(self) -> TicketQuery:
@@ -154,20 +169,24 @@ class TicketQuery(BaseQuery[Ticket]):
 
     def open_tickets(self) -> TicketQuery:
         """Filter to only open tickets (not resolved/closed)."""
-        return self.by_statuses([
-            TicketStatus.new,
-            TicketStatus.open,
-            TicketStatus.pending,
-            TicketStatus.on_hold,
-        ])
+        return self.by_statuses(
+            [
+                TicketStatus.new,
+                TicketStatus.open,
+                TicketStatus.pending,
+                TicketStatus.on_hold,
+            ]
+        )
 
     def closed_tickets(self) -> TicketQuery:
         """Filter to only closed tickets."""
-        return self.by_statuses([
-            TicketStatus.resolved,
-            TicketStatus.closed,
-            TicketStatus.canceled,
-        ])
+        return self.by_statuses(
+            [
+                TicketStatus.resolved,
+                TicketStatus.closed,
+                TicketStatus.canceled,
+            ]
+        )
 
     def with_relations(self) -> TicketQuery:
         """Eager load common relationships to avoid N+1 queries.
@@ -201,9 +220,7 @@ class TicketCommentQuery(BaseQuery[TicketComment]):
         if not ticket_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            TicketComment.ticket_id == coerce_uuid(ticket_id)
-        )
+        clone._query = clone._query.filter(TicketComment.ticket_id == coerce_uuid(ticket_id))
         return clone
 
     def by_author(self, person_id: UUID | str | None) -> TicketCommentQuery:
@@ -211,9 +228,7 @@ class TicketCommentQuery(BaseQuery[TicketComment]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            TicketComment.author_person_id == coerce_uuid(person_id)
-        )
+        clone._query = clone._query.filter(TicketComment.author_person_id == coerce_uuid(person_id))
         return clone
 
     def internal_only(self) -> TicketCommentQuery:
@@ -257,9 +272,7 @@ class TicketSlaEventQuery(BaseQuery[TicketSlaEvent]):
         if not ticket_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            TicketSlaEvent.ticket_id == coerce_uuid(ticket_id)
-        )
+        clone._query = clone._query.filter(TicketSlaEvent.ticket_id == coerce_uuid(ticket_id))
         return clone
 
     def by_event_type(self, event_type: str | None) -> TicketSlaEventQuery:

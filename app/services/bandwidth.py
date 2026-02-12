@@ -150,9 +150,7 @@ class BandwidthSamples(ListResponseMixin):
         return {"data": data, "total": len(samples), "source": "postgres"}
 
     @staticmethod
-    async def get_bandwidth_stats(
-        db: Session, subscription_id: UUID, period: str
-    ) -> dict[str, Any]:
+    async def get_bandwidth_stats(db: Session, subscription_id: UUID, period: str) -> dict[str, Any]:
         period_seconds = {
             "1h": 3600,
             "24h": 86400,
@@ -167,9 +165,7 @@ class BandwidthSamples(ListResponseMixin):
             .filter(BandwidthSample.sample_at >= start_at)
             .filter(BandwidthSample.sample_at <= now)
         )
-        current_sample = (
-            query.order_by(BandwidthSample.sample_at.desc()).first()
-        )
+        current_sample = query.order_by(BandwidthSample.sample_at.desc()).first()
         peak_rx = query.with_entities(func.max(BandwidthSample.rx_bps)).scalar() or 0
         peak_tx = query.with_entities(func.max(BandwidthSample.tx_bps)).scalar() or 0
         total_rx = query.with_entities(func.sum(BandwidthSample.rx_bps)).scalar() or 0
@@ -244,11 +240,13 @@ class BandwidthSamples(ListResponseMixin):
 
         results: list[dict] = []
         for row in query.all():
-            results.append({
-                "timestamp": row.bucket.isoformat() if row.bucket else None,
-                "rx_bps": int(row.rx_bps or 0),
-                "tx_bps": int(row.tx_bps or 0),
-            })
+            results.append(
+                {
+                    "timestamp": row.bucket.isoformat() if row.bucket else None,
+                    "rx_bps": int(row.rx_bps or 0),
+                    "tx_bps": int(row.tx_bps or 0),
+                }
+            )
         return results
 
 

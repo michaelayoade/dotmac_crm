@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, stats_card, dashboard_kpi_grid, dashboard_filter_panel %}
 
 {% block title %}Network Usage Report - Admin{% endblock %}
 
@@ -21,29 +21,39 @@
         </a>
     </div>
 
+    {% call dashboard_filter_panel(color="blue", title="Date Range") %}
+    <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-end">
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</label>
+            <select name="period_days" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                <option value="7" {% if period_days == 7 %}selected{% endif %}>Last 7 days</option>
+                <option value="30" {% if period_days == 30 %}selected{% endif %}>Last 30 days</option>
+                <option value="90" {% if period_days == 90 %}selected{% endif %}>Last 90 days</option>
+                <option value="180" {% if period_days == 180 %}selected{% endif %}>Last 180 days</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+            <input type="date" name="start_date" value="{{ start_date or '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+            <input type="date" name="end_date" value="{{ end_date or '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div class="md:col-span-2 flex items-center gap-2 md:justify-end">
+            <a href="/admin/reports/network" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
+            <button type="submit" class="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Apply</button>
+        </div>
+    </form>
+    {% endcall %}
+
     <!-- Summary Cards -->
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Active OLTs</p>
-            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ active_olts | default(0) }}</p>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">of {{ total_olts | default(0) }} total</p>
-        </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Connected ONTs</p>
-            <p class="mt-2 text-3xl font-bold text-green-600 dark:text-green-400">{{ connected_onts | default(0) }}</p>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">of {{ total_onts | default(0) }} deployed</p>
-        </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">IP Pool Usage</p>
-            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ "%.1f" | format(ip_pool_usage | default(0)) }}%</p>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ used_ips | default(0) }}/{{ total_ips | default(0) }} addresses</p>
-        </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">VLANs Active</p>
-            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ active_vlans | default(0) }}</p>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Configured</p>
-        </div>
-    </div>
+    {% call dashboard_kpi_grid(cols="4") %}
+        {{ stats_card("Active OLTs", active_olts | default(0), color="blue", color2="indigo", href="/admin/network/olts") }}
+        {{ stats_card("Connected ONTs", connected_onts | default(0), color="green", color2="emerald", href="/admin/network/onts") }}
+        {{ stats_card("IP Pool Usage", ("%.1f" | format(ip_pool_usage | default(0))) ~ "%", color="cyan", color2="blue", href="/admin/network/ip-management") }}
+        {{ stats_card("VLANs Active", active_vlans | default(0), color="violet", color2="purple", href="/admin/network/vlans") }}
+    {% endcall %}
 
     <!-- Network Overview Charts -->
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">

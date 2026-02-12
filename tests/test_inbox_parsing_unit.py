@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 from app.models.crm.conversation import Conversation
 from app.services.crm.inbox import parsing
 

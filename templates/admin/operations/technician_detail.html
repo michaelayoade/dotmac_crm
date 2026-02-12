@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge, submit_button %}
+{% from "components/ui/macros.html" import status_badge, submit_button, table_shell, table_row, empty_state %}
 
 {% block title %}Technician Profile - Operations{% endblock %}
 
@@ -125,81 +125,68 @@
     </div>
 
     <div class="grid gap-6 lg:grid-cols-2">
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                <h2 class="font-semibold text-slate-900 dark:text-white">Assigned Tickets</h2>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                    <thead class="bg-slate-50 dark:bg-slate-800/50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
-                        {% if tickets %}
-                        {% for ticket in tickets %}
-                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                            <td class="px-6 py-4 text-sm font-medium text-slate-900 dark:text-white">
-                                <a href="/admin/support/tickets/{{ ticket.number or ticket.id }}" class="hover:text-primary-600 dark:hover:text-primary-400">
-                                    {{ ticket.title }}
-                                </a>
-                            </td>
-                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ ticket.status.value if ticket.status else '—' }}</td>
-                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ ticket.priority.value if ticket.priority else '—' }}</td>
-                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ ticket.created_at.strftime('%b %d, %Y') if ticket.created_at else '—' }}</td>
-                        </tr>
-                        {% endfor %}
-                        {% else %}
-                        <tr>
-                            <td colspan="4" class="px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">No assigned tickets.</td>
-                        </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+        {% set pad = 'px-6 py-3' %}
+        {% call table_shell(table_id="technician-tickets-table", title="Assigned Tickets", count=tickets | length) %}
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                        <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
+                        <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                        <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if tickets %}
+                    {% for ticket in tickets %}
+                    {% call table_row() %}
+                        <td class="{{ pad }} text-sm font-medium text-slate-900 dark:text-white">
+                            <a href="/admin/support/tickets/{{ ticket.number or ticket.id }}" class="hover:text-primary-600 dark:hover:text-primary-400">
+                                {{ ticket.title }}
+                            </a>
+                        </td>
+                        <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ ticket.status.value if ticket.status else '—' }}</td>
+                        <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ ticket.priority.value if ticket.priority else '—' }}</td>
+                        <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ ticket.created_at.strftime('%b %d, %Y') if ticket.created_at else '—' }}</td>
+                    {% endcall %}
+                    {% endfor %}
+                    {% else %}
+                    {{ empty_state("No assigned tickets", "Tickets assigned to this technician will appear here.", colspan=4) }}
+                    {% endif %}
+                </tbody>
+            </table>
+        {% endcall %}
 
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                <h2 class="font-semibold text-slate-900 dark:text-white">Assigned Work Orders</h2>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                    <thead class="bg-slate-50 dark:bg-slate-800/50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
-                            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
-                        {% if work_orders %}
-                        {% for work_order in work_orders %}
-                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                            <td class="px-6 py-4 text-sm font-medium text-slate-900 dark:text-white">
-                                <a href="/admin/operations/work-orders/{{ work_order.id }}" class="hover:text-primary-600 dark:hover:text-primary-400">
-                                    {{ work_order.title }}
-                                </a>
-                            </td>
-                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ work_order.status.value if work_order.status else '—' }}</td>
-                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ work_order.priority.value if work_order.priority else '—' }}</td>
-                            <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ work_order.created_at.strftime('%b %d, %Y') if work_order.created_at else '—' }}</td>
-                        </tr>
-                        {% endfor %}
-                        {% else %}
-                        <tr>
-                            <td colspan="4" class="px-6 py-10 text-center text-sm text-slate-500 dark:text-slate-400">No assigned work orders.</td>
-                        </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+        {% call table_shell(table_id="technician-work-orders-table", title="Assigned Work Orders", count=work_orders | length) %}
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                        <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
+                        <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                        <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if work_orders %}
+                    {% for work_order in work_orders %}
+                    {% call table_row() %}
+                        <td class="{{ pad }} text-sm font-medium text-slate-900 dark:text-white">
+                            <a href="/admin/operations/work-orders/{{ work_order.id }}" class="hover:text-primary-600 dark:hover:text-primary-400">
+                                {{ work_order.title }}
+                            </a>
+                        </td>
+                        <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ work_order.status.value if work_order.status else '—' }}</td>
+                        <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ work_order.priority.value if work_order.priority else '—' }}</td>
+                        <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ work_order.created_at.strftime('%b %d, %Y') if work_order.created_at else '—' }}</td>
+                    {% endcall %}
+                    {% endfor %}
+                    {% else %}
+                    {{ empty_state("No assigned work orders", "Work orders assigned to this technician will appear here.", colspan=4) }}
+                    {% endif %}
+                </tbody>
+            </table>
+        {% endcall %}
     </div>
 </div>
 {% endblock %}

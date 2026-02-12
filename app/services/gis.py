@@ -65,8 +65,7 @@ class GeoLocations(ListResponseMixin):
         query = db.query(GeoLocation)
         if location_type:
             query = query.filter(
-                GeoLocation.location_type
-                == validate_enum(location_type, GeoLocationType, "location_type")
+                GeoLocation.location_type == validate_enum(location_type, GeoLocationType, "location_type")
             )
         if address_id:
             query = query.filter(GeoLocation.address_id == address_id)
@@ -139,19 +138,14 @@ class GeoLocations(ListResponseMixin):
             .filter(GeoLocation.is_active.is_(True))
             .filter(GeoLocation.geom.isnot(None))
             .filter(
-                ST_DWithin(
-                    func.ST_Transform(GeoLocation.geom, 3857),
-                    func.ST_Transform(point, 3857),
-                    radius_meters
-                )
+                ST_DWithin(func.ST_Transform(GeoLocation.geom, 3857), func.ST_Transform(point, 3857), radius_meters)
             )
             .order_by(ST_Distance(GeoLocation.geom, point))
         )
 
         if location_type:
             query = query.filter(
-                GeoLocation.location_type
-                == validate_enum(location_type, GeoLocationType, "location_type")
+                GeoLocation.location_type == validate_enum(location_type, GeoLocationType, "location_type")
             )
 
         return query.limit(limit).all()
@@ -190,8 +184,7 @@ class GeoLocations(ListResponseMixin):
 
         if location_type:
             query = query.filter(
-                GeoLocation.location_type
-                == validate_enum(location_type, GeoLocationType, "location_type")
+                GeoLocation.location_type == validate_enum(location_type, GeoLocationType, "location_type")
             )
 
         return query.limit(limit).all()
@@ -229,9 +222,7 @@ class GeoAreas(ListResponseMixin):
     ):
         query = db.query(GeoArea)
         if area_type:
-            query = query.filter(
-                GeoArea.area_type == validate_enum(area_type, GeoAreaType, "area_type")
-            )
+            query = query.filter(GeoArea.area_type == validate_enum(area_type, GeoAreaType, "area_type"))
         if is_active is None:
             query = query.filter(GeoArea.is_active.is_(True))
         else:
@@ -294,9 +285,7 @@ class GeoAreas(ListResponseMixin):
             return False
 
         point = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
-        result = db.query(
-            ST_Contains(area.geom, point)
-        ).scalar()
+        result = db.query(ST_Contains(area.geom, point)).scalar()
         return bool(result)
 
     @staticmethod
@@ -327,9 +316,7 @@ class GeoAreas(ListResponseMixin):
         )
 
         if area_type:
-            query = query.filter(
-                GeoArea.area_type == validate_enum(area_type, GeoAreaType, "area_type")
-            )
+            query = query.filter(GeoArea.area_type == validate_enum(area_type, GeoAreaType, "area_type"))
 
         return query.all()
 
@@ -370,15 +357,9 @@ class GeoLayers(ListResponseMixin):
     ):
         query = db.query(GeoLayer)
         if layer_type:
-            query = query.filter(
-                GeoLayer.layer_type
-                == validate_enum(layer_type, GeoLayerType, "layer_type")
-            )
+            query = query.filter(GeoLayer.layer_type == validate_enum(layer_type, GeoLayerType, "layer_type"))
         if source_type:
-            query = query.filter(
-                GeoLayer.source_type
-                == validate_enum(source_type, GeoLayerSource, "source_type")
-            )
+            query = query.filter(GeoLayer.source_type == validate_enum(source_type, GeoLayerSource, "source_type"))
         if is_active is None:
             query = query.filter(GeoLayer.is_active.is_(True))
         else:
@@ -520,12 +501,8 @@ def _build_layer_features(
                     properties={
                         "name": location.name,
                         "location_type": location.location_type.value,
-                        "address_id": str(location.address_id)
-                        if location.address_id
-                        else None,
-                        "pop_site_id": str(location.pop_site_id)
-                        if location.pop_site_id
-                        else None,
+                        "address_id": str(location.address_id) if location.address_id else None,
+                        "pop_site_id": str(location.pop_site_id) if location.pop_site_id else None,
                         "tags": location.tags,
                         "metadata": location.metadata_,
                     },

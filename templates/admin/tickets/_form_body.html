@@ -127,6 +127,7 @@
             <div>
                 <label for="region" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Region</label>
                 <select name="region" id="region"
+                    data-region-ticket-assignments='{{ region_ticket_assignments | tojson }}'
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">Select a region</option>
                     {% for region in region_options or [] %}
@@ -176,7 +177,7 @@
             </div>
 
             <div>
-                <label for="ticket_manager_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ticket Manager</label>
+                <label for="ticket_manager_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Project Manager</label>
                 <select name="ticket_manager_person_id" id="ticket_manager_person_id"
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">-- Unassigned --</option>
@@ -195,7 +196,7 @@
             </div>
 
             <div>
-                <label for="assistant_manager_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Assistant Manager</label>
+                <label for="assistant_manager_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Site Project Coordinator</label>
                 <select name="assistant_manager_person_id" id="assistant_manager_person_id"
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">-- Unassigned --</option>
@@ -375,6 +376,7 @@
                     const preferredRegion = subscriber.service_region || customer.region;
                     if (preferredRegion) {
                         regionSelect.value = preferredRegion;
+                        regionSelect.dispatchEvent(new Event("change", { bubbles: true }));
                     }
                 }
             } catch (err) {
@@ -392,6 +394,72 @@
         }
 
         loadDetails();
+    })();
+
+    (function () {
+        const regionSelect = document.getElementById("region");
+        const managerSelect = document.getElementById("ticket_manager_person_id");
+        const assistantSelect = document.getElementById("assistant_manager_person_id");
+        if (!regionSelect || (!managerSelect && !assistantSelect)) {
+            return;
+        }
+        let assignments = {};
+        try {
+            assignments = JSON.parse(regionSelect.dataset.regionTicketAssignments || "{}");
+        } catch (err) {
+            assignments = {};
+        }
+
+        const setSelectValue = (select, value) => {
+            if (!select || !value) return;
+            const hasOption = Array.from(select.options).some((opt) => opt.value === value);
+            if (!hasOption) return;
+            select.value = value;
+            select.dataset.autofill = "true";
+        };
+
+        const markManual = (event) => {
+            const target = event.target;
+            if (target && target.dataset) {
+                target.dataset.autofill = "false";
+            }
+        };
+
+        const applyAssignments = () => {
+            const region = regionSelect.value;
+            const entry = assignments ? assignments[region] : null;
+            if (!entry || typeof entry !== "object") {
+                return;
+            }
+            if (managerSelect) {
+                const canFillManager = !managerSelect.value || managerSelect.dataset.autofill === "true";
+                if (canFillManager && entry.manager_person_id) {
+                    setSelectValue(managerSelect, entry.manager_person_id);
+                }
+            }
+            if (assistantSelect) {
+                const canFillAssistant = !assistantSelect.value || assistantSelect.dataset.autofill === "true";
+                if (canFillAssistant && entry.spc_person_id) {
+                    setSelectValue(assistantSelect, entry.spc_person_id);
+                }
+            }
+        };
+
+        if (managerSelect) {
+            if (managerSelect.value) {
+                managerSelect.dataset.autofill = "false";
+            }
+            managerSelect.addEventListener("change", markManual);
+        }
+        if (assistantSelect) {
+            if (assistantSelect.value) {
+                assistantSelect.dataset.autofill = "false";
+            }
+            assistantSelect.addEventListener("change", markManual);
+        }
+
+        regionSelect.addEventListener("change", applyAssignments);
+        applyAssignments();
     })();
 
     (function () {
@@ -423,6 +491,16 @@
             hiddenInputs.forEach((el) => {
                 selected.set(el.value, true);
                 hiddenById.set(el.value, el);
+            });
+        };
+
+        const bindRemoveButtons = () => {
+            const buttons = selectedWrap.querySelectorAll("[data-remove]");
+            buttons.forEach((btn) => {
+                if (btn.dataset.bound === "true") return;
+                btn.dataset.bound = "true";
+                const id = btn.dataset.remove;
+                btn.addEventListener("click", () => removeTech(id));
             });
         };
 
@@ -547,6 +625,7 @@
         });
 
         seedHidden();
+        bindRemoveButtons();
         results.innerHTML = "";
     })();
 </script>

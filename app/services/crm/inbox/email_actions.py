@@ -79,9 +79,7 @@ def check_email_inbox(
         )
 
     try:
-        resolved_target, resolved_config = resolve_target_and_config(
-            db, target_id_value, None, ConnectorType.email
-        )
+        resolved_target, resolved_config = resolve_target_and_config(db, target_id_value, None, ConnectorType.email)
     except Exception as exc:
         return HtmlResult(
             status_code=400,
@@ -121,11 +119,7 @@ def check_email_inbox(
                 "This is a test email from the CRM inbox settings check.",
                 "This is a test email from the CRM inbox settings check.",
             )
-            smtp_detail = (
-                f"Test email sent to {recipient}."
-                if sent
-                else "SMTP send failed."
-            )
+            smtp_detail = f"Test email sent to {recipient}." if sent else "SMTP send failed."
         else:
             smtp_detail = "SMTP test skipped: no from email configured."
     else:
@@ -162,9 +156,7 @@ def reset_email_imap_cursor(
             message="<p class='text-xs text-red-400'>Select an inbox to reset.</p>",
         )
     try:
-        _, resolved_config = resolve_target_and_config(
-            db, target_id_value, None, ConnectorType.email
-        )
+        _, resolved_config = resolve_target_and_config(db, target_id_value, None, ConnectorType.email)
     except Exception as exc:
         return HtmlResult(
             status_code=400,

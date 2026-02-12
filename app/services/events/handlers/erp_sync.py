@@ -76,9 +76,7 @@ class ERPSyncHandler:
         # Determine entity type and ID from event
         entity_type, entity_id = self._extract_entity_info(event)
         if not entity_type or not entity_id:
-            logger.warning(
-                "Could not extract entity info from event %s", event.event_type.value
-            )
+            logger.warning("Could not extract entity info from event %s", event.event_type.value)
             return
 
         # Queue the sync task
@@ -145,9 +143,7 @@ class ERPSyncHandler:
             logger.warning(f"ERP sync dedup check failed: {exc}")
             return False
 
-    def _queue_sync_task(
-        self, entity_type: str, entity_id: str, event_type: EventType
-    ) -> None:
+    def _queue_sync_task(self, entity_type: str, entity_id: str, event_type: EventType) -> None:
         """Queue a Celery task to sync an entity to ERP.
 
         Args:
@@ -189,9 +185,7 @@ class ERPSyncHandler:
             priority=5,
         )
 
-    def _schedule_debounced_sync(
-        self, entity_type: str, entity_id: str, event_type: EventType
-    ) -> bool:
+    def _schedule_debounced_sync(self, entity_type: str, entity_id: str, event_type: EventType) -> bool:
         """Schedule a follow-up sync when a duplicate is detected.
 
         Coalesces rapid successive updates into a single delayed sync,
@@ -207,6 +201,7 @@ class ERPSyncHandler:
             logger.warning("ERP sync debounce check failed: %s", exc)
             # If Redis fails, fall back to immediate queue to avoid missing a sync.
             from app.tasks.integrations import sync_dotmac_erp_entity
+
             sync_dotmac_erp_entity.apply_async(
                 args=[entity_type, entity_id],
                 countdown=2,

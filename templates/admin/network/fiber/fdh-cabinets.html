@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, table_shell, table_row, empty_state %}
 
 {% block title %}FDH Cabinets - Admin{% endblock %}
 
@@ -35,60 +35,57 @@
     </div>
 
     <!-- Cabinets Table -->
-    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/50">
-                    <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cabinet</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Notes</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    {% for cabinet in cabinets %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="px-6 py-4">
-                            <div class="flex items-center gap-3">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
-                                    <svg class="h-5 w-5 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-                                </div>
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="fdh-cabinets-table", color="primary") %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cabinet</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Notes</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th scope="col" class="{{ pad }}"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for cabinet in cabinets %}
+                {% call table_row(color="primary") %}
+                    <td class="{{ pad }}">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                                <svg class="h-5 w-5 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                            </div>
                                 <div>
                                     <a href="/admin/network/fdh-cabinets/{{ cabinet.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ cabinet.name }}</a>
-                                </div>
                             </div>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                        </div>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
                             <span class="font-mono text-sm text-slate-900 dark:text-white">{{ cabinet.code or '-' }}</span>
                         </td>
-                        <td class="px-6 py-4">
+                    <td class="{{ pad }}">
                             <p class="text-sm text-slate-500 dark:text-slate-400 truncate max-w-xs">{{ cabinet.notes or '-' }}</p>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                    <td class="{{ pad }} whitespace-nowrap">
                             {% if cabinet.is_active %}
                             {{ status_badge("Active", "active", size="sm") }}
                             {% else %}
                             {{ status_badge("Inactive", "inactive", size="sm") }}
                             {% endif %}
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                    <td class="{{ pad }} whitespace-nowrap text-right text-sm">
                             <a href="/admin/network/fdh-cabinets/{{ cabinet.id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
                         </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="5" class="px-6 py-12 text-center">
-                            <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-                            <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">No FDH cabinets</h3>
-                            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Get started by adding an FDH cabinet.</p>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+                {% endcall %}
+                {% else %}
+                <tr>
+                    <td colspan="5" class="px-6 py-12">
+                        {{ empty_state("No FDH cabinets", "Get started by adding an FDH cabinet.") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
 </div>
 {% endblock %}

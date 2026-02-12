@@ -21,7 +21,14 @@
     </div>
     {% endif %}
 
-    <form method="post" action="{{ action_url }}" class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <form method="post" action="{{ action_url }}" class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"
+          x-data='contactChannelEditor({
+            emails: {{ contact_emails | tojson }},
+            phones: {{ contact_phones | tojson }},
+            whatsapp: {{ contact_whatsapp | tojson }},
+            primaryEmail: {{ primary_email_index | tojson }},
+            primaryPhone: {{ primary_phone_index | tojson }}
+          })'>
         {% include "components/forms/csrf_input.html" %}
         <div class="p-6 space-y-6">
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -31,17 +38,90 @@
                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Email</label>
-                    <input type="email" name="email" value="{{ contact.email }}"
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Customer ID</label>
+                    <input type="text" name="splynx_id" value="{{ contact.splynx_id }}"
+                           maxlength="100"
                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                 </div>
             </div>
 
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Phone</label>
-                    <input type="text" name="phone" value="{{ contact.phone }}"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <div class="sm:col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Emails</label>
+                    <div class="space-y-2">
+                        <template x-for="(email, index) in emails" :key="`email-${index}`">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <input type="email" name="emails" x-model="emails[index]"
+                                       placeholder="name@domain.com"
+                                       class="flex-1 min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <label class="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                                    <input type="radio" name="primary_email" :value="index" x-model.number="primaryEmail"
+                                           class="text-primary-600 focus:ring-primary-500">
+                                    Primary
+                                </label>
+                                <button type="button"
+                                        @click="removeEmail(index)"
+                                        class="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/60"
+                                        x-show="emails.length > 1">
+                                    Remove
+                                </button>
+                            </div>
+                        </template>
+                        <button type="button"
+                                @click="addEmail()"
+                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            Add Email
+                        </button>
+                    </div>
+                </div>
+                <div class="sm:col-span-1">
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Phones</label>
+                    <div class="space-y-2">
+                        <template x-for="(phone, index) in phones" :key="`phone-${index}`">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <input type="text" name="phones" x-model="phones[index]"
+                                       placeholder="+15551234567"
+                                       class="flex-1 min-w-[180px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <label class="inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                                    <input type="radio" name="primary_phone" :value="index" x-model.number="primaryPhone"
+                                           class="text-primary-600 focus:ring-primary-500">
+                                    Primary
+                                </label>
+                                <button type="button"
+                                        @click="removePhone(index)"
+                                        class="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/60"
+                                        x-show="phones.length > 1">
+                                    Remove
+                                </button>
+                            </div>
+                        </template>
+                        <button type="button"
+                                @click="addPhone()"
+                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            Add Phone
+                        </button>
+                    </div>
+                </div>
+                <div class="sm:col-span-3">
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">WhatsApp Channels</label>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Select which saved phone numbers are valid WhatsApp channels.</p>
+                    <div class="flex flex-wrap gap-3">
+                        <template x-for="(phone, index) in phones" :key="`wa-${index}`">
+                            <label class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+                                <input type="checkbox"
+                                       x-model.number="whatsappIndexes"
+                                       :value="index"
+                                       class="text-primary-600 focus:ring-primary-500">
+                                <span x-text="phone || 'Phone (empty)'"></span>
+                            </label>
+                        </template>
+                        <template x-for="(idx, waIndex) in whatsappIndexes" :key="`wa-hidden-${waIndex}`">
+                            <input type="hidden" name="whatsapp_phones" :value="phones[idx] || ''">
+                        </template>
+                        <span x-show="phones.length === 0" class="text-xs text-slate-500 dark:text-slate-400">Add a phone number first.</span>
+                    </div>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Address Line 1</label>
@@ -120,4 +200,62 @@
         </div>
     </form>
 </div>
+
+<script>
+function contactChannelEditor(initial) {
+    const startingEmails = Array.isArray(initial.emails) && initial.emails.length ? initial.emails : [""];
+    const startingPhones = Array.isArray(initial.phones) && initial.phones.length ? initial.phones : [""];
+    const startingWhatsapp = Array.isArray(initial.whatsapp) ? initial.whatsapp : [];
+    const initialWhatsappIndexes = [];
+    startingPhones.forEach((phone, index) => {
+        if (phone && startingWhatsapp.includes(phone)) {
+            initialWhatsappIndexes.push(index);
+        }
+    });
+    return {
+        emails: startingEmails,
+        phones: startingPhones,
+        whatsappIndexes: initialWhatsappIndexes,
+        primaryEmail: Number.isInteger(initial.primaryEmail) ? initial.primaryEmail : 0,
+        primaryPhone: Number.isInteger(initial.primaryPhone) ? initial.primaryPhone : 0,
+        addEmail() {
+            this.emails.push("");
+            if (this.emails.length === 1) {
+                this.primaryEmail = 0;
+            }
+        },
+        removeEmail(index) {
+            if (this.emails.length <= 1) {
+                return;
+            }
+            this.emails.splice(index, 1);
+            if (this.primaryEmail === index) {
+                this.primaryEmail = 0;
+            } else if (this.primaryEmail > index) {
+                this.primaryEmail -= 1;
+            }
+        },
+        addPhone() {
+            this.phones.push("");
+            if (this.phones.length === 1) {
+                this.primaryPhone = 0;
+            }
+        },
+        removePhone(index) {
+            if (this.phones.length <= 1) {
+                return;
+            }
+            this.phones.splice(index, 1);
+            if (this.primaryPhone === index) {
+                this.primaryPhone = 0;
+            } else if (this.primaryPhone > index) {
+                this.primaryPhone -= 1;
+            }
+            this.whatsappIndexes = this.whatsappIndexes
+                .map((value) => (value > index ? value - 1 : value))
+                .filter((value) => value !== index);
+        },
+    };
+}
+</script>
 {% endblock %}

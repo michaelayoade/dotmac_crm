@@ -50,15 +50,11 @@ class BuildoutMilestoneStatus(enum.Enum):
 class CoverageArea(Base):
     __tablename__ = "coverage_areas"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     code: Mapped[str | None] = mapped_column(String(80))
     zone_key: Mapped[str | None] = mapped_column(String(80))
-    buildout_status: Mapped[BuildoutStatus] = mapped_column(
-        Enum(BuildoutStatus), default=BuildoutStatus.planned
-    )
+    buildout_status: Mapped[BuildoutStatus] = mapped_column(Enum(BuildoutStatus), default=BuildoutStatus.planned)
     buildout_window: Mapped[str | None] = mapped_column(String(120))
     serviceable: Mapped[bool] = mapped_column(Boolean, default=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
@@ -71,9 +67,7 @@ class CoverageArea(Base):
     constraints: Mapped[dict | None] = mapped_column(JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -84,12 +78,8 @@ class CoverageArea(Base):
 class ServiceQualification(Base):
     __tablename__ = "service_qualifications"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    coverage_area_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("coverage_areas.id")
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    coverage_area_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("coverage_areas.id"))
     address_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
@@ -105,29 +95,21 @@ class ServiceQualification(Base):
     reasons: Mapped[list | None] = mapped_column(JSON)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     coverage_area = relationship("CoverageArea", back_populates="qualifications")
     # address = relationship("Address")  # Model removed
-    buildout_requests = relationship(
-        "BuildoutRequest", back_populates="qualification"
-    )
+    buildout_requests = relationship("BuildoutRequest", back_populates="qualification")
 
 
 class BuildoutRequest(Base):
     __tablename__ = "buildout_requests"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     qualification_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("service_qualifications.id")
     )
-    coverage_area_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("coverage_areas.id")
-    )
+    coverage_area_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("coverage_areas.id"))
     address_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
@@ -137,9 +119,7 @@ class BuildoutRequest(Base):
     )
     notes: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -153,15 +133,9 @@ class BuildoutRequest(Base):
 class BuildoutProject(Base):
     __tablename__ = "buildout_projects"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    request_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("buildout_requests.id")
-    )
-    coverage_area_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("coverage_areas.id")
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("buildout_requests.id"))
+    coverage_area_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("coverage_areas.id"))
     address_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
@@ -174,9 +148,7 @@ class BuildoutProject(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -191,9 +163,7 @@ class BuildoutProject(Base):
 class BuildoutMilestone(Base):
     __tablename__ = "buildout_milestones"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("buildout_projects.id"), nullable=False
     )
@@ -206,9 +176,7 @@ class BuildoutMilestone(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -219,9 +187,7 @@ class BuildoutMilestone(Base):
 class BuildoutUpdate(Base):
     __tablename__ = "buildout_updates"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("buildout_projects.id"), nullable=False
     )
@@ -229,8 +195,6 @@ class BuildoutUpdate(Base):
         Enum(BuildoutProjectStatus), default=BuildoutProjectStatus.planned
     )
     message: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     project = relationship("BuildoutProject", back_populates="updates")

@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
@@ -26,8 +27,12 @@ from app.services.common import (
 )
 from app.services.response import ListResponseMixin
 
+logger = logging.getLogger(__name__)
+
 # Terminal statuses that cannot transition further
 _TERMINAL_STATUSES = {
+    MaterialRequestStatus.issued,
+    MaterialRequestStatus.approved,
     MaterialRequestStatus.fulfilled,
     MaterialRequestStatus.rejected,
     MaterialRequestStatus.canceled,
@@ -39,7 +44,11 @@ class MaterialRequests(ListResponseMixin):
     def create(db: Session, payload: MaterialRequestCreate) -> MaterialRequest:
         get_or_404(db, Person, str(payload.requested_by_person_id), detail="Person not found")
         data = payload.model_dump(exclude={"items"})
-        mr = MaterialRequest(**data)
+        mr = MaterialRequest(
+            **data,
+            status=MaterialRequestStatus.submitted,
+            submitted_at=datetime.now(UTC),
+        )
         db.add(mr)
         db.flush()
 
@@ -61,7 +70,9 @@ class MaterialRequests(ListResponseMixin):
     @staticmethod
     def get(db: Session, mr_id: str) -> MaterialRequest:
         return get_or_404(
-            db, MaterialRequest, mr_id,
+            db,
+            MaterialRequest,
+            mr_id,
             options=[selectinload(MaterialRequest.items)],
         )
 
@@ -91,7 +102,9 @@ class MaterialRequests(ListResponseMixin):
             validated_priority = validate_enum(priority, MaterialRequestPriority, "priority")
             query = query.filter(MaterialRequest.priority == validated_priority)
         query = apply_ordering(
-            query, order_by, order_dir,
+            query,
+            order_by,
+            order_dir,
             {"created_at": MaterialRequest.created_at, "priority": MaterialRequest.priority},
         )
         return apply_pagination(query, limit, offset).all()
@@ -120,12 +133,20 @@ class MaterialRequests(ListResponseMixin):
 
     @staticmethod
     def approve(db: Session, mr_id: str, approved_by_person_id: str) -> MaterialRequest:
-        mr = get_or_404(db, MaterialRequest, mr_id, options=[selectinload(MaterialRequest.items)])
+        mr = get_or_404(
+            db,
+            MaterialRequest,
+            mr_id,
+            options=[selectinload(MaterialRequest.items).selectinload(MaterialRequestItem.item)],
+        )
         if mr.status != MaterialRequestStatus.submitted:
             raise HTTPException(status_code=400, detail="Only submitted requests can be approved")
-        get_or_404(db, Person, approved_by_person_id, detail="Approver not found")
-        mr.status = MaterialRequestStatus.approved
-        mr.approved_by_person_id = coerce_uuid(approved_by_person_id)
+
+        approver_uuid = coerce_uuid(approved_by_person_id)
+        get_or_404(db, Person, str(approver_uuid), detail="Approver not found")
+
+        mr.status = MaterialRequestStatus.issued
+        mr.approved_by_person_id = approver_uuid
         mr.approved_at = datetime.now(UTC)
         db.commit()
         db.refresh(mr)
@@ -136,7 +157,7 @@ class MaterialRequests(ListResponseMixin):
 
             sync_material_request_to_erp.delay(str(mr.id))
         except Exception:
-            pass  # ERP sync is best-effort; don't fail the approval
+            logger.debug("ERP sync enqueue failed for material request approval.", exc_info=True)
 
         return mr
 

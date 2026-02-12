@@ -15,6 +15,6 @@ def test_inbox_logger_injects_request_id():
         args=(),
         exc_info=None,
     )
-    msg, kwargs = logger.process("message", {"extra": {}})
+    _msg, kwargs = logger.process("message", {"extra": {}})
     assert kwargs["extra"]["request_id"] == "abc12345"
     assert get_request_id() == "abc12345"

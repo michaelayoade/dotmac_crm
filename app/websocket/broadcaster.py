@@ -59,7 +59,9 @@ def broadcast_new_message(message: Message, conversation: Conversation):
                 "channel_type": message.channel_type.value if message.channel_type else None,
                 "direction": message.direction.value if message.direction else None,
                 "status": message.status.value if message.status else None,
-                "body_preview": (message.body[:100] + "...") if message.body and len(message.body) > 100 else message.body,
+                "body_preview": (message.body[:100] + "...")
+                if message.body and len(message.body) > 100
+                else message.body,
                 "subject": message.subject,
                 "person_id": str(conversation.person_id) if conversation.person_id else None,
             },
@@ -76,9 +78,7 @@ def broadcast_new_message(message: Message, conversation: Conversation):
         logger.warning("broadcast_new_message_error error=%s", exc)
 
 
-def broadcast_message_status(
-    message_id: str, conversation_id: str, status: str
-):
+def broadcast_message_status(message_id: str, conversation_id: str, status: str):
     """
     Broadcast a message status change event.
 
@@ -125,9 +125,7 @@ def broadcast_conversation_updated(conversation: Conversation):
         manager = get_connection_manager()
         _ensure_manager_connected(manager)
         _run_async(manager.broadcast_to_conversation(str(conversation.id), event))
-        logger.debug(
-            "broadcast_conversation_updated conversation_id=%s", conversation.id
-        )
+        logger.debug("broadcast_conversation_updated conversation_id=%s", conversation.id)
     except Exception as exc:
         logger.warning("broadcast_conversation_updated_error error=%s", exc)
 
@@ -165,8 +163,7 @@ def broadcast_to_widget_visitor(session_id: str, message: Message):
                 "status": message.status.value if message.status else None,
                 "body": message.body,
                 "author_name": (
-                    message.author.display_name
-                    or f"{message.author.first_name} {message.author.last_name}"
+                    message.author.display_name or f"{message.author.first_name} {message.author.last_name}"
                     if message.author
                     else None
                 ),

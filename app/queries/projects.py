@@ -57,9 +57,7 @@ class ProjectQuery(BaseQuery[Project]):
         if not subscriber_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            Project.subscriber_id == coerce_uuid(subscriber_id)
-        )
+        clone._query = clone._query.filter(Project.subscriber_id == coerce_uuid(subscriber_id))
         return clone
 
     def by_status(self, status: ProjectStatus | str | None) -> ProjectQuery:
@@ -77,10 +75,7 @@ class ProjectQuery(BaseQuery[Project]):
         if not statuses:
             return self
         clone = self._clone()
-        status_enums = [
-            validate_enum(s, ProjectStatus, "status") if isinstance(s, str) else s
-            for s in statuses
-        ]
+        status_enums = [validate_enum(s, ProjectStatus, "status") if isinstance(s, str) else s for s in statuses]
         clone._query = clone._query.filter(Project.status.in_(status_enums))
         return clone
 
@@ -89,10 +84,7 @@ class ProjectQuery(BaseQuery[Project]):
         if not statuses:
             return self
         clone = self._clone()
-        status_enums = [
-            validate_enum(s, ProjectStatus, "status") if isinstance(s, str) else s
-            for s in statuses
-        ]
+        status_enums = [validate_enum(s, ProjectStatus, "status") if isinstance(s, str) else s for s in statuses]
         clone._query = clone._query.filter(Project.status.notin_(status_enums))
         return clone
 
@@ -111,9 +103,7 @@ class ProjectQuery(BaseQuery[Project]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            Project.owner_person_id == coerce_uuid(person_id)
-        )
+        clone._query = clone._query.filter(Project.owner_person_id == coerce_uuid(person_id))
         return clone
 
     def by_manager(self, person_id: UUID | str | None) -> ProjectQuery:
@@ -121,9 +111,7 @@ class ProjectQuery(BaseQuery[Project]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            Project.manager_person_id == coerce_uuid(person_id)
-        )
+        clone._query = clone._query.filter(Project.manager_person_id == coerce_uuid(person_id))
         return clone
 
     def by_template(self, template_id: UUID | str | None) -> ProjectQuery:
@@ -131,31 +119,35 @@ class ProjectQuery(BaseQuery[Project]):
         if not template_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            Project.project_template_id == coerce_uuid(template_id)
-        )
+        clone._query = clone._query.filter(Project.project_template_id == coerce_uuid(template_id))
         return clone
 
     def in_progress(self) -> ProjectQuery:
         """Filter to in-progress projects."""
-        return self.by_statuses([
-            ProjectStatus.active,
-            ProjectStatus.on_hold,
-        ])
+        return self.by_statuses(
+            [
+                ProjectStatus.active,
+                ProjectStatus.on_hold,
+            ]
+        )
 
     def open_projects(self) -> ProjectQuery:
         """Filter to open (non-completed, non-canceled) projects."""
-        return self.exclude_statuses([
-            ProjectStatus.completed,
-            ProjectStatus.canceled,
-        ])
+        return self.exclude_statuses(
+            [
+                ProjectStatus.completed,
+                ProjectStatus.canceled,
+            ]
+        )
 
     def for_site_surveys(self) -> ProjectQuery:
         """Filter projects available for site surveys (not completed/canceled)."""
-        return self.exclude_statuses([
-            ProjectStatus.completed,
-            ProjectStatus.canceled,
-        ]).order_by("name", "asc")
+        return self.exclude_statuses(
+            [
+                ProjectStatus.completed,
+                ProjectStatus.canceled,
+            ]
+        ).order_by("name", "asc")
 
 
 class ProjectTaskQuery(BaseQuery[ProjectTask]):
@@ -178,9 +170,7 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
         if not project_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            ProjectTask.project_id == coerce_uuid(project_id)
-        )
+        clone._query = clone._query.filter(ProjectTask.project_id == coerce_uuid(project_id))
         return clone
 
     def by_status(self, status: TaskStatus | str | None) -> ProjectTaskQuery:
@@ -198,10 +188,7 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
         if not statuses:
             return self
         clone = self._clone()
-        status_enums = [
-            validate_enum(s, TaskStatus, "status") if isinstance(s, str) else s
-            for s in statuses
-        ]
+        status_enums = [validate_enum(s, TaskStatus, "status") if isinstance(s, str) else s for s in statuses]
         clone._query = clone._query.filter(ProjectTask.status.in_(status_enums))
         return clone
 
@@ -243,10 +230,12 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
 
     def pending(self) -> ProjectTaskQuery:
         """Filter to pending tasks (not started)."""
-        return self.by_statuses([
-            TaskStatus.todo,
-            TaskStatus.blocked,
-        ])
+        return self.by_statuses(
+            [
+                TaskStatus.todo,
+                TaskStatus.blocked,
+            ]
+        )
 
     def in_progress(self) -> ProjectTaskQuery:
         """Filter to in-progress tasks."""
@@ -254,10 +243,12 @@ class ProjectTaskQuery(BaseQuery[ProjectTask]):
 
     def completed(self) -> ProjectTaskQuery:
         """Filter to completed tasks."""
-        return self.by_statuses([
-            TaskStatus.done,
-            TaskStatus.canceled,
-        ])
+        return self.by_statuses(
+            [
+                TaskStatus.done,
+                TaskStatus.canceled,
+            ]
+        )
 
 
 class ProjectTemplateQuery(BaseQuery[ProjectTemplate]):

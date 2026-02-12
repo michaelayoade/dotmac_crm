@@ -163,9 +163,7 @@ class EmailHandler(InboundHandler):
         person_id = _resolve_person_for_contact(person)
         in_reply_to = _get_metadata_value(metadata, "in_reply_to")
         references = _get_metadata_value(metadata, "references")
-        crm_header = _get_metadata_value(metadata, "x-crm-id") or _get_metadata_value(
-            metadata, "x-crm-conversation-id"
-        )
+        crm_header = _get_metadata_value(metadata, "x-crm-id") or _get_metadata_value(metadata, "x-crm-conversation-id")
         has_thread_headers = bool(
             payload.message_id
             or in_reply_to
@@ -199,11 +197,7 @@ class EmailHandler(InboundHandler):
                 ChannelType.email,
             )
             if conversation and not has_thread_headers:
-                conv_meta = (
-                    conversation.metadata_
-                    if isinstance(conversation.metadata_, dict)
-                    else {}
-                )
+                conv_meta = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
                 warnings = conv_meta.get("warnings")
                 if not isinstance(warnings, list):
                     warnings = []

@@ -40,9 +40,16 @@ def list_material_requests(
     db: Session = Depends(get_db),
 ):
     items = material_requests.list(
-        db, is_active=is_active, status=status_filter, ticket_id=ticket_id,
-        project_id=project_id, priority=priority,
-        order_by=order_by, order_dir=order_dir, limit=limit, offset=offset,
+        db,
+        is_active=is_active,
+        status=status_filter,
+        ticket_id=ticket_id,
+        project_id=project_id,
+        priority=priority,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=limit,
+        offset=offset,
     )
     return list_response(items, limit, offset)
 

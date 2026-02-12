@@ -30,10 +30,13 @@ def test_send_message_with_retry_retries_transient():
 
 
 def test_send_message_with_retry_raises_permanent():
-    with patch(
-        "app.services.crm.inbox.outbound.send_message",
-        side_effect=PermanentOutboundError("bad"),
-    ) as mock_send, pytest.raises(PermanentOutboundError):
+    with (
+        patch(
+            "app.services.crm.inbox.outbound.send_message",
+            side_effect=PermanentOutboundError("bad"),
+        ) as mock_send,
+        pytest.raises(PermanentOutboundError),
+    ):
         send_message_with_retry(
             None,
             payload=None,

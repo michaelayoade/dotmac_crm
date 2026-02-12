@@ -247,9 +247,7 @@ class TestScheduledTasksUpdate:
         import uuid
 
         with pytest.raises(HTTPException) as exc_info:
-            scheduler_service.scheduled_tasks.update(
-                db_session, str(uuid.uuid4()), ScheduledTaskUpdate(name="new")
-            )
+            scheduler_service.scheduled_tasks.update(db_session, str(uuid.uuid4()), ScheduledTaskUpdate(name="new"))
 
         assert exc_info.value.status_code == 404
 
@@ -283,9 +281,7 @@ class TestScheduledTasksUpdate:
             ),
         )
         with pytest.raises(HTTPException) as exc_info:
-            scheduler_service.scheduled_tasks.update(
-                db_session, str(task.id), ScheduledTaskUpdate(interval_seconds=0)
-            )
+            scheduler_service.scheduled_tasks.update(db_session, str(task.id), ScheduledTaskUpdate(interval_seconds=0))
 
         assert exc_info.value.status_code == 400
         assert "interval_seconds must be >= 1" in exc_info.value.detail
@@ -346,16 +342,10 @@ class TestEnqueueTask:
         mock_result = MagicMock()
         mock_result.id = "task-123"
 
-        with patch(
-            "app.celery_app.celery_app.send_task", return_value=mock_result
-        ) as mock_send:
-            result = scheduler_service.enqueue_task(
-                "app.tasks.test", ["arg1"], {"key": "value"}
-            )
+        with patch("app.celery_app.celery_app.send_task", return_value=mock_result) as mock_send:
+            result = scheduler_service.enqueue_task("app.tasks.test", ["arg1"], {"key": "value"})
 
-            mock_send.assert_called_once_with(
-                "app.tasks.test", args=["arg1"], kwargs={"key": "value"}
-            )
+            mock_send.assert_called_once_with("app.tasks.test", args=["arg1"], kwargs={"key": "value"})
             assert result["queued"] is True
             assert result["task_id"] == "task-123"
 
@@ -364,12 +354,8 @@ class TestEnqueueTask:
         mock_result = MagicMock()
         mock_result.id = "task-456"
 
-        with patch(
-            "app.celery_app.celery_app.send_task", return_value=mock_result
-        ) as mock_send:
+        with patch("app.celery_app.celery_app.send_task", return_value=mock_result) as mock_send:
             result = scheduler_service.enqueue_task("app.tasks.empty", None, None)
 
-            mock_send.assert_called_once_with(
-                "app.tasks.empty", args=[], kwargs={}
-            )
+            mock_send.assert_called_once_with("app.tasks.empty", args=[], kwargs={})
             assert result["queued"] is True

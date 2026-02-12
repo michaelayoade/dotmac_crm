@@ -289,9 +289,7 @@ class PersonPermissions(ListResponseMixin):
     """Service for managing direct user-permission assignments."""
 
     @staticmethod
-    def create(
-        db: Session, payload: PersonPermissionCreate, granted_by: str | None = None
-    ):
+    def create(db: Session, payload: PersonPermissionCreate, granted_by: str | None = None):
         person = db.get(Person, coerce_uuid(payload.person_id))
         if not person:
             raise HTTPException(status_code=404, detail="Person not found")
@@ -329,9 +327,7 @@ class PersonPermissions(ListResponseMixin):
         if person_id:
             query = query.filter(PersonPermission.person_id == coerce_uuid(person_id))
         if permission_id:
-            query = query.filter(
-                PersonPermission.permission_id == coerce_uuid(permission_id)
-            )
+            query = query.filter(PersonPermission.permission_id == coerce_uuid(permission_id))
         query = apply_ordering(
             query,
             order_by,
@@ -343,11 +339,7 @@ class PersonPermissions(ListResponseMixin):
     @staticmethod
     def list_for_person(db: Session, person_id: str) -> builtins.list[PersonPermission]:
         """Get all direct permissions for a person."""
-        return (
-            db.query(PersonPermission)
-            .filter(PersonPermission.person_id == coerce_uuid(person_id))
-            .all()
-        )
+        return db.query(PersonPermission).filter(PersonPermission.person_id == coerce_uuid(person_id)).all()
 
     @staticmethod
     def update(db: Session, link_id: str, payload: PersonPermissionUpdate):
@@ -386,11 +378,7 @@ class PersonPermissions(ListResponseMixin):
     ):
         """Sync direct permissions for a person - add new, remove unselected."""
         person_uuid = coerce_uuid(person_id)
-        existing = (
-            db.query(PersonPermission)
-            .filter(PersonPermission.person_id == person_uuid)
-            .all()
-        )
+        existing = db.query(PersonPermission).filter(PersonPermission.person_id == person_uuid).all()
         existing_map = {str(pp.permission_id): pp for pp in existing}
 
         # Remove permissions not in desired set
@@ -405,9 +393,7 @@ class PersonPermissions(ListResponseMixin):
                     PersonPermission(
                         person_id=person_uuid,
                         permission_id=coerce_uuid(perm_id),
-                        granted_by_person_id=coerce_uuid(granted_by)
-                        if granted_by
-                        else None,
+                        granted_by_person_id=coerce_uuid(granted_by) if granted_by else None,
                     )
                 )
 

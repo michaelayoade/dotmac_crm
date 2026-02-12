@@ -72,11 +72,7 @@ def get_conversation_status_counts(db: Session) -> dict[str, int]:
 
 
 def get_outbox_status_counts(db: Session) -> dict[str, int]:
-    raw_rows = (
-        db.query(OutboxMessage.status, func.count(OutboxMessage.id))
-        .group_by(OutboxMessage.status)
-        .all()
-    )
+    raw_rows = db.query(OutboxMessage.status, func.count(OutboxMessage.id)).group_by(OutboxMessage.status).all()
     rows = [(row[0], row[1]) for row in raw_rows]
     return summarize_outbox_status_rows(rows)
 
@@ -91,7 +87,7 @@ def get_outbox_due_count(db: Session) -> int:
     )
 
 
-def get_inbox_metrics(db: Session) -> dict[str, object]:
+def get_inbox_metrics(db: Session) -> dict[str, dict[str, int]]:
     return {
         "conversations": get_conversation_status_counts(db),
         "outbox": {

@@ -1,7 +1,7 @@
 <!-- Admin Sidebar Navigation -->
 {# Determine which section should be open based on active_page/active_menu #}
 {% set section_for_page = {
-    'inbox': 'customers', 'contacts': 'customers', 'quotes': 'customers', 'sales': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
+    'inbox': 'customers', 'contacts': 'customers', 'subscribers': 'customers', 'quotes': 'customers', 'sales': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
     'inventory': 'operations',
     'network-map': 'network', 'network-devices': 'network', 'core-devices': 'network', 'olts': 'network', 'onts': 'network', 'devices': 'network',
     'automations': 'system', 'pop-sites': 'system', 'configuration': 'system',
@@ -9,6 +9,7 @@
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations',
     'material-requests': 'operations',
+    'my-performance': 'reports',
     'service-teams': 'system'
 } %}
 {% set field_service_pages = ['installations', 'technicians', 'dispatch', 'work-orders'] %}
@@ -28,11 +29,13 @@
 
 {% set can_inbox = is_admin or 'crm:conversation:read' in user_permissions or 'crm:conversation:write' in user_permissions or 'crm:conversation' in user_permissions or 'crm' in user_permissions %}
 {% set can_contacts = is_admin or 'crm:contact:read' in user_permissions or 'crm:contact:write' in user_permissions or 'crm:contact' in user_permissions or 'crm' in user_permissions %}
+{% set can_subscribers = can_contacts %}
+{% set can_resellers = can_contacts %}
 {% set can_quotes = is_admin or 'crm:lead:read' in user_permissions or 'crm:lead:write' in user_permissions or 'crm:lead' in user_permissions or 'crm' in user_permissions %}
 {% set can_campaigns = is_admin or 'crm:campaign:read' in user_permissions or 'crm:campaign:write' in user_permissions or 'crm:campaign' in user_permissions or 'crm' in user_permissions %}
 {% set can_surveys = is_admin or 'crm:survey:read' in user_permissions or 'crm:survey:write' in user_permissions or 'crm:survey' in user_permissions or 'crm' in user_permissions %}
 {% set can_sales = can_quotes %}
-{% set customers_section_visible = can_inbox or can_contacts or can_quotes or can_sales or can_campaigns or can_surveys %}
+{% set customers_section_visible = can_inbox or can_contacts or can_subscribers or can_resellers or can_quotes or can_sales or can_campaigns or can_surveys %}
 
 {% set can_fiber_map = is_admin
     or 'gis:fiber:view' in user_permissions
@@ -107,7 +110,8 @@
 {% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_technician = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_crm = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
-{% set reports_section_visible = can_reports_network or can_reports_technician or can_reports_crm %}
+{% set can_reports_my_performance = can_inbox %}
+{% set reports_section_visible = can_reports_network or can_reports_technician or can_reports_crm or can_reports_my_performance %}
 
 {% set can_admin_hub = is_admin
     or 'rbac:roles:read' in user_permissions
@@ -201,6 +205,29 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
             </svg>
             <span>Contacts</span>
+        </a>
+        {% endif %}
+
+        <!-- Subscribers -->
+        {% if can_subscribers %}
+        <a href="/admin/subscribers"
+           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'subscribers' and not request.url.path.startswith('/admin/subscribers/resellers') else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            <span>Subscribers</span>
+        </a>
+        {% endif %}
+
+        {% if can_resellers %}
+        <a href="/admin/subscribers/resellers"
+           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'subscribers' and request.url.path.startswith('/admin/subscribers/resellers') else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8M8 11h8M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+            </svg>
+            <span>Reseller Orgs</span>
         </a>
         {% endif %}
 
@@ -320,7 +347,7 @@
         </div>
         {% endif %}
 
-        <!-- Trouble Tickets -->
+        <!-- Support -->
         {% if can_tickets %}
         <a href="/admin/support/tickets"
            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
@@ -328,7 +355,7 @@
             <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
-            <span>Trouble Tickets</span>
+            <span>Support</span>
             {% if sidebar_stats is defined and sidebar_stats.open_tickets is defined and sidebar_stats.open_tickets > 0 %}
             <span class="ml-auto rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-500/20 dark:text-red-400">{{ sidebar_stats.open_tickets }}</span>
             {% endif %}
@@ -402,6 +429,9 @@
             {% endif %}
             {% if can_reports_crm %}
             <a href="/admin/reports/crm-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">CRM Performance</a>
+            {% endif %}
+            {% if can_reports_my_performance %}
+            <a href="/agent/my-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'my-performance' else '' }}">My Performance</a>
             {% endif %}
         </div>
     </div>

@@ -1,0 +1,86 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, icon_users %}
+
+{% block title %}Reseller Subscribers - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header(
+        title=reseller_org.name,
+        subtitle="Subscribers under reseller organization hierarchy",
+        icon=icon_users(),
+        color="amber",
+        color2="orange"
+    ) %}
+        <a href="/admin/subscribers/resellers" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">
+            Back to Resellers
+        </a>
+    {% endcall %}
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Source</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Organization</th>
+                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {% if subscribers %}
+                    {% for subscriber in subscribers %}
+                    <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30">
+                        <td class="px-6 py-4">
+                            <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ subscriber.display_name }}</div>
+                            <div class="text-xs text-slate-500 dark:text-slate-400">{{ subscriber.subscriber_number or "—" }}</div>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ subscriber.external_system or "manual" }}</td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ subscriber.status.value }}</td>
+                        <td class="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ subscriber.organization.name if subscriber.organization else "—" }}</td>
+                        <td class="px-6 py-4 text-right">
+                            <a href="/admin/subscribers/{{ subscriber.id }}" class="text-sm font-semibold text-amber-700 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200">
+                                Open
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">No subscribers found for this reseller.</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% if total_pages > 1 %}
+        <div class="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm dark:border-slate-700">
+            <div class="flex items-center gap-3 text-slate-500 dark:text-slate-400">
+                <span>Page {{ page }} of {{ total_pages }}</span>
+                <label class="inline-flex items-center gap-2">
+                    <span>Rows</span>
+                    <select class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                            onchange="const u=new URL(window.location.href);u.searchParams.set('per_page', this.value);u.searchParams.set('page','1');window.location.assign(u.toString());">
+                        {% for size in [10, 25, 50, 100] %}
+                        <option value="{{ size }}" {% if per_page|int == size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="/admin/subscribers/resellers/{{ reseller_org.id }}?page={{ page - 1 }}&per_page={{ per_page }}"
+                   class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page <= 1 else '' }}">
+                    Prev
+                </a>
+                <a href="/admin/subscribers/resellers/{{ reseller_org.id }}?page={{ page + 1 }}&per_page={{ per_page }}"
+                   class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page >= total_pages else '' }}">
+                    Next
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

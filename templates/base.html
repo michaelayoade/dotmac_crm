@@ -385,7 +385,9 @@
     {% block scripts %}{% endblock %}
 
     <!-- Global Confirmation Modal -->
+    {% if show_confirm_modal|default(true) %}
     {% include "components/modals/confirm_modal.html" %}
+    {% endif %}
 
     <!-- ARIA Live Region for Screen Reader Announcements -->
     <div id="aria-live-region"

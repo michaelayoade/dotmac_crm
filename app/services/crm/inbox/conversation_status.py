@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.crm.enums import ConversationStatus
 from app.schemas.crm.conversation import ConversationUpdate
 from app.services.crm import conversation as conversation_service
+from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.audit import log_conversation_action
 from app.services.crm.inbox.permissions import can_update_conversation_status
 from app.services.crm.inbox.status_flow import validate_transition
@@ -49,6 +50,7 @@ def update_conversation_status(
             conversation_id,
             ConversationUpdate(status=status_enum),
         )
+        inbox_cache.invalidate_inbox_list()
         log_conversation_action(
             db,
             action="update_status",

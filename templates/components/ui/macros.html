@@ -185,6 +185,47 @@
 
 
 {# ============================================
+   DASHBOARD KPI GRID
+   Shared wrapper for KPI/stat cards
+   ============================================ #}
+{% macro dashboard_kpi_grid(cols="4", delay_ms=0) %}
+{% set col_map = {
+    "2": "grid-cols-1 sm:grid-cols-2",
+    "3": "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+    "4": "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
+    "5": "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
+    "6": "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6"
+} %}
+{% set grid_cols = col_map.get(cols|string, col_map["4"]) %}
+<div class="grid {{ grid_cols }} gap-4 animate-fade-in-up" style="animation-delay: {{ delay_ms }}ms;">
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+
+{# ============================================
+   DASHBOARD FILTER PANEL
+   Shared card wrapper for dashboard filters
+   ============================================ #}
+{% macro dashboard_filter_panel(color="slate", delay_ms=0, title="Filters") %}
+<div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800"
+     style="animation-delay: {{ delay_ms }}ms;">
+    {% if title %}
+    <div class="mb-3 flex items-center gap-2">
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-{{ color }}-100 text-{{ color }}-700 dark:bg-{{ color }}-900/30 dark:text-{{ color }}-300">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2l-6 6v7l-4-2v-5L3 6V4z"/>
+            </svg>
+        </span>
+        <h3 class="text-sm font-semibold text-slate-900 dark:text-white">{{ title }}</h3>
+    </div>
+    {% endif %}
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+
+{# ============================================
    STATUS BADGE (Accessible)
    Colored status indicator with icon for accessibility
    (not just color-based, includes shape/icon differentiation)
@@ -302,21 +343,229 @@
 </div>
 {% endmacro %}
 
+{# ============================================
+   TABLE SHELL
+   Shared table wrapper with controls, filters,
+   bulk actions, and consistent padding.
+   ============================================ #}
+{% macro table_shell(table_id="", title="", icon="", color="slate", count=None, actions=None,
+                     search=True, search_name="search", search_value="", search_placeholder="Search...",
+                     search_hx_url="", search_hx_target="", search_hx_include="",
+                     search_typeahead_url="", filters=None,
+                     bulk_actions=None, bulk_label="Selected", bulk_selectable=True, density="comfortable") %}
+{% set has_controls = search or filters or bulk_actions %}
+{% set enable_bulk = bulk_actions or bulk_selectable %}
+{% set hx_attrs = {} %}
+{% if search_hx_url %}
+    {% set hx_attrs = {
+        'hx-get': search_hx_url,
+        'hx-trigger': 'input changed delay:300ms, search',
+        'hx-target': search_hx_target or ('#' ~ table_id ~ '-body'),
+        'hx-include': search_hx_include
+    } %}
+{% endif %}
+<div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800"
+     {% if enable_bulk %}x-data="{
+        selected: [],
+        autoSelectable: {{ 'true' if bulk_selectable else 'false' }},
+        bulkItems() { return this.$refs.table ? Array.from(this.$refs.table.querySelectorAll('[data-bulk-item]')) : []; },
+        allValues() { return this.bulkItems().map((item) => item.value); },
+        syncFromDom() { this.selected = this.bulkItems().filter((item) => item.checked).map((item) => item.value); },
+        toggleAll(checked) { this.bulkItems().forEach((item) => { item.checked = checked; }); this.syncFromDom(); },
+        allSelected() { const items = this.bulkItems(); return items.length > 0 && items.every((item) => item.checked); },
+        rowValue(row, index) {
+            const direct = row.dataset.bulkValue || row.dataset.id || row.dataset.customerId || row.dataset.subscriberId || row.dataset.ticketId || row.dataset.projectId || row.dataset.requestId;
+            if (direct) return direct;
+            const valueEl = row.querySelector('[data-bulk-value],[data-id],[data-customer-id],[data-subscriber-id],[data-ticket-id],[data-project-id],[data-request-id]');
+            if (valueEl) {
+                return valueEl.dataset.bulkValue || valueEl.dataset.id || valueEl.dataset.customerId || valueEl.dataset.subscriberId || valueEl.dataset.ticketId || valueEl.dataset.projectId || valueEl.dataset.requestId;
+            }
+            const link = row.querySelector('a[href]');
+            if (link) {
+                const parts = link.getAttribute('href').split('/').filter(Boolean);
+                if (parts.length > 0) return parts[parts.length - 1];
+            }
+            return 'row-' + (index + 1);
+        },
+        ensureSelectable() {
+            if (!this.autoSelectable || !this.$refs.table) return;
+            const table = this.$refs.table.querySelector('table');
+            if (!table || !table.tBodies || table.tBodies.length === 0) return;
+            const body = table.tBodies[0];
+            const rows = Array.from(body.rows).filter((row) => row.querySelectorAll('td').length > 0 && !row.querySelector('td[colspan]'));
+            if (rows.length === 0) return;
+            const headerRow = table.tHead && table.tHead.rows && table.tHead.rows.length > 0 ? table.tHead.rows[0] : null;
+            if (headerRow && !headerRow.querySelector('[data-bulk-select-all]')) {
+                const headerCell = document.createElement('th');
+                const firstHeaderCell = headerRow.cells[0];
+                const padClasses = firstHeaderCell ? firstHeaderCell.className.split(' ').filter((cls) => cls.startsWith('px-') || cls.startsWith('py-')).join(' ') : 'px-6 py-3';
+                headerCell.className = ('w-12 ' + padClasses).trim();
+                headerCell.scope = 'col';
+                const headerInput = document.createElement('input');
+                headerInput.type = 'checkbox';
+                headerInput.setAttribute('data-bulk-select-all', '');
+                headerInput.setAttribute('aria-label', 'Select all');
+                headerInput.className = 'h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500';
+                headerCell.appendChild(headerInput);
+                headerRow.insertBefore(headerCell, headerRow.firstChild);
+            }
+            rows.forEach((row, index) => {
+                if (row.querySelector('[data-bulk-item]') || row.hasAttribute('data-no-select')) return;
+                const cell = document.createElement('td');
+                const firstDataCell = row.cells[0];
+                const padClasses = firstDataCell ? firstDataCell.className.split(' ').filter((cls) => cls.startsWith('px-') || cls.startsWith('py-')).join(' ') : 'px-6 py-3';
+                cell.className = ('w-12 ' + padClasses).trim();
+                const value = this.rowValue(row, index);
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.setAttribute('data-bulk-item', '');
+                input.setAttribute('aria-label', 'Select row');
+                input.value = value;
+                input.className = 'h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500';
+                cell.appendChild(input);
+                row.insertBefore(cell, row.firstChild);
+            });
+        },
+        init() {
+            this.ensureSelectable();
+            this.syncFromDom();
+            if (!this._bulkSwapHandler) {
+                this._bulkSwapHandler = (event) => {
+                    const target = event.target || (event.detail ? event.detail.target : null);
+                    if (!target || !this.$refs.table || !this.$refs.table.contains(target)) return;
+                    this.ensureSelectable();
+                    this.syncFromDom();
+                };
+                document.addEventListener('htmx:afterSwap', this._bulkSwapHandler);
+            }
+        }
+     }"
+     x-on:change="
+        if ($event.target.matches('[data-bulk-select-all]')) { toggleAll($event.target.checked); }
+        if ($event.target.matches('[data-bulk-item]')) { syncFromDom(); }
+     "{% endif %}>
+    {% if title %}
+    <div class="flex items-center justify-between border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+        <div class="flex items-center gap-3">
+            {% if icon %}
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-{{ color }}-100 to-{{ color }}-200 dark:from-{{ color }}-900/40 dark:to-{{ color }}-800/30">
+                {{ icon|safe }}
+            </div>
+            {% endif %}
+            <h2 class="font-semibold text-slate-900 dark:text-white">{{ title }}</h2>
+        </div>
+        <div class="flex items-center gap-3">
+            {% if count is not none %}
+            <span class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-{{ color }}-100 text-{{ color }}-700 dark:bg-{{ color }}-900/30 dark:text-{{ color }}-400">{{ count }}</span>
+            {% endif %}
+            {% if actions %}{{ actions|safe }}{% endif %}
+        </div>
+    </div>
+    {% endif %}
+    {% if has_controls %}
+    <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-1 flex-wrap items-center gap-3">
+                {% if search %}
+                    {% if search_typeahead_url %}
+                        {{ typeahead_input(search_name, search_typeahead_url, value=search_value, display_value=search_value, placeholder=search_placeholder) }}
+                    {% else %}
+                        {{ search_input(name=search_name, value=search_value, placeholder=search_placeholder, color=color, hx_attrs=hx_attrs) }}
+                    {% endif %}
+                {% endif %}
+                {% if filters %}{{ filters|safe }}{% endif %}
+            </div>
+            {% if bulk_actions %}
+            <div class="flex items-center gap-2">
+                <div x-show="selected.length > 0"
+                     x-cloak
+                     class="inline-flex items-center gap-2 rounded-lg border border-{{ color }}-200 bg-{{ color }}-50 px-3 py-1.5 text-xs font-semibold text-{{ color }}-700 dark:border-{{ color }}-900/40 dark:bg-{{ color }}-900/20 dark:text-{{ color }}-300">
+                    <span x-text="selected.length"></span>
+                    <span>{{ bulk_label }}</span>
+                </div>
+                {{ bulk_actions|safe }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    <div class="overflow-x-auto" {% if enable_bulk %}x-ref="table"{% endif %}>
+        {{ caller() }}
+    </div>
+</div>
+{% endmacro %}
+
 
 {# ============================================
    TABLE HEAD
    Consistent table header styling
    ============================================ #}
-{% macro table_head(columns) %}
+{% macro table_head(columns, density="comfortable", selectable=False, select_label="Select all") %}
+{% set padding_map = {
+    'compact': 'px-4 py-2',
+    'comfortable': 'px-6 py-3',
+    'spacious': 'px-6 py-4'
+} %}
+{% set pad = padding_map[density] if density in padding_map else padding_map['comfortable'] %}
 <thead>
     <tr class="border-b border-slate-100 dark:border-slate-700/50">
+        {% if selectable %}
+        <th scope="col" class="{{ pad }}">
+            <div class="flex items-center">
+                <input type="checkbox"
+                       data-bulk-select-all
+                       class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500"
+                       aria-label="{{ select_label }}"
+                       x-bind:checked="allSelected()" />
+            </div>
+        </th>
+        {% endif %}
         {% for col in columns %}
-        <th scope="col" class="px-6 py-3 text-{{ col.align|default('left') }} text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        <th scope="col" class="{{ pad }} text-{{ col.align|default('left') }} text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
             {{ col.label }}
         </th>
         {% endfor %}
     </tr>
 </thead>
+{% endmacro %}
+
+
+{# ============================================
+   TABLE CELL
+   Consistent table cell padding and styling
+   ============================================ #}
+{% macro table_cell(content, align="left", density="comfortable", muted=False, nowrap=True) %}
+{% set padding_map = {
+    'compact': 'px-4 py-2',
+    'comfortable': 'px-6 py-3',
+    'spacious': 'px-6 py-4'
+} %}
+{% set pad = padding_map[density] if density in padding_map else padding_map['comfortable'] %}
+<td class="{{ pad }} {% if nowrap %}whitespace-nowrap{% endif %} text-{{ align }} {% if muted %}text-sm text-slate-600 dark:text-slate-300{% endif %}">
+    {{ content }}
+</td>
+{% endmacro %}
+
+
+{# ============================================
+   TABLE SELECT CELL
+   Bulk selection checkbox cell
+   ============================================ #}
+{% macro table_select_cell(value, name="selected", density="comfortable", aria_label="Select row") %}
+{% set padding_map = {
+    'compact': 'px-4 py-2',
+    'comfortable': 'px-6 py-3',
+    'spacious': 'px-6 py-4'
+} %}
+{% set pad = padding_map[density] if density in padding_map else padding_map['comfortable'] %}
+<td class="{{ pad }}">
+    <input type="checkbox"
+           name="{{ name }}"
+           value="{{ value }}"
+           data-bulk-item
+           aria-label="{{ aria_label }}"
+           class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500" />
+</td>
 {% endmacro %}
 
 
@@ -397,6 +646,28 @@
 
 
 {# ============================================
+   PDF TABLE
+   Simple shared table wrapper for PDF templates
+   ============================================ #}
+{% macro pdf_table(class_name="", table_id="") %}
+<table{% if table_id %} id="{{ table_id }}"{% endif %}{% if class_name %} class="{{ class_name }}"{% endif %}>
+    {{ caller() }}
+</table>
+{% endmacro %}
+
+
+{# ============================================
+   PDF EMPTY STATE
+   Lightweight empty row for PDF tables
+   ============================================ #}
+{% macro pdf_empty_state(message="No data available.", colspan=1, class_name="muted") %}
+<tr>
+    <td colspan="{{ colspan }}" class="{{ class_name }}">{{ message }}</td>
+</tr>
+{% endmacro %}
+
+
+{# ============================================
    CARD
    Generic card container with gradient header
    ============================================ #}
@@ -439,7 +710,7 @@
            value="{{ value }}"
            placeholder="{{ placeholder }}"
            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-{{ color }}-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-{{ color }}-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-{{ color }}-500 dark:focus:bg-slate-800"
-           {% for key, val in hx_attrs.items() %}{{ key }}="{{ val }}"{% endfor %} />
+           {% for key, val in hx_attrs.items() if val is not none and val != '' %}{{ key }}="{{ val }}"{% endfor %} />
 </div>
 {% endmacro %}
 
@@ -701,17 +972,30 @@
 {% set page = page|int %}
 {% set per_page = per_page|int %}
 {% set total = total|int %}
-{% if total_pages > 1 %}
+{% set page_joiner = '&' if '?' in base_url else '?' %}
+{% if total > 0 %}
 <div class="border-t border-slate-200/60 bg-gradient-to-r from-slate-50 to-slate-100/50 px-5 py-4 dark:border-slate-700/60 dark:from-slate-800/80 dark:to-slate-800/50">
-    <div class="flex items-center justify-between">
-        <p class="text-sm text-slate-500 dark:text-slate-400">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-4">
+            <p class="text-sm text-slate-500 dark:text-slate-400">
             Showing <span class="font-semibold text-slate-700 dark:text-slate-300">{{ (page - 1) * per_page + 1 }}</span> to
             <span class="font-semibold text-slate-700 dark:text-slate-300">{{ [page * per_page, total] | min }}</span> of
             <span class="font-semibold text-slate-700 dark:text-slate-300">{{ total }}</span> results
-        </p>
+            </p>
+            <label class="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                <span>Rows</span>
+                <select data-pagination-per-page
+                        class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-{{ color }}-500 focus:ring-{{ color }}-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:focus:border-{{ color }}-400 dark:focus:ring-{{ color }}-400">
+                    {% for size in [10, 25, 50, 100] %}
+                    <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        {% if total_pages > 1 %}
         <nav class="flex items-center gap-1">
             {% if page > 1 %}
-            <button hx-get="{{ base_url }}?page={{ page - 1 }}"
+            <button hx-get="{{ base_url }}{{ page_joiner }}page={{ page - 1 }}"
                     hx-target="{{ hx_target }}"
                     class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 hover:text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600 dark:hover:text-slate-200">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
@@ -721,7 +1005,7 @@
                 {% if p == page %}
                 <span class="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-{{ color }}-500 to-{{ color }}-600 px-3.5 py-2 text-sm font-semibold text-white shadow-lg shadow-{{ color }}-500/25">{{ p }}</span>
                 {% elif p == 1 or p == total_pages or (p >= page - 1 and p <= page + 1) %}
-                <button hx-get="{{ base_url }}?page={{ p }}"
+                <button hx-get="{{ base_url }}{{ page_joiner }}page={{ p }}"
                         hx-target="{{ hx_target }}"
                         class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
                     {{ p }}
@@ -731,15 +1015,30 @@
                 {% endif %}
             {% endfor %}
             {% if page < total_pages %}
-            <button hx-get="{{ base_url }}?page={{ page + 1 }}"
+            <button hx-get="{{ base_url }}{{ page_joiner }}page={{ page + 1 }}"
                     hx-target="{{ hx_target }}"
                     class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 hover:text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600 dark:hover:text-slate-200">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>
             {% endif %}
         </nav>
+        {% endif %}
     </div>
 </div>
+<script>
+(function() {
+    document.querySelectorAll('select[data-pagination-per-page]').forEach((selectEl) => {
+        if (selectEl.dataset.bound === 'true') return;
+        selectEl.dataset.bound = 'true';
+        selectEl.addEventListener('change', function() {
+            const url = new URL(window.location.href);
+            url.searchParams.set('per_page', this.value);
+            url.searchParams.set('page', '1');
+            window.location.assign(url.toString());
+        });
+    });
+})();
+</script>
 {% endif %}
 {% endmacro %}
 
@@ -891,7 +1190,7 @@
 {% set sizes = {'sm': 'px-3 py-1.5 text-xs gap-1.5', 'md': 'px-4 py-2.5 text-sm gap-2', 'lg': 'px-5 py-3 text-base gap-2'} %}
 {% set icon_sizes = {'sm': 'h-3.5 w-3.5', 'md': 'h-4 w-4', 'lg': 'h-5 w-5'} %}
 <button type="button"
-        @click="$dispatch('confirm-action', { title: {{ confirm_title|tojson }}, message: {{ confirm_message|tojson }}, actionUrl: {{ action_url|tojson }}, method: {{ method|tojson }}, variant: 'danger' })"
+        @click='$dispatch("confirm-action", { title: {{ confirm_title|tojson }}, message: {{ confirm_message|tojson }}, actionUrl: {{ action_url|tojson }}, method: {{ method|tojson }}, variant: "danger", confirmLabel: {{ label|tojson }} })'
         class="inline-flex items-center {{ sizes[size] }} rounded-xl bg-gradient-to-r from-red-500 to-rose-600 font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
     {% if icon == "delete" %}
     <svg class="{{ icon_sizes[size] }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
@@ -911,7 +1210,7 @@
 {% set sizes = {'sm': 'px-3 py-1.5 text-xs gap-1.5', 'md': 'px-4 py-2.5 text-sm gap-2', 'lg': 'px-5 py-3 text-base gap-2'} %}
 {% set icon_sizes = {'sm': 'h-3.5 w-3.5', 'md': 'h-4 w-4', 'lg': 'h-5 w-5'} %}
 <button type="button"
-        @click="$dispatch('confirm-action', { title: {{ confirm_title|tojson }}, message: {{ confirm_message|tojson }}, actionUrl: {{ action_url|tojson }}, method: {{ method|tojson }}, variant: 'warning' })"
+        @click='$dispatch("confirm-action", { title: {{ confirm_title|tojson }}, message: {{ confirm_message|tojson }}, actionUrl: {{ action_url|tojson }}, method: {{ method|tojson }}, variant: "warning", confirmLabel: {{ label|tojson }} })'
         class="inline-flex items-center {{ sizes[size] }} rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2">
     {% if icon == "warning" %}
     <svg class="{{ icon_sizes[size] }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>

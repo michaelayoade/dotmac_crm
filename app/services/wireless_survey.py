@@ -75,7 +75,7 @@ def _interpolate_point(lat1: float, lon1: float, lat2: float, lon2: float, fract
     y = a * math.cos(lat1_rad) * math.sin(lon1_rad) + b * math.cos(lat2_rad) * math.sin(lon2_rad)
     z = a * math.sin(lat1_rad) + b * math.sin(lat2_rad)
 
-    lat_rad = math.atan2(z, math.sqrt(x ** 2 + y ** 2))
+    lat_rad = math.atan2(z, math.sqrt(x**2 + y**2))
     lon_rad = math.atan2(y, x)
 
     return math.degrees(lat_rad), math.degrees(lon_rad)
@@ -105,25 +105,15 @@ def _fresnel_radius(distance_from_tx_m: float, total_distance_m: float, frequenc
 
 def calculate_elevation_profile(request: ElevationProfileRequest) -> ElevationProfileResponse:
     """Calculate elevation profile between two points with LOS analysis."""
-    total_distance = _haversine_distance(
-        request.from_lat, request.from_lon,
-        request.to_lat, request.to_lon
-    )
-    bearing_deg = _bearing(
-        request.from_lat, request.from_lon,
-        request.to_lat, request.to_lon
-    )
+    total_distance = _haversine_distance(request.from_lat, request.from_lon, request.to_lat, request.to_lon)
+    bearing_deg = _bearing(request.from_lat, request.from_lon, request.to_lat, request.to_lon)
 
     profile: list[ElevationProfilePoint] = []
     valid_count = 0
 
     for i in range(request.sample_count):
         fraction = i / (request.sample_count - 1) if request.sample_count > 1 else 0
-        lat, lon = _interpolate_point(
-            request.from_lat, request.from_lon,
-            request.to_lat, request.to_lon,
-            fraction
-        )
+        lat, lon = _interpolate_point(request.from_lat, request.from_lon, request.to_lat, request.to_lon, fraction)
         distance_m = total_distance * fraction
 
         # Get elevation
@@ -148,15 +138,17 @@ def calculate_elevation_profile(request: ElevationProfileRequest) -> ElevationPr
         if request.frequency_mhz and 0 < fraction < 1:
             fresnel_radius = _fresnel_radius(distance_m, total_distance, request.frequency_mhz)
 
-        profile.append(ElevationProfilePoint(
-            distance_m=distance_m,
-            latitude=lat,
-            longitude=lon,
-            ground_elevation_m=ground_elev,
-            los_height_m=los_height,
-            fresnel_radius_m=fresnel_radius,
-            available=available,
-        ))
+        profile.append(
+            ElevationProfilePoint(
+                distance_m=distance_m,
+                latitude=lat,
+                longitude=lon,
+                ground_elevation_m=ground_elev,
+                los_height_m=los_height,
+                fresnel_radius_m=fresnel_radius,
+                available=available,
+            )
+        )
 
     # Get start and end elevations
     from_elev = profile[0].ground_elevation_m if profile else None
@@ -286,10 +278,7 @@ class WirelessSurveyService:
         initial_lon: float | None,
     ) -> str:
         if initial_lat is not None and initial_lon is not None:
-            return (
-                f"/admin/network/site-survey/{survey_id}"
-                f"?lat={initial_lat:.6f}&lon={initial_lon:.6f}"
-            )
+            return f"/admin/network/site-survey/{survey_id}?lat={initial_lat:.6f}&lon={initial_lon:.6f}"
         return f"/admin/network/site-survey/{survey_id}"
 
     @staticmethod
@@ -318,9 +307,7 @@ class WirelessSurveyService:
             )
 
         for los_path in survey.los_paths:
-            from_point = next(
-                (p for p in points if p.id == los_path.from_point_id), None
-            )
+            from_point = next((p for p in points if p.id == los_path.from_point_id), None)
             to_point = next((p for p in points if p.id == los_path.to_point_id), None)
             if from_point and to_point:
                 features.append(
@@ -375,19 +362,22 @@ class WirelessSurveyService:
 
     @staticmethod
     def get(db: Session, survey_id: str | uuid.UUID) -> WirelessSiteSurvey:
-        survey = db.query(WirelessSiteSurvey).filter(
-            WirelessSiteSurvey.id == survey_id
-        ).first()
+        survey = db.query(WirelessSiteSurvey).filter(WirelessSiteSurvey.id == survey_id).first()
         if not survey:
             raise HTTPException(status_code=404, detail="Survey not found")
         return survey
 
     @staticmethod
     def get_detail(db: Session, survey_id: str | uuid.UUID) -> WirelessSiteSurvey:
-        survey = db.query(WirelessSiteSurvey).options(
-            joinedload(WirelessSiteSurvey.points),
-            joinedload(WirelessSiteSurvey.los_paths),
-        ).filter(WirelessSiteSurvey.id == survey_id).first()
+        survey = (
+            db.query(WirelessSiteSurvey)
+            .options(
+                joinedload(WirelessSiteSurvey.points),
+                joinedload(WirelessSiteSurvey.los_paths),
+            )
+            .filter(WirelessSiteSurvey.id == survey_id)
+            .first()
+        )
         if not survey:
             raise HTTPException(status_code=404, detail="Survey not found")
         return survey
@@ -408,9 +398,7 @@ class WirelessSurveyService:
         return query.order_by(WirelessSiteSurvey.created_at.desc()).offset(offset).limit(limit).all()
 
     @staticmethod
-    def update(
-        db: Session, survey_id: str | uuid.UUID, payload: WirelessSiteSurveyUpdate
-    ) -> WirelessSiteSurvey:
+    def update(db: Session, survey_id: str | uuid.UUID, payload: WirelessSiteSurveyUpdate) -> WirelessSiteSurvey:
         survey = WirelessSurveyService.get(db, survey_id)
         update_data = payload.model_dump(exclude_unset=True)
         for key, value in update_data.items():
@@ -428,12 +416,16 @@ class WirelessSurveyService:
     @staticmethod
     def _update_bounds(db: Session, survey: WirelessSiteSurvey) -> None:
         """Update survey bounds based on points."""
-        result = db.query(
-            func.min(SurveyPoint.latitude),
-            func.max(SurveyPoint.latitude),
-            func.min(SurveyPoint.longitude),
-            func.max(SurveyPoint.longitude),
-        ).filter(SurveyPoint.survey_id == survey.id).first()
+        result = (
+            db.query(
+                func.min(SurveyPoint.latitude),
+                func.max(SurveyPoint.latitude),
+                func.min(SurveyPoint.longitude),
+                func.max(SurveyPoint.longitude),
+            )
+            .filter(SurveyPoint.survey_id == survey.id)
+            .first()
+        )
 
         if result and result[0] is not None:
             survey.min_latitude = result[0]
@@ -486,9 +478,12 @@ class SurveyPointService:
 
     @staticmethod
     def list(db: Session, survey_id: str | uuid.UUID) -> list[SurveyPoint]:
-        return db.query(SurveyPoint).filter(
-            SurveyPoint.survey_id == survey_id
-        ).order_by(SurveyPoint.sort_order, SurveyPoint.created_at).all()
+        return (
+            db.query(SurveyPoint)
+            .filter(SurveyPoint.survey_id == survey_id)
+            .order_by(SurveyPoint.sort_order, SurveyPoint.created_at)
+            .all()
+        )
 
     @staticmethod
     def update(db: Session, point_id: str | uuid.UUID, payload: SurveyPointUpdate) -> SurveyPoint:
@@ -525,9 +520,7 @@ class SurveyPointService:
         db.commit()
 
         # Update survey bounds
-        survey = db.query(WirelessSiteSurvey).filter(
-            WirelessSiteSurvey.id == survey_id
-        ).first()
+        survey = db.query(WirelessSiteSurvey).filter(WirelessSiteSurvey.id == survey_id).first()
         if survey:
             WirelessSurveyService._update_bounds(db, survey)
 
@@ -575,11 +568,15 @@ class SurveyLosService:
         profile_result = calculate_elevation_profile(request)
 
         # Check for existing path
-        existing = db.query(SurveyLosPath).filter(
-            SurveyLosPath.survey_id == survey.id,
-            SurveyLosPath.from_point_id == from_point.id,
-            SurveyLosPath.to_point_id == to_point.id,
-        ).first()
+        existing = (
+            db.query(SurveyLosPath)
+            .filter(
+                SurveyLosPath.survey_id == survey.id,
+                SurveyLosPath.from_point_id == from_point.id,
+                SurveyLosPath.to_point_id == to_point.id,
+            )
+            .first()
+        )
 
         if existing:
             los_path = existing
@@ -621,9 +618,7 @@ class SurveyLosService:
 
     @staticmethod
     def list(db: Session, survey_id: str | uuid.UUID) -> list[SurveyLosPath]:
-        return db.query(SurveyLosPath).filter(
-            SurveyLosPath.survey_id == survey_id
-        ).all()
+        return db.query(SurveyLosPath).filter(SurveyLosPath.survey_id == survey_id).all()
 
     @staticmethod
     def delete(db: Session, path_id: str | uuid.UUID) -> None:

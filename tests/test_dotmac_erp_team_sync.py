@@ -16,6 +16,7 @@ from app.services.dotmac_erp.team_sync import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def sync_service(db_session):
     """Team sync service with mocked client."""
@@ -71,6 +72,7 @@ def _make_member(employee_id="EMP-001", email="alice@company.com", role="member"
 # TeamSyncResult
 # ---------------------------------------------------------------------------
 
+
 class TestTeamSyncResult:
     def test_defaults(self):
         r = TeamSyncResult()
@@ -89,6 +91,7 @@ class TestTeamSyncResult:
 # ---------------------------------------------------------------------------
 # Team upsert
 # ---------------------------------------------------------------------------
+
 
 class TestUpsertTeam:
     def test_create_new_team(self, sync_service, db_session):
@@ -146,6 +149,7 @@ class TestUpsertTeam:
 # Member sync
 # ---------------------------------------------------------------------------
 
+
 class TestSyncTeamMembers:
     def test_add_member_by_email(self, sync_service, db_session, team_person):
         team = ServiceTeam(name="Test", team_type=ServiceTeamType.support, erp_department="MEM-001")
@@ -159,10 +163,14 @@ class TestSyncTeamMembers:
 
         assert result.members_added == 1
         assert result.persons_matched == 1
-        membership = db_session.query(ServiceTeamMember).filter(
-            ServiceTeamMember.team_id == team.id,
-            ServiceTeamMember.person_id == team_person.id,
-        ).first()
+        membership = (
+            db_session.query(ServiceTeamMember)
+            .filter(
+                ServiceTeamMember.team_id == team.id,
+                ServiceTeamMember.person_id == team_person.id,
+            )
+            .first()
+        )
         assert membership is not None
         assert membership.role == ServiceTeamMemberRole.member
 
@@ -171,9 +179,7 @@ class TestSyncTeamMembers:
         db_session.add(team)
         db_session.flush()
 
-        existing = ServiceTeamMember(
-            team_id=team.id, person_id=team_person.id, role=ServiceTeamMemberRole.member
-        )
+        existing = ServiceTeamMember(team_id=team.id, person_id=team_person.id, role=ServiceTeamMemberRole.member)
         db_session.add(existing)
         db_session.flush()
 
@@ -232,6 +238,7 @@ class TestSyncTeamMembers:
 # ---------------------------------------------------------------------------
 # Full sync_departments flow
 # ---------------------------------------------------------------------------
+
 
 class TestSyncDepartments:
     def test_returns_error_when_not_configured(self, db_session):

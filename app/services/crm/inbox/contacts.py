@@ -132,11 +132,7 @@ def _resolve_person_for_inbound(
 
     person = None
     if channel_type == ChannelType.email:
-        person = (
-            db.query(Person)
-            .filter(func.lower(Person.email) == normalized_address)
-            .first()
-        )
+        person = db.query(Person).filter(func.lower(Person.email) == normalized_address).first()
     if not person and channel_type == ChannelType.whatsapp:
         person = (
             db.query(Person)

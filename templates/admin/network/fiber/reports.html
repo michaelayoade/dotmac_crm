@@ -1,4 +1,5 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import table_shell, table_row %}
 
 {% block title %}Fiber Network Reports - Admin{% endblock %}
 
@@ -247,61 +248,57 @@
         </div>
 
         <!-- Asset Details -->
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                <h2 class="font-semibold text-slate-900 dark:text-white">Asset Inventory</h2>
-            </div>
-            <div class="p-6">
-                <table class="min-w-full">
-                    <thead>
-                        <tr class="border-b border-slate-200 dark:border-slate-700">
-                            <th class="pb-3 text-left text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Asset Type</th>
-                            <th class="pb-3 text-right text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Total</th>
-                            <th class="pb-3 text-right text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Active</th>
-                            <th class="pb-3 text-right text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Mapped</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
-                        <tr>
-                            <td class="py-3 text-sm text-slate-900 dark:text-white">FDH Cabinets</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.fdh_cabinets.total }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.fdh_cabinets.active }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.fdh_cabinets.with_location }}</td>
-                        </tr>
-                        <tr>
-                            <td class="py-3 text-sm text-slate-900 dark:text-white">Splice Closures</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splice_closures.total }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splice_closures.active }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splice_closures.with_location }}</td>
-                        </tr>
-                        <tr>
-                            <td class="py-3 text-sm text-slate-900 dark:text-white">Splitters</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splitters.total }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splitters.active }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">-</td>
-                        </tr>
-                        <tr>
-                            <td class="py-3 text-sm text-slate-900 dark:text-white">Splice Trays</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.trays.total }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">-</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">-</td>
-                        </tr>
-                        <tr>
-                            <td class="py-3 text-sm text-slate-900 dark:text-white">ONT Units</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.ont_units.total }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.ont_units.active }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.ont_units.assigned }}</td>
-                        </tr>
-                        <tr>
-                            <td class="py-3 text-sm text-slate-900 dark:text-white">Fiber Segments</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.segments.total_count }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.segments.total_count }}</td>
-                            <td class="py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.segments.total_count }}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
+        {% set pad = 'px-6 py-3' %}
+        {% call table_shell(table_id="asset-inventory-table", title="Asset Inventory") %}
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead>
+                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                        <th class="{{ pad }} text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Asset Type</th>
+                        <th class="{{ pad }} text-right text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Total</th>
+                        <th class="{{ pad }} text-right text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Active</th>
+                        <th class="{{ pad }} text-right text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Mapped</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% call table_row() %}
+                        <td class="{{ pad }} text-sm text-slate-900 dark:text-white">FDH Cabinets</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.fdh_cabinets.total }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.fdh_cabinets.active }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.fdh_cabinets.with_location }}</td>
+                    {% endcall %}
+                    {% call table_row() %}
+                        <td class="{{ pad }} text-sm text-slate-900 dark:text-white">Splice Closures</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splice_closures.total }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splice_closures.active }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splice_closures.with_location }}</td>
+                    {% endcall %}
+                    {% call table_row() %}
+                        <td class="{{ pad }} text-sm text-slate-900 dark:text-white">Splitters</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splitters.total }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.splitters.active }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">-</td>
+                    {% endcall %}
+                    {% call table_row() %}
+                        <td class="{{ pad }} text-sm text-slate-900 dark:text-white">Splice Trays</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.trays.total }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">-</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">-</td>
+                    {% endcall %}
+                    {% call table_row() %}
+                        <td class="{{ pad }} text-sm text-slate-900 dark:text-white">ONT Units</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.ont_units.total }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.ont_units.active }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.ont_units.assigned }}</td>
+                    {% endcall %}
+                    {% call table_row() %}
+                        <td class="{{ pad }} text-sm text-slate-900 dark:text-white">Fiber Segments</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.segments.total_count }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.segments.total_count }}</td>
+                        <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ stats.segments.total_count }}</td>
+                    {% endcall %}
+                </tbody>
+            </table>
+        {% endcall %}
     </div>
 
     <!-- Customer Coverage Map -->

@@ -165,9 +165,7 @@ class TestKPIConfigsUpdate:
     def test_raises_for_not_found(self, db_session):
         """Test raises 404 for non-existent config."""
         with pytest.raises(HTTPException) as exc_info:
-            analytics_service.kpi_configs.update(
-                db_session, str(uuid.uuid4()), KPIConfigUpdate(name="new")
-            )
+            analytics_service.kpi_configs.update(db_session, str(uuid.uuid4()), KPIConfigUpdate(name="new"))
 
         assert exc_info.value.status_code == 404
 
@@ -315,9 +313,7 @@ def test_compute_kpis(db_session, ticket, work_order):
         db_session,
         SlaPolicyCreate(name="Ticket SLA", entity_type=WorkflowEntityType.ticket),
     )
-    workflow_service.sla_targets.create(
-        db_session, SlaTargetCreate(policy_id=policy.id, target_minutes=15)
-    )
+    workflow_service.sla_targets.create(db_session, SlaTargetCreate(policy_id=policy.id, target_minutes=15))
     clock = workflow_service.sla_clocks.create(
         db_session,
         SlaClockCreate(
@@ -326,9 +322,7 @@ def test_compute_kpis(db_session, ticket, work_order):
             entity_id=ticket.id,
         ),
     )
-    workflow_service.sla_breaches.create(
-        db_session, SlaBreachCreate(clock_id=clock.id, notes="late")
-    )
+    workflow_service.sla_breaches.create(db_session, SlaBreachCreate(clock_id=clock.id, notes="late"))
     kpis = analytics_service.compute_kpis(db_session)
     keys = {item["key"] for item in kpis}
     assert "tickets_backlog" in keys

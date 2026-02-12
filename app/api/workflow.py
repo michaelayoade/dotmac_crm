@@ -42,9 +42,7 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     tags=["ticket-transitions"],
 )
-def create_ticket_transition(
-    payload: TicketStatusTransitionCreate, db: Session = Depends(get_db)
-):
+def create_ticket_transition(payload: TicketStatusTransitionCreate, db: Session = Depends(get_db)):
     return workflow_service.ticket_transitions.create(db, payload)
 
 
@@ -106,9 +104,7 @@ def delete_ticket_transition(transition_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
     tags=["work-order-transitions"],
 )
-def create_work_order_transition(
-    payload: WorkOrderStatusTransitionCreate, db: Session = Depends(get_db)
-):
+def create_work_order_transition(payload: WorkOrderStatusTransitionCreate, db: Session = Depends(get_db)):
     return workflow_service.work_order_transitions.create(db, payload)
 
 
@@ -170,9 +166,7 @@ def delete_work_order_transition(transition_id: str, db: Session = Depends(get_d
     status_code=status.HTTP_201_CREATED,
     tags=["project-task-transitions"],
 )
-def create_project_task_transition(
-    payload: ProjectTaskStatusTransitionCreate, db: Session = Depends(get_db)
-):
+def create_project_task_transition(payload: ProjectTaskStatusTransitionCreate, db: Session = Depends(get_db)):
     return workflow_service.project_task_transitions.create(db, payload)
 
 
@@ -216,9 +210,7 @@ def update_project_task_transition(
     payload: ProjectTaskStatusTransitionUpdate,
     db: Session = Depends(get_db),
 ):
-    return workflow_service.project_task_transitions.update(
-        db, transition_id, payload
-    )
+    return workflow_service.project_task_transitions.update(db, transition_id, payload)
 
 
 @router.delete(
@@ -259,9 +251,7 @@ def list_sla_policies(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = workflow_service.sla_policies.list(
-        db, entity_type, is_active, order_by, order_dir, limit, offset
-    )
+    items = workflow_service.sla_policies.list(db, entity_type, is_active, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -270,9 +260,7 @@ def list_sla_policies(
     response_model=SlaPolicyRead,
     tags=["sla-policies"],
 )
-def update_sla_policy(
-    policy_id: str, payload: SlaPolicyUpdate, db: Session = Depends(get_db)
-):
+def update_sla_policy(policy_id: str, payload: SlaPolicyUpdate, db: Session = Depends(get_db)):
     return workflow_service.sla_policies.update(db, policy_id, payload)
 
 
@@ -295,9 +283,7 @@ def create_sla_target(payload: SlaTargetCreate, db: Session = Depends(get_db)):
     return workflow_service.sla_targets.create(db, payload)
 
 
-@router.get(
-    "/sla-targets/{target_id}", response_model=SlaTargetRead, tags=["sla-targets"]
-)
+@router.get("/sla-targets/{target_id}", response_model=SlaTargetRead, tags=["sla-targets"])
 def get_sla_target(target_id: str, db: Session = Depends(get_db)):
     return workflow_service.sla_targets.get(db, target_id)
 
@@ -317,9 +303,7 @@ def list_sla_targets(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = workflow_service.sla_targets.list(
-        db, policy_id, priority, is_active, order_by, order_dir, limit, offset
-    )
+    items = workflow_service.sla_targets.list(db, policy_id, priority, is_active, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -328,9 +312,7 @@ def list_sla_targets(
     response_model=SlaTargetRead,
     tags=["sla-targets"],
 )
-def update_sla_target(
-    target_id: str, payload: SlaTargetUpdate, db: Session = Depends(get_db)
-):
+def update_sla_target(target_id: str, payload: SlaTargetUpdate, db: Session = Depends(get_db)):
     return workflow_service.sla_targets.update(db, target_id, payload)
 
 
@@ -385,9 +367,7 @@ def list_sla_clocks(
     response_model=SlaClockRead,
     tags=["sla-clocks"],
 )
-def update_sla_clock(
-    clock_id: str, payload: SlaClockUpdate, db: Session = Depends(get_db)
-):
+def update_sla_clock(clock_id: str, payload: SlaClockUpdate, db: Session = Depends(get_db)):
     return workflow_service.sla_clocks.update(db, clock_id, payload)
 
 
@@ -410,9 +390,7 @@ def create_sla_breach(payload: SlaBreachCreate, db: Session = Depends(get_db)):
     return workflow_service.sla_breaches.create(db, payload)
 
 
-@router.get(
-    "/sla-breaches/{breach_id}", response_model=SlaBreachRead, tags=["sla-breaches"]
-)
+@router.get("/sla-breaches/{breach_id}", response_model=SlaBreachRead, tags=["sla-breaches"])
 def get_sla_breach(breach_id: str, db: Session = Depends(get_db)):
     return workflow_service.sla_breaches.get(db, breach_id)
 
@@ -431,9 +409,7 @@ def list_sla_breaches(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = workflow_service.sla_breaches.list(
-        db, clock_id, status, order_by, order_dir, limit, offset
-    )
+    items = workflow_service.sla_breaches.list(db, clock_id, status, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -442,9 +418,7 @@ def list_sla_breaches(
     response_model=SlaBreachRead,
     tags=["sla-breaches"],
 )
-def update_sla_breach(
-    breach_id: str, payload: SlaBreachUpdate, db: Session = Depends(get_db)
-):
+def update_sla_breach(breach_id: str, payload: SlaBreachUpdate, db: Session = Depends(get_db)):
     return workflow_service.sla_breaches.update(db, breach_id, payload)
 
 
@@ -462,9 +436,7 @@ def delete_sla_breach(breach_id: str, db: Session = Depends(get_db)):
     response_model=TicketRead,
     tags=["tickets"],
 )
-def transition_ticket(
-    ticket_id: str, payload: StatusTransitionRequest, db: Session = Depends(get_db)
-):
+def transition_ticket(ticket_id: str, payload: StatusTransitionRequest, db: Session = Depends(get_db)):
     return workflow_service.transition_ticket(db, ticket_id, payload)
 
 
@@ -473,9 +445,7 @@ def transition_ticket(
     response_model=WorkOrderRead,
     tags=["work-orders"],
 )
-def transition_work_order(
-    work_order_id: str, payload: StatusTransitionRequest, db: Session = Depends(get_db)
-):
+def transition_work_order(work_order_id: str, payload: StatusTransitionRequest, db: Session = Depends(get_db)):
     return workflow_service.transition_work_order(db, work_order_id, payload)
 
 
@@ -484,7 +454,5 @@ def transition_work_order(
     response_model=ProjectTaskRead,
     tags=["project-tasks"],
 )
-def transition_project_task(
-    task_id: str, payload: StatusTransitionRequest, db: Session = Depends(get_db)
-):
+def transition_project_task(task_id: str, payload: StatusTransitionRequest, db: Session = Depends(get_db)):
     return workflow_service.transition_project_task(db, task_id, payload)

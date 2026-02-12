@@ -14,15 +14,11 @@ class OutboxMessage(Base):
 
     __tablename__ = "crm_outbox"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("crm_conversations.id"), nullable=False
     )
-    message_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crm_messages.id")
-    )
+    message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_messages.id"))
     channel_type: Mapped[ChannelType] = mapped_column(Enum(ChannelType), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -34,9 +30,7 @@ class OutboxMessage(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

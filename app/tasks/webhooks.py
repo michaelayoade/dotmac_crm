@@ -17,13 +17,18 @@ from app.models.webhook import WebhookDelivery, WebhookDeliveryStatus
 from app.schemas.crm.inbox import EmailWebhookPayload, MetaWebhookPayload, WhatsAppWebhookPayload
 from app.services import crm as crm_service
 from app.services import meta_webhooks
+from app.services.webhook_dead_letter import write_dead_letter
 
 logger = logging.getLogger(__name__)
 
-# Retry configuration
+# Retry configuration — outbound webhook delivery
 MAX_RETRIES = 10
 # Exponential backoff: 1min, 2min, 4min, 8min, 16min, 32min, ~1hr, ~2hr, ~4hr, ~8hr
 RETRY_DELAYS = [60, 120, 240, 480, 960, 1920, 3600, 7200, 14400, 28800]
+
+# Retry configuration — inbound webhook processing
+INBOUND_MAX_RETRIES = 5
+INBOUND_RETRY_BASE_DELAY = 60  # seconds
 
 
 def _compute_signature(payload: str, secret: str) -> str:
@@ -97,10 +102,7 @@ def deliver_webhook(self, delivery_id: str):
         session.commit()
 
         # Make HTTP request
-        logger.info(
-            f"Delivering webhook to {endpoint.url} "
-            f"(attempt {delivery.attempt_count + 1})"
-        )
+        logger.info(f"Delivering webhook to {endpoint.url} (attempt {delivery.attempt_count + 1})")
 
         with httpx.Client(timeout=30.0) as client:
             response = client.post(
@@ -116,18 +118,13 @@ def deliver_webhook(self, delivery_id: str):
             delivery.status = WebhookDeliveryStatus.delivered
             delivery.delivered_at = datetime.now(UTC)
             delivery.error = None
-            logger.info(
-                f"Webhook delivered successfully to {endpoint.url} "
-                f"(status {response.status_code})"
-            )
+            logger.info(f"Webhook delivered successfully to {endpoint.url} (status {response.status_code})")
         else:
             # Increment attempt count on failure
             delivery.attempt_count += 1
             error_msg = f"HTTP {response.status_code}: {response.text[:500]}"
             delivery.error = error_msg
-            logger.warning(
-                f"Webhook delivery failed to {endpoint.url}: {error_msg}"
-            )
+            logger.warning(f"Webhook delivery failed to {endpoint.url}: {error_msg}")
 
             # Retry if we have attempts remaining
             if delivery.attempt_count < MAX_RETRIES:
@@ -136,9 +133,7 @@ def deliver_webhook(self, delivery_id: str):
                 raise self.retry(countdown=retry_delay)
             else:
                 delivery.status = WebhookDeliveryStatus.failed
-                logger.error(
-                    f"Webhook delivery exhausted retries to {endpoint.url}"
-                )
+                logger.error(f"Webhook delivery exhausted retries to {endpoint.url}")
 
         session.commit()
 
@@ -153,9 +148,7 @@ def deliver_webhook(self, delivery_id: str):
 
                 if delivery.attempt_count >= MAX_RETRIES:
                     delivery.status = WebhookDeliveryStatus.failed
-                    logger.error(
-                        f"Webhook delivery exhausted retries for {delivery_id}: {exc}"
-                    )
+                    logger.error(f"Webhook delivery exhausted retries for {delivery_id}: {exc}")
                 session.commit()
         except Exception:
             session.rollback()
@@ -216,42 +209,143 @@ def retry_failed_deliveries():
         session.close()
 
 
-@celery_app.task(name="app.tasks.webhooks.process_whatsapp_webhook")
-def process_whatsapp_webhook(payload: dict):
+@celery_app.task(
+    name="app.tasks.webhooks.process_whatsapp_webhook",
+    bind=True,
+    max_retries=INBOUND_MAX_RETRIES,
+)
+def process_whatsapp_webhook(self, payload: dict, trace_id: str | None = None):
     session = SessionLocal()
     try:
         parsed = WhatsAppWebhookPayload(**payload)
         crm_service.inbox.receive_whatsapp_message(session, parsed)
+        logger.info(
+            "webhook_processed channel=whatsapp trace_id=%s message_id=%s",
+            trace_id,
+            parsed.message_id or "unknown",
+        )
     except Exception as exc:
-        logger.exception("whatsapp_webhook_processing_failed error=%s", exc)
+        logger.exception(
+            "whatsapp_webhook_processing_failed trace_id=%s attempt=%s/%s error=%s",
+            trace_id,
+            self.request.retries,
+            INBOUND_MAX_RETRIES,
+            exc,
+        )
+        try:
+            raise self.retry(
+                exc=exc,
+                countdown=INBOUND_RETRY_BASE_DELAY * (2**self.request.retries),
+            )
+        except self.MaxRetriesExceededError:
+            logger.error(
+                "whatsapp_webhook_retries_exhausted trace_id=%s — writing to dead letter",
+                trace_id,
+            )
+            write_dead_letter(
+                channel="whatsapp",
+                raw_payload=payload,
+                error=exc,
+                trace_id=trace_id,
+                message_id=payload.get("message_id"),
+            )
     finally:
         session.close()
 
 
-@celery_app.task(name="app.tasks.webhooks.process_email_webhook")
-def process_email_webhook(payload: dict):
+@celery_app.task(
+    name="app.tasks.webhooks.process_email_webhook",
+    bind=True,
+    max_retries=INBOUND_MAX_RETRIES,
+)
+def process_email_webhook(self, payload: dict, trace_id: str | None = None):
     session = SessionLocal()
     try:
         parsed = EmailWebhookPayload(**payload)
         crm_service.inbox.receive_email_message(session, parsed)
+        logger.info(
+            "webhook_processed channel=email trace_id=%s message_id=%s",
+            trace_id,
+            parsed.message_id or "unknown",
+        )
     except Exception as exc:
-        logger.exception("email_webhook_processing_failed error=%s", exc)
+        logger.exception(
+            "email_webhook_processing_failed trace_id=%s attempt=%s/%s error=%s",
+            trace_id,
+            self.request.retries,
+            INBOUND_MAX_RETRIES,
+            exc,
+        )
+        try:
+            raise self.retry(
+                exc=exc,
+                countdown=INBOUND_RETRY_BASE_DELAY * (2**self.request.retries),
+            )
+        except self.MaxRetriesExceededError:
+            logger.error(
+                "email_webhook_retries_exhausted trace_id=%s — writing to dead letter",
+                trace_id,
+            )
+            write_dead_letter(
+                channel="email",
+                raw_payload=payload,
+                error=exc,
+                trace_id=trace_id,
+                message_id=payload.get("message_id"),
+            )
     finally:
         session.close()
 
 
-@celery_app.task(name="app.tasks.webhooks.process_meta_webhook")
-def process_meta_webhook(payload: dict):
+@celery_app.task(
+    name="app.tasks.webhooks.process_meta_webhook",
+    bind=True,
+    max_retries=INBOUND_MAX_RETRIES,
+)
+def process_meta_webhook(self, payload: dict, trace_id: str | None = None):
     session = SessionLocal()
     try:
         parsed = MetaWebhookPayload(**payload)
         if parsed.object == "page":
-            meta_webhooks.process_messenger_webhook(session, parsed)
+            results = meta_webhooks.process_messenger_webhook(session, parsed)
         elif parsed.object == "instagram":
-            meta_webhooks.process_instagram_webhook(session, parsed)
+            results = meta_webhooks.process_instagram_webhook(session, parsed)
         else:
             logger.warning("meta_webhook_unknown_object object=%s", parsed.object)
+            results = []
+        if results is not None:
+            ok_count = len([item for item in results if item.get("status") in {"received", "stored"}])
+            fail_count = len(results) - ok_count
+            logger.info(
+                "webhook_processed channel=meta trace_id=%s object=%s ok=%s failed=%s",
+                trace_id,
+                parsed.object,
+                ok_count,
+                fail_count,
+            )
     except Exception as exc:
-        logger.exception("meta_webhook_processing_failed error=%s", exc)
+        logger.exception(
+            "meta_webhook_processing_failed trace_id=%s attempt=%s/%s error=%s",
+            trace_id,
+            self.request.retries,
+            INBOUND_MAX_RETRIES,
+            exc,
+        )
+        try:
+            raise self.retry(
+                exc=exc,
+                countdown=INBOUND_RETRY_BASE_DELAY * (2**self.request.retries),
+            )
+        except self.MaxRetriesExceededError:
+            logger.error(
+                "meta_webhook_retries_exhausted trace_id=%s — writing to dead letter",
+                trace_id,
+            )
+            write_dead_letter(
+                channel="meta",
+                raw_payload=payload,
+                error=exc,
+                trace_id=trace_id,
+            )
     finally:
         session.close()

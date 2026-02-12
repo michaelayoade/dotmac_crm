@@ -53,9 +53,7 @@ class TestLegalDocumentList:
         db_session.add_all([tos, privacy])
         db_session.commit()
 
-        results = legal.legal_documents.list(
-            db_session, document_type=LegalDocumentType.terms_of_service
-        )
+        results = legal.legal_documents.list(db_session, document_type=LegalDocumentType.terms_of_service)
         assert all(d.document_type == LegalDocumentType.terms_of_service for d in results)
 
     def test_list_by_published(self, db_session):
@@ -120,21 +118,21 @@ class TestLegalDocumentList:
         db_session.commit()
 
         # Test ascending
-        results = legal.legal_documents.list(
-            db_session, order_by="title", order_dir="asc"
-        )
+        results = legal.legal_documents.list(db_session, order_by="title", order_dir="asc")
         titles = [d.title for d in results]
         assert titles == sorted(titles)
 
     def test_list_pagination(self, db_session):
         """Test pagination."""
         for i in range(5):
-            db_session.add(LegalDocument(
-                document_type=LegalDocumentType.other,
-                title=f"Doc {i}",
-                slug=f"doc-page-{i}",
-                version="1.0",
-            ))
+            db_session.add(
+                LegalDocument(
+                    document_type=LegalDocumentType.other,
+                    title=f"Doc {i}",
+                    slug=f"doc-page-{i}",
+                    version="1.0",
+                )
+            )
         db_session.commit()
 
         page1 = legal.legal_documents.list(db_session, limit=2, offset=0)
@@ -212,9 +210,7 @@ class TestLegalDocumentGet:
         db_session.add_all([old_doc, current_doc])
         db_session.commit()
 
-        result = legal.legal_documents.get_current_by_type(
-            db_session, LegalDocumentType.terms_of_service
-        )
+        result = legal.legal_documents.get_current_by_type(db_session, LegalDocumentType.terms_of_service)
         assert result is not None
         assert result.is_current is True
         assert result.is_published is True
@@ -232,9 +228,7 @@ class TestLegalDocumentGet:
         db_session.add(doc)
         db_session.commit()
 
-        result = legal.legal_documents.get_current_by_type(
-            db_session, LegalDocumentType.acceptable_use
-        )
+        result = legal.legal_documents.get_current_by_type(db_session, LegalDocumentType.acceptable_use)
         assert result is None
 
 
@@ -517,15 +511,11 @@ class TestLegalDocumentFileUpload:
         db_session.commit()
 
         # Upload first file
-        legal.legal_documents.upload_file(
-            db_session, str(doc.id), b"first", "first.pdf", "application/pdf"
-        )
+        legal.legal_documents.upload_file(db_session, str(doc.id), b"first", "first.pdf", "application/pdf")
         first_path = doc.file_path
 
         # Upload second file
-        updated = legal.legal_documents.upload_file(
-            db_session, str(doc.id), b"second", "second.pdf", "application/pdf"
-        )
+        updated = legal.legal_documents.upload_file(db_session, str(doc.id), b"second", "second.pdf", "application/pdf")
 
         assert updated is not None
         assert updated.file_name == "second.pdf"
@@ -557,9 +547,7 @@ class TestLegalDocumentFileDelete:
         db_session.commit()
 
         # Upload a file first
-        legal.legal_documents.upload_file(
-            db_session, str(doc.id), b"content", "test.pdf", "application/pdf"
-        )
+        legal.legal_documents.upload_file(db_session, str(doc.id), b"content", "test.pdf", "application/pdf")
         file_path = doc.file_path
         assert os.path.exists(file_path)
 

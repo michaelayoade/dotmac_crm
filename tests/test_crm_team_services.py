@@ -67,9 +67,7 @@ def test_list_teams(db_session):
 
 def test_list_teams_filter_inactive(db_session):
     """Test listing only inactive teams."""
-    team = team_service.Teams.create(
-        db_session, TeamCreate(name="Inactive Team", is_active=False)
-    )
+    team = team_service.Teams.create(db_session, TeamCreate(name="Inactive Team", is_active=False))
 
     teams = team_service.Teams.list(
         db_session,
@@ -123,9 +121,7 @@ def test_update_team(db_session, crm_team):
 def test_update_team_not_found(db_session):
     """Test updating non-existent team raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        team_service.Teams.update(
-            db_session, str(uuid.uuid4()), TeamUpdate(name="New Name")
-        )
+        team_service.Teams.update(db_session, str(uuid.uuid4()), TeamUpdate(name="New Name"))
     assert exc_info.value.status_code == 404
 
 
@@ -221,9 +217,7 @@ def test_update_agent(db_session, crm_agent):
 def test_update_agent_not_found(db_session):
     """Test updating non-existent agent raises 404."""
     with pytest.raises(HTTPException) as exc_info:
-        team_service.Agents.update(
-            db_session, str(uuid.uuid4()), AgentUpdate(title="New")
-        )
+        team_service.Agents.update(db_session, str(uuid.uuid4()), AgentUpdate(title="New"))
     assert exc_info.value.status_code == 404
 
 
@@ -463,9 +457,7 @@ def test_list_routing_rules_filter_inactive(db_session, crm_team):
     """Test listing only inactive routing rules."""
     rule = team_service.RoutingRules.create(
         db_session,
-        RoutingRuleCreate(
-            team_id=crm_team.id, channel_type=ChannelType.email, is_active=False
-        ),
+        RoutingRuleCreate(team_id=crm_team.id, channel_type=ChannelType.email, is_active=False),
     )
 
     rules = team_service.RoutingRules.list(

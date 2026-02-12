@@ -19,6 +19,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
@@ -28,17 +29,16 @@ from app.models.external import ExternalEntityType
 from app.services.erpnext.client import ERPNextClient, ERPNextError
 from app.services.erpnext.mappers import (
     CONTACT_FIELDS,
-    CUSTOMER_FIELDS,
-    HD_TICKET_FIELDS,
     LEAD_FIELDS,
-    PROJECT_FIELDS,
     QUOTATION_FIELDS,
-    TASK_FIELDS,
+    map_communication,
     map_contact,
     map_customer,
     map_hd_ticket,
+    map_hd_ticket_comment,
     map_lead,
     map_project,
+    map_project_comment,
     map_quotation,
     map_task,
 )
@@ -52,6 +52,7 @@ logger = get_logger(__name__)
 @dataclass
 class ImportStats:
     """Statistics from import operation."""
+
     created: int = 0
     updated: int = 0
     skipped: int = 0
@@ -71,6 +72,7 @@ class ImportStats:
 @dataclass
 class ImportResult:
     """Result from full import operation."""
+
     success: bool
     contacts: ImportStats = field(default_factory=ImportStats)
     customers: ImportStats = field(default_factory=ImportStats)
@@ -79,6 +81,9 @@ class ImportResult:
     tasks: ImportStats = field(default_factory=ImportStats)
     leads: ImportStats = field(default_factory=ImportStats)
     quotes: ImportStats = field(default_factory=ImportStats)
+    ticket_comments: ImportStats = field(default_factory=ImportStats)
+    project_comments: ImportStats = field(default_factory=ImportStats)
+    task_comments: ImportStats = field(default_factory=ImportStats)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -90,6 +95,9 @@ class ImportResult:
             "tasks": self.tasks.to_dict(),
             "leads": self.leads.to_dict(),
             "quotes": self.quotes.to_dict(),
+            "ticket_comments": self.ticket_comments.to_dict(),
+            "project_comments": self.project_comments.to_dict(),
+            "task_comments": self.task_comments.to_dict(),
         }
 
 
@@ -114,8 +122,8 @@ class ERPNextImporter:
 
         # Cache for lookups during import
         self._person_cache: dict[str, UUID] = {}  # erpnext_name -> person_id
-        self._org_cache: dict[str, UUID] = {}     # erpnext_name -> org_id
-        self._project_cache: dict[str, UUID] = {} # erpnext_name -> project_id
+        self._org_cache: dict[str, UUID] = {}  # erpnext_name -> org_id
+        self._project_cache: dict[str, UUID] = {}  # erpnext_name -> project_id
 
     def test_connection(self) -> bool:
         """Test ERPNext API connection."""
@@ -127,9 +135,9 @@ class ERPNextImporter:
         Order matters for foreign key relationships:
         1. Contacts (creates Persons)
         2. Customers (creates Organizations, references Contacts)
-        3. Projects (references Customers)
-        4. Tasks (references Projects)
-        5. Tickets (references Customers, Contacts)
+        3. Projects (references Customers) + project comments
+        4. Tasks (references Projects) + task comments
+        5. Tickets (references Customers, Contacts) + ticket comments/comms
         6. Leads (creates Persons)
         7. Quotations (references Leads/Customers)
         """
@@ -144,17 +152,17 @@ class ERPNextImporter:
             logger.info("erpnext_import_starting doctype=Customer")
             result.customers = self._import_customers(db)
 
-            # 3. Import Projects
+            # 3. Import Projects (with comments from child tables)
             logger.info("erpnext_import_starting doctype=Project")
-            result.projects = self._import_projects(db)
+            result.projects, result.project_comments = self._import_projects(db)
 
-            # 4. Import Tasks (after Projects)
+            # 4. Import Tasks (with comments from child tables)
             logger.info("erpnext_import_starting doctype=Task")
-            result.tasks = self._import_tasks(db)
+            result.tasks, result.task_comments = self._import_tasks(db)
 
-            # 5. Import HD Tickets
+            # 5. Import HD Tickets (with comments and communications)
             logger.info("erpnext_import_starting doctype=HD Ticket")
-            result.tickets = self._import_tickets(db)
+            result.tickets, result.ticket_comments = self._import_tickets(db)
 
             # 6. Import Leads
             logger.info("erpnext_import_starting doctype=Lead")
@@ -206,6 +214,54 @@ class ERPNextImporter:
         )
         return ref, True
 
+    def _resolve_subscriber_id(self, db: Session, erpnext_customer: str) -> UUID | None:
+        """Resolve an ERPNext customer name to a Subscriber ID.
+
+        Tries ExternalReference first (connector-scoped), then falls back to
+        Subscriber.external_id or Organization.erpnext_id for cross-connector dedup.
+        """
+        from app.models.external import ExternalReference
+        from app.models.subscriber import Organization, Subscriber
+
+        # 1. Try ExternalReference (current connector scope)
+        cust_ref = (
+            db.query(ExternalReference)
+            .filter(ExternalReference.connector_config_id == self.connector_config_id)
+            .filter(ExternalReference.entity_type == ExternalEntityType.subscriber)
+            .filter(ExternalReference.external_id == erpnext_customer)
+            .first()
+        )
+        if cust_ref:
+            return cust_ref.entity_id
+
+        # 2. Try any ExternalReference (cross-connector fallback)
+        any_ref = (
+            db.query(ExternalReference)
+            .filter(ExternalReference.entity_type == ExternalEntityType.subscriber)
+            .filter(ExternalReference.external_id == erpnext_customer)
+            .first()
+        )
+        if any_ref:
+            return any_ref.entity_id
+
+        # 3. Try Subscriber.external_id
+        sub = db.query(Subscriber).filter(Subscriber.external_id == erpnext_customer).first()
+        if sub:
+            return sub.id
+
+        # 4. Try Organization.erpnext_id -> first subscriber
+        org = db.query(Organization).filter(Organization.erpnext_id == erpnext_customer).first()
+        if org:
+            sub = db.query(Subscriber).filter(Subscriber.organization_id == org.id).first()
+            if sub:
+                return sub.id
+
+        return None
+
+    # ─────────────────────────────────────────────────────────────────
+    # Contacts
+    # ─────────────────────────────────────────────────────────────────
+
     def _import_contacts(self, db: Session) -> ImportStats:
         """Import ERPNext Contacts as Person records."""
         from app.models.external import ExternalEntityType
@@ -220,20 +276,22 @@ class ERPNextImporter:
                     continue
 
                 # Check if already imported
-                ref, is_new = self._get_or_create_external_ref(
-                    db, ExternalEntityType.person, external_id
-                )
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.person, external_id)
 
                 # Map ERPNext doc to Person data
                 data = map_contact(doc)
                 email = data.get("email")
                 person: Person | None = None
                 if is_new:
-                    # Check if person with this email already exists
-                    existing = db.query(Person).filter(Person.email == email).first()
+                    # Dedup by erpnext_id first, then email fallback
+                    existing = db.query(Person).filter(Person.erpnext_id == external_id).first()
+                    if not existing:
+                        existing = db.query(Person).filter(Person.email == email).first()
+
                     if existing:
                         # Check if there's already an ExternalReference for this Person
                         from app.models.external import ExternalReference
+
                         existing_ref = (
                             db.query(ExternalReference)
                             .filter(ExternalReference.connector_config_id == self.connector_config_id)
@@ -247,7 +305,9 @@ class ERPNextImporter:
                             stats.skipped += 1
                             continue
 
-                        # Link this Contact to existing person
+                        # Link this Contact to existing person and set erpnext_id
+                        if not existing.erpnext_id:
+                            existing.erpnext_id = external_id
                         ref.entity_id = existing.id
                         db.add(ref)
                         self._person_cache[external_id] = existing.id
@@ -262,6 +322,7 @@ class ERPNextImporter:
                         phone=data.get("phone"),
                         gender=data.get("gender"),
                         is_active=data.get("is_active", True),
+                        erpnext_id=external_id,
                     )
                     db.add(person)
                     db.flush()
@@ -281,6 +342,8 @@ class ERPNextImporter:
                         person.first_name = data["first_name"]
                         person.last_name = data["last_name"]
                         person.phone = data.get("phone") or person.phone
+                        if not person.erpnext_id:
+                            person.erpnext_id = external_id
                         self._person_cache[external_id] = person.id
                         stats.updated += 1
 
@@ -294,38 +357,82 @@ class ERPNextImporter:
 
         return stats
 
+    # ─────────────────────────────────────────────────────────────────
+    # Customers
+    # ─────────────────────────────────────────────────────────────────
+
     def _import_customers(self, db: Session) -> ImportStats:
-        """Import ERPNext Customers as Organization + Subscriber records."""
+        """Import ERPNext Customers as Organization + Subscriber records.
+
+        Uses get_doc per customer to access custom fields (e.g. Splynx ID).
+        """
         from app.models.external import ExternalEntityType
         from app.models.subscriber import Organization, Subscriber
 
         stats = ImportStats()
 
-        for doc in self.client.get_all("Customer", fields=CUSTOMER_FIELDS):
+        # Phase 1: get lightweight list of names
+        for stub in self.client.get_all("Customer", fields=["name"]):
             try:
-                external_id = doc.get("name")
+                external_id = stub.get("name")
                 if not external_id:
                     continue
 
+                # Phase 2: get full doc with custom fields
+                doc = self.client.get_doc("Customer", external_id)
+
                 # Check if already imported
-                ref, is_new = self._get_or_create_external_ref(
-                    db, ExternalEntityType.subscriber, external_id
-                )
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.subscriber, external_id)
 
                 data = map_customer(doc)
                 subscriber: Subscriber | None = None
 
                 if is_new:
-                    # Create Organization
-                    org = Organization(
-                        name=data["name"],
-                        legal_name=data.get("legal_name"),
-                        tax_id=data.get("tax_id"),
-                        website=data.get("website"),
-                        notes=data.get("notes"),
-                    )
-                    db.add(org)
-                    db.flush()
+                    # Dedup: check if Organization already exists by erpnext_id or name
+                    existing_org = db.query(Organization).filter(Organization.erpnext_id == external_id).first()
+                    if not existing_org:
+                        existing_org = db.query(Organization).filter(Organization.name == data["name"]).first()
+
+                    if existing_org:
+                        # Found existing org — link it and update
+                        if not existing_org.erpnext_id:
+                            existing_org.erpnext_id = external_id
+                        existing_org.legal_name = data.get("legal_name") or existing_org.legal_name
+                        existing_org.tax_id = data.get("tax_id") or existing_org.tax_id
+                        self._org_cache[external_id] = existing_org.id
+
+                        # Find existing subscriber for this org
+                        existing_sub = (
+                            db.query(Subscriber).filter(Subscriber.organization_id == existing_org.id).first()
+                        )
+                        if existing_sub:
+                            # Update Splynx ID if available
+                            splynx_id = data.get("_erpnext_splynx_id")
+                            if splynx_id and not (existing_sub.sync_metadata or {}).get("erpnext_splynx_id"):
+                                if not existing_sub.sync_metadata:
+                                    existing_sub.sync_metadata = {}
+                                existing_sub.sync_metadata["erpnext_splynx_id"] = str(splynx_id)
+
+                            ref.entity_id = existing_sub.id
+                            db.add(ref)
+                            stats.updated += 1
+                            db.commit()
+                            continue
+
+                        # Org exists but no subscriber — fall through to create subscriber below
+                        org = existing_org
+                    else:
+                        # Create new Organization with erpnext_id
+                        org = Organization(
+                            name=data["name"],
+                            legal_name=data.get("legal_name"),
+                            tax_id=data.get("tax_id"),
+                            website=data.get("website"),
+                            notes=data.get("notes"),
+                            erpnext_id=external_id,
+                        )
+                        db.add(org)
+                        db.flush()
 
                     self._org_cache[external_id] = org.id
 
@@ -334,10 +441,32 @@ class ERPNextImporter:
                     subscriber_number: str | None
                     if external_id and len(external_id) > 50:
                         import hashlib
-                        hash_suffix = hashlib.md5(external_id.encode()).hexdigest()[:8]
+
+                        hash_suffix = hashlib.md5(
+                            external_id.encode(),
+                            usedforsecurity=False,
+                        ).hexdigest()[:8]
                         subscriber_number = f"{external_id[:50]}-{hash_suffix}"
                     else:
                         subscriber_number = external_id[:60] if external_id else None
+
+                    # Check if subscriber already exists with this number
+                    existing_sub = (
+                        db.query(Subscriber).filter(Subscriber.subscriber_number == subscriber_number).first()
+                    )
+                    if existing_sub:
+                        # Link to existing subscriber
+                        splynx_id = data.get("_erpnext_splynx_id")
+                        if splynx_id and not (existing_sub.sync_metadata or {}).get("erpnext_splynx_id"):
+                            if not existing_sub.sync_metadata:
+                                existing_sub.sync_metadata = {}
+                            existing_sub.sync_metadata["erpnext_splynx_id"] = str(splynx_id)
+
+                        ref.entity_id = existing_sub.id
+                        db.add(ref)
+                        stats.updated += 1
+                        db.commit()
+                        continue
 
                     # Create Subscriber linked to Organization
                     subscriber = Subscriber(
@@ -347,6 +476,17 @@ class ERPNextImporter:
                         subscriber_number=subscriber_number,
                         is_active=True,
                     )
+
+                    # Capture Splynx ID from ERPNext custom field
+                    splynx_id = data.get("_erpnext_splynx_id")
+                    if splynx_id:
+                        subscriber.sync_metadata = {"erpnext_splynx_id": str(splynx_id)}
+                        logger.info(
+                            "erpnext_customer_splynx_link customer=%s splynx_id=%s",
+                            external_id,
+                            splynx_id,
+                        )
+
                     db.add(subscriber)
                     db.flush()
 
@@ -355,6 +495,7 @@ class ERPNextImporter:
                         "organization_id": str(org.id),
                         "erpnext_customer_type": data.get("_erpnext_customer_type"),
                         "erpnext_customer_group": data.get("_erpnext_customer_group"),
+                        "erpnext_splynx_id": str(splynx_id) if splynx_id else None,
                     }
                     db.add(ref)
 
@@ -367,7 +508,17 @@ class ERPNextImporter:
                         org.name = data["name"]
                         org.legal_name = data.get("legal_name")
                         org.tax_id = data.get("tax_id") or org.tax_id
+                        if not org.erpnext_id:
+                            org.erpnext_id = external_id
                         self._org_cache[external_id] = org.id
+
+                        # Update Splynx ID if newly available
+                        splynx_id = data.get("_erpnext_splynx_id")
+                        if splynx_id and not (subscriber.sync_metadata or {}).get("erpnext_splynx_id"):
+                            if not subscriber.sync_metadata:
+                                subscriber.sync_metadata = {}
+                            subscriber.sync_metadata["erpnext_splynx_id"] = str(splynx_id)
+
                         stats.updated += 1
 
                 db.commit()
@@ -375,27 +526,38 @@ class ERPNextImporter:
             except Exception as e:
                 db.rollback()
                 stats.errors += 1
-                stats.error_messages.append(f"Customer {doc.get('name')}: {e}")
-                logger.warning("erpnext_import_customer_error doc=%s error=%s", doc.get("name"), e)
+                stats.error_messages.append(f"Customer {stub.get('name')}: {e}")
+                logger.warning("erpnext_import_customer_error doc=%s error=%s", stub.get("name"), e)
 
         return stats
 
-    def _import_projects(self, db: Session) -> ImportStats:
-        """Import ERPNext Projects."""
+    # ─────────────────────────────────────────────────────────────────
+    # Projects (with comments)
+    # ─────────────────────────────────────────────────────────────────
+
+    def _import_projects(self, db: Session) -> tuple[ImportStats, ImportStats]:
+        """Import ERPNext Projects. Returns (project_stats, comment_stats)."""
+        from sqlalchemy import or_
+
+        from app.models.domain_settings import SettingDomain
         from app.models.external import ExternalEntityType
         from app.models.projects import Project, ProjectPriority, ProjectStatus
+        from app.services.numbering import generate_number
 
         stats = ImportStats()
+        comment_stats = ImportStats()
 
-        for doc in self.client.get_all("Project", fields=PROJECT_FIELDS):
+        # Phase 1: lightweight name list
+        for stub in self.client.get_all("Project", fields=["name"]):
             try:
-                external_id = doc.get("name")
+                external_id = stub.get("name")
                 if not external_id:
                     continue
 
-                ref, is_new = self._get_or_create_external_ref(
-                    db, ExternalEntityType.project, external_id
-                )
+                # Phase 2: full doc with child tables (comments)
+                doc = self.client.get_doc("Project", external_id)
+
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.project, external_id)
 
                 data = map_project(doc)
                 project_status = cast(ProjectStatus, data.get("status"))
@@ -406,19 +568,52 @@ class ERPNextImporter:
                 subscriber_id = None
                 erpnext_customer = data.get("_erpnext_customer")
                 if erpnext_customer:
-                    # Look up subscriber by external ID
-                    from app.models.external import ExternalReference
-                    cust_ref = (
-                        db.query(ExternalReference)
-                        .filter(ExternalReference.connector_config_id == self.connector_config_id)
-                        .filter(ExternalReference.entity_type == ExternalEntityType.subscriber)
-                        .filter(ExternalReference.external_id == erpnext_customer)
-                        .first()
-                    )
-                    if cust_ref:
-                        subscriber_id = cust_ref.entity_id
+                    subscriber_id = self._resolve_subscriber_id(db, erpnext_customer)
 
                 if is_new:
+                    # Fallback match: if this ERP project ID already exists as
+                    # our project number/code, link instead of creating a duplicate.
+                    candidates = {external_id}
+                    m = re.match(r"^(PROJ-)(\d+)$", external_id, flags=re.IGNORECASE)
+                    if m:
+                        prefix = "PROJ-"
+                        numeric = int(m.group(2))
+                        candidates.add(f"{prefix}{numeric}")
+
+                    existing_project = (
+                        db.query(Project)
+                        .filter(or_(Project.number.in_(candidates), Project.code.in_(candidates)))
+                        .first()
+                    )
+                    if existing_project:
+                        existing_project.name = data["name"]
+                        existing_project.description = data.get("description") or existing_project.description
+                        existing_project.status = project_status
+                        existing_project.priority = project_priority
+                        if not existing_project.erpnext_id:
+                            existing_project.erpnext_id = external_id
+                        if subscriber_id and not existing_project.subscriber_id:
+                            existing_project.subscriber_id = subscriber_id
+                        ref.entity_id = existing_project.id
+                        db.add(ref)
+                        self._project_cache[external_id] = existing_project.id
+                        stats.updated += 1
+                        # Import comments for existing project
+                        self._import_project_comments(db, doc, existing_project.id, comment_stats)
+                        db.commit()
+                        continue
+
+                    # Generate DotMac number
+                    number = generate_number(
+                        db=db,
+                        domain=SettingDomain.numbering,
+                        sequence_key="project_number",
+                        enabled_key="project_number_enabled",
+                        prefix_key="project_number_prefix",
+                        padding_key="project_number_padding",
+                        start_key="project_number_start",
+                    )
+
                     project = Project(
                         name=data["name"],
                         description=data.get("description"),
@@ -428,6 +623,8 @@ class ERPNextImporter:
                         due_at=data.get("due_at"),
                         subscriber_id=subscriber_id,
                         is_active=data.get("is_active", True),
+                        number=number,
+                        erpnext_id=external_id,
                     )
                     db.add(project)
                     db.flush()
@@ -437,6 +634,9 @@ class ERPNextImporter:
 
                     self._project_cache[external_id] = project.id
                     stats.created += 1
+
+                    # Import comments from child table
+                    self._import_project_comments(db, doc, project.id, comment_stats)
                 else:
                     project = db.get(Project, ref.entity_id)
                     if project:
@@ -444,36 +644,94 @@ class ERPNextImporter:
                         project.description = data.get("description") or project.description
                         project.status = project_status
                         project.priority = project_priority
+                        if not project.erpnext_id:
+                            project.erpnext_id = external_id
                         self._project_cache[external_id] = project.id
                         stats.updated += 1
+
+                        # Import any new comments
+                        self._import_project_comments(db, doc, project.id, comment_stats)
 
                 db.commit()
 
             except Exception as e:
                 db.rollback()
                 stats.errors += 1
-                stats.error_messages.append(f"Project {doc.get('name')}: {e}")
-                logger.warning("erpnext_import_project_error doc=%s error=%s", doc.get("name"), e)
+                stats.error_messages.append(f"Project {stub.get('name')}: {e}")
+                logger.warning("erpnext_import_project_error doc=%s error=%s", stub.get("name"), e)
 
-        return stats
+        return stats, comment_stats
 
-    def _import_tasks(self, db: Session) -> ImportStats:
-        """Import ERPNext Tasks as ProjectTasks."""
+    def _import_project_comments(
+        self,
+        db: Session,
+        doc: dict[str, Any],
+        project_id: UUID,
+        stats: ImportStats,
+    ) -> None:
+        """Import comments from an ERPNext Project child table."""
+        from app.models.projects import ProjectComment
+
+        for comment_doc in doc.get("comments", []):
+            try:
+                comment_name = comment_doc.get("name")
+                if not comment_name:
+                    continue
+
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.project_comment, comment_name)
+                if not is_new:
+                    stats.skipped += 1
+                    continue
+
+                data = map_project_comment(comment_doc)
+                body = data.get("body") or ""
+                if not body.strip():
+                    stats.skipped += 1
+                    continue
+
+                comment = ProjectComment(
+                    project_id=project_id,
+                    body=body,
+                )
+                db.add(comment)
+                db.flush()
+
+                ref.entity_id = comment.id
+                db.add(ref)
+                stats.created += 1
+
+            except Exception as e:
+                stats.errors += 1
+                stats.error_messages.append(f"Project comment {comment_doc.get('name')}: {e}")
+                logger.warning(
+                    "erpnext_import_project_comment_error doc=%s error=%s",
+                    comment_doc.get("name"),
+                    e,
+                )
+
+    # ─────────────────────────────────────────────────────────────────
+    # Tasks (with comments)
+    # ─────────────────────────────────────────────────────────────────
+
+    def _import_tasks(self, db: Session) -> tuple[ImportStats, ImportStats]:
+        """Import ERPNext Tasks as ProjectTasks. Returns (task_stats, comment_stats)."""
         from app.models.domain_settings import SettingDomain
         from app.models.external import ExternalEntityType
         from app.models.projects import ProjectTask, TaskPriority, TaskStatus
         from app.services.numbering import generate_number
 
         stats = ImportStats()
+        comment_stats = ImportStats()
 
-        for doc in self.client.get_all("Task", fields=TASK_FIELDS):
+        # Phase 1: lightweight name + project list
+        for stub in self.client.get_all("Task", fields=["name", "project"]):
             try:
-                external_id = doc.get("name")
+                external_id = stub.get("name")
                 if not external_id:
                     continue
 
                 # Tasks require a project
-                erpnext_project = doc.get("project")
+                erpnext_project = stub.get("project")
                 if not erpnext_project:
                     stats.skipped += 1
                     continue
@@ -482,6 +740,7 @@ class ERPNextImporter:
                 project_id = self._project_cache.get(erpnext_project)
                 if not project_id:
                     from app.models.external import ExternalReference
+
                     proj_ref = (
                         db.query(ExternalReference)
                         .filter(ExternalReference.connector_config_id == self.connector_config_id)
@@ -497,9 +756,10 @@ class ERPNextImporter:
                     stats.skipped += 1
                     continue
 
-                ref, is_new = self._get_or_create_external_ref(
-                    db, ExternalEntityType.project_task, external_id
-                )
+                # Phase 2: full doc with child tables
+                doc = self.client.get_doc("Task", external_id)
+
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.project_task, external_id)
 
                 data = map_task(doc)
                 task_status = cast(TaskStatus, data.get("status"))
@@ -525,6 +785,7 @@ class ERPNextImporter:
                         due_at=data.get("due_date"),  # ERPNext 'due_date' maps to 'due_at'
                         is_active=data.get("is_active", True),
                         number=number,
+                        erpnext_id=external_id,
                     )
                     db.add(task)
                     db.flush()
@@ -533,6 +794,9 @@ class ERPNextImporter:
                     db.add(ref)
 
                     stats.created += 1
+
+                    # Import task comments
+                    self._import_task_comments(db, doc, task.id, comment_stats)
                 else:
                     task = db.get(ProjectTask, ref.entity_id)
                     if task:
@@ -540,36 +804,99 @@ class ERPNextImporter:
                         task.description = data.get("description") or task.description
                         task.status = task_status
                         task.priority = task_priority
+                        if not task.erpnext_id:
+                            task.erpnext_id = external_id
                         stats.updated += 1
+
+                        # Import any new comments
+                        self._import_task_comments(db, doc, task.id, comment_stats)
 
                 db.commit()
 
             except Exception as e:
                 db.rollback()
                 stats.errors += 1
-                stats.error_messages.append(f"Task {doc.get('name')}: {e}")
-                logger.warning("erpnext_import_task_error doc=%s error=%s", doc.get("name"), e)
+                stats.error_messages.append(f"Task {stub.get('name')}: {e}")
+                logger.warning("erpnext_import_task_error doc=%s error=%s", stub.get("name"), e)
 
-        return stats
+        return stats, comment_stats
 
-    def _import_tickets(self, db: Session) -> ImportStats:
-        """Import ERPNext HD Tickets."""
+    def _import_task_comments(
+        self,
+        db: Session,
+        doc: dict[str, Any],
+        task_id: UUID,
+        stats: ImportStats,
+    ) -> None:
+        """Import comments from an ERPNext Task child table."""
+        from app.models.projects import ProjectTaskComment
+
+        for comment_doc in doc.get("comments", []):
+            try:
+                comment_name = comment_doc.get("name")
+                if not comment_name:
+                    continue
+
+                ref, is_new = self._get_or_create_external_ref(
+                    db, ExternalEntityType.project_task_comment, comment_name
+                )
+                if not is_new:
+                    stats.skipped += 1
+                    continue
+
+                data = map_project_comment(comment_doc)
+                body = data.get("body") or ""
+                if not body.strip():
+                    stats.skipped += 1
+                    continue
+
+                comment = ProjectTaskComment(
+                    task_id=task_id,
+                    body=body,
+                )
+                db.add(comment)
+                db.flush()
+
+                ref.entity_id = comment.id
+                db.add(ref)
+                stats.created += 1
+
+            except Exception as e:
+                stats.errors += 1
+                stats.error_messages.append(f"Task comment {comment_doc.get('name')}: {e}")
+                logger.warning(
+                    "erpnext_import_task_comment_error doc=%s error=%s",
+                    comment_doc.get("name"),
+                    e,
+                )
+
+    # ─────────────────────────────────────────────────────────────────
+    # Tickets (with comments and communications)
+    # ─────────────────────────────────────────────────────────────────
+
+    def _import_tickets(self, db: Session) -> tuple[ImportStats, ImportStats]:
+        """Import ERPNext HD Tickets. Returns (ticket_stats, comment_stats)."""
+        from app.models.domain_settings import SettingDomain
         from app.models.external import ExternalEntityType
         from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
+        from app.services.numbering import generate_number
 
         stats = ImportStats()
+        comment_stats = ImportStats()
 
-        for doc in self.client.get_all("HD Ticket", fields=HD_TICKET_FIELDS):
+        # Phase 1: lightweight name list
+        for stub in self.client.get_all("HD Ticket", fields=["name"]):
             try:
-                external_id = doc.get("name")
+                external_id = stub.get("name")
                 if not external_id:
                     continue
                 # ERPNext HD Ticket IDs are integers, convert to string
                 external_id = str(external_id)
 
-                ref, is_new = self._get_or_create_external_ref(
-                    db, ExternalEntityType.ticket, external_id
-                )
+                # Phase 2: full doc with child tables (comments)
+                doc = self.client.get_doc("HD Ticket", external_id)
+
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.ticket, external_id)
 
                 data = map_hd_ticket(doc)
                 ticket_status = cast(TicketStatus, data.get("status"))
@@ -581,18 +908,20 @@ class ERPNextImporter:
                 subscriber_id = None
                 erpnext_customer = data.get("_erpnext_customer")
                 if erpnext_customer:
-                    from app.models.external import ExternalReference
-                    cust_ref = (
-                        db.query(ExternalReference)
-                        .filter(ExternalReference.connector_config_id == self.connector_config_id)
-                        .filter(ExternalReference.entity_type == ExternalEntityType.subscriber)
-                        .filter(ExternalReference.external_id == erpnext_customer)
-                        .first()
-                    )
-                    if cust_ref:
-                        subscriber_id = cust_ref.entity_id
+                    subscriber_id = self._resolve_subscriber_id(db, erpnext_customer)
 
                 if is_new:
+                    # Generate DotMac number
+                    number = generate_number(
+                        db=db,
+                        domain=SettingDomain.numbering,
+                        sequence_key="ticket_number",
+                        enabled_key="ticket_number_enabled",
+                        prefix_key="ticket_number_prefix",
+                        padding_key="ticket_number_padding",
+                        start_key="ticket_number_start",
+                    )
+
                     ticket = Ticket(
                         title=data["title"],
                         description=data.get("description"),
@@ -602,6 +931,8 @@ class ERPNextImporter:
                         tags=data.get("tags"),
                         subscriber_id=subscriber_id,
                         is_active=data.get("is_active", True),
+                        number=number,
+                        erpnext_id=external_id,
                     )
                     db.add(ticket)
                     db.flush()
@@ -613,6 +944,10 @@ class ERPNextImporter:
                     db.add(ref)
 
                     stats.created += 1
+
+                    # Import comments from child table + communications
+                    self._import_ticket_comments(db, doc, ticket.id, comment_stats)
+                    self._import_ticket_communications(db, external_id, ticket.id, comment_stats)
                 else:
                     ticket = db.get(Ticket, ref.entity_id)
                     if ticket:
@@ -620,17 +955,142 @@ class ERPNextImporter:
                         ticket.description = data.get("description") or ticket.description
                         ticket.status = ticket_status
                         ticket.priority = ticket_priority
+                        if not ticket.erpnext_id:
+                            ticket.erpnext_id = external_id
                         stats.updated += 1
+
+                        # Import any new comments/communications
+                        self._import_ticket_comments(db, doc, ticket.id, comment_stats)
+                        self._import_ticket_communications(db, external_id, ticket.id, comment_stats)
 
                 db.commit()
 
             except Exception as e:
                 db.rollback()
                 stats.errors += 1
-                stats.error_messages.append(f"HD Ticket {doc.get('name')}: {e}")
-                logger.warning("erpnext_import_ticket_error doc=%s error=%s", doc.get("name"), e)
+                stats.error_messages.append(f"HD Ticket {stub.get('name')}: {e}")
+                logger.warning("erpnext_import_ticket_error doc=%s error=%s", stub.get("name"), e)
 
-        return stats
+        return stats, comment_stats
+
+    def _import_ticket_comments(
+        self,
+        db: Session,
+        doc: dict[str, Any],
+        ticket_id: UUID,
+        stats: ImportStats,
+    ) -> None:
+        """Import comments from an ERPNext HD Ticket child table."""
+        from app.models.tickets import TicketComment
+
+        for comment_doc in doc.get("comments", []):
+            try:
+                comment_name = comment_doc.get("name")
+                if not comment_name:
+                    continue
+
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.ticket_comment, comment_name)
+                if not is_new:
+                    stats.skipped += 1
+                    continue
+
+                data = map_hd_ticket_comment(comment_doc)
+                body = data.get("body") or ""
+                if not body.strip():
+                    stats.skipped += 1
+                    continue
+
+                comment = TicketComment(
+                    ticket_id=ticket_id,
+                    body=body,
+                    is_internal=data.get("is_internal", False),
+                )
+                db.add(comment)
+                db.flush()
+
+                ref.entity_id = comment.id
+                db.add(ref)
+                stats.created += 1
+
+            except Exception as e:
+                stats.errors += 1
+                stats.error_messages.append(f"Ticket comment {comment_doc.get('name')}: {e}")
+                logger.warning(
+                    "erpnext_import_ticket_comment_error doc=%s error=%s",
+                    comment_doc.get("name"),
+                    e,
+                )
+
+    def _import_ticket_communications(
+        self,
+        db: Session,
+        ticket_name: str,
+        ticket_id: UUID,
+        stats: ImportStats,
+    ) -> None:
+        """Import Communications (email threads) linked to an HD Ticket."""
+        from app.models.tickets import TicketComment
+
+        try:
+            comms = self.client.get_all(
+                "Communication",
+                fields=["name", "subject", "content", "sender", "sent_or_received", "creation"],
+                filters={
+                    "reference_doctype": "HD Ticket",
+                    "reference_name": ticket_name,
+                },
+            )
+        except ERPNextError as e:
+            logger.warning(
+                "erpnext_import_ticket_comms_fetch_error ticket=%s error=%s",
+                ticket_name,
+                e,
+            )
+            return
+
+        for comm_doc in comms:
+            try:
+                comm_name = comm_doc.get("name")
+                if not comm_name:
+                    continue
+
+                # Prefix with "comm-" to avoid ID collision with child-table comments
+                ref_key = f"comm-{comm_name}"
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.ticket_comment, ref_key)
+                if not is_new:
+                    stats.skipped += 1
+                    continue
+
+                data = map_communication(comm_doc)
+                body = data.get("body") or ""
+                if not body.strip():
+                    stats.skipped += 1
+                    continue
+
+                comment = TicketComment(
+                    ticket_id=ticket_id,
+                    body=body,
+                    is_internal=data.get("is_internal", False),
+                )
+                db.add(comment)
+                db.flush()
+
+                ref.entity_id = comment.id
+                db.add(ref)
+                stats.created += 1
+
+            except Exception as e:
+                stats.errors += 1
+                stats.error_messages.append(f"Communication {comm_doc.get('name')}: {e}")
+                logger.warning(
+                    "erpnext_import_communication_error doc=%s error=%s",
+                    comm_doc.get("name"),
+                    e,
+                )
+
+    # ─────────────────────────────────────────────────────────────────
+    # Leads
+    # ─────────────────────────────────────────────────────────────────
 
     def _import_leads(self, db: Session) -> ImportStats:
         """Import ERPNext Leads as CRM Leads."""
@@ -646,9 +1106,7 @@ class ERPNextImporter:
                 if not external_id:
                     continue
 
-                ref, is_new = self._get_or_create_external_ref(
-                    db, ExternalEntityType.lead, external_id
-                )
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.lead, external_id)
 
                 data = map_lead(doc)
                 lead_status = cast(LeadStatus, data.get("status"))
@@ -722,6 +1180,10 @@ class ERPNextImporter:
 
         return stats
 
+    # ─────────────────────────────────────────────────────────────────
+    # Quotations
+    # ─────────────────────────────────────────────────────────────────
+
     def _import_quotations(self, db: Session) -> ImportStats:
         """Import ERPNext Quotations as CRM Quotes."""
         from decimal import Decimal
@@ -739,9 +1201,7 @@ class ERPNextImporter:
                 if not external_id:
                     continue
 
-                ref, is_new = self._get_or_create_external_ref(
-                    db, ExternalEntityType.quote, external_id
-                )
+                ref, is_new = self._get_or_create_external_ref(db, ExternalEntityType.quote, external_id)
 
                 # Fetch full doc with items
                 full_doc = self.client.get_doc("Quotation", external_id)
@@ -777,6 +1237,7 @@ class ERPNextImporter:
                         )
                         if lead_ref:
                             from app.models.crm.sales import Lead
+
                             lead = db.get(Lead, lead_ref.entity_id)
                             if lead:
                                 person_id = lead.person_id

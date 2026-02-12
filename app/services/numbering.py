@@ -16,12 +16,7 @@ def _format_number(prefix: str | None, padding: int | None, value: int) -> str:
 
 
 def _next_sequence_value(db: Session, key: str, start_value: int) -> int:
-    sequence = (
-        db.query(DocumentSequence)
-        .filter(DocumentSequence.key == key)
-        .with_for_update()
-        .first()
-    )
+    sequence = db.query(DocumentSequence).filter(DocumentSequence.key == key).with_for_update().first()
     if not sequence:
         sequence = DocumentSequence(key=key, next_value=start_value)
         db.add(sequence)
@@ -71,12 +66,7 @@ def backfill_number_prefixes(db: Session) -> dict[str, int]:
     def _apply_prefix(model, label: str, prefix: str):
         if not prefix:
             return
-        rows = (
-            db.query(model)
-            .filter(model.number.isnot(None))
-            .filter(~model.number.startswith(prefix))
-            .all()
-        )
+        rows = db.query(model).filter(model.number.isnot(None)).filter(~model.number.startswith(prefix)).all()
         for row in rows:
             row.number = f"{prefix}{row.number}"
         updated[label] = len(rows)

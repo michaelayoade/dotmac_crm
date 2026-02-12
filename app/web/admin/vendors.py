@@ -10,7 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
-from app.models.auth import AuthProvider
+from app.models.auth import AuthProvider, UserCredential
+from app.models.person import Person, PersonStatus
 from app.models.rbac import PersonRole, Role
 from app.models.vendor import Vendor, VendorUser
 from app.schemas.auth import UserCredentialCreate
@@ -34,7 +35,13 @@ def _form_str(value: object | None) -> str:
 
 def _form_str_opt(value: object | None) -> str | None:
     value_str = _form_str(value).strip()
-    return value_str or None
+    if not value_str:
+        return None
+    if value_str.lower() in {"none", "null"}:
+        return None
+    return value_str
+
+
 router = APIRouter(prefix="/vendors", tags=["web-admin-vendors"])
 _DEFAULT_VENDOR_ROLE = "vendors"
 
@@ -49,6 +56,7 @@ def get_db():
 
 def _base_context(request: Request, db: Session, active_page: str):
     from app.web.admin import get_current_user, get_sidebar_stats
+
     return {
         "request": request,
         "active_page": active_page,
@@ -109,6 +117,7 @@ def _assign_role_by_name(db: Session, person_id: str, role_name: str) -> None:
 def vendors_list(
     request: Request,
     status: str | None = None,
+    search: str | None = None,
     db: Session = Depends(get_db),
 ):
     current_status = (status or "active").lower()
@@ -123,12 +132,46 @@ def vendors_list(
         limit=200,
         offset=0,
     )
+    # Apply client-side search filter
+    search_term = (search or "").strip().lower()
+    if search_term:
+        vendors = [
+            v
+            for v in vendors
+            if search_term in (v.name or "").lower()
+            or search_term in (v.contact_email or "").lower()
+            or search_term in (v.contact_phone or "").lower()
+        ]
+    # Stats (unfiltered counts)
+    all_active = vendor_service.vendors.list(
+        db=db,
+        is_active=True,
+        order_by="name",
+        order_dir="asc",
+        limit=10000,
+        offset=0,
+    )
+    all_inactive = vendor_service.vendors.list(
+        db=db,
+        is_active=False,
+        order_by="name",
+        order_dir="asc",
+        limit=10000,
+        offset=0,
+    )
+    vendor_stats = {
+        "total": len(all_active) + len(all_inactive),
+        "active": len(all_active),
+        "inactive": len(all_inactive),
+    }
     recent_activities = recent_activity_for_paths(db, ["/admin/vendors"])
     context = _base_context(request, db, active_page="vendors")
     context.update(
         {
             "vendors": vendors,
             "current_status": current_status,
+            "search": search or "",
+            "vendor_stats": vendor_stats,
             "recent_activities": recent_activities,
         }
     )
@@ -149,6 +192,7 @@ def vendor_new(request: Request, db: Session = Depends(get_db)):
     context.update({"vendor": None, "action_url": "/admin/vendors", "roles": roles})
     return templates.TemplateResponse("admin/vendors/vendor_form.html", context)
 
+
 @router.get("/{vendor_id}/edit", response_class=HTMLResponse)
 def vendor_edit(vendor_id: str, request: Request, db: Session = Depends(get_db)):
     vendor = vendor_service.vendors.get(db=db, vendor_id=vendor_id)
@@ -165,7 +209,16 @@ def vendor_edit(vendor_id: str, request: Request, db: Session = Depends(get_db))
 @router.post("", response_class=HTMLResponse)
 async def vendor_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
-    create_user = bool(form.get("create_user"))
+    create_user = bool(form.get("create_user")) or any(
+        form.get(field)
+        for field in (
+            "user_first_name",
+            "user_last_name",
+            "user_email",
+            "user_username",
+            "user_password",
+        )
+    )
     is_active = bool(form.get("is_active"))
     payload: dict[str, str | None] = {
         "name": _form_str(form.get("name")).strip(),
@@ -209,21 +262,11 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
             return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
     try:
         code = payload.get("code") if isinstance(payload.get("code"), str) else None
-        contact_name = (
-            payload.get("contact_name") if isinstance(payload.get("contact_name"), str) else None
-        )
-        contact_email = (
-            payload.get("contact_email") if isinstance(payload.get("contact_email"), str) else None
-        )
-        contact_phone = (
-            payload.get("contact_phone") if isinstance(payload.get("contact_phone"), str) else None
-        )
-        license_number = (
-            payload.get("license_number") if isinstance(payload.get("license_number"), str) else None
-        )
-        service_area = (
-            payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
-        )
+        contact_name = payload.get("contact_name") if isinstance(payload.get("contact_name"), str) else None
+        contact_email = payload.get("contact_email") if isinstance(payload.get("contact_email"), str) else None
+        contact_phone = payload.get("contact_phone") if isinstance(payload.get("contact_phone"), str) else None
+        license_number = payload.get("license_number") if isinstance(payload.get("license_number"), str) else None
+        service_area = payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
         notes = payload.get("notes") if isinstance(payload.get("notes"), str) else None
         data = VendorCreate(
             name=str(payload.get("name") or "").strip(),
@@ -264,14 +307,46 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
             email = user_payload["email"] or ""
             username = user_payload["username"] or ""
             password = user_payload["password"] or ""
-            person = _create_person_credential(
-                db=db,
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-                username=username,
-                password=password,
-            )
+            person = db.query(Person).filter(Person.email == email).first()
+            if person:
+                person.is_active = True
+                person.status = PersonStatus.active
+                if not person.first_name:
+                    person.first_name = first_name
+                if not person.last_name:
+                    person.last_name = last_name
+                if not person.display_name:
+                    person.display_name = f"{first_name} {last_name}".strip()
+                credential = (
+                    db.query(UserCredential)
+                    .filter(UserCredential.person_id == person.id)
+                    .filter(UserCredential.provider == AuthProvider.local)
+                    .first()
+                )
+                if credential:
+                    credential.username = username
+                    credential.password_hash = hash_password(password)
+                    credential.is_active = True
+                    credential.failed_login_attempts = 0
+                    credential.locked_until = None
+                    credential.must_change_password = False
+                else:
+                    credential_payload = UserCredentialCreate(
+                        person_id=person.id,
+                        provider=AuthProvider.local,
+                        username=username,
+                        password_hash=hash_password(password),
+                    )
+                    auth_service.user_credentials.create(db=db, payload=credential_payload)
+            else:
+                person = _create_person_credential(
+                    db=db,
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    username=username,
+                    password=password,
+                )
             _assign_role_by_name(db, str(person.id), role_name)
             link = VendorUser(
                 vendor_id=vendor.id,
@@ -302,6 +377,7 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
             return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
     return RedirectResponse(url="/admin/vendors", status_code=303)
 
+
 @router.post("/{vendor_id}", response_class=HTMLResponse)
 async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(get_db)):
     form = await request.form()
@@ -318,21 +394,13 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
     }
     try:
         update_code = payload.get("code") if isinstance(payload.get("code"), str) else None
-        update_contact_name = (
-            payload.get("contact_name") if isinstance(payload.get("contact_name"), str) else None
-        )
-        update_contact_email = (
-            payload.get("contact_email") if isinstance(payload.get("contact_email"), str) else None
-        )
-        update_contact_phone = (
-            payload.get("contact_phone") if isinstance(payload.get("contact_phone"), str) else None
-        )
+        update_contact_name = payload.get("contact_name") if isinstance(payload.get("contact_name"), str) else None
+        update_contact_email = payload.get("contact_email") if isinstance(payload.get("contact_email"), str) else None
+        update_contact_phone = payload.get("contact_phone") if isinstance(payload.get("contact_phone"), str) else None
         update_license_number = (
             payload.get("license_number") if isinstance(payload.get("license_number"), str) else None
         )
-        update_service_area = (
-            payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
-        )
+        update_service_area = payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
         update_notes = payload.get("notes") if isinstance(payload.get("notes"), str) else None
         data = VendorUpdate(
             name=payload.get("name") if isinstance(payload.get("name"), str) else None,
@@ -378,9 +446,7 @@ def vendor_delete(vendor_id: str, db: Session = Depends(get_db)):
     if vendor.is_active:
         raise HTTPException(status_code=409, detail="Deactivate vendor before deleting.")
     try:
-        db.query(VendorUser).filter(VendorUser.vendor_id == vendor.id).delete(
-            synchronize_session=False
-        )
+        db.query(VendorUser).filter(VendorUser.vendor_id == vendor.id).delete(synchronize_session=False)
         db.delete(vendor)
         db.commit()
     except IntegrityError:

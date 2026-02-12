@@ -1,16 +1,30 @@
-{% from "components/ui/macros.html" import status_badge, type_badge, avatar, row_action, empty_state, pagination, icon_view, icon_edit, icon_delete %}
+{% from "components/ui/macros.html" import status_badge, type_badge, avatar, row_action, empty_state, pagination, icon_view, icon_edit, icon_delete, table_shell, table_row %}
+{% set pad = 'px-6 py-3' %}
+{% set ns = namespace(parts=[]) %}
+{% if search %}
+    {% set ns.parts = ns.parts + ['search=' ~ search|urlencode] %}
+{% endif %}
+{% if external_system %}
+    {% set ns.parts = ns.parts + ['external_system=' ~ external_system|urlencode] %}
+{% endif %}
+{% if status %}
+    {% set ns.parts = ns.parts + ['status=' ~ status|urlencode] %}
+{% endif %}
+{% if per_page %}
+    {% set ns.parts = ns.parts + ['per_page=' ~ per_page] %}
+{% endif %}
+{% set page_base_url = '/admin/subscribers' ~ ('?' ~ ns.parts|join('&') if ns.parts else '') %}
 
-<div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-    <div class="overflow-x-auto">
-        <table class="min-w-full">
+{% call table_shell(table_id="subscribers-table", color="amber", bulk_selectable=False) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
             <thead>
-                <tr class="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-slate-100/50 dark:border-slate-700/50 dark:from-slate-800/80 dark:to-slate-800/50">
-                    <th scope="col" class="w-12 px-3 py-3.5">
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="w-12 {{ pad }}">
                         <input type="checkbox"
                                data-select-all
                                class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500 cursor-pointer">
                     </th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                         <button class="group inline-flex items-center gap-1.5 transition-colors hover:text-slate-700 dark:hover:text-slate-200" hx-get="/admin/subscribers?sort=name" hx-target="#subscribers-table">
                             Subscriber
                             <svg class="h-3.5 w-3.5 text-slate-400 transition-colors group-hover:text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -18,10 +32,10 @@
                             </svg>
                         </button>
                     </th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Source</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Created</th>
-                    <th scope="col" class="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Source</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Created</th>
+                    <th scope="col" class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -31,15 +45,15 @@
                 {% set name = subscriber.display_name %}
                 {% set email = subscriber.person.email if subscriber.person else (subscriber.organization.domain if subscriber.organization else (subscriber.service_plan or '')) %}
 
-                <tr class="group transition-colors hover:bg-gradient-to-r hover:from-amber-50/50 hover:to-orange-50/30 dark:hover:from-amber-900/10 dark:hover:to-orange-900/5">
-                    <td class="w-12 px-3 py-4">
+                {% call table_row(color="amber") %}
+                    <td class="w-12 {{ pad }}">
                         <input type="checkbox"
                                data-subscriber-select
                                data-subscriber-id="{{ subscriber.id }}"
                                data-subscriber-type="{{ sub_type }}"
                                class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500 cursor-pointer">
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4">
+                    <td class="whitespace-nowrap {{ pad }}">
                         <div class="flex items-center gap-4">
                             {{ avatar(name, sub_type) }}
                             <div class="min-w-0">
@@ -59,7 +73,7 @@
                             </div>
                         </div>
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4">
+                    <td class="whitespace-nowrap {{ pad }}">
                         {% if subscriber.external_system %}
                         <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                             <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
@@ -69,16 +83,16 @@
                         <span class="text-sm text-slate-400 dark:text-slate-500">Manual</span>
                         {% endif %}
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4">
+                    <td class="whitespace-nowrap {{ pad }}">
                         {% set status_colors = {'active': 'emerald', 'suspended': 'amber', 'terminated': 'red', 'pending': 'blue'} %}
                         {{ status_badge(subscriber.status.value|title, status_colors.get(subscriber.status.value, 'slate')) }}
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4">
+                    <td class="whitespace-nowrap {{ pad }}">
                         <div class="text-sm font-medium text-slate-900 dark:text-white">
                             {{ subscriber.created_at.strftime('%b %d, %Y') if subscriber.created_at else 'N/A' }}
                         </div>
                     </td>
-                    <td class="whitespace-nowrap px-5 py-4 text-right">
+                    <td class="whitespace-nowrap {{ pad }} text-right">
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             {{ row_action("/admin/subscribers/" ~ subscriber.id, icon_view(), "View details", "amber") }}
                             {{ row_action("/admin/subscribers/" ~ subscriber.id ~ "/edit", icon_edit(), "Edit subscriber", "slate") }}
@@ -103,7 +117,7 @@
                             {% endif %}
                         </div>
                     </td>
-                </tr>
+                {% endcall %}
                 {% endfor %}
                 {% else %}
                 {{ empty_state(
@@ -118,11 +132,10 @@
                 ) }}
                 {% endif %}
             </tbody>
-        </table>
-    </div>
+    </table>
 
-    {{ pagination(page|default(1), total_pages|default(1), total|default(0), per_page|default(20), "/admin/subscribers", "#subscribers-table", "amber") }}
-</div>
+    {{ pagination(page|default(1), total_pages|default(1), total|default(0), per_page|default(20), page_base_url, "#subscribers-table", "amber") }}
+{% endcall %}
 
 <script>
 (function() {

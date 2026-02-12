@@ -116,13 +116,9 @@ class PonPorts(ListResponseMixin):
         data = payload.model_dump()
         fields_set = payload.model_fields_set
         if "port_type" not in fields_set:
-            default_type = settings_spec.resolve_value(
-                db, SettingDomain.network, "default_olt_port_type"
-            )
+            default_type = settings_spec.resolve_value(db, SettingDomain.network, "default_olt_port_type")
             if default_type:
-                data["port_type"] = _validate_enum(
-                    default_type, OltPortType, "port_type"
-                )
+                data["port_type"] = _validate_enum(default_type, OltPortType, "port_type")
         port = PonPort(**data)
         db.add(port)
         db.commit()
@@ -195,15 +191,10 @@ class PonPorts(ListResponseMixin):
         if olt_id:
             query = query.filter(PonPort.olt_id == olt_id)
         total_ports = query.filter(PonPort.is_active.is_(True)).count()
-        assigned_ports = (
-            db.query(OntAssignment.pon_port_id)
-            .filter(OntAssignment.active.is_(True))
-        )
+        assigned_ports = db.query(OntAssignment.pon_port_id).filter(OntAssignment.active.is_(True))
         if olt_id:
             assigned_ports = assigned_ports.filter(
-                OntAssignment.pon_port_id.in_(
-                    db.query(PonPort.id).filter(PonPort.olt_id == olt_id)
-                )
+                OntAssignment.pon_port_id.in_(db.query(PonPort.id).filter(PonPort.olt_id == olt_id))
             )
         assigned_count = assigned_ports.distinct().count()
         return {

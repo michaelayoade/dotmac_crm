@@ -32,9 +32,7 @@ router = APIRouter(prefix="/qualification", tags=["qualification"])
     response_model=CoverageAreaRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_coverage_area(
-    payload: CoverageAreaCreate, db: Session = Depends(get_db)
-):
+def create_coverage_area(payload: CoverageAreaCreate, db: Session = Depends(get_db)):
     return qualification_service.coverage_areas.create(db, payload)
 
 
@@ -69,9 +67,7 @@ def list_coverage_areas(
     "/coverage-areas/{area_id}",
     response_model=CoverageAreaRead,
 )
-def update_coverage_area(
-    area_id: str, payload: CoverageAreaUpdate, db: Session = Depends(get_db)
-):
+def update_coverage_area(area_id: str, payload: CoverageAreaUpdate, db: Session = Depends(get_db)):
     return qualification_service.coverage_areas.update(db, area_id, payload)
 
 
@@ -88,9 +84,7 @@ def delete_coverage_area(area_id: str, db: Session = Depends(get_db)):
     response_model=ServiceQualificationRead,
     status_code=status.HTTP_201_CREATED,
 )
-def check_service_qualification(
-    payload: ServiceQualificationRequest, db: Session = Depends(get_db)
-):
+def check_service_qualification(payload: ServiceQualificationRequest, db: Session = Depends(get_db)):
     return qualification_service.service_qualifications.check(db, payload)
 
 
@@ -98,9 +92,7 @@ def check_service_qualification(
     "/checks/{qualification_id}",
     response_model=ServiceQualificationRead,
 )
-def get_service_qualification(
-    qualification_id: str, db: Session = Depends(get_db)
-):
+def get_service_qualification(qualification_id: str, db: Session = Depends(get_db)):
     return qualification_service.service_qualifications.get(db, qualification_id)
 
 
@@ -127,9 +119,7 @@ def list_service_qualifications(
     response_model=BuildoutRequestRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_buildout_request(
-    payload: BuildoutRequestCreate, db: Session = Depends(get_db)
-):
+def create_buildout_request(payload: BuildoutRequestCreate, db: Session = Depends(get_db)):
     return qualification_service.buildout_requests.create(db, payload)
 
 
@@ -163,9 +153,7 @@ def list_buildout_requests(
     "/buildout-requests/{request_id}",
     response_model=BuildoutRequestRead,
 )
-def update_buildout_request(
-    request_id: str, payload: BuildoutRequestUpdate, db: Session = Depends(get_db)
-):
+def update_buildout_request(request_id: str, payload: BuildoutRequestUpdate, db: Session = Depends(get_db)):
     return qualification_service.buildout_requests.update(db, request_id, payload)
 
 
@@ -173,9 +161,7 @@ def update_buildout_request(
     "/buildout-requests/{request_id}/approve",
     response_model=BuildoutProjectRead,
 )
-def approve_buildout_request(
-    request_id: str, payload: BuildoutApproveRequest, db: Session = Depends(get_db)
-):
+def approve_buildout_request(request_id: str, payload: BuildoutApproveRequest, db: Session = Depends(get_db)):
     return qualification_service.buildout_requests.approve(db, request_id, payload)
 
 
@@ -184,9 +170,7 @@ def approve_buildout_request(
     response_model=BuildoutProjectRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_buildout_project(
-    payload: BuildoutProjectCreate, db: Session = Depends(get_db)
-):
+def create_buildout_project(payload: BuildoutProjectCreate, db: Session = Depends(get_db)):
     return qualification_service.buildout_projects.create(db, payload)
 
 
@@ -220,9 +204,7 @@ def list_buildout_projects(
     "/buildout-projects/{project_id}",
     response_model=BuildoutProjectRead,
 )
-def update_buildout_project(
-    project_id: str, payload: BuildoutProjectUpdate, db: Session = Depends(get_db)
-):
+def update_buildout_project(project_id: str, payload: BuildoutProjectUpdate, db: Session = Depends(get_db)):
     return qualification_service.buildout_projects.update(db, project_id, payload)
 
 
@@ -239,9 +221,7 @@ def delete_buildout_project(project_id: str, db: Session = Depends(get_db)):
     response_model=BuildoutMilestoneRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_buildout_milestone(
-    payload: BuildoutMilestoneCreate, db: Session = Depends(get_db)
-):
+def create_buildout_milestone(payload: BuildoutMilestoneCreate, db: Session = Depends(get_db)):
     return qualification_service.buildout_milestones.create(db, payload)
 
 
@@ -275,9 +255,7 @@ def list_buildout_milestones(
     "/buildout-milestones/{milestone_id}",
     response_model=BuildoutMilestoneRead,
 )
-def update_buildout_milestone(
-    milestone_id: str, payload: BuildoutMilestoneUpdate, db: Session = Depends(get_db)
-):
+def update_buildout_milestone(milestone_id: str, payload: BuildoutMilestoneUpdate, db: Session = Depends(get_db)):
     return qualification_service.buildout_milestones.update(db, milestone_id, payload)
 
 
@@ -294,9 +272,7 @@ def delete_buildout_milestone(milestone_id: str, db: Session = Depends(get_db)):
     response_model=BuildoutUpdateListRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_buildout_update(
-    payload: BuildoutUpdateCreate, db: Session = Depends(get_db)
-):
+def create_buildout_update(payload: BuildoutUpdateCreate, db: Session = Depends(get_db)):
     return qualification_service.buildout_updates.create(db, payload)
 
 
@@ -312,6 +288,4 @@ def list_buildout_updates(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return qualification_service.buildout_updates.list_response(
-        db, project_id, order_by, order_dir, limit, offset
-    )
+    return qualification_service.buildout_updates.list_response(db, project_id, order_by, order_dir, limit, offset)

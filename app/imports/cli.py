@@ -13,13 +13,8 @@ def import_subscriber_custom_fields(path: str) -> int:
     db = SessionLocal()
     try:
         content = Path(path).expanduser().read_text(encoding="utf-8")
-        created, service_errors = import_service.import_subscriber_custom_fields_from_csv(
-            db, content
-        )
-        errors.extend(
-            ImportError(index=err["index"], detail=str(err["detail"]))
-            for err in service_errors
-        )
+        _created, service_errors = import_service.import_subscriber_custom_fields_from_csv(db, content)
+        errors.extend(ImportError(index=err["index"], detail=str(err["detail"])) for err in service_errors)
     finally:
         db.close()
     for _err in errors:

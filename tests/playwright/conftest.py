@@ -5,8 +5,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
-
 from playwright.sync_api import expect, sync_playwright
+
 from tests.playwright.helpers.api import api_post_form, bearer_headers
 from tests.playwright.helpers.auth import (
     ensure_person,
@@ -387,28 +387,5 @@ def vendor_context(browser, settings: E2ESettings, api_context, admin_token: str
 def vendor_page(vendor_context):
     """Page for vendor portal testing."""
     page = vendor_context.new_page()
-    yield page
-    page.close()
-
-
-# Reseller portal fixtures
-
-
-@pytest.fixture()
-def reseller_context(browser, settings: E2ESettings, api_context, admin_token: str):
-    """Browser context with reseller portal session.
-
-    Note: Reseller portal may require specific reseller credentials.
-    This fixture skips if reseller auth is not available.
-    """
-    # Try to authenticate as a reseller
-    # For now, skip as reseller auth setup is required
-    pytest.skip("Reseller portal fixtures require reseller auth setup")
-
-
-@pytest.fixture()
-def reseller_page(reseller_context):
-    """Page for reseller portal testing."""
-    page = reseller_context.new_page()
     yield page
     page.close()

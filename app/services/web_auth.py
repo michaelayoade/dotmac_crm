@@ -1,6 +1,7 @@
 """Service helpers for web auth routes."""
 
 import contextlib
+import logging
 from urllib.parse import quote, urlparse, urlunparse
 
 from fastapi import Request
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.services import auth_flow as auth_flow_service
 from app.services.auth_flow import AuthFlow
 from app.services.email import send_password_reset_email
+
+logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
 
@@ -111,6 +114,14 @@ def login_submit(
         refresh_token = result.get("refresh_token")
         if refresh_token:
             _set_refresh_cookie(response, db, refresh_token)
+        logger.info(
+            "web_login_redirect_success username=%s remember=%s next=%s target=%s ip=%s",
+            username,
+            remember,
+            next_url or "",
+            redirect_url,
+            request.client.host if request.client else None,
+        )
         return response
     except Exception as exc:
         error_msg = "Invalid credentials"
@@ -126,6 +137,13 @@ def login_submit(
             error_msg = detail if isinstance(detail, str) else str(detail)
         elif str(exc):
             error_msg = str(exc)
+        logger.warning(
+            "web_login_submit_failed username=%s next=%s ip=%s error=%s",
+            username,
+            next_url or "",
+            request.client.host if request.client else None,
+            error_msg,
+        )
         return templates.TemplateResponse(
             "auth/login.html",
             {"request": request, "error": error_msg, "next": next_url},
@@ -199,7 +217,7 @@ def forgot_password_submit(request: Request, db: Session, email: str):
                 person_name=reset_payload.get("person_name"),
             )
     except Exception:
-        pass
+        logger.debug("Password reset email send failed.", exc_info=True)
     return templates.TemplateResponse(
         "auth/forgot-password.html",
         {"request": request, "success": True},
@@ -244,13 +262,24 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
         login_url = "/auth/login"
         if next_url and next_url.startswith("/"):
             login_url = f"/auth/login?next={quote(next_url)}"
+        logger.warning(
+            "web_refresh_redirect_login reason=missing_refresh_cookie next=%s ip=%s",
+            next_url or "",
+            request.client.host if request.client else None,
+        )
         return RedirectResponse(url=login_url, status_code=303)
     try:
         result = auth_flow_service.auth_flow.refresh(db, refresh_token, request)
-    except Exception:
+    except Exception as exc:
         login_url = "/auth/login"
         if next_url and next_url.startswith("/"):
             login_url = f"/auth/login?next={quote(next_url)}"
+        logger.warning(
+            "web_refresh_redirect_login reason=refresh_failed next=%s ip=%s error=%s",
+            next_url or "",
+            request.client.host if request.client else None,
+            str(exc),
+        )
         return RedirectResponse(url=login_url, status_code=303)
 
     response = RedirectResponse(url=redirect_url, status_code=303)
@@ -264,6 +293,12 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
     refresh_token = result.get("refresh_token")
     if refresh_token:
         _set_refresh_cookie(response, db, refresh_token)
+    logger.info(
+        "web_refresh_redirect_success next=%s target=%s ip=%s",
+        next_url or "",
+        redirect_url,
+        request.client.host if request.client else None,
+    )
     return response
 
 

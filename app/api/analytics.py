@@ -36,16 +36,12 @@ def list_kpi_configs(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = analytics_service.kpi_configs.list(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    items = analytics_service.kpi_configs.list(db, is_active, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
 @router.patch("/kpi-configs/{config_id}", response_model=KPIConfigRead)
-def update_kpi_config(
-    config_id: str, payload: KPIConfigUpdate, db: Session = Depends(get_db)
-):
+def update_kpi_config(config_id: str, payload: KPIConfigUpdate, db: Session = Depends(get_db)):
     return analytics_service.kpi_configs.update(db, config_id, payload)
 
 
@@ -73,9 +69,7 @@ def list_kpi_aggregates(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = analytics_service.kpi_aggregates.list(
-        db, key, order_by, order_dir, limit, offset
-    )
+    items = analytics_service.kpi_aggregates.list(db, key, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 

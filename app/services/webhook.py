@@ -137,13 +137,10 @@ class WebhookSubscriptions(ListResponseMixin):
     ):
         query = db.query(WebhookSubscription)
         if endpoint_id:
-            query = query.filter(
-                WebhookSubscription.endpoint_id == coerce_uuid(endpoint_id)
-            )
+            query = query.filter(WebhookSubscription.endpoint_id == coerce_uuid(endpoint_id))
         if event_type:
             query = query.filter(
-                WebhookSubscription.event_type
-                == validate_enum(event_type, WebhookEventType, "event_type")
+                WebhookSubscription.event_type == validate_enum(event_type, WebhookEventType, "event_type")
             )
         if is_active is None:
             query = query.filter(WebhookSubscription.is_active.is_(True))
@@ -172,13 +169,10 @@ class WebhookSubscriptions(ListResponseMixin):
     ):
         query = db.query(WebhookSubscription)
         if endpoint_id:
-            query = query.filter(
-                WebhookSubscription.endpoint_id == coerce_uuid(endpoint_id)
-            )
+            query = query.filter(WebhookSubscription.endpoint_id == coerce_uuid(endpoint_id))
         if event_type:
             query = query.filter(
-                WebhookSubscription.event_type
-                == validate_enum(event_type, WebhookEventType, "event_type")
+                WebhookSubscription.event_type == validate_enum(event_type, WebhookEventType, "event_type")
             )
         query = apply_ordering(
             query,
@@ -257,19 +251,13 @@ class WebhookDeliveries(ListResponseMixin):
         if endpoint_id:
             query = query.filter(WebhookDelivery.endpoint_id == coerce_uuid(endpoint_id))
         if subscription_id:
-            query = query.filter(
-                WebhookDelivery.subscription_id == coerce_uuid(subscription_id)
-            )
+            query = query.filter(WebhookDelivery.subscription_id == coerce_uuid(subscription_id))
         if event_type:
             query = query.filter(
-                WebhookDelivery.event_type
-                == validate_enum(event_type, WebhookEventType, "event_type")
+                WebhookDelivery.event_type == validate_enum(event_type, WebhookEventType, "event_type")
             )
         if status:
-            query = query.filter(
-                WebhookDelivery.status
-                == validate_enum(status, WebhookDeliveryStatus, "status")
-            )
+            query = query.filter(WebhookDelivery.status == validate_enum(status, WebhookDeliveryStatus, "status"))
         query = apply_ordering(
             query,
             order_by,

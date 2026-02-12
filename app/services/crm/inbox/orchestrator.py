@@ -15,6 +15,7 @@ Implementation is split across multiple submodules for maintainability:
 - inbox_queries: Inbox statistics and conversation queries
 - inbox_connectors_create: Connector creation utilities
 """
+
 from __future__ import annotations
 
 # Re-export internal functions used by other modules (e.g., web/admin/crm.py)
@@ -74,12 +75,12 @@ class InboxOperations:
         return receive_whatsapp_message(db, payload)
 
     @staticmethod
-    def send_message(db, payload, author_id=None):
-        return send_message(db, payload, author_id=author_id)
+    def send_message(db, payload, author_id=None, trace_id=None):
+        return send_message(db, payload, author_id=author_id, trace_id=trace_id)
 
     @staticmethod
-    def send_message_with_retry(db, payload, author_id=None):
-        return send_message_with_retry(db, payload, author_id=author_id)
+    def send_message_with_retry(db, payload, author_id=None, trace_id=None):
+        return send_message_with_retry(db, payload, author_id=author_id, trace_id=trace_id)
 
     @staticmethod
     def enqueue_outbound_message(db, payload, author_id=None, idempotency_key=None):

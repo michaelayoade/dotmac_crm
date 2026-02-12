@@ -138,6 +138,7 @@ class WirelessSiteSurveyRead(WirelessSiteSurveyBase):
 
 class WirelessSiteSurveyDetail(WirelessSiteSurveyRead):
     """Survey with points and LOS paths."""
+
     points: list[SurveyPointRead] = []
     los_paths: list[SurveyLosPathRead] = []
 

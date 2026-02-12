@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -57,6 +57,7 @@ def build_inbox_settings_context(
     team_error = query_params.get("team_error")
     team_error_detail = query_params.get("team_error_detail")
     agent_setup = query_params.get("agent_setup")
+    agent_deleted = query_params.get("agent_deleted")
     agent_error = query_params.get("agent_error")
     agent_error_detail = query_params.get("agent_error_detail")
     assignment_setup = query_params.get("assignment_setup")
@@ -75,12 +76,8 @@ def build_inbox_settings_context(
 
     meta_status = get_meta_connection_status(db)
 
-    reminder_delay_seconds = resolve_value(
-        db, SettingDomain.notification, "crm_inbox_reply_reminder_delay_seconds"
-    )
-    reminder_repeat_enabled = resolve_value(
-        db, SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled"
-    )
+    reminder_delay_seconds = resolve_value(db, SettingDomain.notification, "crm_inbox_reply_reminder_delay_seconds")
+    reminder_repeat_enabled = resolve_value(db, SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled")
     reminder_repeat_interval_seconds = resolve_value(
         db,
         SettingDomain.notification,
@@ -159,7 +156,7 @@ def build_inbox_settings_context(
     scheme = headers.get("x-forwarded-proto", "http")
     base_url = f"{scheme}://{host}"
     for widget in widgets:
-        widget.embed_code = widget_configs.generate_embed_code(widget, base_url)
+        cast(Any, widget).embed_code = widget_configs.generate_embed_code(widget, base_url)
 
     return {
         "current_user": current_user,
@@ -181,6 +178,7 @@ def build_inbox_settings_context(
         "team_error": team_error,
         "team_error_detail": team_error_detail,
         "agent_setup": agent_setup,
+        "agent_deleted": agent_deleted,
         "agent_error": agent_error,
         "agent_error_detail": agent_error_detail,
         "assignment_setup": assignment_setup,

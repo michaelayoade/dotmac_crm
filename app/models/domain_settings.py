@@ -68,24 +68,16 @@ class DomainSetting(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     domain: Mapped[SettingDomain] = mapped_column(Enum(SettingDomain), nullable=False)
     key: Mapped[str] = mapped_column(String(120), nullable=False)
-    value_type: Mapped[SettingValueType] = mapped_column(
-        Enum(SettingValueType), default=SettingValueType.string
-    )
+    value_type: Mapped[SettingValueType] = mapped_column(Enum(SettingValueType), default=SettingValueType.string)
     value_text: Mapped[str | None] = mapped_column(Text)
-    value_json: Mapped[dict | list | bool | int | str | None] = mapped_column(
-        JSON(none_as_null=True)
-    )
+    value_json: Mapped[dict | list | bool | int | str | None] = mapped_column(JSON(none_as_null=True))
     is_secret: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

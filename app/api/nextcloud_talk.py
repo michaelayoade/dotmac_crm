@@ -27,11 +27,7 @@ def _resolve_client(db: Session, payload) -> NextcloudTalkClient:
         auth_config = dict(config.auth_config or {})
         base_url = base_url or config.base_url
         username = username or auth_config.get("username")
-        app_password = (
-            app_password
-            or auth_config.get("app_password")
-            or auth_config.get("password")
-        )
+        app_password = app_password or auth_config.get("app_password") or auth_config.get("password")
         timeout = timeout or config.timeout_sec or auth_config.get("timeout_sec")
 
     if not base_url or not username or not app_password:
@@ -54,9 +50,7 @@ def list_rooms(payload: NextcloudTalkRoomListRequest, db: Session = Depends(get_
     try:
         return client.list_rooms()
     except NextcloudTalkError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.post("/rooms", response_model=dict)
@@ -69,15 +63,11 @@ def create_room(payload: NextcloudTalkRoomCreateRequest, db: Session = Depends(g
             options=payload.options,
         )
     except NextcloudTalkError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.post("/rooms/{room_token}/messages", response_model=dict)
-def post_message(
-    room_token: str, payload: NextcloudTalkMessageRequest, db: Session = Depends(get_db)
-):
+def post_message(room_token: str, payload: NextcloudTalkMessageRequest, db: Session = Depends(get_db)):
     client = _resolve_client(db, payload)
     try:
         return client.post_message(
@@ -86,6 +76,4 @@ def post_message(
             options=payload.options,
         )
     except NextcloudTalkError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

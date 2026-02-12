@@ -51,6 +51,7 @@ from app.services.crm.inbox_dedup import (
     _find_duplicate_inbound_message,
 )
 from app.services.settings_spec import resolve_value
+from app.services.webhook_dead_letter import write_dead_letter
 
 logger = get_logger(__name__)
 
@@ -182,11 +183,7 @@ def _extract_location_from_attachments(attachments: object) -> dict | None:
         if not isinstance(coords, dict):
             coords = {}
         latitude = coords.get("lat") or coords.get("latitude")
-        longitude = (
-            coords.get("long")
-            or coords.get("lng")
-            or coords.get("longitude")
-        )
+        longitude = coords.get("long") or coords.get("lng") or coords.get("longitude")
         name = payload.get("title") or payload.get("name") or attachment.get("title")
         address = payload.get("address") or payload.get("label")
         label = name or address
@@ -252,12 +249,16 @@ def _find_person_by_email_or_phone(db: Session, metadata: dict | None) -> Person
         )
         if channel:
             return channel.person
-        person = db.query(Person).filter(
-            or_(
-                Person.phone == phone_value,
-                Person.phone == raw_phone,
+        person = (
+            db.query(Person)
+            .filter(
+                or_(
+                    Person.phone == phone_value,
+                    Person.phone == raw_phone,
+                )
             )
-        ).first()
+            .first()
+        )
         if person:
             return person
 
@@ -428,7 +429,7 @@ def process_messenger_webhook(
     """
     results = []
 
-    target, config = _resolve_meta_connector(db, ConnectorType.facebook)
+    _target, config = _resolve_meta_connector(db, ConnectorType.facebook)
     base_url = _get_meta_graph_base_url(db)
 
     for entry in payload.entry:
@@ -569,21 +570,31 @@ def process_messenger_webhook(
 
             try:
                 result_msg = receive_facebook_message(db, parsed)
-                results.append({
-                    "message_id": str(result_msg.id),
-                    "status": "received",
-                })
+                results.append(
+                    {
+                        "message_id": str(result_msg.id),
+                        "status": "received",
+                    }
+                )
             except Exception as exc:
                 logger.exception(
                     "messenger_webhook_processing_failed page_id=%s error=%s",
                     page_id,
                     exc,
                 )
-                results.append({
-                    "message_id": None,
-                    "status": "failed",
-                    "error": str(exc),
-                })
+                write_dead_letter(
+                    channel="facebook_messenger",
+                    raw_payload={"sender": sender, "message": message, "page_id": page_id},
+                    error=exc,
+                    message_id=message.get("mid"),
+                )
+                results.append(
+                    {
+                        "message_id": None,
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
 
     return results
 
@@ -603,7 +614,7 @@ def process_instagram_webhook(
     """
     results = []
 
-    target, config = _resolve_meta_connector(db, ConnectorType.facebook)
+    _target, config = _resolve_meta_connector(db, ConnectorType.facebook)
     base_url = _get_meta_graph_base_url(db)
 
     for entry in payload.entry:
@@ -757,21 +768,31 @@ def process_instagram_webhook(
 
             try:
                 result_msg = receive_instagram_message(db, parsed)
-                results.append({
-                    "message_id": str(result_msg.id),
-                    "status": "received",
-                })
+                results.append(
+                    {
+                        "message_id": str(result_msg.id),
+                        "status": "received",
+                    }
+                )
             except Exception as exc:
                 logger.exception(
                     "instagram_webhook_processing_failed ig_account_id=%s error=%s",
                     ig_account_id,
                     exc,
                 )
-                results.append({
-                    "message_id": None,
-                    "status": "failed",
-                    "error": str(exc),
-                })
+                write_dead_letter(
+                    channel="instagram_dm",
+                    raw_payload={"sender": sender, "message": message, "ig_account_id": ig_account_id},
+                    error=exc,
+                    message_id=message.get("mid"),
+                )
+                results.append(
+                    {
+                        "message_id": None,
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
 
     return results
 
@@ -822,12 +843,17 @@ def _process_facebook_comment_changes(
                 from_id=value.get("sender_id") or "",
                 from_name=value.get("sender_name"),
                 message=value.get("message") or "",
-                created_time=_parse_webhook_timestamp(value.get("created_time"))
-                or datetime.now(UTC),
+                created_time=_parse_webhook_timestamp(value.get("created_time")) or datetime.now(UTC),
                 page_id=entry.id,
             )
         except Exception as exc:
-            logger.info("facebook_comment_payload_invalid %s", exc)
+            logger.warning("facebook_comment_payload_invalid %s", exc)
+            write_dead_letter(
+                channel="facebook_comment",
+                raw_payload=value,
+                error=exc,
+                message_id=value.get("comment_id"),
+            )
             continue
 
         try:
@@ -859,7 +885,13 @@ def _process_facebook_comment_changes(
                 )
                 results.append({"comment_id": payload.comment_id, "status": "stored"})
         except Exception as exc:
-            logger.info("facebook_comment_store_failed %s", exc)
+            logger.warning("facebook_comment_store_failed %s", exc)
+            write_dead_letter(
+                channel="facebook_comment",
+                raw_payload=value,
+                error=exc,
+                message_id=payload.comment_id,
+            )
             results.append({"comment_id": payload.comment_id, "status": "failed"})
     return results
 
@@ -888,12 +920,17 @@ def _process_instagram_comment_changes(
                 from_id=(value.get("from") or {}).get("id") or "",
                 from_username=(value.get("from") or {}).get("username"),
                 text=value.get("text") or "",
-                timestamp=_parse_webhook_timestamp(value.get("timestamp"))
-                or datetime.now(UTC),
+                timestamp=_parse_webhook_timestamp(value.get("timestamp")) or datetime.now(UTC),
                 instagram_account_id=entry.id,
             )
         except Exception as exc:
-            logger.info("instagram_comment_payload_invalid %s", exc)
+            logger.warning("instagram_comment_payload_invalid %s", exc)
+            write_dead_letter(
+                channel="instagram_comment",
+                raw_payload=value,
+                error=exc,
+                message_id=value.get("comment_id") or value.get("id"),
+            )
             continue
 
         try:
@@ -926,7 +963,13 @@ def _process_instagram_comment_changes(
                 )
                 results.append({"comment_id": payload.comment_id, "status": "stored"})
         except Exception as exc:
-            logger.info("instagram_comment_store_failed %s", exc)
+            logger.warning("instagram_comment_store_failed %s", exc)
+            write_dead_letter(
+                channel="instagram_comment",
+                raw_payload=value,
+                error=exc,
+                message_id=payload.comment_id,
+            )
             results.append({"comment_id": payload.comment_id, "status": "failed"})
     return results
 
@@ -949,7 +992,7 @@ def receive_facebook_message(
     received_at = payload.received_at or datetime.now(UTC)
 
     # Find Meta connector/target
-    target, config = _resolve_meta_connector(db, ConnectorType.facebook)
+    target, _config = _resolve_meta_connector(db, ConnectorType.facebook)
 
     # Create/get contact with Facebook Messenger channel
     contact, channel = _resolve_meta_person_and_channel(
@@ -1017,7 +1060,7 @@ def receive_facebook_message(
     # Create message
     message = conversation_service.Messages.create(
         db,
-            MessageCreate(
+        MessageCreate(
             conversation_id=conversation.id,
             person_channel_id=channel.id,
             channel_target_id=target.id if target else None,
@@ -1061,7 +1104,7 @@ def receive_instagram_message(
     body = payload.body if payload.body is not None else "(story mention)"
 
     # Find Meta connector/target (Instagram uses same connector as Facebook)
-    target, config = _resolve_meta_connector(db, ConnectorType.facebook)
+    target, _config = _resolve_meta_connector(db, ConnectorType.facebook)
 
     # Create/get contact with Instagram DM channel
     contact, channel = _resolve_meta_person_and_channel(
@@ -1129,7 +1172,7 @@ def receive_instagram_message(
     # Create message
     message = conversation_service.Messages.create(
         db,
-            MessageCreate(
+        MessageCreate(
             conversation_id=conversation.id,
             person_channel_id=channel.id,
             channel_target_id=target.id if target else None,

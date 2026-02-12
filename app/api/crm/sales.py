@@ -39,9 +39,7 @@ def list_pipelines(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crm_service.pipelines.list_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return crm_service.pipelines.list_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.get("/pipelines/{pipeline_id}", response_model=PipelineRead)
@@ -50,9 +48,7 @@ def get_pipeline(pipeline_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/pipelines/{pipeline_id}", response_model=PipelineRead)
-def update_pipeline(
-    pipeline_id: str, payload: PipelineUpdate, db: Session = Depends(get_db)
-):
+def update_pipeline(pipeline_id: str, payload: PipelineUpdate, db: Session = Depends(get_db)):
     return crm_service.pipelines.update(db, pipeline_id, payload)
 
 
@@ -66,9 +62,7 @@ def delete_pipeline(pipeline_id: str, db: Session = Depends(get_db)):
     response_model=PipelineStageRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_pipeline_stage(
-    pipeline_id: str, payload: PipelineStageCreate, db: Session = Depends(get_db)
-):
+def create_pipeline_stage(pipeline_id: str, payload: PipelineStageCreate, db: Session = Depends(get_db)):
     data = payload.model_copy(update={"pipeline_id": pipeline_id})
     return crm_service.pipeline_stages.create(db, data)
 
@@ -83,15 +77,11 @@ def list_pipeline_stages(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crm_service.pipeline_stages.list_response(
-        db, pipeline_id, is_active, order_by, order_dir, limit, offset
-    )
+    return crm_service.pipeline_stages.list_response(db, pipeline_id, is_active, order_by, order_dir, limit, offset)
 
 
 @router.patch("/pipeline-stages/{stage_id}", response_model=PipelineStageRead)
-def update_pipeline_stage(
-    stage_id: str, payload: PipelineStageUpdate, db: Session = Depends(get_db)
-):
+def update_pipeline_stage(stage_id: str, payload: PipelineStageUpdate, db: Session = Depends(get_db)):
     return crm_service.pipeline_stages.update(db, stage_id, payload)
 
 
@@ -158,9 +148,7 @@ def list_quotes(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crm_service.quotes.list_response(
-        db, lead_id, status, is_active, order_by, order_dir, limit, offset
-    )
+    return crm_service.quotes.list_response(db, lead_id, status, is_active, order_by, order_dir, limit, offset)
 
 
 @router.get("/quotes/{quote_id}", response_model=QuoteRead)
@@ -183,9 +171,7 @@ def delete_quote(quote_id: str, db: Session = Depends(get_db)):
     response_model=QuoteLineItemRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_quote_line_item(
-    quote_id: str, payload: QuoteLineItemCreate, db: Session = Depends(get_db)
-):
+def create_quote_line_item(quote_id: str, payload: QuoteLineItemCreate, db: Session = Depends(get_db)):
     data = payload.model_copy(update={"quote_id": quote_id})
     return crm_service.quote_line_items.create(db, data)
 
@@ -199,13 +185,9 @@ def list_quote_line_items(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crm_service.quote_line_items.list_response(
-        db, quote_id, order_by, order_dir, limit, offset
-    )
+    return crm_service.quote_line_items.list_response(db, quote_id, order_by, order_dir, limit, offset)
 
 
 @router.patch("/quote-line-items/{item_id}", response_model=QuoteLineItemRead)
-def update_quote_line_item(
-    item_id: str, payload: QuoteLineItemUpdate, db: Session = Depends(get_db)
-):
+def update_quote_line_item(item_id: str, payload: QuoteLineItemUpdate, db: Session = Depends(get_db)):
     return crm_service.quote_line_items.update(db, item_id, payload)

@@ -70,15 +70,6 @@ def search_vendors(
     return typeahead_service.vendors_response(db, q, limit)
 
 
-@router.get("/resellers", response_model=ListResponse[TypeaheadItem])
-def search_resellers(
-    q: str = Query(min_length=2),
-    limit: int = Query(default=20, ge=1, le=50),
-    db: Session = Depends(get_db),
-):
-    return typeahead_service.resellers_response(db, q, limit)
-
-
 @router.get("/organizations", response_model=ListResponse[TypeaheadItem])
 def search_organizations(
     q: str = Query(min_length=2),
@@ -99,6 +90,8 @@ def global_search(
     Returns categorized results with navigation URLs.
     """
     return typeahead_service.global_search(db, q, limit)
+
+
 @router.get("/accounts", response_model=ListResponse[TypeaheadItem])
 def search_accounts(
     q: str = Query(min_length=2),
@@ -133,6 +126,8 @@ def search_contacts(
     db: Session = Depends(get_db),
 ):
     return typeahead_service.people_response(db, q, limit)
+
+
 @router.get("/invoices", response_model=ListResponse[TypeaheadItem])
 def search_invoices(
     q: str = Query(min_length=2),
@@ -150,6 +145,8 @@ def search_nas_devices(
     db: Session = Depends(get_db),
 ):
     return _empty_typeahead(limit)
+
+
 @router.get("/catalog-offers", response_model=ListResponse[TypeaheadItem])
 def search_catalog_offers(
     q: str = Query(min_length=2),

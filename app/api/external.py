@@ -20,9 +20,7 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     tags=["external-references"],
 )
-def create_external_reference(
-    payload: ExternalReferenceCreate, db: Session = Depends(get_db)
-):
+def create_external_reference(payload: ExternalReferenceCreate, db: Session = Depends(get_db)):
     return external_service.external_references.create(db, payload)
 
 
@@ -71,9 +69,7 @@ def list_external_references(
     response_model=ExternalReferenceRead,
     tags=["external-references"],
 )
-def update_external_reference(
-    ref_id: str, payload: ExternalReferenceUpdate, db: Session = Depends(get_db)
-):
+def update_external_reference(ref_id: str, payload: ExternalReferenceUpdate, db: Session = Depends(get_db)):
     return external_service.external_references.update(db, ref_id, payload)
 
 
@@ -92,7 +88,5 @@ def delete_external_reference(ref_id: str, db: Session = Depends(get_db)):
     status_code=status.HTTP_200_OK,
     tags=["external-references"],
 )
-def sync_external_reference(
-    payload: ExternalReferenceSync, db: Session = Depends(get_db)
-):
+def sync_external_reference(payload: ExternalReferenceSync, db: Session = Depends(get_db)):
     return external_service.sync_reference(db, payload)

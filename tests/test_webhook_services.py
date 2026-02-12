@@ -53,9 +53,7 @@ def test_webhook_endpoints_default_active(db_session):
         db_session,
         WebhookEndpointCreate(name="Inactive", url="https://example.com/inactive"),
     )
-    webhook_service.webhook_endpoints.update(
-        db_session, str(inactive.id), WebhookEndpointUpdate(is_active=False)
-    )
+    webhook_service.webhook_endpoints.update(db_session, str(inactive.id), WebhookEndpointUpdate(is_active=False))
     items = webhook_service.webhook_endpoints.list(
         db_session,
         is_active=None,

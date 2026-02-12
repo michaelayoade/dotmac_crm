@@ -1,4 +1,5 @@
 """Admin subscriber web routes."""
+
 import contextlib
 import math
 from uuid import UUID
@@ -6,10 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models.subscriber import SubscriberStatus
+from app.models.subscriber import AccountType, Organization, Subscriber, SubscriberStatus
 from app.services.subscriber import subscriber as subscriber_service
 
 router = APIRouter(prefix="/subscribers", tags=["admin-subscribers"])
@@ -21,14 +23,20 @@ def subscriber_list(
     request: Request,
     db: Session = Depends(get_db),
     search: str | None = None,
+    external_system: str | None = None,
     status: str | None = None,
     page: int = 1,
     per_page: int = 20,
 ):
     """List subscribers."""
     from app.web.admin import get_current_user, get_sidebar_stats
+
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
+
+    allowed_per_page = {10, 20, 25, 50, 100, 200}
+    if per_page not in allowed_per_page:
+        per_page = 20
 
     status_filter = None
     if status:
@@ -40,6 +48,7 @@ def subscriber_list(
     subscribers = subscriber_service.list(
         db,
         search=search,
+        external_system=external_system,
         status=status_filter,
         limit=per_page,
         offset=offset,
@@ -48,6 +57,7 @@ def subscriber_list(
     total = subscriber_service.count(
         db,
         search=search,
+        external_system=external_system,
         status=status_filter,
     )
 
@@ -62,11 +72,13 @@ def subscriber_list(
                 "request": request,
                 "subscribers": subscribers,
                 "search": search,
+                "external_system": external_system,
                 "status": status,
                 "page": page,
                 "per_page": per_page,
                 "total": total,
                 "total_pages": total_pages,
+                "active_page": "subscribers",
             },
         )
 
@@ -80,12 +92,176 @@ def subscriber_list(
             "subscribers": subscribers,
             "stats": stats,
             "search": search,
+            "external_system": external_system,
             "status": status,
             "page": page,
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
             "statuses": [s.value for s in SubscriberStatus],
+            "active_page": "subscribers",
+        },
+    )
+
+
+@router.get("/resellers", response_class=HTMLResponse)
+def reseller_organizations_list(
+    request: Request,
+    db: Session = Depends(get_db),
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 20,
+):
+    """List organizations configured as resellers."""
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    user = get_current_user(request)
+    sidebar_stats = get_sidebar_stats(db)
+    offset = (page - 1) * per_page
+
+    query = db.query(Organization).filter(
+        Organization.account_type == AccountType.reseller,
+        Organization.is_active.is_(True),
+    )
+    if search:
+        like = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                Organization.name.ilike(like),
+                Organization.legal_name.ilike(like),
+                Organization.domain.ilike(like),
+            )
+        )
+
+    total = query.with_entities(func.count(Organization.id)).scalar() or 0
+    resellers = query.order_by(Organization.name.asc()).offset(offset).limit(per_page).all()
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+    matched_reseller_ids = query.with_entities(Organization.id).subquery()
+
+    child_total = (
+        db.query(func.count(Organization.id))
+        .filter(Organization.parent_id.in_(select(matched_reseller_ids.c.id)))
+        .scalar()
+        or 0
+    )
+    direct_subscriber_total = (
+        db.query(func.count(Subscriber.id))
+        .filter(
+            Subscriber.organization_id.in_(select(matched_reseller_ids.c.id)),
+            Subscriber.is_active.is_(True),
+        )
+        .scalar()
+        or 0
+    )
+    scoped_org_ids = (
+        db.query(Organization.id)
+        .filter(
+            or_(
+                Organization.id.in_(select(matched_reseller_ids.c.id)),
+                Organization.parent_id.in_(select(matched_reseller_ids.c.id)),
+            )
+        )
+        .subquery()
+    )
+    hierarchy_subscriber_total = (
+        db.query(func.count(Subscriber.id))
+        .filter(
+            Subscriber.organization_id.in_(select(scoped_org_ids.c.id)),
+            Subscriber.is_active.is_(True),
+        )
+        .scalar()
+        or 0
+    )
+
+    reseller_ids = [org.id for org in resellers]
+    subscriber_counts: dict[UUID, int] = {}
+    child_counts: dict[UUID, int] = {}
+    if reseller_ids:
+        child_rows = (
+            db.query(Organization.parent_id, func.count(Organization.id))
+            .filter(Organization.parent_id.in_(reseller_ids))
+            .group_by(Organization.parent_id)
+            .all()
+        )
+        child_counts = {parent_id: int(count) for parent_id, count in child_rows if parent_id}
+
+        # Count subscribers attached directly to reseller orgs.
+        sub_rows = (
+            db.query(Organization.id, func.count())
+            .outerjoin(
+                Subscriber,
+                Subscriber.organization_id == Organization.id,
+            )
+            .filter(Organization.id.in_(reseller_ids))
+            .group_by(Organization.id)
+            .all()
+        )
+        subscriber_counts = {org_id: int(count) for org_id, count in sub_rows}
+
+    return templates.TemplateResponse(
+        "admin/subscribers/resellers.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": sidebar_stats,
+            "resellers": resellers,
+            "search": search or "",
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "child_counts": child_counts,
+            "subscriber_counts": subscriber_counts,
+            "summary": {
+                "resellers": total,
+                "child_orgs": int(child_total),
+                "direct_subscribers": int(direct_subscriber_total),
+                "hierarchy_subscribers": int(hierarchy_subscriber_total),
+            },
+            "active_page": "subscribers",
+        },
+    )
+
+
+@router.get("/resellers/{organization_id}", response_class=HTMLResponse)
+def reseller_organization_subscribers(
+    request: Request,
+    organization_id: UUID,
+    db: Session = Depends(get_db),
+    page: int = 1,
+    per_page: int = 20,
+):
+    """Show subscribers under a reseller organization hierarchy."""
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    user = get_current_user(request)
+    sidebar_stats = get_sidebar_stats(db)
+
+    reseller_org = db.get(Organization, organization_id)
+    if not reseller_org or reseller_org.account_type != AccountType.reseller:
+        return RedirectResponse(url="/admin/subscribers/resellers", status_code=303)
+
+    all_subscribers = subscriber_service.list_for_reseller(db, organization_id)
+    total = len(all_subscribers)
+    offset = (page - 1) * per_page
+    subscribers = all_subscribers[offset : offset + per_page]
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+
+    return templates.TemplateResponse(
+        "admin/subscribers/reseller_detail.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": sidebar_stats,
+            "reseller_org": reseller_org,
+            "subscribers": subscribers,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "active_page": "subscribers",
         },
     )
 
@@ -97,6 +273,7 @@ def subscriber_new(
 ):
     """Show subscriber creation form."""
     from app.web.admin import get_current_user, get_sidebar_stats
+
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
 
@@ -110,6 +287,7 @@ def subscriber_new(
             "subscriber": None,
             "statuses": [s.value for s in SubscriberStatus],
             "is_edit": False,
+            "active_page": "subscribers",
         },
     )
 
@@ -164,6 +342,7 @@ def subscriber_detail(
 ):
     """Show subscriber detail page."""
     from app.web.admin import get_current_user, get_sidebar_stats
+
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
 
@@ -179,6 +358,7 @@ def subscriber_detail(
             "current_user": user,
             "sidebar_stats": sidebar_stats,
             "subscriber": subscriber,
+            "active_page": "subscribers",
         },
     )
 
@@ -191,6 +371,7 @@ def subscriber_edit(
 ):
     """Show subscriber edit form."""
     from app.web.admin import get_current_user, get_sidebar_stats
+
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
 
@@ -208,6 +389,7 @@ def subscriber_edit(
             "subscriber": subscriber,
             "statuses": [s.value for s in SubscriberStatus],
             "is_edit": True,
+            "active_page": "subscribers",
         },
     )
 

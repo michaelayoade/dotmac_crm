@@ -33,9 +33,7 @@ def _render_document(
 
 
 def privacy_policy(request: Request, db: Session):
-    document = legal_service.legal_documents.get_current_by_type(
-        db=db, document_type=LegalDocumentType.privacy_policy
-    )
+    document = legal_service.legal_documents.get_current_by_type(db=db, document_type=LegalDocumentType.privacy_policy)
     return _render_document(
         request,
         document,
@@ -59,9 +57,7 @@ def terms_of_service(request: Request, db: Session):
 
 
 def acceptable_use(request: Request, db: Session):
-    document = legal_service.legal_documents.get_current_by_type(
-        db=db, document_type=LegalDocumentType.acceptable_use
-    )
+    document = legal_service.legal_documents.get_current_by_type(db=db, document_type=LegalDocumentType.acceptable_use)
     return _render_document(
         request,
         document,
@@ -85,9 +81,7 @@ def service_level_agreement(request: Request, db: Session):
 
 
 def cookie_policy(request: Request, db: Session):
-    document = legal_service.legal_documents.get_current_by_type(
-        db=db, document_type=LegalDocumentType.cookie_policy
-    )
+    document = legal_service.legal_documents.get_current_by_type(db=db, document_type=LegalDocumentType.cookie_policy)
     return _render_document(
         request,
         document,
@@ -98,9 +92,7 @@ def cookie_policy(request: Request, db: Session):
 
 
 def refund_policy(request: Request, db: Session):
-    document = legal_service.legal_documents.get_current_by_type(
-        db=db, document_type=LegalDocumentType.refund_policy
-    )
+    document = legal_service.legal_documents.get_current_by_type(db=db, document_type=LegalDocumentType.refund_policy)
     return _render_document(
         request,
         document,
@@ -114,11 +106,7 @@ def legal_document_by_slug(request: Request, db: Session, slug: str):
     document = legal_service.legal_documents.get_by_slug(db=db, slug=slug)
     if document and not document.is_published:
         document = None
-    document_type = (
-        document.document_type.value.replace("_", " ").title()
-        if document
-        else "Legal Document"
-    )
+    document_type = document.document_type.value.replace("_", " ").title() if document else "Legal Document"
     return _render_document(
         request,
         document,

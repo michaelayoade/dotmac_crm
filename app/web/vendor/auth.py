@@ -29,9 +29,7 @@ def vendor_login_submit(
     remember: bool = Form(False),
     db: Session = Depends(get_db),
 ):
-    return web_vendor_auth_service.vendor_login_submit(
-        request, db, username, password, remember
-    )
+    return web_vendor_auth_service.vendor_login_submit(request, db, username, password, remember)
 
 
 @router.get("/mfa", response_class=HTMLResponse)
@@ -56,3 +54,33 @@ def vendor_logout(request: Request):
 @router.get("/refresh")
 def vendor_refresh(request: Request):
     return web_vendor_auth_service.vendor_refresh(request)
+
+
+@router.get("/forgot-password", response_class=HTMLResponse)
+def vendor_forgot_password_page(request: Request, success: bool = False):
+    return web_vendor_auth_service.vendor_forgot_password_page(request, success)
+
+
+@router.post("/forgot-password", response_class=HTMLResponse)
+def vendor_forgot_password_submit(
+    request: Request,
+    email: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    return web_vendor_auth_service.vendor_forgot_password_submit(request, db, email)
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+def vendor_reset_password_page(request: Request, token: str, error: str | None = None):
+    return web_vendor_auth_service.vendor_reset_password_page(request, token, error)
+
+
+@router.post("/reset-password", response_class=HTMLResponse)
+def vendor_reset_password_submit(
+    request: Request,
+    token: str = Form(...),
+    password: str = Form(...),
+    password_confirm: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    return web_vendor_auth_service.vendor_reset_password_submit(request, db, token, password, password_confirm)

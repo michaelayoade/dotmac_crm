@@ -278,9 +278,7 @@ def send_sms(
             error_message = "SMS webhook URL not configured"
             logger.error(error_message)
         else:
-            success, external_id, error_message = _send_via_webhook(
-                webhook_url, api_key, normalized_phone, body
-            )
+            success, external_id, error_message = _send_via_webhook(webhook_url, api_key, normalized_phone, body)
 
     else:
         error_message = f"Unknown SMS provider: {provider}"

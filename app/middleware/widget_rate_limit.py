@@ -115,9 +115,7 @@ class WidgetRateLimiter:
         key = f"ws_connect:{session_id}"
         return self._check_rate(key, limit, window_seconds)
 
-    def _check_rate(
-        self, key: str, limit: int, window_seconds: int
-    ) -> tuple[bool, int]:
+    def _check_rate(self, key: str, limit: int, window_seconds: int) -> tuple[bool, int]:
         """
         Check rate limit using sliding window algorithm.
 
@@ -174,9 +172,7 @@ class WidgetRateLimiter:
             # Fall back to allowing on error
             return True, limit - 1
 
-    def _check_rate_memory(
-        self, key: str, limit: int, window_seconds: int
-    ) -> tuple[bool, int]:
+    def _check_rate_memory(self, key: str, limit: int, window_seconds: int) -> tuple[bool, int]:
         """Check rate limit using in-memory storage (fallback)."""
         now = time.time()
         window_start = now - window_seconds

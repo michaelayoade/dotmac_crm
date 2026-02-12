@@ -5,8 +5,8 @@ import secrets
 from fastapi import HTTPException, Request
 from starlette.responses import Response
 
-CSRF_TOKEN_NAME = "csrf_token"
-CSRF_COOKIE_NAME = "csrf_token"
+CSRF_TOKEN_NAME = "csrf_token"  # nosec B105 - CSRF token field name, not a credential
+CSRF_COOKIE_NAME = "csrf_token"  # nosec B105 - CSRF cookie name, not a credential
 CSRF_HEADER_NAME = "X-CSRF-Token"
 CSRF_TOKEN_LENGTH = 32
 
@@ -70,7 +70,4 @@ class CSRFValidationError(HTTPException):
     """Raised when CSRF validation fails."""
 
     def __init__(self):
-        super().__init__(
-            status_code=403,
-            detail="CSRF token validation failed. Please refresh the page and try again."
-        )
+        super().__init__(status_code=403, detail="CSRF token validation failed. Please refresh the page and try again.")

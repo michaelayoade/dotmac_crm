@@ -5,6 +5,9 @@
 
 {% block content %}
 {{ ambient_background("cyan", "teal") }}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set can_delete_quotes = 'admin' in user_roles_lower %}
 
 <div x-data="quotesList()" class="relative space-y-6">
     {# Page Header #}
@@ -31,19 +34,19 @@
 
     {# Filters #}
     {% call filter_bar() %}
-    <form hx-get="/admin/crm/quotes" hx-target="#quotes-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
-        <div class="flex-1">
+    <form hx-get="/admin/crm/quotes" hx-target="#quotes-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:flex-nowrap lg:items-end">
+        <div class="w-full lg:min-w-0 lg:flex-1">
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Quotes</label>
             {{ search_input("search", search or '', "Search by name, email, or quote ID...", "cyan", {"hx-get": "/admin/crm/quotes", "hx-target": "#quotes-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
         </div>
-        <div class="w-full lg:w-48">
+        <div class="w-full lg:w-48 lg:shrink-0">
             {% set status_options = [{"value": "", "label": "All Status"}] %}
             {% for s in quote_statuses %}
             {% set _ = status_options.append({"value": s, "label": s | replace('_', ' ') | title}) %}
             {% endfor %}
             {{ filter_select("status", status_options, status or '', "Status", "cyan") }}
         </div>
-        <div class="w-full lg:w-56">
+        <div class="w-full lg:w-56 lg:shrink-0">
             {% set lead_options = [{"value": "", "label": "All Leads"}] %}
             {% for lead in leads %}
             {% set _ = lead_options.append({"value": lead.id|string, "label": lead.title or ('Lead ' ~ lead.id|string|truncate(8, True, ''))}) %}
@@ -51,7 +54,9 @@
             {{ filter_select("lead_id", lead_options, lead_id or '', "Lead", "cyan") }}
         </div>
         {% if search or status or lead_id %}
-        {{ action_button("Clear", "/admin/crm/quotes", '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate") }}
+        <div class="w-full lg:w-auto lg:shrink-0">
+            {{ action_button("Clear", "/admin/crm/quotes", '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate") }}
+        </div>
         {% endif %}
     </form>
     {% endcall %}
@@ -80,11 +85,13 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 Change Status
             </button>
+            {% if can_delete_quotes %}
             <button @click="showBulkDeleteModal()"
                     class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                 Delete
             </button>
+            {% endif %}
             <button @click="clearSelection()"
                     class="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -157,6 +164,7 @@
         </div>
     </div>
 
+    {% if can_delete_quotes %}
     <!-- Bulk Delete Modal -->
     <div x-show="bulkDeleteModal"
          x-transition:enter="transition ease-out duration-200"
@@ -193,6 +201,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 </div>
 
 {{ animation_styles() }}

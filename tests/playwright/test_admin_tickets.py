@@ -3,12 +3,12 @@ import glob
 import os
 
 import pytest
-
 from playwright.sync_api import sync_playwright
 
 
 def _base_url() -> str:
     return os.getenv("PLAYWRIGHT_BASE_URL", "http://localhost:8000").rstrip("/")
+
 
 def _browser_name() -> str:
     return os.getenv("PLAYWRIGHT_BROWSER", "chromium").lower()
@@ -19,8 +19,7 @@ def _chromium_executable() -> str | None:
     if override:
         return override
     candidates = glob.glob(
-        "/root/.cache/ms-playwright/chromium_headless_shell-*/"
-        "chrome-headless-shell-linux64/chrome-headless-shell"
+        "/root/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"
     )
     return candidates[0] if candidates else None
 

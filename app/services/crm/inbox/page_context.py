@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
@@ -23,6 +24,8 @@ from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel
 from app.services.crm.inbox.listing import load_inbox_list
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
+
+logger = logging.getLogger(__name__)
 
 
 async def build_inbox_page_context(
@@ -74,13 +77,11 @@ async def build_inbox_page_context(
         if conversation_id:
             try:
                 conv = conversation_service.Conversations.get(db, conversation_id)
-                selected_conversation = format_conversation_for_template(
-                    conv, db, include_inbox_label=True
-                )
+                selected_conversation = format_conversation_for_template(conv, db, include_inbox_label=True)
                 if conv.contact:
                     contact_details = format_contact_for_template(conv.contact, db)
             except Exception:
-                pass
+                logger.debug("Failed to format contact details for inbox context.", exc_info=True)
 
     if not comments_mode:
         listing = await load_inbox_list(
@@ -126,8 +127,22 @@ async def build_inbox_page_context(
             conversations.sort(key=_sort_key, reverse=True)
             conversations = conversations[:page_limit]
 
+        if comment_id:
+            comment_context = await load_comments_context(
+                db,
+                search=search,
+                comment_id=comment_id,
+                offset=0,
+                limit=1,
+                fetch=False,
+                target_id=target_id,
+                include_thread=True,
+            )
+            selected_comment = comment_context.selected_comment
+            comment_replies = comment_context.comment_replies
+
         target_conv_id = conversation_id
-        if not target_conv_id and conversations:
+        if not target_conv_id and not comment_id and conversations:
             first_conv = next(
                 (entry for entry in conversations if entry.get("kind") != "comment"),
                 None,
@@ -138,11 +153,9 @@ async def build_inbox_page_context(
         if target_conv_id:
             try:
                 conv = conversation_service.Conversations.get(db, target_conv_id)
-                selected_conversation = format_conversation_for_template(
-                    conv, db, include_inbox_label=True
-                )
+                selected_conversation = format_conversation_for_template(conv, db, include_inbox_label=True)
             except Exception:
-                pass
+                logger.debug("Failed to format contact sidebar details for inbox context.", exc_info=True)
 
     stats, channel_stats = load_inbox_stats(db)
 
@@ -191,9 +204,7 @@ async def build_inbox_page_context(
         "comments_limit": context.limit if comments_mode else page_limit,
         "comments_page": (safe_offset // page_limit) + 1 if comments_mode else 1,
         "comments_prev_page": (safe_page - 1) if comments_mode and safe_page > 1 else None,
-        "comments_next_page": ((safe_offset // page_limit) + 2)
-        if comments_mode and context.has_more
-        else None,
+        "comments_next_page": ((safe_offset // page_limit) + 2) if comments_mode and context.has_more else None,
         "pagination_limit": page_limit,
         "selected_conversation": selected_conversation,
         "messages": messages,

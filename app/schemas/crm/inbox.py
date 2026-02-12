@@ -16,6 +16,9 @@ class InboxSendRequest(BaseModel):
     person_channel_id: UUID | None = None
     reply_to_message_id: UUID | None = None
     template_id: UUID | None = None
+    whatsapp_template_name: str | None = None
+    whatsapp_template_language: str | None = None
+    whatsapp_template_components: list[dict] | None = None
     subject: str | None = Field(default=None, max_length=200)
     body: str | None = None
     scheduled_at: datetime | None = None
@@ -26,6 +29,11 @@ class InboxSendRequest(BaseModel):
     def _require_body_or_attachments(self):
         body_text = (self.body or "").strip()
         has_attachments = bool(self.attachments)
+        if self.channel_type == ChannelType.whatsapp and self.whatsapp_template_name:
+            if not self.whatsapp_template_language:
+                raise ValueError("WhatsApp template language is required.")
+            self.body = body_text
+            return self
         if not body_text and not has_attachments and not self.template_id:
             raise ValueError("Message body is required when no attachments are provided.")
         self.body = body_text

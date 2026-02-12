@@ -55,22 +55,14 @@ def notifications_menu(request: Request, db: Session = Depends(get_db)):
 def notification_templates_list(
     request: Request,
     channel: str | None = None,
+    search: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
 ):
     """List notification templates."""
+    search = (search or "").strip()
     offset = (page - 1) * per_page
-
-    template_list = notification_service.templates.list(
-        db=db,
-        channel=channel if channel else None,
-        is_active=None,
-        order_by="name",
-        order_dir="asc",
-        limit=per_page,
-        offset=offset,
-    )
 
     all_templates = notification_service.templates.list(
         db=db,
@@ -81,8 +73,20 @@ def notification_templates_list(
         limit=10000,
         offset=0,
     )
+
+    if search:
+        search_lower = search.lower()
+        all_templates = [
+            t
+            for t in all_templates
+            if search_lower in (t.name or "").lower()
+            or search_lower in (t.code or "").lower()
+            or search_lower in (t.subject or "").lower()
+        ]
+
     total = len(all_templates)
     total_pages = (total + per_page - 1) // per_page if total else 1
+    template_list = all_templates[offset : offset + per_page]
 
     # Get channel counts
     all_active = notification_service.templates.list(
@@ -103,6 +107,7 @@ def notification_templates_list(
     }
 
     from app.web.admin import get_current_user, get_sidebar_stats
+
     return templates.TemplateResponse(
         "admin/notifications/templates_list.html",
         {
@@ -113,6 +118,7 @@ def notification_templates_list(
             "total": total,
             "total_pages": total_pages,
             "channel": channel,
+            "search": search,
             "channel_counts": channel_counts,
             "channels": [c.value for c in NotificationChannel],
             "active_page": "notification-templates",
@@ -127,6 +133,7 @@ def notification_templates_list(
 def notification_template_new(request: Request, db: Session = Depends(get_db)):
     """Create new notification template form."""
     from app.web.admin import get_current_user, get_sidebar_stats
+
     return templates.TemplateResponse(
         "admin/notifications/template_form.html",
         {
@@ -168,6 +175,7 @@ def notification_template_create(
         return RedirectResponse(url=f"/admin/notifications/templates/{template.id}", status_code=303)
     except Exception as exc:
         from app.web.admin import get_current_user, get_sidebar_stats
+
         return templates.TemplateResponse(
             "admin/notifications/template_form.html",
             {
@@ -186,7 +194,9 @@ def notification_template_create(
         )
 
 
-@router.get("/templates/{template_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:read"))])
+@router.get(
+    "/templates/{template_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:read"))]
+)
 def notification_template_detail(
     request: Request,
     template_id: UUID,
@@ -202,6 +212,7 @@ def notification_template_detail(
         )
 
     from app.web.admin import get_current_user, get_sidebar_stats
+
     return templates.TemplateResponse(
         "admin/notifications/template_form.html",
         {
@@ -219,7 +230,9 @@ def notification_template_detail(
     )
 
 
-@router.post("/templates/{template_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:write"))])
+@router.post(
+    "/templates/{template_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:write"))]
+)
 def notification_template_update(
     request: Request,
     template_id: UUID,
@@ -248,6 +261,7 @@ def notification_template_update(
     except Exception as exc:
         template = notification_service.templates.get(db=db, template_id=str(template_id))
         from app.web.admin import get_current_user, get_sidebar_stats
+
         return templates.TemplateResponse(
             "admin/notifications/template_form.html",
             {
@@ -267,7 +281,11 @@ def notification_template_update(
         )
 
 
-@router.post("/templates/{template_id}/test", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:write"))])
+@router.post(
+    "/templates/{template_id}/test",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:write"))],
+)
 def notification_template_test(
     request: Request,
     template_id: UUID,
@@ -317,8 +335,14 @@ def notification_template_test(
         return RedirectResponse(url=f"/admin/notifications/templates/{template_id}", status_code=303)
 
 
-@router.delete("/templates/{template_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:write"))])
-@router.post("/templates/{template_id}/delete", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:write"))])
+@router.delete(
+    "/templates/{template_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:write"))]
+)
+@router.post(
+    "/templates/{template_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:write"))],
+)
 def notification_template_delete(
     request: Request,
     template_id: UUID,
@@ -391,6 +415,7 @@ def notification_queue(
     }
 
     from app.web.admin import get_current_user, get_sidebar_stats
+
     return templates.TemplateResponse(
         "admin/notifications/queue.html",
         {
@@ -451,6 +476,7 @@ def notification_history(
 
     from app.models.notification import DeliveryStatus
     from app.web.admin import get_current_user, get_sidebar_stats
+
     return templates.TemplateResponse(
         "admin/notifications/history.html",
         {

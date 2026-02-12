@@ -37,14 +37,10 @@ class ConnectorConfigs(ListResponseMixin):
         query = db.query(ConnectorConfig)
         if connector_type:
             query = query.filter(
-                ConnectorConfig.connector_type
-                == validate_enum(connector_type, ConnectorType, "connector_type")
+                ConnectorConfig.connector_type == validate_enum(connector_type, ConnectorType, "connector_type")
             )
         if auth_type:
-            query = query.filter(
-                ConnectorConfig.auth_type
-                == validate_enum(auth_type, ConnectorAuthType, "auth_type")
-            )
+            query = query.filter(ConnectorConfig.auth_type == validate_enum(auth_type, ConnectorAuthType, "auth_type"))
         if is_active is None:
             query = query.filter(ConnectorConfig.is_active.is_(True))
         else:
@@ -70,14 +66,10 @@ class ConnectorConfigs(ListResponseMixin):
         query = db.query(ConnectorConfig)
         if connector_type:
             query = query.filter(
-                ConnectorConfig.connector_type
-                == validate_enum(connector_type, ConnectorType, "connector_type")
+                ConnectorConfig.connector_type == validate_enum(connector_type, ConnectorType, "connector_type")
             )
         if auth_type:
-            query = query.filter(
-                ConnectorConfig.auth_type
-                == validate_enum(auth_type, ConnectorAuthType, "auth_type")
-            )
+            query = query.filter(ConnectorConfig.auth_type == validate_enum(auth_type, ConnectorAuthType, "auth_type"))
         query = apply_ordering(
             query,
             order_by,

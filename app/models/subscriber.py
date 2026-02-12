@@ -11,7 +11,6 @@ from sqlalchemy import (
     Index,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.mutable import MutableDict
@@ -28,6 +27,7 @@ class AddressType(enum.Enum):
 
 class SubscriberStatus(enum.Enum):
     """Subscriber status synced from external billing system."""
+
     active = "active"
     suspended = "suspended"
     terminated = "terminated"
@@ -36,22 +36,24 @@ class SubscriberStatus(enum.Enum):
 
 class AccountType(enum.Enum):
     """Organization account type for B2B CRM."""
-    prospect = "prospect"       # Potential customer, not yet qualified
-    customer = "customer"       # Active paying customer
-    partner = "partner"         # Business partner (integration, referral)
-    reseller = "reseller"       # Resells our services
-    vendor = "vendor"           # Supplies goods/services to us
-    competitor = "competitor"   # For tracking
+
+    prospect = "prospect"  # Potential customer, not yet qualified
+    customer = "customer"  # Active paying customer
+    partner = "partner"  # Business partner (integration, referral)
+    reseller = "reseller"  # Resells our services
+    vendor = "vendor"  # Supplies goods/services to us
+    competitor = "competitor"  # For tracking
     other = "other"
 
 
 class AccountStatus(enum.Enum):
     """Organization account lifecycle status."""
-    active = "active"           # Active relationship
-    inactive = "inactive"       # Dormant, no recent activity
-    churned = "churned"         # Former customer
-    suspended = "suspended"     # Temporarily suspended
-    archived = "archived"       # Archived/closed
+
+    active = "active"  # Active relationship
+    inactive = "inactive"  # Dormant, no recent activity
+    churned = "churned"  # Former customer
+    suspended = "suspended"  # Temporarily suspended
+    archived = "archived"  # Archived/closed
 
 
 class Organization(Base):
@@ -61,6 +63,7 @@ class Organization(Base):
     Supports enterprise account structures with parent/child relationships,
     account types, and CRM fields for sales pipeline management.
     """
+
     __tablename__ = "organizations"
     __table_args__ = (
         Index("ix_organizations_parent", "parent_id"),
@@ -70,9 +73,7 @@ class Organization(Base):
         Index("ix_organizations_erp", "erp_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Basic info
     name: Mapped[str] = mapped_column(String(160), nullable=False)
@@ -84,27 +85,17 @@ class Organization(Base):
     email: Mapped[str | None] = mapped_column(String(255))
 
     # Account classification
-    account_type: Mapped[AccountType] = mapped_column(
-        Enum(AccountType), default=AccountType.prospect
-    )
-    account_status: Mapped[AccountStatus] = mapped_column(
-        Enum(AccountStatus), default=AccountStatus.active
-    )
+    account_type: Mapped[AccountType] = mapped_column(Enum(AccountType), default=AccountType.prospect)
+    account_status: Mapped[AccountStatus] = mapped_column(Enum(AccountStatus), default=AccountStatus.active)
 
     # Hierarchy - parent/child for enterprise accounts
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id")
-    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"))
 
     # Primary contact at this organization
-    primary_contact_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id")
-    )
+    primary_contact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
 
     # Account owner (sales rep/account manager)
-    owner_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id")
-    )
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
 
     # B2B CRM fields
     industry: Mapped[str | None] = mapped_column(String(100))
@@ -122,6 +113,7 @@ class Organization(Base):
 
     # External integrations
     erp_id: Mapped[str | None] = mapped_column(String(100), unique=True)
+    erpnext_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)
 
     # Metadata
     notes: Mapped[str | None] = mapped_column(Text)
@@ -130,9 +122,7 @@ class Organization(Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -164,59 +154,6 @@ class Organization(Base):
         return self.name
 
 
-class Reseller(Base):
-    __tablename__ = "resellers"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    name: Mapped[str] = mapped_column(String(160), nullable=False)
-    code: Mapped[str | None] = mapped_column(String(60), unique=True)
-    contact_email: Mapped[str | None] = mapped_column(String(255))
-    contact_phone: Mapped[str | None] = mapped_column(String(40))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
-    )
-
-    users = relationship("ResellerUser", back_populates="reseller")
-
-
-class ResellerUser(Base):
-    __tablename__ = "reseller_users"
-    __table_args__ = (
-        UniqueConstraint("reseller_id", "person_id", name="uq_reseller_users_reseller_person"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    reseller_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("resellers.id"), nullable=False
-    )
-    person_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id"), nullable=False
-    )
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-    )
-
-    reseller = relationship("Reseller", back_populates="users")
-    person = relationship("Person")
-
-
 class Subscriber(Base):
     """
     Subscriber account synced from external billing/subscription system.
@@ -226,23 +163,19 @@ class Subscriber(Base):
     context for tickets, work orders, and projects without managing
     billing locally.
     """
+
     __tablename__ = "subscribers"
     __table_args__ = (
         Index("ix_subscribers_external", "external_system", "external_id"),
         Index("ix_subscribers_status", "status"),
+        Index("ix_subscribers_sales_order", "sales_order_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Link to Person (customer contact)
-    person_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id")
-    )
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("organizations.id")
-    )
+    person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"))
 
     # External system reference
     external_id: Mapped[str | None] = mapped_column(String(120))
@@ -253,9 +186,7 @@ class Subscriber(Base):
     account_number: Mapped[str | None] = mapped_column(String(60))
 
     # Status (synced from billing)
-    status: Mapped[SubscriberStatus] = mapped_column(
-        Enum(SubscriberStatus), default=SubscriberStatus.active
-    )
+    status: Mapped[SubscriberStatus] = mapped_column(Enum(SubscriberStatus), default=SubscriberStatus.active)
 
     # Service info (for display)
     service_name: Mapped[str | None] = mapped_column(String(160))
@@ -284,27 +215,27 @@ class Subscriber(Base):
     # Sync metadata
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sync_error: Mapped[str | None] = mapped_column(String(500))
-    sync_metadata: Mapped[dict | None] = mapped_column(
-        "sync_metadata", MutableDict.as_mutable(JSON())
-    )
+    sync_metadata: Mapped[dict | None] = mapped_column("sync_metadata", MutableDict.as_mutable(JSON()))
 
     # Notes (local, not synced)
     notes: Mapped[str | None] = mapped_column(Text)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
 
+    # Fulfillment link
+    sales_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sales_orders.id"))
+
     # Relationships
-    person = relationship("Person", foreign_keys=[person_id])
+    person = relationship("Person", foreign_keys=[person_id], back_populates="subscribers")
     organization = relationship("Organization", foreign_keys=[organization_id])
+    sales_order = relationship("SalesOrder", foreign_keys=[sales_order_id])
     tickets = relationship("Ticket", back_populates="subscriber")
     work_orders = relationship("WorkOrder", back_populates="subscriber")
     projects = relationship("Project", back_populates="subscriber")

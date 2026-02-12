@@ -1,7 +1,9 @@
 """Admin operations web routes."""
+
 import contextlib
 import math
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from html import escape as html_escape
 from urllib.parse import quote
 from uuid import UUID
 
@@ -32,6 +34,7 @@ from app.web.admin import get_current_user, get_sidebar_stats
 router = APIRouter(prefix="/operations", tags=["admin-operations"])
 templates = Jinja2Templates(directory="templates")
 
+
 def _parse_local_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -41,9 +44,28 @@ def _parse_local_datetime(value: str | None) -> datetime | None:
         return None
 
 
+def _parse_date_range(
+    period_days: int | None,
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[datetime, datetime]:
+    now = datetime.now(UTC)
+    end_dt = now
+    if start_date and end_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date).replace(tzinfo=UTC)
+            end_dt = datetime.fromisoformat(end_date).replace(tzinfo=UTC).replace(hour=23, minute=59, second=59)
+            return start_dt, end_dt
+        except ValueError:
+            pass  # Fall through to default period
+    days = period_days or 30
+    return now - timedelta(days=days), end_dt
+
+
 # =============================================================================
 # Sales Orders
 # =============================================================================
+
 
 @router.get("/sales-orders", response_class=HTMLResponse)
 def sales_orders_list(
@@ -75,10 +97,22 @@ def sales_orders_list(
     # Get stats using direct queries
     stats = {
         "total": db.query(func.count(SalesOrder.id)).filter(SalesOrder.is_active.is_(True)).scalar() or 0,
-        "draft": db.query(func.count(SalesOrder.id)).filter(SalesOrder.status == SalesOrderStatus.draft, SalesOrder.is_active.is_(True)).scalar() or 0,
-        "confirmed": db.query(func.count(SalesOrder.id)).filter(SalesOrder.status == SalesOrderStatus.confirmed, SalesOrder.is_active.is_(True)).scalar() or 0,
-        "paid": db.query(func.count(SalesOrder.id)).filter(SalesOrder.payment_status == SalesOrderPaymentStatus.paid, SalesOrder.is_active.is_(True)).scalar() or 0,
-        "pending_payment": db.query(func.count(SalesOrder.id)).filter(SalesOrder.payment_status == SalesOrderPaymentStatus.pending, SalesOrder.is_active.is_(True)).scalar() or 0,
+        "draft": db.query(func.count(SalesOrder.id))
+        .filter(SalesOrder.status == SalesOrderStatus.draft, SalesOrder.is_active.is_(True))
+        .scalar()
+        or 0,
+        "confirmed": db.query(func.count(SalesOrder.id))
+        .filter(SalesOrder.status == SalesOrderStatus.confirmed, SalesOrder.is_active.is_(True))
+        .scalar()
+        or 0,
+        "paid": db.query(func.count(SalesOrder.id))
+        .filter(SalesOrder.payment_status == SalesOrderPaymentStatus.paid, SalesOrder.is_active.is_(True))
+        .scalar()
+        or 0,
+        "pending_payment": db.query(func.count(SalesOrder.id))
+        .filter(SalesOrder.payment_status == SalesOrderPaymentStatus.pending, SalesOrder.is_active.is_(True))
+        .scalar()
+        or 0,
     }
 
     # Count for pagination
@@ -150,6 +184,36 @@ def sales_order_detail(
             "csrf_token": get_csrf_token(request),
         },
     )
+
+
+@router.post("/sales-orders/{order_id}/status", response_class=HTMLResponse)
+async def sales_order_status_update(
+    request: Request,
+    order_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """Quick inline status update for a sales order."""
+    form = await request.form()
+    status_raw = form.get("status")
+    status_value = status_raw.strip() if isinstance(status_raw, str) else ""
+    try:
+        order = sales_orders_service.sales_orders.get(db, str(order_id))
+        sales_orders_service.sales_orders.update_from_input(
+            db,
+            str(order.id),
+            status=status_value,
+        )
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                content="",
+                headers={"HX-Redirect": f"/admin/operations/sales-orders/{order_id}"},
+            )
+        return RedirectResponse(f"/admin/operations/sales-orders/{order_id}", status_code=303)
+    except Exception as exc:
+        error = html_escape(exc.detail if hasattr(exc, "detail") else str(exc))
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(content=f'<p class="text-red-600 text-sm">{error}</p>', status_code=422)
+        return RedirectResponse(f"/admin/operations/sales-orders/{order_id}", status_code=303)
 
 
 @router.get("/sales-orders/{order_id}/edit", response_class=HTMLResponse)
@@ -262,12 +326,18 @@ def sales_order_delete(
 # Work Orders
 # =============================================================================
 
+
 @router.get("/work-orders", response_class=HTMLResponse)
 def work_orders_list(
     request: Request,
     db: Session = Depends(get_db),
     status: str | None = None,
     priority: str | None = None,
+    assigned: str | None = None,
+    scheduled: str | None = None,
+    period_days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
 ):
@@ -275,42 +345,41 @@ def work_orders_list(
     user = get_current_user(request)
 
     offset = (page - 1) * per_page
+    start_dt, end_dt = _parse_date_range(period_days, start_date, end_date)
 
-    orders = workforce_service.work_orders.list(
-        db,
-        subscriber_id=None,
-        ticket_id=None,
-        project_id=None,
-        assigned_to_person_id=None,
-        status=status,
-        priority=priority,
-        work_type=None,
-        is_active=True,
-        order_by="created_at",
-        order_dir="desc",
-        limit=per_page,
-        offset=offset,
-    )
+    base_query = db.query(WorkOrder).filter(WorkOrder.is_active.is_(True))
+    base_query = base_query.filter(WorkOrder.created_at >= start_dt, WorkOrder.created_at <= end_dt)
 
-    # Get stats using direct queries
+    # Get stats for the selected date scope (before status/priority filters)
     stats = {
-        "total": db.query(func.count(WorkOrder.id)).scalar() or 0,
-        "draft": db.query(func.count(WorkOrder.id)).filter(WorkOrder.status == WorkOrderStatus.draft).scalar() or 0,
-        "scheduled": db.query(func.count(WorkOrder.id)).filter(WorkOrder.status == WorkOrderStatus.scheduled).scalar() or 0,
-        "in_progress": db.query(func.count(WorkOrder.id)).filter(WorkOrder.status == WorkOrderStatus.in_progress).scalar() or 0,
-        "completed": db.query(func.count(WorkOrder.id)).filter(WorkOrder.status == WorkOrderStatus.completed).scalar() or 0,
+        "total": base_query.count(),
+        "draft": base_query.filter(WorkOrder.status == WorkOrderStatus.draft).count(),
+        "scheduled": base_query.filter(WorkOrder.status == WorkOrderStatus.scheduled).count(),
+        "in_progress": base_query.filter(WorkOrder.status == WorkOrderStatus.in_progress).count(),
+        "completed": base_query.filter(WorkOrder.status == WorkOrderStatus.completed).count(),
     }
 
-    # Count for pagination
-    count_query = db.query(func.count(WorkOrder.id))
+    filtered_query = base_query
     if status:
         with contextlib.suppress(ValueError):
-            count_query = count_query.filter(WorkOrder.status == WorkOrderStatus(status))
+            filtered_query = filtered_query.filter(WorkOrder.status == WorkOrderStatus(status))
     if priority:
         with contextlib.suppress(ValueError):
-            count_query = count_query.filter(WorkOrder.priority == WorkOrderPriority(priority))
-    total = count_query.scalar() or 0
+            filtered_query = filtered_query.filter(WorkOrder.priority == WorkOrderPriority(priority))
+
+    total = filtered_query.count()
     total_pages = math.ceil(total / per_page) if total > 0 else 1
+    orders = filtered_query.order_by(WorkOrder.created_at.desc()).limit(per_page).offset(offset).all()
+    technicians = dispatch_service.technicians.list(
+        db,
+        person_id=None,
+        region=None,
+        is_active=True,
+        order_by="created_at",
+        order_dir="asc",
+        limit=200,
+        offset=0,
+    )
 
     return templates.TemplateResponse(
         "admin/operations/work-orders.html",
@@ -320,15 +389,23 @@ def work_orders_list(
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
             "orders": orders,
+            "work_orders": orders,
+            "technicians": technicians,
             "stats": stats,
             "status": status,
             "priority": priority,
+            "assigned": assigned or "",
+            "scheduled": scheduled or "",
+            "period_days": period_days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
             "page": page,
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
             "statuses": [s.value for s in WorkOrderStatus],
             "priorities": [p.value for p in WorkOrderPriority],
+            "status_options": [s.value for s in WorkOrderStatus],
         },
     )
 
@@ -621,6 +698,7 @@ def work_order_delete(
 # Installations (Vendor Projects)
 # =============================================================================
 
+
 @router.get("/installations", response_class=HTMLResponse)
 def installations_list(
     request: Request,
@@ -675,6 +753,7 @@ def installations_list(
 # Technicians
 # =============================================================================
 
+
 @router.get("/technicians", response_class=HTMLResponse)
 def technicians_list(
     request: Request,
@@ -697,11 +776,7 @@ def technicians_list(
         limit=per_page,
         offset=offset,
     )
-    credential_exists = (
-        db.query(UserCredential.id)
-        .filter(UserCredential.person_id == Person.id)
-        .exists()
-    )
+    credential_exists = db.query(UserCredential.id).filter(UserCredential.person_id == Person.id).exists()
     people = (
         db.query(Person)
         .filter(credential_exists)
@@ -778,11 +853,7 @@ def technicians_create(
         limit=per_page,
         offset=offset,
     )
-    credential_exists = (
-        db.query(UserCredential.id)
-        .filter(UserCredential.person_id == Person.id)
-        .exists()
-    )
+    credential_exists = db.query(UserCredential.id).filter(UserCredential.person_id == Person.id).exists()
     people = (
         db.query(Person)
         .filter(credential_exists)
@@ -912,6 +983,7 @@ def technician_update(
 # =============================================================================
 # Dispatch
 # =============================================================================
+
 
 @router.get("/dispatch", response_class=HTMLResponse)
 def dispatch_dashboard(

@@ -66,11 +66,7 @@ def _apply_lead_status_from_quote(db: Session, quote: Quote, status: QuoteStatus
 
 
 def _recalculate_quote_totals(db: Session, quote: Quote) -> None:
-    items = (
-        db.query(CrmQuoteLineItem)
-        .filter(CrmQuoteLineItem.quote_id == quote.id)
-        .all()
-    )
+    items = db.query(CrmQuoteLineItem).filter(CrmQuoteLineItem.quote_id == quote.id).all()
     subtotal = Decimal("0.00")
     for item in items:
         subtotal += Decimal(item.amount or 0)
@@ -128,9 +124,7 @@ def _ensure_project_from_quote(db: Session, quote: Quote, sales_order_id: str | 
     owner_label = None
     if person:
         owner_label = person.display_name or person.email
-    base_name = (
-        project_type.value.replace("_", " ").title() if project_type else "Project"
-    )
+    base_name = project_type.value.replace("_", " ").title() if project_type else "Project"
     project_name = f"{base_name} - {owner_label}" if owner_label else f"{base_name} - Quote {str(quote.id)[:8].upper()}"
 
     project_metadata = dict(metadata) if isinstance(metadata, dict) else {}
@@ -288,9 +282,7 @@ class Leads(ListResponseMixin):
         if not data.get("owner_agent_id"):
             data["owner_agent_id"] = _resolve_owner_agent_id_for_person(db, person_id)
         if not data.get("currency"):
-            default_currency = settings_spec.resolve_value(
-                db, SettingDomain.billing, "default_currency"
-            )
+            default_currency = settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
             if default_currency:
                 data["currency"] = default_currency
         lead = Lead(**data)
@@ -420,12 +412,14 @@ class Leads(ListResponseMixin):
 
         columns = []
         for stage in stages:
-            columns.append({
-                "id": str(stage.id),
-                "title": stage.name,
-                "order_index": stage.order_index,
-                "default_probability": stage.default_probability,
-            })
+            columns.append(
+                {
+                    "id": str(stage.id),
+                    "title": stage.name,
+                    "order_index": stage.order_index,
+                    "default_probability": stage.default_probability,
+                }
+            )
 
         # Batch load all persons to avoid N+1 queries
         person_ids = [lead.person_id for lead in leads if lead.person_id]
@@ -439,18 +433,20 @@ class Leads(ListResponseMixin):
             if person:
                 contact_name = person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip()
 
-            records.append({
-                "id": str(lead.id),
-                "stage": str(lead.stage_id) if lead.stage_id else None,
-                "title": lead.title or f"Lead #{str(lead.id)[:8]}",
-                "contact_name": contact_name,
-                "estimated_value": float(lead.estimated_value) if lead.estimated_value else None,
-                "probability": lead.probability,
-                "weighted_value": float(lead.weighted_value) if lead.weighted_value else None,
-                "status": lead.status.value if lead.status else "new",
-                "currency": lead.currency or "",
-                "url": f"/admin/crm/leads/{lead.id}",
-            })
+            records.append(
+                {
+                    "id": str(lead.id),
+                    "stage": str(lead.stage_id) if lead.stage_id else None,
+                    "title": lead.title or f"Lead #{str(lead.id)[:8]}",
+                    "contact_name": contact_name,
+                    "estimated_value": float(lead.estimated_value) if lead.estimated_value else None,
+                    "probability": lead.probability,
+                    "weighted_value": float(lead.weighted_value) if lead.weighted_value else None,
+                    "status": lead.status.value if lead.status else "new",
+                    "currency": lead.currency or "",
+                    "url": f"/admin/crm/leads/{lead.id}",
+                }
+            )
 
         return {"columns": columns, "records": records}
 
@@ -511,9 +507,7 @@ class Quotes(ListResponseMixin):
             data["metadata_"]["quote_name"] = display_name
 
         if not data.get("currency"):
-            default_currency = settings_spec.resolve_value(
-                db, SettingDomain.billing, "default_currency"
-            )
+            default_currency = settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
             if default_currency:
                 data["currency"] = default_currency
         quote = Quote(**data)
@@ -587,10 +581,7 @@ class Quotes(ListResponseMixin):
     def count_by_status(db: Session) -> dict:
         """Return counts by quote status."""
         results = (
-            db.query(Quote.status, func.count(Quote.id))
-            .filter(Quote.is_active.is_(True))
-            .group_by(Quote.status)
-            .all()
+            db.query(Quote.status, func.count(Quote.id)).filter(Quote.is_active.is_(True)).group_by(Quote.status).all()
         )
         counts = {s.value: 0 for s in QuoteStatus}
         for status_val, count in results:
@@ -655,9 +646,7 @@ class CrmQuoteLineItems(ListResponseMixin):
         if data.get("inventory_item_id") and not db.get(InventoryItem, data["inventory_item_id"]):
             raise HTTPException(status_code=404, detail="Inventory item not found")
         if not data.get("amount"):
-            data["amount"] = Decimal(data.get("quantity") or 0) * Decimal(
-                data.get("unit_price") or 0
-            )
+            data["amount"] = Decimal(data.get("quantity") or 0) * Decimal(data.get("unit_price") or 0)
         item = CrmQuoteLineItem(**data)
         db.add(item)
         db.commit()

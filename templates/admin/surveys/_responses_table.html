@@ -1,28 +1,36 @@
-{% if responses %}
-<table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-    <thead class="bg-slate-50 dark:bg-slate-800/50">
-        <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
-            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Rating</th>
-            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Answers</th>
-        </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-        {% for resp in responses %}
-        <tr>
-            <td class="px-6 py-3 text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{{ resp.created_at.strftime('%b %d, %Y %H:%M') }}</td>
-            <td class="px-6 py-3 text-sm text-slate-700 dark:text-slate-300">{% if resp.rating %}{{ resp.rating }}/5{% else %}-{% endif %}</td>
-            <td class="px-6 py-3 text-sm text-slate-500 dark:text-slate-400 max-w-md truncate">
-                {% if resp.responses %}
-                {% for key, val in resp.responses.items() %}
-                <span class="inline-block mr-2"><strong>{{ key }}:</strong> {{ val | truncate(40) }}</span>
-                {% endfor %}
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<div class="px-6 py-8 text-center text-sm text-slate-400 dark:text-slate-500">No responses yet.</div>
-{% endif %}
+{% from "components/ui/macros.html" import table_shell, table_row, empty_state %}
+{% set pad = 'px-6 py-3' %}
+{% call table_shell(table_id="survey-responses-table", color="slate") %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead>
+            <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                <th class="{{ pad }} text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
+                <th class="{{ pad }} text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Rating</th>
+                <th class="{{ pad }} text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">Answers</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% if responses %}
+            {% for resp in responses %}
+            {% call table_row(color="slate") %}
+                <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{{ resp.created_at.strftime('%b %d, %Y %H:%M') }}</td>
+                <td class="{{ pad }} text-sm text-slate-700 dark:text-slate-300">{% if resp.rating %}{{ resp.rating }}/5{% else %}-{% endif %}</td>
+                <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400 max-w-md truncate">
+                    {% if resp.responses %}
+                    {% for key, val in resp.responses.items() %}
+                    <span class="inline-block mr-2"><strong>{{ key }}:</strong> {{ val | truncate(40) }}</span>
+                    {% endfor %}
+                    {% endif %}
+                </td>
+            {% endcall %}
+            {% endfor %}
+            {% else %}
+            <tr>
+                <td colspan="3" class="px-6 py-12">
+                    {{ empty_state("No responses yet", "Responses will appear here once submitted.") }}
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+{% endcall %}

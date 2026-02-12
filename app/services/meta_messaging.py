@@ -4,6 +4,8 @@ Handles outbound messaging via Facebook Messenger and Instagram DMs.
 """
 
 import asyncio
+import json
+from typing import Any
 
 import httpx
 from sqlalchemy.orm import Session
@@ -51,12 +53,19 @@ async def _post_with_retry(
     *,
     params: dict | None = None,
     json: dict | None = None,
+    headers: dict | None = None,
     timeout: int | float | None = None,
     max_retries: int = 1,
 ) -> httpx.Response:
     retries = 0
     while True:
-        response = await client.post(url, params=params, json=json, timeout=timeout)
+        response = await client.post(
+            url,
+            params=params,
+            json=json,
+            headers=headers,
+            timeout=timeout,
+        )
         status_code = _safe_status_code(response)
         if status_code is None:
             return response
@@ -75,11 +84,19 @@ async def _post_with_retry(
             continue
         return response
 
+
 def _get_meta_graph_base_url(db: Session) -> str:
     version = resolve_value(db, SettingDomain.comms, "meta_graph_api_version")
     if not version:
         version = settings.meta_graph_api_version
     return f"https://graph.facebook.com/{version}"
+
+
+def _get_instagram_graph_base_url(db: Session) -> str:
+    version = resolve_value(db, SettingDomain.comms, "meta_graph_api_version")
+    if not version:
+        version = settings.meta_graph_api_version
+    return f"https://graph.instagram.com/{version}"
 
 
 def _get_meta_access_token_override(db: Session) -> str | None:
@@ -89,6 +106,12 @@ def _get_meta_access_token_override(db: Session) -> str | None:
     if not isinstance(token, str):
         token = str(token)
     return token.strip() or None
+
+
+def _is_instagram_login_token(token: str | None) -> bool:
+    if not token:
+        return False
+    return token.strip().upper().startswith("IG")
 
 
 def _get_token_for_channel(
@@ -191,19 +214,16 @@ async def send_facebook_message(
         ValueError: If no active token found or token expired
         httpx.HTTPStatusError: If API request fails
     """
-    override_token = _get_meta_access_token_override(db)
-    token = _get_token_for_channel(
-        db, ChannelType.facebook_messenger, target, account_id=account_id
-    )
+    raw_override_token = _get_meta_access_token_override(db)
+    # Keep Facebook on the legacy Meta Graph flow; ignore IG login tokens.
+    override_token = None if _is_instagram_login_token(raw_override_token) else raw_override_token
+    token = _get_token_for_channel(db, ChannelType.facebook_messenger, target, account_id=account_id)
     _ensure_token_scopes(token, _FACEBOOK_REQUIRED_SCOPES, "facebook_messenger")
     if not token and not override_token:
         raise ValueError("No active Facebook Page token found")
 
     if token and not override_token and token.is_token_expired():
-        raise ValueError(
-            f"Facebook Page token has expired. Please reconnect. "
-            f"(Page: {token.external_account_name})"
-        )
+        raise ValueError(f"Facebook Page token has expired. Please reconnect. (Page: {token.external_account_name})")
 
     page_id = account_id or (token.external_account_id if token else None)
     if not page_id:
@@ -278,9 +298,7 @@ async def send_instagram_message(
         httpx.HTTPStatusError: If API request fails
     """
     override_token = _get_meta_access_token_override(db)
-    token = _get_token_for_channel(
-        db, ChannelType.instagram_dm, target, account_id=account_id
-    )
+    token = _get_token_for_channel(db, ChannelType.instagram_dm, target, account_id=account_id)
     _ensure_token_scopes(token, _INSTAGRAM_REQUIRED_SCOPES, "instagram_dm")
     if not token and not override_token:
         raise ValueError("No active Instagram Business Account token found")
@@ -294,39 +312,53 @@ async def send_instagram_message(
         )
 
     if token and not override_token and token.is_token_expired():
-        raise ValueError(
-            f"Instagram token has expired. Please reconnect. "
-            f"(Account: {token.external_account_name})"
-        )
+        raise ValueError(f"Instagram token has expired. Please reconnect. (Account: {token.external_account_name})")
 
-    ig_account_id = account_id or (token.external_account_id if token else None)
-    if not ig_account_id:
-        raise ValueError("No Instagram account ID available for message send")
-    if override_token and not token:
-        raise ValueError("No linked Instagram Business token found for override send")
-
-    payload = {
-        "recipient": {"id": recipient_igsid},
-        "message": {"text": message_text},
-    }
-
-    base_url = _get_meta_graph_base_url(db)
     access_token = override_token or (token.access_token if token else None)
     if not access_token:
         raise ValueError("No access token available for Instagram message send")
+    use_instagram_login_api = _is_instagram_login_token(override_token)
+
+    payload: dict[str, Any]
+    if use_instagram_login_api:
+        endpoint = f"{_get_instagram_graph_base_url(db).rstrip('/')}/me/messages"
+        params = None
+        headers = {"Authorization": f"Bearer {access_token}"}
+        # Instagram Login API expects recipient/message as JSON-encoded strings.
+        payload = {
+            "recipient": json.dumps({"id": recipient_igsid}, separators=(",", ":")),
+            "message": json.dumps({"text": message_text}, separators=(",", ":")),
+        }
+        log_account_id = "me"
+    else:
+        ig_account_id = account_id or (token.external_account_id if token else None)
+        if not ig_account_id:
+            raise ValueError("No Instagram account ID available for message send")
+        if override_token and not token:
+            raise ValueError("No linked Instagram Business token found for override send")
+        endpoint = f"{_get_meta_graph_base_url(db).rstrip('/')}/{ig_account_id}/messages"
+        params = {"access_token": access_token}
+        headers = None
+        payload = {
+            "recipient": {"id": recipient_igsid},
+            "message": {"text": message_text},
+        }
+        log_account_id = ig_account_id
+
     async with httpx.AsyncClient() as client:
         response = await _post_with_retry(
             client,
-            f"{base_url.rstrip('/')}/{ig_account_id}/messages",
-            params={"access_token": access_token},
+            endpoint,
+            params=params,
             json=payload,
+            headers=headers,
             timeout=30,
         )
         status_code = _safe_status_code(response)
         if status_code is not None and status_code >= 400:
             logger.error(
                 "instagram_message_send_failed ig_account_id=%s recipient=%s status=%s body=%s",
-                ig_account_id,
+                log_account_id,
                 recipient_igsid[:8],
                 status_code,
                 response.text,
@@ -336,7 +368,7 @@ async def send_instagram_message(
 
         logger.info(
             "instagram_message_sent ig_account_id=%s recipient=%s... message_id=%s",
-            ig_account_id,
+            log_account_id,
             recipient_igsid[:8],
             data.get("message_id"),
         )

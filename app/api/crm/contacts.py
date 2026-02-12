@@ -77,9 +77,7 @@ def list_contact_channels(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crm_service.contact_channels.list_response(
-        db, contact_id, channel_type, order_by, order_dir, limit, offset
-    )
+    return crm_service.contact_channels.list_response(db, contact_id, channel_type, order_by, order_dir, limit, offset)
 
 
 @router.patch("/channels/{channel_id}", response_model=ContactChannelRead)

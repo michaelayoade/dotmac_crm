@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button %}
+{% from "components/ui/macros.html" import danger_button, table_shell, table_row, empty_state %}
 {% block title %}Sales Order Details - Operations{% endblock %}
 
 {% block content %}
@@ -42,9 +42,15 @@
     <div class="grid gap-4 lg:grid-cols-4">
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</p>
-            <p class="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
-                {{ order.status.value if order.status else 'unknown' }}
-            </p>
+            <form hx-post="/admin/operations/sales-orders/{{ order.id }}/status" hx-swap="none" class="mt-2">
+                <select name="status" hx-trigger="change" hx-post="/admin/operations/sales-orders/{{ order.id }}/status" hx-swap="none"
+                        class="rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1 text-sm font-semibold text-slate-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                    {% for s in ['draft', 'confirmed', 'paid', 'fulfilled', 'cancelled'] %}
+                    <option value="{{ s }}" {% if order.status and order.status.value == s %}selected{% endif %}>{{ s | title }}</option>
+                    {% endfor %}
+                </select>
+                <noscript><button type="submit" class="ml-1 rounded-lg bg-primary-600 px-2 py-1 text-xs text-white">Save</button></noscript>
+            </form>
         </div>
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Payment</p>
@@ -107,36 +113,32 @@
         </div>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Line Items</h2>
-        </div>
-        {% if order.lines %}
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Description</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Unit Price</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    {% for line in order.lines %}
-                    <tr>
-                        <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ line.description }}</td>
-                        <td class="px-6 py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ line.quantity|default(0) }}</td>
-                        <td class="px-6 py-3 text-right text-sm text-slate-500 dark:text-slate-400">{{ line.unit_price|default(0) }}</td>
-                        <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ line.amount|default(0) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="p-6 text-sm text-slate-500 dark:text-slate-400">No line items yet.</div>
-        {% endif %}
-    </div>
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="sales-order-lines-table", title="Line Items", count=order.lines | length) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Description</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Qty</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Unit Price</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% if order.lines %}
+                {% for line in order.lines %}
+                {% call table_row() %}
+                    <td class="{{ pad }} text-sm text-slate-900 dark:text-white">{{ line.description }}</td>
+                    <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ line.quantity|default(0) }}</td>
+                    <td class="{{ pad }} text-right text-sm text-slate-500 dark:text-slate-400">{{ line.unit_price|default(0) }}</td>
+                    <td class="{{ pad }} text-right text-sm text-slate-900 dark:text-white">{{ line.amount|default(0) }}</td>
+                {% endcall %}
+                {% endfor %}
+                {% else %}
+                {{ empty_state("No line items", "Line items will appear here once added.", colspan=4) }}
+                {% endif %}
+            </tbody>
+        </table>
+    {% endcall %}
 </div>
 {% endblock %}

@@ -39,8 +39,14 @@ def list_teams(
     db: Session = Depends(get_db),
 ):
     items = service_teams.list(
-        db, is_active=is_active, search=search, team_type=team_type,
-        order_by=order_by, order_dir=order_dir, limit=limit, offset=offset,
+        db,
+        is_active=is_active,
+        search=search,
+        team_type=team_type,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=limit,
+        offset=offset,
     )
     return list_response(items, limit, offset)
 
@@ -74,7 +80,10 @@ def list_members(
 
 @router.patch("/{team_id}/members/{member_id}", response_model=ServiceTeamMemberRead)
 def update_member(
-    team_id: str, member_id: str, payload: ServiceTeamMemberUpdate, db: Session = Depends(get_db),
+    team_id: str,
+    member_id: str,
+    payload: ServiceTeamMemberUpdate,
+    db: Session = Depends(get_db),
 ):
     return service_team_members.update_member(db, team_id, member_id, payload)
 

@@ -76,9 +76,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         provider = payload.provider
     else:
         provider = payload.provider.value
-    return auth_flow_service.auth_flow.login_response(
-        db, payload.username, payload.password, request, provider
-    )
+    return auth_flow_service.auth_flow.login_response(db, payload.username, payload.password, request, provider)
 
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse, status_code=status.HTTP_200_OK)
@@ -89,9 +87,7 @@ def mfa_setup(
 ):
     if str(payload.person_id) != str(auth["person_id"]):
         raise HTTPException(status_code=403, detail="Forbidden")
-    return auth_flow_service.auth_flow.mfa_setup(
-        db, str(payload.person_id), payload.label
-    )
+    return auth_flow_service.auth_flow.mfa_setup(db, str(payload.person_id), payload.label)
 
 
 @router.post(
@@ -110,9 +106,7 @@ def mfa_confirm(
     auth: dict = Depends(require_user_auth),
     db: Session = Depends(get_db),
 ):
-    return auth_flow_service.auth_flow.mfa_confirm(
-        db, str(payload.method_id), payload.code, auth["person_id"]
-    )
+    return auth_flow_service.auth_flow.mfa_confirm(db, str(payload.method_id), payload.code, auth["person_id"])
 
 
 @router.post(
@@ -125,9 +119,7 @@ def mfa_confirm(
     },
 )
 def mfa_verify(payload: MfaVerifyRequest, request: Request, db: Session = Depends(get_db)):
-    return auth_flow_service.auth_flow.mfa_verify_response(
-        db, payload.mfa_token, payload.code, request
-    )
+    return auth_flow_service.auth_flow.mfa_verify_response(db, payload.mfa_token, payload.code, request)
 
 
 @router.post(
@@ -139,9 +131,7 @@ def mfa_verify(payload: MfaVerifyRequest, request: Request, db: Session = Depend
     },
 )
 def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get_db)):
-    return auth_flow_service.auth_flow.refresh_response(
-        db, payload.refresh_token, request
-    )
+    return auth_flow_service.auth_flow.refresh_response(db, payload.refresh_token, request)
 
 
 @router.post(
@@ -153,9 +143,7 @@ def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get
     },
 )
 def logout(payload: LogoutRequest, request: Request, db: Session = Depends(get_db)):
-    return auth_flow_service.auth_flow.logout_response(
-        db, payload.refresh_token, request
-    )
+    return auth_flow_service.auth_flow.logout_response(db, payload.refresh_token, request)
 
 
 @router.get(

@@ -1,138 +1,138 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, submit_button %}
 
-{% from "components/ui/macros.html" import submit_button %}
 {% block title %}{{ 'Edit' if endpoint else 'New' }} Webhook Endpoint - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
-                <a href="/admin/system/webhooks" class="hover:text-primary-600">Webhooks</a>
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                <span class="text-slate-900 dark:text-white">{{ 'Edit Endpoint' if endpoint else 'New Endpoint' }}</span>
-            </nav>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit Webhook Endpoint' if endpoint else 'Add Webhook Endpoint' }}</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ 'Update endpoint configuration' if endpoint else 'Configure a new webhook endpoint' }}</p>
-        </div>
-    </div>
+    {{ page_header(('Edit Webhook Endpoint' if endpoint else 'Add Webhook Endpoint'), ('Update endpoint configuration' if endpoint else 'Configure a new webhook endpoint'), color="indigo", color2="violet", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "/admin/system/webhooks", "label": "Webhooks"}, {"href": "", "label": ("Edit" if endpoint else "New")}]) }}
 
     <form method="POST" action="{{ action_url }}" class="space-y-6">
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+        {# ── Endpoint Configuration ── #}
+        <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 75ms">
+            <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                    <svg class="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                </div>
                 <h2 class="font-semibold text-slate-900 dark:text-white">Endpoint Configuration</h2>
             </div>
             <div class="p-6 space-y-6">
                 {% if error %}
-                <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">
-                    {{ error }}
+                <div class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
+                    <svg class="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <p class="text-sm text-red-700 dark:text-red-400">{{ error }}</p>
                 </div>
                 {% endif %}
 
                 <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
                     <div class="sm:col-span-2">
-                        <label for="name" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Endpoint Name <span class="text-red-500">*</span></label>
+                        <label for="name" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Endpoint Name <span class="text-red-500">*</span></label>
                         <input type="text" name="name" id="name" required maxlength="160"
                             value="{{ endpoint.name if endpoint else '' }}"
                             placeholder="Production Webhook"
-                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                     </div>
 
                     <div class="sm:col-span-2">
-                        <label for="url" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Webhook URL <span class="text-red-500">*</span></label>
+                        <label for="url" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Webhook URL <span class="text-red-500">*</span></label>
                         <input type="url" name="url" id="url" required maxlength="500"
                             value="{{ endpoint.url if endpoint else '' }}"
                             placeholder="https://your-server.com/webhooks"
-                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
-                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">The URL where webhook payloads will be sent</p>
+                            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 font-mono text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+                        <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">The URL where webhook payloads will be sent via HTTP POST</p>
                     </div>
 
                     <div class="sm:col-span-2">
-                        <label for="secret" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Signing Secret</label>
+                        <label for="secret" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Signing Secret</label>
                         <input type="password" name="secret" id="secret" maxlength="255"
                             value="{{ endpoint.secret if endpoint else '' }}"
                             placeholder="Leave blank to auto-generate"
-                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
-                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Used to sign webhook payloads for verification</p>
+                            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 font-mono text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+                        <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Used to sign webhook payloads for verification</p>
                     </div>
 
                     <div>
-                        <label class="flex items-center gap-2">
+                        <label class="flex items-center gap-3">
                             <input type="checkbox" name="is_active" value="true" {% if not endpoint or endpoint.is_active %}checked{% endif %}
-                                class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
-                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Active</span>
+                                class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
+                            <div>
+                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Active</span>
+                                <p class="text-xs text-slate-500 dark:text-slate-400">Enable to receive webhook events</p>
+                            </div>
                         </label>
-                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400 ml-6">Enable to receive webhook events</p>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Event Subscriptions -->
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+        {# ── Event Subscriptions ── #}
+        <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 150ms">
+            <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                    <svg class="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
                 <h2 class="font-semibold text-slate-900 dark:text-white">Event Subscriptions</h2>
             </div>
             <div class="p-6">
                 <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">Select the events you want to receive at this endpoint:</p>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
-                        <input type="checkbox" name="events" value="subscriber.created" {% if endpoint and 'subscriber.created' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
-                        <div>
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">subscriber.created</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">New subscriber registered</p>
-                        </div>
-                    </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
-                        <input type="checkbox" name="events" value="provisioning.completed" {% if endpoint and 'provisioning.completed' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
-                        <div>
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">provisioning.completed</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">Service provisioned</p>
-                        </div>
-                    </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
-                        <input type="checkbox" name="events" value="network.alert" {% if endpoint and 'network.alert' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
-                        <div>
-                            <p class="text-sm font-medium text-slate-900 dark:text-white">network.alert</p>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">Network event triggered</p>
-                        </div>
-                    </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
+                    <label class="flex items-start gap-3 rounded-xl border border-slate-200/60 p-3 hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/50 cursor-pointer transition-colors">
                         <input type="checkbox" name="events" value="ticket.created" {% if endpoint and 'ticket.created' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                         <div>
                             <p class="text-sm font-medium text-slate-900 dark:text-white">ticket.created</p>
                             <p class="text-xs text-slate-500 dark:text-slate-400">Support ticket opened</p>
                         </div>
                     </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
+                    <label class="flex items-start gap-3 rounded-xl border border-slate-200/60 p-3 hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/50 cursor-pointer transition-colors">
+                        <input type="checkbox" name="events" value="ticket.updated" {% if endpoint and 'ticket.updated' in subscribed_events %}checked{% endif %}
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">ticket.updated</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Ticket status or details changed</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 rounded-xl border border-slate-200/60 p-3 hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/50 cursor-pointer transition-colors">
                         <input type="checkbox" name="events" value="work_order.completed" {% if endpoint and 'work_order.completed' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                         <div>
                             <p class="text-sm font-medium text-slate-900 dark:text-white">work_order.completed</p>
                             <p class="text-xs text-slate-500 dark:text-slate-400">Work order finished</p>
                         </div>
                     </label>
-                    <label class="flex items-start gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 cursor-pointer">
+                    <label class="flex items-start gap-3 rounded-xl border border-slate-200/60 p-3 hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/50 cursor-pointer transition-colors">
                         <input type="checkbox" name="events" value="project.status_changed" {% if endpoint and 'project.status_changed' in subscribed_events %}checked{% endif %}
-                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
                         <div>
                             <p class="text-sm font-medium text-slate-900 dark:text-white">project.status_changed</p>
                             <p class="text-xs text-slate-500 dark:text-slate-400">Project status updated</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 rounded-xl border border-slate-200/60 p-3 hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/50 cursor-pointer transition-colors">
+                        <input type="checkbox" name="events" value="crm.conversation.created" {% if endpoint and 'crm.conversation.created' in subscribed_events %}checked{% endif %}
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">crm.conversation.created</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">New CRM conversation</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 rounded-xl border border-slate-200/60 p-3 hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/50 cursor-pointer transition-colors">
+                        <input type="checkbox" name="events" value="customer.created" {% if endpoint and 'customer.created' in subscribed_events %}checked{% endif %}
+                            class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
+                        <div>
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">customer.created</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">New customer registered</p>
                         </div>
                     </label>
                 </div>
             </div>
         </div>
 
-        <div class="flex items-center justify-end gap-3">
-            <a href="/admin/system/webhooks" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <div class="animate-fade-in-up flex items-center justify-end gap-3" style="animation-delay: 225ms">
+            <a href="/admin/system/webhooks" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 transition-colors">
                 Cancel
             </a>
-            {{ submit_button(('Save Changes' if endpoint else 'Create Endpoint'), loading_label="Creating...") }}
+            {{ submit_button(('Save Changes' if endpoint else 'Create Endpoint'), loading_label="Saving...") }}
         </div>
     </form>
 </div>

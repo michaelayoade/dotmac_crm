@@ -54,9 +54,7 @@ class LegalDocumentService:
         """Get a legal document by slug."""
         return db.query(LegalDocument).filter(LegalDocument.slug == slug).first()
 
-    def get_current_by_type(
-        self, db: Session, document_type: LegalDocumentType
-    ) -> LegalDocument | None:
+    def get_current_by_type(self, db: Session, document_type: LegalDocumentType) -> LegalDocument | None:
         """Get the current published version of a document type."""
         return (
             db.query(LegalDocument)
@@ -93,9 +91,7 @@ class LegalDocumentService:
         db.refresh(document)
         return document
 
-    def update(
-        self, db: Session, document_id: str, payload: LegalDocumentUpdate
-    ) -> LegalDocument | None:
+    def update(self, db: Session, document_id: str, payload: LegalDocumentUpdate) -> LegalDocument | None:
         """Update a legal document."""
         document = self.get(db, document_id)
         if not document:

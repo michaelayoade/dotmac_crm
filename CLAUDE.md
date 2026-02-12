@@ -257,37 +257,12 @@ Register new enums in `app/models/crm/enums.py` (CRM) or inline in domain model 
 ## Linting & Formatting
 
 ### Ruff (Linter + Formatter)
-Configured in `pyproject.toml` under `[tool.ruff]`:
-- **Line length**: 120 characters
-- **Target**: Python 3.11
-- **Rules**: pycodestyle (E/W), pyflakes (F), isort (I), pyupgrade (UP), bugbear (B), simplify (SIM), no-print (T20), ruff-specific (RUF)
-- **Ignored**: E501 (line length — formatter handles it), B008 (FastAPI `Depends()` in defaults), B904 (raise-without-from), SIM108 (ternary)
-- **Import sorting**: `app` as first-party; ruff replaces isort
-- **Migration files**: exempt from line length and unused import rules
-- **Test files**: allowed to use `print()`
-
-```bash
-ruff check app/ tests/            # Check for issues
-ruff check app/ tests/ --fix      # Auto-fix what's possible
-ruff format app/ tests/           # Format code (replaces black)
-ruff check --select I --fix .     # Fix import order only
-```
+Configured in `pyproject.toml`: line length 120, target Python 3.11. Rules: E/W, F, I, UP, B, SIM, T20, RUF. Ignored: E501, B008, B904, SIM108. Import sorting: `app` as first-party. Migration files exempt from line length/unused imports. Test files allowed `print()`.
 
 ### Mypy (Type Checking)
-Configured in `mypy.ini`:
-- **Plugin**: `sqlalchemy.ext.mypy.plugin` (ORM-aware type checking)
-- **Python version**: 3.11
-- **Strict**: `warn_unused_ignores = True`
-- **Ignored imports**: jose, passlib, weasyprint, routeros_api, celery, requests (missing stubs)
-
-```bash
-mypy app/                          # Full check
-mypy app/services/crm/campaigns.py # Single file
-mypy app/ --ignore-missing-imports # Suppress third-party import errors
-```
+Configured in `mypy.ini` with `sqlalchemy.ext.mypy.plugin`. Python 3.11, `warn_unused_ignores = True`. Ignored imports: jose, passlib, weasyprint, routeros_api, celery, requests.
 
 ### Pre-Commit Workflow
-Before committing, run:
 ```bash
 ruff check app/ tests/ --fix && ruff format app/ tests/ && mypy app/ && bandit -r app -q
 ```
@@ -364,6 +339,7 @@ pytest tests/playwright/e2e/ -v            # E2E scenarios only
 Available E2E fixtures: `admin_page`, `agent_page`, `user_page`, `customer_page`, `anon_page`
 
 ### Writing Tests
+- **Always write tests for new services, handlers, and sync tasks** — no new service code should be merged without corresponding test coverage
 - Use `db_session` fixture for database tests (auto-rollback per test)
 - Mock external services via `tests/mocks.py`
 - Test files: `tests/test_<domain>_<layer>.py` (e.g., `test_auth_flow.py`, `test_celery_tasks.py`)
@@ -691,52 +667,17 @@ The platform supports per-deployment branding via the `DomainSetting` table. Bra
 
 ### White-Label Coverage
 
-All layouts, auth pages, public pages, email services, and Python services use dynamic branding from `request.state.branding` (templates) or `get_branding(db)` (services). The template pattern is:
-
+All layouts, auth pages, public pages, email services, and Python services use dynamic branding from `request.state.branding` (templates) or `get_branding(db)` (services). Template pattern:
 ```jinja2
 {% set brand_name = request.state.branding.company_name if request.state.branding is defined and request.state.branding.company_name else "Dotmac" %}
-{% set brand_logo = request.state.branding.logo_url if request.state.branding is defined else "" %}
-{% set brand_year = request.state.branding.current_year if request.state.branding is defined else "2026" %}
 ```
 
-| Location | Status |
-|----------|--------|
-| All 5 layout templates (admin, auth, customer, customer_auth, reseller, vendor) | Branded |
-| `base.html` | Branded (title, favicon) |
-| All 8 auth pages (login, register, forgot-password, mfa, etc.) | Branded |
-| `index.html` (home page) | Branded |
-| `public/legal/document.html` | Branded |
-| `admin/dashboard/index.html` | Branded |
-| Email services (`app/services/email.py`) | Branded (subjects, from_name, body) |
-| Project task emails (`app/services/projects.py`) | Branded (logo, contact info, company name) |
-| Notification queue (`app/tasks/notifications.py`) | Branded (from_name fallback) |
-| CRM inbox (`app/web/admin/crm.py`) | Branded (support_email) |
-| Home route (`app/web_home.py`) | Branded (page title) |
+Branded: all 5 layouts, `base.html`, all 8 auth pages, `index.html`, legal pages, dashboard, email services, project task emails, notification queue, CRM inbox, home route.
 
-### Personalization Capabilities
+### Dark Mode & Settings
 
-**Dark mode** (fully implemented):
-- Toggle: Alpine.js store `darkMode` in `base.html`, persisted to `localStorage`
-- Respects `prefers-color-scheme: dark` on first visit
-- Class-based: `<html class="dark">` triggers all `dark:` Tailwind variants
-- Toggle button in admin top bar (sun/moon icon)
-
-**User locale/timezone** (model-level only):
-- `Person` model has `locale` (string) and `timezone` (string) fields
-- Not yet exposed in any settings UI
-- Not yet used for date/number formatting in templates
-
-**Domain settings system** (`app/models/domain_settings.py`):
-- 100+ configurable settings across 16+ domains (comms, crm, tickets, projects, etc.)
-- Managed via `/admin/system/settings` with domain pill filters
-- `SettingSpec` definitions in `app/services/settings_spec.py` (type, default, description, choices)
-- Settings cached and accessed via `app/services/domain_settings.py`
-
-**Not yet implemented**:
-- Per-user theme color picker
-- Per-user font size / layout density preferences
-- Module switcher between portals (admin/customer/reseller/vendor are fully independent)
-- Locale-aware date/number formatting in templates
+- Dark mode: Alpine.js store `darkMode` in `base.html`, persisted to `localStorage`, class-based (`<html class="dark">`)
+- Domain settings: 100+ settings across 16+ domains, managed via `/admin/system/settings`, definitions in `app/services/settings_spec.py`
 
 ## Key Files
 
@@ -777,39 +718,10 @@ openbao      # Secrets manager (port 8200, profile: secrets)
 
 Hot-reload volumes: `app/`, `templates/`, `static/`, `alembic/` are bind-mounted.
 
-## Refactoring Status
-
-The project has transitioned from subscription management to omni-channel. Legacy cleanup completed:
-
-- SNMP/TR069 modules removed
-- Billing/Catalog/Usage services removed
-- All orphaned imports cleaned
-- Subscriber model cleaned (no stubs)
-
 ## Architectural Improvements
 
 ### N+1 Query Prevention
-Use batch loading patterns — never query inside a loop:
-```python
-# Good: Batch load with a single query
-person_ids = [r.person_id for r in recipients]
-persons = db.query(Person).filter(Person.id.in_(person_ids)).all()
-person_map = {p.id: p for p in persons}
-
-# Good: Eager load relationships
-from sqlalchemy.orm import joinedload
-db.query(Recipient).options(joinedload(Recipient.step)).all()
-
-# Good: Batch existence check
-existing_ids = set(pid for (pid,) in db.query(Model.person_id).filter(...).all())
-for item in items:
-    if item.id in existing_ids:
-        continue
-
-# Bad: N+1 loop
-for parent in parents:
-    child = db.query(Child).filter(Child.parent_id == parent.id).first()  # N queries!
-```
+Never query inside a loop. Use batch loading (`filter(Model.id.in_(ids))`), eager loading (`joinedload()`), or batch existence checks (`set()` from single query).
 
 ### Race Condition Prevention
 Use `with_for_update` for concurrent task safety:
@@ -851,3 +763,28 @@ Focus areas for maintainability and testability:
 - Tenant isolation / row-level security
 - Multi-tenant permission scoping
 - Cross-tenant data access controls
+
+## Post-Implementation Testing Process
+
+After completing any code changes, you **MUST** run through this verification checklist before considering the work done. Do not skip steps.
+
+1. **Syntax check**: `python3 -c "import ast; ast.parse(open('<file>').read())"` for Python; load template via `jinja2.Environment` for Jinja2
+2. **Enum validation**: Always grep the model source to confirm enum values exist before using them — never assume
+3. **App boot + endpoint test**: `docker compose restart app`, get fresh JWT token, curl endpoints expecting 200
+4. **Error log check**: `docker compose logs app --tail=50` — verify no tracebacks
+5. **Content verification** (templates): curl rendered HTML and assert expected/removed content
+6. **HTMX partials**: test each `hx-get` endpoint independently for 200
+
+| Change Type | Required Checks |
+|-------------|----------------|
+| Python service/route | 1, 2, 3, 4 |
+| Jinja2 template | 1, 3, 4, 5 |
+| Template + service | 1, 2, 3, 4, 5, 6 |
+| Model/schema change | 1, 2, 3, 4 + `pytest` |
+| Migration | 3, 4 + `alembic upgrade head` |
+
+### Common Pitfalls
+- **Expired JWT tokens**: expire in 15 min — always get fresh token
+- **Non-existent enum values**: #1 cause of 500 errors — always grep the model
+- **Missing template variables**: use `| default(0)` or `| default('')` for stats/metrics
+- **HTMX partials need full context**: use `build_admin_context()` for `current_user`, `sidebar_stats`, etc.

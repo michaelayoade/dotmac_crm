@@ -24,13 +24,13 @@ from app.services.crm.inbox._core import (
     _resolve_integration_target,
 )
 from app.services.crm.inbox.connectors import _smtp_config_from_connector
-from app.services.crm.inbox.contacts import _resolve_person_for_contact
 
 # Connector creation and SMTP config
 from app.services.crm.inbox.connectors_create import (
     create_email_connector_target,
     create_whatsapp_connector_target,
 )
+from app.services.crm.inbox.contacts import _resolve_person_for_contact
 
 # Email polling
 from app.services.crm.inbox.email_polling import EmailPoller, poll_email_inbox

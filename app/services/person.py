@@ -23,6 +23,7 @@ from app.services.response import ListResponseMixin
 
 class InvalidTransitionError(Exception):
     """Raised when an invalid party status transition is attempted."""
+
     pass
 
 
@@ -76,11 +77,7 @@ def _find_person_by_phone(db: Session, phone: str | None) -> Person | None:
     raw = phone.strip() if phone else None
     if not normalized and not raw:
         return None
-    return (
-        db.query(Person)
-        .filter(or_(Person.phone == normalized, Person.phone == raw))
-        .first()
-    )
+    return db.query(Person).filter(or_(Person.phone == normalized, Person.phone == raw)).first()
 
 
 def _find_person_channel_owner(
@@ -214,13 +211,9 @@ class People(ListResponseMixin):
         if email:
             query = query.filter(Person.email.ilike(f"%{email}%"))
         if status:
-            query = query.filter(
-                Person.status == validate_enum(status, PersonStatus, "status")
-            )
+            query = query.filter(Person.status == validate_enum(status, PersonStatus, "status"))
         if party_status:
-            query = query.filter(
-                Person.party_status == validate_enum(party_status, PartyStatus, "party_status")
-            )
+            query = query.filter(Person.party_status == validate_enum(party_status, PartyStatus, "party_status"))
         if organization_id:
             query = query.filter(Person.organization_id == organization_id)
         if is_active is not None:
@@ -284,9 +277,7 @@ class People(ListResponseMixin):
 
         old_status = person.party_status
         if not _is_valid_transition(old_status, new_status):
-            raise InvalidTransitionError(
-                f"Cannot transition from {old_status.value} to {new_status.value}"
-            )
+            raise InvalidTransitionError(f"Cannot transition from {old_status.value} to {new_status.value}")
 
         person.party_status = new_status
 
@@ -344,8 +335,9 @@ class People(ListResponseMixin):
         merged_by_id: UUID | None = None,
     ) -> Person:
         """Merge source person into target, preserving all relationships."""
-        from app.models.crm.conversation import Conversation
+        from app.models.crm.conversation import Conversation, Message
         from app.models.crm.sales import Lead, Quote
+        from app.models.subscriber import Organization, Subscriber
 
         source = db.get(Person, source_id)
         target = db.get(Person, target_id)
@@ -383,21 +375,31 @@ class People(ListResponseMixin):
             if not existing:
                 channel.person_id = target.id
             else:
+                # Repoint messages tied to the duplicate channel before deleting it.
+                db.query(Message).filter(Message.person_channel_id == channel.id).update(
+                    {"person_channel_id": existing.id}, synchronize_session=False
+                )
                 db.delete(channel)
 
         # 2. Move leads
-        db.query(Lead).filter(Lead.person_id == source.id).update(
-            {"person_id": target.id}, synchronize_session=False
-        )
+        db.query(Lead).filter(Lead.person_id == source.id).update({"person_id": target.id}, synchronize_session=False)
 
         # 3. Move quotes
-        db.query(Quote).filter(Quote.person_id == source.id).update(
-            {"person_id": target.id}, synchronize_session=False
-        )
+        db.query(Quote).filter(Quote.person_id == source.id).update({"person_id": target.id}, synchronize_session=False)
 
         # 4. Move conversations
         db.query(Conversation).filter(Conversation.person_id == source.id).update(
             {"person_id": target.id}, synchronize_session=False
+        )
+
+        # 5. Move subscribers
+        db.query(Subscriber).filter(Subscriber.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+
+        # 6. Move organization primary contact links
+        db.query(Organization).filter(Organization.primary_contact_id == source.id).update(
+            {"primary_contact_id": target.id}, synchronize_session=False
         )
 
         # Log the merge
@@ -455,7 +457,10 @@ class People(ListResponseMixin):
         checks = [
             ("CRM agent", db.query(CrmAgent.id).filter(CrmAgent.person_id == person_id)),
             ("CRM conversations", db.query(Conversation.id).filter(Conversation.person_id == person_id)),
-            ("CRM assignments", db.query(ConversationAssignment.id).filter(ConversationAssignment.assigned_by_id == person_id)),
+            (
+                "CRM assignments",
+                db.query(ConversationAssignment.id).filter(ConversationAssignment.assigned_by_id == person_id),
+            ),
             ("CRM leads", db.query(Lead.id).filter(Lead.person_id == person_id)),
             ("CRM quotes", db.query(Quote.id).filter(Quote.person_id == person_id)),
             (
@@ -469,7 +474,10 @@ class People(ListResponseMixin):
             ),
             ("Ticket comments", db.query(TicketComment.id).filter(TicketComment.author_person_id == person_id)),
             ("Work orders", db.query(WorkOrder.id).filter(WorkOrder.assigned_to_person_id == person_id)),
-            ("Work order assignments", db.query(WorkOrderAssignment.id).filter(WorkOrderAssignment.person_id == person_id)),
+            (
+                "Work order assignments",
+                db.query(WorkOrderAssignment.id).filter(WorkOrderAssignment.person_id == person_id),
+            ),
             ("Work order notes", db.query(WorkOrderNote.id).filter(WorkOrderNote.author_person_id == person_id)),
             (
                 "Projects",
@@ -490,7 +498,10 @@ class People(ListResponseMixin):
                     )
                 ),
             ),
-            ("Project task comments", db.query(ProjectTaskComment.id).filter(ProjectTaskComment.author_person_id == person_id)),
+            (
+                "Project task comments",
+                db.query(ProjectTaskComment.id).filter(ProjectTaskComment.author_person_id == person_id),
+            ),
             ("Project comments", db.query(ProjectComment.id).filter(ProjectComment.author_person_id == person_id)),
         ]
         linked = []
@@ -510,7 +521,6 @@ class People(ListResponseMixin):
         from app.models.auth import ApiKey, MFAMethod, UserCredential
         from app.models.auth import Session as AuthSession
         from app.models.rbac import PersonPermission, PersonRole
-        from app.models.subscriber import ResellerUser
         from app.models.vendor import VendorUser
 
         person = db.get(Person, person_id)
@@ -534,7 +544,6 @@ class People(ListResponseMixin):
             db.query(PersonRole).filter(PersonRole.person_id == person.id).delete(synchronize_session=False)
             db.query(PersonPermission).filter(PersonPermission.person_id == person.id).delete(synchronize_session=False)
             db.query(VendorUser).filter(VendorUser.person_id == person.id).delete(synchronize_session=False)
-            db.query(ResellerUser).filter(ResellerUser.person_id == person.id).delete(synchronize_session=False)
             db.delete(person)
             db.commit()
         except IntegrityError:

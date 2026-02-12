@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button %}
+{% from "components/ui/macros.html" import danger_button, table_shell, table_row, empty_state %}
 {% block title %}{{ template.name }} - Project Template{% endblock %}
 
 {% block content %}
@@ -43,7 +43,7 @@
     </div>
     {% endif %}
 
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    {% call table_shell(table_id="template-tasks-table", color="primary") %}
         <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <h2 class="font-semibold text-slate-900 dark:text-white">Template Tasks</h2>
             <div class="flex items-center gap-2">
@@ -57,52 +57,53 @@
                 </a>
             </div>
         </div>
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/60">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Task</th>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Order</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    {% if tasks %}
-                    {% for task in tasks %}
-                    <tr class="hover:bg-slate-100 dark:hover:bg-slate-700/50">
-                        <td class="px-6 py-4 text-sm text-slate-900 dark:text-white">
-                            <p class="font-medium">{{ task.title }}</p>
-                            {% if task.description %}
-                            <p class="text-xs text-slate-500 dark:text-slate-400">{{ task.description | truncate(60) }}</p>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">{{ task.sort_order }}</td>
-                        <td class="px-6 py-4 text-right text-sm">
-                            <a href="/admin/projects/templates/{{ template.id }}/tasks/{{ task.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
-                            <form method="post"
-                                  action="/admin/projects/templates/{{ template.id }}/tasks/{{ task.id }}/delete"
-                                  class="inline"
-                                  onsubmit="return confirm('Delete this template task?')">
-                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-                                <button type="submit"
-                                        class="inline-flex items-center px-3 py-1.5 text-xs gap-1.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
-                                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                    </svg>
-                                    Delete
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% else %}
-                    {% set title = "No template tasks" %}
-                    {% set message = "Add tasks to auto-generate them on project creation." %}
-                    {% include "components/data/empty_state.html" %}
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+        {% set pad = 'px-6 py-3' %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Task</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Order</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% if tasks %}
+                {% for task in tasks %}
+                {% call table_row(color="primary") %}
+                    <td class="{{ pad }} text-sm text-slate-900 dark:text-white">
+                        <p class="font-medium">{{ task.title }}</p>
+                        {% if task.description %}
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ task.description | truncate(60) }}</p>
+                        {% endif %}
+                    </td>
+                    <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ task.sort_order }}</td>
+                    <td class="{{ pad }} text-right text-sm">
+                        <a href="/admin/projects/templates/{{ template.id }}/tasks/{{ task.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
+                        <form method="post"
+                              action="/admin/projects/templates/{{ template.id }}/tasks/{{ task.id }}/delete"
+                              class="inline"
+                              onsubmit="return confirm('Delete this template task?')">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                            <button type="submit"
+                                    class="inline-flex items-center px-3 py-1.5 text-xs gap-1.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                {% endcall %}
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="3" class="px-6 py-12">
+                        {{ empty_state("No template tasks", "Add tasks to auto-generate them on project creation.") }}
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    {% endcall %}
 </div>
 {% endblock %}

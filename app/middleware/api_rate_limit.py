@@ -163,11 +163,13 @@ class APIRateLimitMiddleware:
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
-                headers.extend([
-                    (b"X-RateLimit-Limit", str(self.limit).encode()),
-                    (b"X-RateLimit-Remaining", str(remaining).encode()),
-                    (b"X-RateLimit-Reset", str(reset_in).encode()),
-                ])
+                headers.extend(
+                    [
+                        (b"X-RateLimit-Limit", str(self.limit).encode()),
+                        (b"X-RateLimit-Remaining", str(remaining).encode()),
+                        (b"X-RateLimit-Reset", str(reset_in).encode()),
+                    ]
+                )
                 message = {**message, "headers": headers}
             await send(message)
 

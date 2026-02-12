@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.base_page import BasePage
 
 
@@ -18,19 +19,19 @@ class InboxPage(BasePage):
 
     def expect_loaded(self) -> None:
         """Assert the inbox is loaded."""
-        expect(self.page.locator("[data-testid='inbox']").or_(
-            self.page.get_by_text("Inbox", exact=False).or_(
-                self.page.get_by_text("Conversation", exact=False)
-            )
-        ).first).to_be_visible()
+        expect(
+            self.page.locator("[data-testid='inbox']")
+            .or_(self.page.get_by_text("Inbox", exact=False).or_(self.page.get_by_text("Conversation", exact=False)))
+            .first
+        ).to_be_visible()
 
     def expect_conversations_visible(self) -> None:
         """Assert conversations list is visible."""
-        expect(self.page.locator("[data-testid='conversations']").or_(
-            self.page.locator(".conversation-list").or_(
-                self.page.get_by_role("list")
-            )
-        ).first).to_be_visible()
+        expect(
+            self.page.locator("[data-testid='conversations']")
+            .or_(self.page.locator(".conversation-list").or_(self.page.get_by_role("list")))
+            .first
+        ).to_be_visible()
 
     def get_conversation_count(self) -> int:
         """Get count of conversations displayed."""
@@ -67,19 +68,17 @@ class InboxPage(BasePage):
 
     def get_unread_count(self) -> str:
         """Get unread count."""
-        unread_element = self.page.locator("[data-testid='unread-count']").or_(
-            self.page.get_by_text("unread", exact=False)
-        ).first
+        unread_element = (
+            self.page.locator("[data-testid='unread-count']").or_(self.page.get_by_text("unread", exact=False)).first
+        )
         return unread_element.text_content() or "0"
 
     def expect_open_count(self, count: int) -> None:
         """Assert count of open conversations."""
-        expect(self.page.get_by_text(f"{count}").or_(
-            self.page.locator("[data-testid='open-count']")
-        ).first).to_be_visible()
+        expect(
+            self.page.get_by_text(f"{count}").or_(self.page.locator("[data-testid='open-count']")).first
+        ).to_be_visible()
 
     def create_new_conversation(self) -> None:
         """Create a new conversation."""
-        self.page.get_by_role("button", name="New").or_(
-            self.page.get_by_role("link", name="New")
-        ).first.click()
+        self.page.get_by_role("button", name="New").or_(self.page.get_by_role("link", name="New")).first.click()

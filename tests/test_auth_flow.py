@@ -25,17 +25,15 @@ def _make_request(user_agent: str = "pytest"):
     }
     return Request(scope)
 
+
 def _route_requires_auth(path: str) -> bool:
     for route in auth_flow_router.routes:
         if isinstance(route, APIRoute) and route.path == path:
-            return any(
-                dependency.call is require_user_auth
-                for dependency in route.dependant.dependencies
-            )
+            return any(dependency.call is require_user_auth for dependency in route.dependant.dependencies)
     raise AssertionError(f"Route not found: {path}")
 
 
-def test_login_and_refresh_reuse_detection(db_session, person, monkeypatch):
+def test_login_and_refresh_previous_token_within_grace_is_tolerated(db_session, person):
     credential = UserCredential(
         person_id=person.id,
         provider=AuthProvider.local,
@@ -54,12 +52,46 @@ def test_login_and_refresh_reuse_detection(db_session, person, monkeypatch):
     rotated = AuthFlow.refresh(db_session, old_refresh, request)
     assert rotated["refresh_token"] != old_refresh
 
+    # Simulate a concurrent in-flight refresh request that still carries the
+    # previous refresh token.
+    replayed = AuthFlow.refresh(db_session, old_refresh, request)
+    assert replayed["refresh_token"]
+    assert replayed["refresh_token"] != rotated["refresh_token"]
+
+    session = db_session.query(AuthSession).first()
+    assert session.status == SessionStatus.active
+    assert session.revoked_at is None
+
+
+def test_login_and_refresh_reuse_detection_after_grace(db_session, person):
+    credential = UserCredential(
+        person_id=person.id,
+        provider=AuthProvider.local,
+        username="user@example.com",
+        password_hash=hash_password("secret"),
+        is_active=True,
+    )
+    db_session.add(credential)
+    db_session.commit()
+    db_session.refresh(credential)
+
+    request = _make_request()
+    tokens = AuthFlow.login(db_session, "user@example.com", "secret", request, None)
+    old_refresh = tokens["refresh_token"]
+
+    rotated = AuthFlow.refresh(db_session, old_refresh, request)
+    assert rotated["refresh_token"] != old_refresh
+
+    session = db_session.query(AuthSession).first()
+    session.token_rotated_at = datetime.now(UTC) - timedelta(minutes=5)
+    db_session.commit()
+
     with pytest.raises(HTTPException) as exc:
         AuthFlow.refresh(db_session, old_refresh, request)
     assert exc.value.status_code == 401
     assert "reuse" in str(exc.value.detail).lower()
 
-    session = db_session.query(AuthSession).first()
+    db_session.refresh(session)
     assert session.status == SessionStatus.revoked
     assert session.revoked_at is not None
 

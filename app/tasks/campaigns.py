@@ -54,6 +54,7 @@ def process_scheduled_campaigns():
         for campaign in scheduled:
             logger.info("Starting scheduled campaign %s", campaign.id)
             from app.services.crm.campaigns import Campaigns
+
             Campaigns.build_recipient_list(session, str(campaign.id))
             campaign.status = CampaignStatus.sending
             campaign.sending_started_at = now
@@ -147,7 +148,9 @@ def process_nurture_steps():
                     execute_campaign.delay(str(campaign.id))
                     logger.info(
                         "Created %d recipients for step %s of campaign %s",
-                        new_count, step.id, campaign.id,
+                        new_count,
+                        step.id,
+                        campaign.id,
                     )
     except Exception:
         session.rollback()

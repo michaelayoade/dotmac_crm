@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.base_page import BasePage
 
 
@@ -18,17 +19,15 @@ class VendorLoginPage(BasePage):
 
     def expect_loaded(self) -> None:
         """Assert the login page is loaded."""
-        expect(self.page.get_by_role("heading", name="Login", exact=True).or_(
-            self.page.get_by_label("Email").or_(
-                self.page.get_by_label("Username")
-            )
-        ).first).to_be_visible()
+        expect(
+            self.page.get_by_role("heading", name="Login", exact=True)
+            .or_(self.page.get_by_label("Email").or_(self.page.get_by_label("Username")))
+            .first
+        ).to_be_visible()
 
     def fill_email(self, email: str) -> None:
         """Fill email field."""
-        self.page.get_by_label("Email").or_(
-            self.page.get_by_label("Username")
-        ).first.fill(email)
+        self.page.get_by_label("Email").or_(self.page.get_by_label("Username")).first.fill(email)
 
     def fill_password(self, password: str) -> None:
         """Fill password field."""
@@ -36,9 +35,7 @@ class VendorLoginPage(BasePage):
 
     def click_login(self) -> None:
         """Click login button."""
-        self.page.get_by_role("button", name="Login").or_(
-            self.page.get_by_role("button", name="Sign In")
-        ).first.click()
+        self.page.get_by_role("button", name="Login").or_(self.page.get_by_role("button", name="Sign In")).first.click()
 
     def login(self, email: str, password: str) -> None:
         """Perform full login."""

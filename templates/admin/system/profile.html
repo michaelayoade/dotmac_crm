@@ -1,23 +1,28 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge, submit_button %}
+{% from "components/ui/macros.html" import page_header, status_badge, submit_button %}
 
 {% block title %}My Profile - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">My Profile</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage your account settings and preferences</p>
-        </div>
-    </div>
+    {{ page_header(
+        title="My Profile",
+        subtitle="Manage your account settings and preferences",
+        icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>',
+        color="indigo",
+        color2="violet",
+        breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "", "label": "My Profile"}]
+    ) }}
 
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <!-- Main Content -->
+        {# -- Main Content -- #}
         <div class="lg:col-span-2 space-y-6">
-            <!-- Profile Information -->
-            <form method="POST" action="/admin/system/users/profile" class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            {# -- Profile Information -- #}
+            <form method="POST" action="/admin/system/users/profile" class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 50ms">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                        <svg class="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    </div>
                     <h2 class="font-semibold text-slate-900 dark:text-white">Profile Information</h2>
                 </div>
                 <div class="p-6 space-y-6">
@@ -34,28 +39,28 @@
 
                     <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
                         <div>
-                            <label for="first_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300">First Name</label>
+                            <label for="first_name" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">First Name</label>
                             <input type="text" name="first_name" id="first_name"
                                 value="{{ person.first_name if person else '' }}"
-                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                         <div>
-                            <label for="last_name" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Last Name</label>
+                            <label for="last_name" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Last Name</label>
                             <input type="text" name="last_name" id="last_name"
                                 value="{{ person.last_name if person else '' }}"
-                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                         <div class="sm:col-span-2">
-                            <label for="email" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Email Address</label>
+                            <label for="email" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Email Address</label>
                             <input type="email" name="email" id="email"
                                 value="{{ person.email if person else '' }}"
-                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                         <div>
-                            <label for="phone" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Phone Number</label>
+                            <label for="phone" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Phone Number</label>
                             <input type="tel" name="phone" id="phone"
                                 value="{{ person.phone if person else '' }}"
-                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </div>
 
@@ -65,27 +70,30 @@
                 </div>
             </form>
 
-            <!-- Change Password -->
-            <form method="POST" action="/admin/system/users/profile/password" class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            {# -- Change Password -- #}
+            <form method="POST" action="/admin/system/users/profile/password" class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 100ms">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                        <svg class="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    </div>
                     <h2 class="font-semibold text-slate-900 dark:text-white">Change Password</h2>
                 </div>
                 <div class="p-6 space-y-6">
                     <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
                         <div class="sm:col-span-2">
-                            <label for="current_password" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Current Password</label>
+                            <label for="current_password" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Current Password</label>
                             <input type="password" name="current_password" id="current_password"
-                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                         <div>
-                            <label for="new_password" class="block text-sm font-medium text-slate-700 dark:text-slate-300">New Password</label>
+                            <label for="new_password" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">New Password</label>
                             <input type="password" name="new_password" id="new_password"
-                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                         <div>
-                            <label for="confirm_password" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Confirm New Password</label>
+                            <label for="confirm_password" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Confirm New Password</label>
                             <input type="password" name="confirm_password" id="confirm_password"
-                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
                         </div>
                     </div>
 
@@ -96,17 +104,20 @@
             </form>
         </div>
 
-        <!-- Sidebar -->
+        {# -- Sidebar -- #}
         <div class="space-y-6">
-            <!-- Account Info -->
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            {# -- Account Info -- #}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 150ms">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                        <svg class="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
                     <h2 class="font-semibold text-slate-900 dark:text-white">Account Info</h2>
                 </div>
                 <div class="p-6 space-y-4">
                     <div class="flex items-center justify-center">
-                        <div class="flex h-20 w-20 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
-                            <span class="text-2xl font-bold text-primary-600 dark:text-primary-400">
+                        <div class="flex h-20 w-20 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/30">
+                            <span class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
                                 {{ (person.first_name[0] | upper if person and person.first_name else '') }}{{ (person.last_name[0] | upper if person and person.last_name else '') }}
                             </span>
                         </div>
@@ -117,10 +128,10 @@
                         </p>
                         <p class="text-sm text-slate-500 dark:text-slate-400">{{ person.email if person else '' }}</p>
                     </div>
-                    <div class="border-t border-slate-200 pt-4 dark:border-slate-700">
+                    <div class="border-t border-slate-200/60 pt-4 dark:border-slate-700/60">
                         <div class="space-y-3">
                             <div>
-                                <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Status</p>
+                                <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</p>
                                 {% if person and person.is_active %}
                                 {{ status_badge("Active", "active", size="sm") }}
                                 {% else %}
@@ -128,12 +139,12 @@
                                 {% endif %}
                             </div>
                             <div>
-                                <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Member Since</p>
+                                <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Member Since</p>
                                 <p class="text-sm text-slate-900 dark:text-white">{{ person.created_at.strftime('%B %d, %Y') if person and person.created_at else '-' }}</p>
                             </div>
                             {% if credential %}
                             <div>
-                                <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Last Login</p>
+                                <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Login</p>
                                 <p class="text-sm text-slate-900 dark:text-white">{{ credential.last_login_at.strftime('%B %d, %Y at %H:%M') if credential.last_login_at else 'Never' }}</p>
                             </div>
                             {% endif %}
@@ -142,9 +153,12 @@
                 </div>
             </div>
 
-            <!-- Security -->
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            {# -- Security -- #}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 200ms">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500/10 to-violet-500/10 dark:from-indigo-500/20 dark:to-violet-500/20">
+                        <svg class="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                    </div>
                     <h2 class="font-semibold text-slate-900 dark:text-white">Security</h2>
                 </div>
                 <div class="p-6 space-y-4">
@@ -153,7 +167,7 @@
                             <p class="text-sm font-medium text-slate-900 dark:text-white">Two-Factor Auth</p>
                             <p class="text-xs text-slate-500 dark:text-slate-400">Extra security for your account</p>
                         </div>
-                        <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {% if mfa_enabled %}bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400{% else %}bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300{% endif %}">
+                        <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {% if mfa_enabled %}bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400{% else %}bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300{% endif %}">
                             {{ 'Enabled' if mfa_enabled else 'Disabled' }}
                         </span>
                     </div>
@@ -162,7 +176,7 @@
                             <p class="text-sm font-medium text-slate-900 dark:text-white">API Keys</p>
                             <p class="text-xs text-slate-500 dark:text-slate-400">{{ api_key_count }} active keys</p>
                         </div>
-                        <a href="/admin/system/api-keys" class="text-sm text-primary-600 hover:text-primary-700">Manage</a>
+                        <a href="/admin/system/api-keys" class="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">Manage</a>
                     </div>
                 </div>
             </div>

@@ -209,19 +209,12 @@ def _resolve_actor_name(event, people: dict[str, Person]) -> str:
     if actor_id and _is_user_actor(actor_type):
         person = people.get(str(actor_id))
         if person:
-            return (
-                person.display_name
-                or f"{person.first_name} {person.last_name}".strip()
-                or person.email
-            )
+            return person.display_name or f"{person.first_name} {person.last_name}".strip() or person.email
         metadata = getattr(event, "metadata_", None) or {}
         return metadata.get("actor_email") or str(actor_id)
     metadata = getattr(event, "metadata_", None) or {}
     return (
-        metadata.get("actor_name")
-        or metadata.get("actor_email")
-        or (str(actor_id) if actor_id else None)
-        or "System"
+        metadata.get("actor_name") or metadata.get("actor_email") or (str(actor_id) if actor_id else None) or "System"
     )
 
 
@@ -236,10 +229,7 @@ def build_recent_activity_feed(db: Session, events: list, limit: int = 5) -> lis
     }
     people: dict[str, Person] = {}
     if actor_ids:
-        people = {
-            str(person.id): person
-            for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()
-        }
+        people = {str(person.id): person for person in db.query(Person).filter(Person.id.in_(actor_ids)).all()}
     activities = []
     for event in sliced_events:
         metadata = getattr(event, "metadata_", None) or {}

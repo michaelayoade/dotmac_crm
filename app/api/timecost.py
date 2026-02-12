@@ -45,9 +45,7 @@ def list_work_logs(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = timecost_service.work_logs.list(
-        db, work_order_id, person_id, is_active, order_by, order_dir, limit, offset
-    )
+    items = timecost_service.work_logs.list(db, work_order_id, person_id, is_active, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
@@ -89,9 +87,7 @@ def list_expenses(
 
 
 @router.patch("/expenses/{expense_id}", response_model=ExpenseLineRead)
-def update_expense(
-    expense_id: str, payload: ExpenseLineUpdate, db: Session = Depends(get_db)
-):
+def update_expense(expense_id: str, payload: ExpenseLineUpdate, db: Session = Depends(get_db)):
     return timecost_service.expense_lines.update(db, expense_id, payload)
 
 
@@ -120,16 +116,12 @@ def list_cost_rates(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = timecost_service.cost_rates.list(
-        db, person_id, is_active, order_by, order_dir, limit, offset
-    )
+    items = timecost_service.cost_rates.list(db, person_id, is_active, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
 @router.patch("/cost-rates/{rate_id}", response_model=CostRateRead)
-def update_cost_rate(
-    rate_id: str, payload: CostRateUpdate, db: Session = Depends(get_db)
-):
+def update_cost_rate(rate_id: str, payload: CostRateUpdate, db: Session = Depends(get_db)):
     return timecost_service.cost_rates.update(db, rate_id, payload)
 
 
@@ -138,9 +130,7 @@ def delete_cost_rate(rate_id: str, db: Session = Depends(get_db)):
     timecost_service.cost_rates.delete(db, rate_id)
 
 
-@router.post(
-    "/billing-rates", response_model=BillingRateRead, status_code=status.HTTP_201_CREATED
-)
+@router.post("/billing-rates", response_model=BillingRateRead, status_code=status.HTTP_201_CREATED)
 def create_billing_rate(payload: BillingRateCreate, db: Session = Depends(get_db)):
     return timecost_service.billing_rates.create(db, payload)
 
@@ -159,16 +149,12 @@ def list_billing_rates(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = timecost_service.billing_rates.list(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    items = timecost_service.billing_rates.list(db, is_active, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 
 @router.patch("/billing-rates/{rate_id}", response_model=BillingRateRead)
-def update_billing_rate(
-    rate_id: str, payload: BillingRateUpdate, db: Session = Depends(get_db)
-):
+def update_billing_rate(rate_id: str, payload: BillingRateUpdate, db: Session = Depends(get_db)):
     return timecost_service.billing_rates.update(db, rate_id, payload)
 
 

@@ -1,8 +1,11 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, submit_button %}
+{% from "components/ui/macros.html" import danger_button, submit_button, table_shell, table_row, empty_state %}
 {% set stored_name = quote.metadata_.get('quote_name') if quote.metadata_ and quote.metadata_.get('quote_name') else '' %}
 {% set quote_name = stored_name if stored_name else (contact.display_name if contact and contact.display_name else (contact.email if contact else '')) %}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set can_delete_quotes = 'admin' in user_roles_lower %}
 {% block title %}{{ quote_name if quote_name else ('Quote ' ~ (quote.id|string|truncate(8, True, ''))) }} - Admin{% endblock %}
 
 {% block content %}
@@ -31,7 +34,9 @@
             <a href="/admin/crm/quotes/{{ quote.id }}/preview" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 Preview PDF
             </a>
+            {% if can_delete_quotes %}
             {{ danger_button("Delete", "Confirm Delete", "Delete this quote? This will deactivate it.", "/admin/crm/quotes/" ~ quote.id ~ "/delete", size="sm") }}
+            {% endif %}
             <a href="/admin/crm/quotes" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
                 Back to Quotes
             </a>
@@ -42,8 +47,22 @@
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</div>
             {% set status_val = quote.status.value if quote.status else 'draft' %}
-            <div class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
-                {{ status_val | replace('_', ' ') | title }}
+            <div class="mt-2">
+                <form method="POST"
+                      action="/admin/crm/quotes/{{ quote.id }}/status"
+                      class="inline-block">
+                    <select name="status"
+                            hx-post="/admin/crm/quotes/{{ quote.id }}/status"
+                            hx-swap="none"
+                            hx-trigger="change"
+                            class="rounded-lg border border-slate-200 bg-slate-50/50 py-1.5 pl-3 pr-8 text-sm font-semibold text-slate-900 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-primary-500">
+                        <option value="draft" {% if status_val == 'draft' %}selected{% endif %}>Draft</option>
+                        <option value="sent" {% if status_val == 'sent' %}selected{% endif %}>Sent</option>
+                        <option value="accepted" {% if status_val == 'accepted' %}selected{% endif %}>Accepted</option>
+                        <option value="rejected" {% if status_val == 'rejected' %}selected{% endif %}>Rejected</option>
+                        <option value="expired" {% if status_val == 'expired' %}selected{% endif %}>Expired</option>
+                    </select>
+                </form>
             </div>
         </div>
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -54,9 +73,44 @@
         </div>
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Expires</div>
-            <div class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
-                {{ quote.expires_at.strftime('%b %d, %Y') if quote.expires_at else '—' }}
+            {% if quote.expires_at and today is defined %}
+            {% set days_left = (quote.expires_at - today).days %}
+            {% if days_left < 0 %}
+            <div class="mt-2 flex items-center gap-2">
+                <span class="text-lg font-semibold text-red-600 dark:text-red-400">{{ quote.expires_at.strftime('%b %d, %Y') }}</span>
+                <span class="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    Expired
+                </span>
             </div>
+            {% elif days_left <= 3 %}
+            <div class="mt-2 flex items-center gap-2">
+                <span class="text-lg font-semibold text-red-600 dark:text-red-400">{{ quote.expires_at.strftime('%b %d, %Y') }}</span>
+                <span class="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                    <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                    {{ days_left }}d left
+                </span>
+            </div>
+            {% elif days_left <= 7 %}
+            <div class="mt-2 flex items-center gap-2">
+                <span class="text-lg font-semibold text-amber-600 dark:text-amber-400">{{ quote.expires_at.strftime('%b %d, %Y') }}</span>
+                <span class="inline-flex items-center gap-1 rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                    {{ days_left }}d left
+                </span>
+            </div>
+            {% else %}
+            <div class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                {{ quote.expires_at.strftime('%b %d, %Y') }}
+            </div>
+            {% endif %}
+            {% elif quote.expires_at %}
+            <div class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                {{ quote.expires_at.strftime('%b %d, %Y') }}
+            </div>
+            {% else %}
+            <div class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">—</div>
+            {% endif %}
         </div>
     </div>
 
@@ -83,39 +137,33 @@
         </div>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300">Line Items</h2>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-700/50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Description</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Qty</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Unit Price</th>
-                        <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Amount</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {% if items %}
-                    {% for item in items %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                        <td class="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{{ item.description }}</td>
-                        <td class="px-6 py-4 text-right text-sm text-slate-600 dark:text-slate-300">{{ item.quantity or 0 }}</td>
-                        <td class="px-6 py-4 text-right text-sm text-slate-600 dark:text-slate-300">{{ quote.currency }} {{ "{:,.2f}".format(item.unit_price or 0) }}</td>
-                        <td class="px-6 py-4 text-right text-sm text-slate-600 dark:text-slate-300">{{ quote.currency }} {{ "{:,.2f}".format(item.amount or 0) }}</td>
-                    </tr>
-                    {% endfor %}
-                    {% else %}
-                    <tr>
-                        <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No line items found.</td>
-                    </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="quote-line-items-table", title="Line Items", count=items | length) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Description</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Qty</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Unit Price</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Amount</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% if items %}
+                {% for item in items %}
+                {% call table_row() %}
+                    <td class="{{ pad }} text-sm text-slate-700 dark:text-slate-300">{{ item.description }}</td>
+                    <td class="{{ pad }} text-right text-sm text-slate-600 dark:text-slate-300">{{ item.quantity or 0 }}</td>
+                    <td class="{{ pad }} text-right text-sm text-slate-600 dark:text-slate-300">{{ quote.currency }} {{ "{:,.2f}".format(item.unit_price or 0) }}</td>
+                    <td class="{{ pad }} text-right text-sm text-slate-600 dark:text-slate-300">{{ quote.currency }} {{ "{:,.2f}".format(item.amount or 0) }}</td>
+                {% endcall %}
+                {% endfor %}
+                {% else %}
+                {{ empty_state("No line items", "Add line items to build this quote.", colspan=4) }}
+                {% endif %}
+            </tbody>
+        </table>
+    {% endcall %}
 
     {% if quote.notes %}
     <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">

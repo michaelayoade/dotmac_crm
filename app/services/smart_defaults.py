@@ -28,11 +28,7 @@ class SmartDefaultsService:
         # Query database
         setting = (
             self.db.query(DomainSetting)
-            .filter(
-                DomainSetting.domain == domain,
-                DomainSetting.key == key,
-                DomainSetting.is_active.is_(True)
-            )
+            .filter(DomainSetting.domain == domain, DomainSetting.key == key, DomainSetting.is_active.is_(True))
             .first()
         )
 
@@ -77,7 +73,7 @@ class SmartDefaultsService:
             "payment_terms_days": payment_terms_days,
             "issued_at": today.isoformat(),
             "due_at": due_date.isoformat(),
-            "status": "draft"
+            "status": "draft",
         }
 
     def get_customer_defaults(self, customer_type: str = "person") -> dict[str, Any]:
@@ -94,19 +90,10 @@ class SmartDefaultsService:
         default_country = self._get_setting(SettingDomain.billing, "default_country_code", "NG")
         default_locale = self._get_setting(SettingDomain.billing, "default_locale", "en-NG")
 
-        defaults = {
-            "status": "active",
-            "is_active": True,
-            "country_code": default_country,
-            "locale": default_locale
-        }
+        defaults = {"status": "active", "is_active": True, "country_code": default_country, "locale": default_locale}
 
         if customer_type == "person":
-            defaults.update({
-                "gender": "unknown",
-                "email_verified": False,
-                "marketing_opt_in": False
-            })
+            defaults.update({"gender": "unknown", "email_verified": False, "marketing_opt_in": False})
         elif customer_type == "organization":
             # Organization-specific defaults
             pass
@@ -130,7 +117,7 @@ class SmartDefaultsService:
             "currency": currency,
             "status": "pending",
             "start_date": today.isoformat(),
-            "auto_renew": True
+            "auto_renew": True,
         }
 
     def get_ticket_defaults(self) -> dict[str, Any]:
@@ -143,17 +130,9 @@ class SmartDefaultsService:
         default_priority = self._get_setting(SettingDomain.workflow, "default_ticket_priority", "medium")
         default_category = self._get_setting(SettingDomain.workflow, "default_ticket_category", None)
 
-        return {
-            "priority": default_priority,
-            "category_id": default_category,
-            "status": "open"
-        }
+        return {"priority": default_priority, "category_id": default_category, "status": "open"}
 
-    def calculate_due_date(
-        self,
-        issued_at: date | None = None,
-        payment_terms_days: int | None = None
-    ) -> date:
+    def calculate_due_date(self, issued_at: date | None = None, payment_terms_days: int | None = None) -> date:
         """
         Calculate the due date based on issue date and payment terms.
 
@@ -168,11 +147,7 @@ class SmartDefaultsService:
             issued_at = date.today()
 
         if payment_terms_days is None:
-            payment_terms_days = self._get_setting(
-                SettingDomain.billing,
-                "default_payment_terms_days",
-                30
-            )
+            payment_terms_days = self._get_setting(SettingDomain.billing, "default_payment_terms_days", 30)
             if isinstance(payment_terms_days, str):
                 payment_terms_days = int(payment_terms_days)
 
@@ -194,11 +169,7 @@ class SmartDefaultsService:
         if isinstance(supported, str):
             supported = [c.strip() for c in supported.split(",")]
 
-        return {
-            "default_currency": default_currency,
-            "supported_currencies": supported,
-            "decimal_places": 2
-        }
+        return {"default_currency": default_currency, "supported_currencies": supported, "decimal_places": 2}
 
 
 def get_smart_defaults_service(db: Session) -> SmartDefaultsService:

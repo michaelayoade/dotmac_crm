@@ -20,6 +20,7 @@ def _unique_email():
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def agent_person(db_session):
     """Person who acts as an inbox agent."""
@@ -95,6 +96,7 @@ def unrelated_conversation(db_session, contact_person):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestMyTeamFilter:
     def test_returns_conversations_for_my_team(
         self, db_session, agent_person, team_conversation, unrelated_conversation
@@ -119,9 +121,7 @@ class TestMyTeamFilter:
         )
         assert results == []
 
-    def test_returns_empty_when_person_not_in_any_team(
-        self, db_session, team_conversation
-    ):
+    def test_returns_empty_when_person_not_in_any_team(self, db_session, team_conversation):
         """Person not in any ServiceTeam should see no results."""
         outsider = Person(first_name="Outsider", last_name="X", email=_unique_email())
         db_session.add(outsider)
@@ -134,9 +134,7 @@ class TestMyTeamFilter:
         )
         assert results == []
 
-    def test_inactive_membership_excluded(
-        self, db_session, agent_person, linked_team, team_conversation
-    ):
+    def test_inactive_membership_excluded(self, db_session, agent_person, linked_team, team_conversation):
         """Deactivated team membership should exclude from my_team."""
         linked_team["member"].is_active = False
         db_session.flush()
@@ -148,9 +146,7 @@ class TestMyTeamFilter:
         )
         assert results == []
 
-    def test_inactive_crm_team_excluded(
-        self, db_session, agent_person, linked_team, team_conversation
-    ):
+    def test_inactive_crm_team_excluded(self, db_session, agent_person, linked_team, team_conversation):
         """Inactive CrmTeam should exclude from my_team results."""
         linked_team["crm_team"].is_active = False
         db_session.flush()
@@ -162,9 +158,7 @@ class TestMyTeamFilter:
         )
         assert results == []
 
-    def test_inactive_assignment_excluded(
-        self, db_session, agent_person, linked_team, contact_person
-    ):
+    def test_inactive_assignment_excluded(self, db_session, agent_person, linked_team, contact_person):
         """Inactive conversation assignment should not appear."""
         conv = Conversation(
             person_id=contact_person.id,
@@ -198,9 +192,9 @@ class TestMyTeamFilter:
             db_session.add(st)
             db_session.flush()
 
-            db_session.add(ServiceTeamMember(
-                team_id=st.id, person_id=agent_person.id, role=ServiceTeamMemberRole.member
-            ))
+            db_session.add(
+                ServiceTeamMember(team_id=st.id, person_id=agent_person.id, role=ServiceTeamMemberRole.member)
+            )
             db_session.flush()
 
             crm_t = CrmTeam(name=f"CRM-{i}", service_team_id=st.id)
@@ -215,9 +209,7 @@ class TestMyTeamFilter:
             db_session.add(conv)
             db_session.flush()
 
-            db_session.add(ConversationAssignment(
-                conversation_id=conv.id, team_id=crm_t.id, is_active=True
-            ))
+            db_session.add(ConversationAssignment(conversation_id=conv.id, team_id=crm_t.id, is_active=True))
             db_session.flush()
             conversations.append(conv)
 

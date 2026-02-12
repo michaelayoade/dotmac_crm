@@ -31,9 +31,7 @@ class GeoSync(ListResponseMixin):
         background: bool,
     ) -> Mapping[str, object]:
         if background:
-            return GeoSync.queue_sync(
-                background_tasks, sync_olts, sync_fdhs, deactivate_missing
-            )
+            return GeoSync.queue_sync(background_tasks, sync_olts, sync_fdhs, deactivate_missing)
         return GeoSync.run_sync(db, sync_olts, sync_fdhs, deactivate_missing)
 
     @staticmethod
@@ -95,11 +93,7 @@ class GeoSync(ListResponseMixin):
                 result.skipped += 1
                 continue
             seen_ids.add(olt.id)
-            existing = (
-                db.query(GeoLocation)
-                .filter(GeoLocation.olt_device_id == olt.id)
-                .first()
-            )
+            existing = db.query(GeoLocation).filter(GeoLocation.olt_device_id == olt.id).first()
             if existing:
                 existing.name = olt.name
                 existing.location_type = GeoLocationType.network_device
@@ -120,13 +114,9 @@ class GeoSync(ListResponseMixin):
                 )
                 result.created += 1
         if deactivate_missing:
-            missing_query = db.query(GeoLocation).filter(
-                GeoLocation.olt_device_id.isnot(None)
-            )
+            missing_query = db.query(GeoLocation).filter(GeoLocation.olt_device_id.isnot(None))
             if seen_ids:
-                missing_query = missing_query.filter(
-                    GeoLocation.olt_device_id.notin_(seen_ids)
-                )
+                missing_query = missing_query.filter(GeoLocation.olt_device_id.notin_(seen_ids))
             missing_query.update({"is_active": False}, synchronize_session=False)
         db.commit()
         return result
@@ -141,11 +131,7 @@ class GeoSync(ListResponseMixin):
                 result.skipped += 1
                 continue
             seen_ids.add(fdh.id)
-            existing = (
-                db.query(GeoLocation)
-                .filter(GeoLocation.fdh_cabinet_id == fdh.id)
-                .first()
-            )
+            existing = db.query(GeoLocation).filter(GeoLocation.fdh_cabinet_id == fdh.id).first()
             if existing:
                 existing.name = fdh.name
                 existing.location_type = GeoLocationType.fdh
@@ -166,13 +152,9 @@ class GeoSync(ListResponseMixin):
                 )
                 result.created += 1
         if deactivate_missing:
-            missing_query = db.query(GeoLocation).filter(
-                GeoLocation.fdh_cabinet_id.isnot(None)
-            )
+            missing_query = db.query(GeoLocation).filter(GeoLocation.fdh_cabinet_id.isnot(None))
             if seen_ids:
-                missing_query = missing_query.filter(
-                    GeoLocation.fdh_cabinet_id.notin_(seen_ids)
-                )
+                missing_query = missing_query.filter(GeoLocation.fdh_cabinet_id.notin_(seen_ids))
             missing_query.update({"is_active": False}, synchronize_session=False)
         db.commit()
         return result

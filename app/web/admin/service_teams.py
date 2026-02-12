@@ -10,6 +10,7 @@ from app.db import SessionLocal
 from app.models.service_team import ServiceTeamMemberRole, ServiceTeamType
 from app.schemas.service_team import ServiceTeamCreate, ServiceTeamMemberCreate, ServiceTeamUpdate
 from app.services.audit_helpers import log_audit_event
+from app.services.common import coerce_uuid
 from app.services.service_teams import service_team_members, service_teams
 
 templates = Jinja2Templates(directory="templates")
@@ -38,9 +39,19 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
 
 
 @router.get("", response_class=HTMLResponse)
-def service_team_list(request: Request, db: Session = Depends(get_db)):
+def service_team_list(request: Request, search: str | None = None, db: Session = Depends(get_db)):
     teams = service_teams.list(db, order_by="name", order_dir="asc", limit=100, offset=0)
-    context = _base_ctx(request, db, teams=teams)
+    search = (search or "").strip()
+    if search:
+        search_lower = search.lower()
+        teams = [
+            t
+            for t in teams
+            if search_lower in (t.name or "").lower()
+            or search_lower in (t.region or "").lower()
+            or search_lower in (t.team_type.value if t.team_type else "").lower()
+        ]
+    context = _base_ctx(request, db, teams=teams, search=search)
     return templates.TemplateResponse("admin/system/service_teams/index.html", context)
 
 
@@ -146,7 +157,7 @@ def service_team_add_member(
     db: Session = Depends(get_db),
 ):
     payload = ServiceTeamMemberCreate(
-        person_id=person_id,
+        person_id=coerce_uuid(person_id),
         role=ServiceTeamMemberRole(role),
     )
     service_team_members.add_member(db, team_id, payload)

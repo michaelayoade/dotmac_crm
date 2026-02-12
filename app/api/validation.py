@@ -17,6 +17,7 @@ router = APIRouter(prefix="/validation", tags=["validation"])
 
 class FieldValidationRequest(BaseModel):
     """Request body for single field validation."""
+
     field: str
     value: str
     context: dict | None = None  # Additional context (e.g., entity ID for update)
@@ -24,6 +25,7 @@ class FieldValidationRequest(BaseModel):
 
 class FieldValidationResponse(BaseModel):
     """Response for field validation."""
+
     valid: bool
     message: str | None = None
     field: str
@@ -31,6 +33,7 @@ class FieldValidationResponse(BaseModel):
 
 class FormValidationRequest(BaseModel):
     """Request body for full form validation."""
+
     fields: dict[str, str]
     form_type: str
     context: dict | None = None
@@ -38,23 +41,24 @@ class FormValidationRequest(BaseModel):
 
 class FormValidationResponse(BaseModel):
     """Response for form validation."""
+
     valid: bool
     errors: dict[str, str | None]
 
 
 # Validation rules and patterns
-EMAIL_PATTERN = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-PHONE_PATTERN = re.compile(r'^\+?[0-9\s\-\(\)\.]{7,20}$')
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+PHONE_PATTERN = re.compile(r"^\+?[0-9\s\-\(\)\.]{7,20}$")
 URL_PATTERN = re.compile(
-    r'^https?://'
-    r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'
-    r'localhost|'
-    r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
-    r'(?::\d+)?'
-    r'(?:/?|[/?]\S+)$',
-    re.IGNORECASE
+    r"^https?://"
+    r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|"
+    r"localhost|"
+    r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
+    r"(?::\d+)?"
+    r"(?:/?|[/?]\S+)$",
+    re.IGNORECASE,
 )
-CURRENCY_PATTERN = re.compile(r'^-?\d+(?:[,.]\d{1,2})?$')
+CURRENCY_PATTERN = re.compile(r"^-?\d+(?:[,.]\d{1,2})?$")
 
 
 def validate_email_format(value: str) -> tuple[bool, str | None]:
@@ -70,8 +74,8 @@ def validate_phone_format(value: str) -> tuple[bool, str | None]:
     """Validate phone number format."""
     if not value:
         return True, None
-    cleaned = re.sub(r'[\s\-\(\)\.]', '', value)
-    if not re.match(r'^\+?[0-9]{7,15}$', cleaned):
+    cleaned = re.sub(r"[\s\-\(\)\.]", "", value)
+    if not re.match(r"^\+?[0-9]{7,15}$", cleaned):
         return False, "Please enter a valid phone number"
     return True, None
 
@@ -89,7 +93,7 @@ def validate_currency_format(value: str) -> tuple[bool, str | None]:
     """Validate currency amount format."""
     if not value:
         return True, None
-    cleaned = re.sub(r'[\s,]', '', value)
+    cleaned = re.sub(r"[\s,]", "", value)
     if not CURRENCY_PATTERN.match(cleaned):
         return False, "Please enter a valid currency amount"
     return True, None
@@ -116,11 +120,7 @@ def validate_max_length(value: str, max_len: int) -> tuple[bool, str | None]:
     return True, None
 
 
-async def validate_email_unique(
-    db: Session,
-    email: str,
-    exclude_id: str | None = None
-) -> tuple[bool, str | None]:
+async def validate_email_unique(db: Session, email: str, exclude_id: str | None = None) -> tuple[bool, str | None]:
     """Check if email is unique in the database."""
     if not email:
         return True, None
@@ -135,11 +135,7 @@ async def validate_email_unique(
     return True, None
 
 
-async def validate_org_name_unique(
-    db: Session,
-    name: str,
-    exclude_id: str | None = None
-) -> tuple[bool, str | None]:
+async def validate_org_name_unique(db: Session, name: str, exclude_id: str | None = None) -> tuple[bool, str | None]:
     """Check if organization name is unique."""
     if not name:
         return True, None
@@ -156,9 +152,7 @@ async def validate_org_name_unique(
 
 @router.post("/field", response_model=FieldValidationResponse)
 async def validate_field(
-    request: FieldValidationRequest,
-    db: Session = Depends(get_db),
-    _user=Depends(require_user_auth)
+    request: FieldValidationRequest, db: Session = Depends(get_db), _user=Depends(require_user_auth)
 ):
     """
     Validate a single form field.
@@ -173,10 +167,10 @@ async def validate_field(
     field = request.field.lower()
     value = request.value
     context = request.context or {}
-    exclude_id = context.get('exclude_id')
+    exclude_id = context.get("exclude_id")
 
     # Email validation
-    if 'email' in field:
+    if "email" in field:
         valid, message = validate_email_format(value)
         if not valid:
             return FieldValidationResponse(valid=False, message=message, field=request.field)
@@ -187,25 +181,25 @@ async def validate_field(
             return FieldValidationResponse(valid=False, message=message, field=request.field)
 
     # Phone validation
-    elif 'phone' in field or 'tel' in field:
+    elif "phone" in field or "tel" in field:
         valid, message = validate_phone_format(value)
         if not valid:
             return FieldValidationResponse(valid=False, message=message, field=request.field)
 
     # URL validation
-    elif 'url' in field or 'website' in field:
+    elif "url" in field or "website" in field:
         valid, message = validate_url_format(value)
         if not valid:
             return FieldValidationResponse(valid=False, message=message, field=request.field)
 
     # Currency validation
-    elif 'amount' in field or 'price' in field or 'currency' in field:
+    elif "amount" in field or "price" in field or "currency" in field:
         valid, message = validate_currency_format(value)
         if not valid:
             return FieldValidationResponse(valid=False, message=message, field=request.field)
 
     # Organization name uniqueness
-    elif field == 'name' and context.get('form_type') == 'organization':
+    elif field == "name" and context.get("form_type") == "organization":
         valid, message = await validate_org_name_unique(db, value, exclude_id)
         if not valid:
             return FieldValidationResponse(valid=False, message=message, field=request.field)
@@ -215,10 +209,7 @@ async def validate_field(
 
 @router.post("/form/{form_type}", response_model=FormValidationResponse)
 async def validate_form(
-    form_type: str,
-    request: FormValidationRequest,
-    db: Session = Depends(get_db),
-    _user=Depends(require_user_auth)
+    form_type: str, request: FormValidationRequest, db: Session = Depends(get_db), _user=Depends(require_user_auth)
 ):
     """
     Validate an entire form.
@@ -230,61 +221,54 @@ async def validate_form(
     """
     errors = {}
     context = request.context or {}
-    context['form_type'] = form_type
+    context["form_type"] = form_type
 
-    if form_type == 'person':
+    if form_type == "person":
         # Required fields
-        for field in ['first_name', 'last_name', 'email']:
+        for field in ["first_name", "last_name", "email"]:
             if field in request.fields:
                 valid, message = validate_required(request.fields[field])
                 if not valid:
                     errors[field] = message
 
         # Email format and uniqueness
-        if 'email' in request.fields and not errors.get('email'):
-            valid, message = validate_email_format(request.fields['email'])
+        if "email" in request.fields and not errors.get("email"):
+            valid, message = validate_email_format(request.fields["email"])
             if not valid:
-                errors['email'] = message
+                errors["email"] = message
             else:
-                valid, message = await validate_email_unique(
-                    db, request.fields['email'], context.get('exclude_id')
-                )
+                valid, message = await validate_email_unique(db, request.fields["email"], context.get("exclude_id"))
                 if not valid:
-                    errors['email'] = message
+                    errors["email"] = message
 
         # Phone format
-        if 'phone' in request.fields:
-            valid, message = validate_phone_format(request.fields['phone'])
+        if "phone" in request.fields:
+            valid, message = validate_phone_format(request.fields["phone"])
             if not valid:
-                errors['phone'] = message
+                errors["phone"] = message
 
-    elif form_type == 'organization':
+    elif form_type == "organization":
         # Required fields
-        if 'name' in request.fields:
-            valid, message = validate_required(request.fields['name'])
+        if "name" in request.fields:
+            valid, message = validate_required(request.fields["name"])
             if not valid:
-                errors['name'] = message
+                errors["name"] = message
             else:
-                valid, message = await validate_org_name_unique(
-                    db, request.fields['name'], context.get('exclude_id')
-                )
+                valid, message = await validate_org_name_unique(db, request.fields["name"], context.get("exclude_id"))
                 if not valid:
-                    errors['name'] = message
+                    errors["name"] = message
 
         # Website URL
-        if 'website' in request.fields:
-            valid, message = validate_url_format(request.fields['website'])
+        if "website" in request.fields:
+            valid, message = validate_url_format(request.fields["website"])
             if not valid:
-                errors['website'] = message
+                errors["website"] = message
 
-    elif form_type == 'invoice':
+    elif form_type == "invoice":
         # Required fields
-        if 'account_id' in request.fields:
-            valid, message = validate_required(request.fields['account_id'])
+        if "account_id" in request.fields:
+            valid, message = validate_required(request.fields["account_id"])
             if not valid:
-                errors['account_id'] = message
+                errors["account_id"] = message
 
-    return FormValidationResponse(
-        valid=len(errors) == 0,
-        errors=errors
-    )
+    return FormValidationResponse(valid=len(errors) == 0, errors=errors)

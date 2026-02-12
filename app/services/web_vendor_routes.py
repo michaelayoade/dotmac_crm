@@ -30,9 +30,7 @@ def _coerce_float(value: object | None, default: float) -> float:
 
 
 def _require_vendor_context(request: Request, db: Session):
-    context = vendor_portal.get_context(
-        db, request.cookies.get(vendor_portal.SESSION_COOKIE_NAME)
-    )
+    context = vendor_portal.get_context(db, request.cookies.get(vendor_portal.SESSION_COOKIE_NAME))
     if not context:
         return None
     return context
@@ -45,10 +43,7 @@ def _has_vendor_role(db: Session, person_id: str, vendor_role: str | None) -> bo
     if not role:
         return False
     return (
-        db.query(PersonRole)
-        .filter(PersonRole.person_id == person_id)
-        .filter(PersonRole.role_id == role.id)
-        .first()
+        db.query(PersonRole).filter(PersonRole.person_id == person_id).filter(PersonRole.role_id == role.id).first()
         is not None
     )
 
@@ -65,12 +60,8 @@ def vendor_dashboard(request: Request, db: Session):
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     vendor_id = str(context["vendor"].id)
-    available = vendor_service.installation_projects.list_available_for_vendor(
-        db, vendor_id, limit=10, offset=0
-    )
-    mine = vendor_service.installation_projects.list_for_vendor(
-        db, vendor_id, limit=10, offset=0
-    )
+    available = vendor_service.installation_projects.list_available_for_vendor(db, vendor_id, limit=10, offset=0)
+    mine = vendor_service.installation_projects.list_for_vendor(db, vendor_id, limit=10, offset=0)
     return templates.TemplateResponse(
         "vendor/dashboard/index.html",
         {
@@ -89,9 +80,7 @@ def vendor_projects_available(request: Request, db: Session):
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     vendor_id = str(context["vendor"].id)
-    projects = vendor_service.installation_projects.list_available_for_vendor(
-        db, vendor_id, limit=50, offset=0
-    )
+    projects = vendor_service.installation_projects.list_available_for_vendor(db, vendor_id, limit=50, offset=0)
     return templates.TemplateResponse(
         "vendor/projects/available.html",
         {
@@ -109,14 +98,12 @@ def vendor_projects_mine(request: Request, db: Session):
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     vendor_id = str(context["vendor"].id)
-    projects = vendor_service.installation_projects.list_for_vendor(
-        db, vendor_id, limit=50, offset=0
-    )
+    projects = vendor_service.installation_projects.list_for_vendor(db, vendor_id, limit=50, offset=0)
     return templates.TemplateResponse(
         "vendor/projects/my-projects.html",
         {
             "request": request,
-        "active_page": "fiber-map",
+            "active_page": "fiber-map",
             "vendor": context["vendor"],
             "current_user": context["current_user"],
             "projects": projects,
@@ -172,15 +159,16 @@ def vendor_fiber_map(request: Request, db: Session):
     from app.models.domain_settings import SettingDomain
     from app.models.network import FdhCabinet, FiberSegment, FiberSplice, FiberSpliceClosure, FiberSpliceTray, Splitter
     from app.services import settings_spec
+    from app.services.fiber_plant import fiber_plant
 
     features = []
 
     # FDH Cabinets
-    fdh_cabinets = db.query(FdhCabinet).filter(
-        FdhCabinet.is_active.is_(True),
-        FdhCabinet.latitude.isnot(None),
-        FdhCabinet.longitude.isnot(None)
-    ).all()
+    fdh_cabinets = (
+        db.query(FdhCabinet)
+        .filter(FdhCabinet.is_active.is_(True), FdhCabinet.latitude.isnot(None), FdhCabinet.longitude.isnot(None))
+        .all()
+    )
     splitter_counts: dict[uuid.UUID | None, int] = {}
     if fdh_cabinets:
         fdh_ids = [fdh.id for fdh in fdh_cabinets]
@@ -195,24 +183,30 @@ def vendor_fiber_map(request: Request, db: Session):
         }
     for fdh in fdh_cabinets:
         splitter_count = splitter_counts.get(fdh.id, 0)
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [fdh.longitude, fdh.latitude]},
-            "properties": {
-                "id": str(fdh.id),
-                "type": "fdh_cabinet",
-                "name": fdh.name,
-                "code": fdh.code,
-                "splitter_count": splitter_count,
-            },
-        })
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [fdh.longitude, fdh.latitude]},
+                "properties": {
+                    "id": str(fdh.id),
+                    "type": "fdh_cabinet",
+                    "name": fdh.name,
+                    "code": fdh.code,
+                    "splitter_count": splitter_count,
+                },
+            }
+        )
 
     # Splice Closures
-    closures = db.query(FiberSpliceClosure).filter(
-        FiberSpliceClosure.is_active.is_(True),
-        FiberSpliceClosure.latitude.isnot(None),
-        FiberSpliceClosure.longitude.isnot(None)
-    ).all()
+    closures = (
+        db.query(FiberSpliceClosure)
+        .filter(
+            FiberSpliceClosure.is_active.is_(True),
+            FiberSpliceClosure.latitude.isnot(None),
+            FiberSpliceClosure.longitude.isnot(None),
+        )
+        .all()
+    )
     splice_counts: dict[uuid.UUID | None, int] = {}
     tray_counts: dict[uuid.UUID | None, int] = {}
     if closures:
@@ -238,65 +232,72 @@ def vendor_fiber_map(request: Request, db: Session):
     for closure in closures:
         splice_count = splice_counts.get(closure.id, 0)
         tray_count = tray_counts.get(closure.id, 0)
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [closure.longitude, closure.latitude]},
-            "properties": {
-                "id": str(closure.id),
-                "type": "splice_closure",
-                "name": closure.name,
-                "splice_count": splice_count,
-                "tray_count": tray_count,
-            },
-        })
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [closure.longitude, closure.latitude]},
+                "properties": {
+                    "id": str(closure.id),
+                    "type": "splice_closure",
+                    "name": closure.name,
+                    "splice_count": splice_count,
+                    "tray_count": tray_count,
+                },
+            }
+        )
 
     # Fiber Segments
     segments = db.query(FiberSegment).filter(FiberSegment.is_active.is_(True)).all()
-    segment_geoms = db.query(FiberSegment, func.ST_AsGeoJSON(FiberSegment.route_geom)).filter(
-        FiberSegment.is_active.is_(True),
-        FiberSegment.route_geom.isnot(None),
-    ).all()
+    segment_geoms = (
+        db.query(FiberSegment, func.ST_AsGeoJSON(FiberSegment.route_geom))
+        .filter(
+            FiberSegment.is_active.is_(True),
+            FiberSegment.route_geom.isnot(None),
+        )
+        .all()
+    )
     for segment, geojson_str in segment_geoms:
         if not geojson_str:
             continue
         geom = json.loads(geojson_str)
-        features.append({
-            "type": "Feature",
-            "geometry": geom,
-            "properties": {
-                "id": str(segment.id),
-                "type": "fiber_segment",
-                "name": segment.name,
-                "segment_type": segment.segment_type.value if segment.segment_type else None,
-                "cable_type": segment.cable_type.value if segment.cable_type else None,
-                "fiber_count": segment.fiber_count,
-                "length_m": segment.length_m,
-            },
-        })
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": geom,
+                "properties": {
+                    "id": str(segment.id),
+                    "type": "fiber_segment",
+                    "name": segment.name,
+                    "segment_type": segment.segment_type.value if segment.segment_type else None,
+                    "cable_type": segment.cable_type.value if segment.cable_type else None,
+                    "fiber_count": segment.fiber_count,
+                    "length_m": segment.length_m,
+                },
+            }
+        )
 
     geojson_data = {"type": "FeatureCollection", "features": features}
 
     stats = {
         "fdh_cabinets": db.query(func.count(FdhCabinet.id)).filter(FdhCabinet.is_active.is_(True)).scalar(),
         "fdh_with_location": len(fdh_cabinets),
-        "splice_closures": db.query(func.count(FiberSpliceClosure.id)).filter(FiberSpliceClosure.is_active.is_(True)).scalar(),
+        "splice_closures": db.query(func.count(FiberSpliceClosure.id))
+        .filter(FiberSpliceClosure.is_active.is_(True))
+        .scalar(),
         "closures_with_location": len(closures),
         "splitters": db.query(func.count(Splitter.id)).filter(Splitter.is_active.is_(True)).scalar(),
         "total_splices": db.query(func.count(FiberSplice.id)).scalar(),
         "segments": len(segments),
     }
+    qa_stats = fiber_plant.get_quality_stats(db)
 
     cost_settings = {
         "drop_cable_per_meter": _coerce_float(
-            settings_spec.resolve_value(
-                db, SettingDomain.network, "fiber_drop_cable_cost_per_meter"
-            ),
+            settings_spec.resolve_value(db, SettingDomain.network, "fiber_drop_cable_cost_per_meter"),
             2.50,
         ),
         "labor_per_meter": _coerce_float(
-            settings_spec.resolve_value(
-                db, SettingDomain.network, "fiber_labor_cost_per_meter"
-            ),
+            settings_spec.resolve_value(db, SettingDomain.network, "fiber_labor_cost_per_meter"),
             1.50,
         ),
         "ont_device": _coerce_float(
@@ -304,15 +305,10 @@ def vendor_fiber_map(request: Request, db: Session):
             85.00,
         ),
         "installation_base": _coerce_float(
-            settings_spec.resolve_value(
-                db, SettingDomain.network, "fiber_installation_base_fee"
-            ),
+            settings_spec.resolve_value(db, SettingDomain.network, "fiber_installation_base_fee"),
             50.00,
         ),
-        "currency": str(
-            settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
-            or "NGN"
-        ),
+        "currency": str(settings_spec.resolve_value(db, SettingDomain.billing, "default_currency") or "NGN"),
     }
 
     return templates.TemplateResponse(
@@ -324,6 +320,7 @@ def vendor_fiber_map(request: Request, db: Session):
             "current_user": context["current_user"],
             "geojson_data": geojson_data,
             "stats": stats,
+            "qa_stats": qa_stats,
             "cost_settings": cost_settings,
         },
     )
@@ -386,6 +383,7 @@ async def vendor_fiber_map_nearest_cabinet(request: Request, lat: float, lng: fl
     if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     from app.web.admin import network as admin_network
+
     return await admin_network.find_nearest_cabinet(request, lat, lng, db)
 
 
@@ -396,6 +394,7 @@ async def vendor_fiber_map_plan_options(request: Request, lat: float, lng: float
     if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     from app.web.admin import network as admin_network
+
     return await admin_network.plan_options(request, lat, lng, db)
 
 
@@ -406,4 +405,5 @@ async def vendor_fiber_map_route(request: Request, lat: float, lng: float, cabin
     if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     from app.web.admin import network as admin_network
+
     return await admin_network.plan_route(request, lat, lng, cabinet_id, db)

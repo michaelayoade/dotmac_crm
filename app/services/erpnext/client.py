@@ -46,16 +46,19 @@ class ERPNextError(Exception):
 
 class ERPNextAuthError(ERPNextError):
     """Authentication failed."""
+
     pass
 
 
 class ERPNextNotFoundError(ERPNextError):
     """Document not found."""
+
     pass
 
 
 class ERPNextRateLimitError(ERPNextError):
     """Rate limit exceeded."""
+
     pass
 
 

@@ -4,6 +4,7 @@ VictoriaMetrics client for bandwidth metrics storage.
 Provides methods for writing bandwidth samples and querying time series data
 using VictoriaMetrics' Prometheus-compatible API.
 """
+
 import logging
 import os
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ _DEFAULT_TIMEOUT = 30.0  # fallback when settings unavailable
 @dataclass
 class BandwidthPoint:
     """A single bandwidth measurement point."""
+
     timestamp: datetime
     subscription_id: str
     nas_device_id: str | None
@@ -34,6 +36,7 @@ class BandwidthPoint:
 @dataclass
 class TimeSeriesPoint:
     """A single point in a time series query result."""
+
     timestamp: datetime
     value: float
 
@@ -41,12 +44,14 @@ class TimeSeriesPoint:
 @dataclass
 class TimeSeriesResult:
     """Result from a time series query."""
+
     metric: dict[str, str]
     values: list[TimeSeriesPoint]
 
 
 class MetricsStoreError(Exception):
     """Base exception for metrics store errors."""
+
     pass
 
 
@@ -223,10 +228,12 @@ class MetricsStore:
                     )
                     for ts, val in result.get("values", [])
                 ]
-                results.append(TimeSeriesResult(
-                    metric=result.get("metric", {}),
-                    values=values,
-                ))
+                results.append(
+                    TimeSeriesResult(
+                        metric=result.get("metric", {}),
+                        values=values,
+                    )
+                )
 
             return results
 
@@ -390,7 +397,7 @@ class MetricsStore:
         Returns:
             List of top users with subscription_id and bandwidth
         """
-        query = f'topk({limit}, sum by (subscription_id) (rate(bandwidth_rx_bps[{duration}]) + rate(bandwidth_tx_bps[{duration}])))'
+        query = f"topk({limit}, sum by (subscription_id) (rate(bandwidth_rx_bps[{duration}]) + rate(bandwidth_tx_bps[{duration}])))"
 
         results = await self.get_instant(query)
 

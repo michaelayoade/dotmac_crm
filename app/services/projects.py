@@ -91,6 +91,8 @@ def _normalize_assignee_ids(assignee_ids: list[str]) -> list[str]:
         try:
             coerced = str(coerce_uuid(raw))
         except Exception:
+            coerced = None
+        if not coerced:
             continue
         if coerced not in seen:
             seen.add(coerced)
@@ -111,9 +113,7 @@ def _sync_project_task_assignees(db: Session, task: ProjectTask, assignee_ids: l
     target_ids = set(normalized)
 
     for person_id in target_ids - current_ids:
-        task.assignees.append(
-            ProjectTaskAssignee(task_id=task.id, person_id=coerce_uuid(person_id))
-        )
+        task.assignees.append(ProjectTaskAssignee(task_id=task.id, person_id=coerce_uuid(person_id)))
     if target_ids != current_ids:
         for assignee in list(task.assignees):
             if str(assignee.person_id) not in target_ids:
@@ -285,7 +285,7 @@ class Projects(ListResponseMixin):
 
     @staticmethod
     def _get_region_pm_assignments(db: Session, region: str | None) -> tuple[str | None, str | None]:
-        """Look up PM + assistant person_id for the given region from settings."""
+        """Look up PM + SPC person_id for the given region from settings."""
         if not region:
             return None, None
         region_pm_map = settings_spec.resolve_value(db, SettingDomain.projects, "region_pm_assignments")
@@ -293,10 +293,14 @@ class Projects(ListResponseMixin):
             return None, None
         entry = region_pm_map.get(region)
         pm_id: str | None = None
-        assistant_id: str | None = None
+        spc_id: str | None = None
         if isinstance(entry, dict):
             pm_id = entry.get("manager_person_id") or entry.get("project_manager_person_id")
-            assistant_id = entry.get("assistant_person_id") or entry.get("assistant_manager_person_id")
+            spc_id = (
+                entry.get("spc_person_id")
+                or entry.get("assistant_person_id")
+                or entry.get("assistant_manager_person_id")
+            )
         elif isinstance(entry, str):
             pm_id = entry
         if pm_id:
@@ -305,13 +309,13 @@ class Projects(ListResponseMixin):
                 pm_id = None
             else:
                 pm_id = str(person.id)
-        if assistant_id:
-            person = db.get(Person, coerce_uuid(assistant_id))
+        if spc_id:
+            person = db.get(Person, coerce_uuid(spc_id))
             if not person:
-                assistant_id = None
+                spc_id = None
             else:
-                assistant_id = str(person.id)
-        return pm_id, assistant_id
+                spc_id = str(person.id)
+        return pm_id, spc_id
 
     @staticmethod
     def _get_pm_for_region(db: Session, region: str | None) -> str | None:
@@ -355,14 +359,14 @@ class Projects(ListResponseMixin):
             data["number"] = number
         # Auto-assign PM based on region if not already specified
         if data.get("region"):
-            auto_pm, auto_assistant = Projects._get_region_pm_assignments(db, data["region"])
+            auto_pm, auto_spc = Projects._get_region_pm_assignments(db, data["region"])
             if auto_pm:
                 if not data.get("project_manager_person_id"):
                     data["project_manager_person_id"] = coerce_uuid(auto_pm)
                 if not data.get("manager_person_id"):
                     data["manager_person_id"] = coerce_uuid(auto_pm)
-            if auto_assistant and not data.get("assistant_manager_person_id"):
-                data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
+            if auto_spc and not data.get("assistant_manager_person_id"):
+                data["assistant_manager_person_id"] = coerce_uuid(auto_spc)
         fields_set = payload.model_fields_set
         if "status" not in fields_set:
             default_status = settings_spec.resolve_value(db, SettingDomain.projects, "default_project_status")
@@ -436,9 +440,12 @@ class Projects(ListResponseMixin):
         db: Session,
         subscriber_id: str | None,
         status: str | None,
+        project_type: str | None,
         priority: str | None,
         owner_person_id: str | None,
         manager_person_id: str | None,
+        project_manager_person_id: str | None,
+        assistant_manager_person_id: str | None,
         is_active: bool | None,
         order_by: str,
         order_dir: str,
@@ -450,12 +457,18 @@ class Projects(ListResponseMixin):
             query = query.filter(Project.subscriber_id == coerce_uuid(subscriber_id))
         if status:
             query = query.filter(Project.status == validate_enum(status, ProjectStatus, "status"))
+        if project_type:
+            query = query.filter(Project.project_type == validate_enum(project_type, ProjectType, "project_type"))
         if priority:
             query = query.filter(Project.priority == validate_enum(priority, ProjectPriority, "priority"))
         if owner_person_id:
             query = query.filter(Project.owner_person_id == owner_person_id)
         if manager_person_id:
             query = query.filter(Project.manager_person_id == manager_person_id)
+        if project_manager_person_id:
+            query = query.filter(Project.project_manager_person_id == coerce_uuid(project_manager_person_id))
+        if assistant_manager_person_id:
+            query = query.filter(Project.assistant_manager_person_id == coerce_uuid(assistant_manager_person_id))
         if is_active is None:
             query = query.filter(Project.is_active.is_(True))
         else:
@@ -591,13 +604,13 @@ class Projects(ListResponseMixin):
         new_region = data.get("region")
         current_pm = data.get("manager_person_id") if "manager_person_id" in data else project.manager_person_id
         if new_region:
-            auto_pm, auto_assistant = Projects._get_region_pm_assignments(db, new_region)
+            auto_pm, auto_spc = Projects._get_region_pm_assignments(db, new_region)
             if auto_pm and not current_pm:
                 data["manager_person_id"] = coerce_uuid(auto_pm)
             if auto_pm and not project.project_manager_person_id and "project_manager_person_id" not in data:
                 data["project_manager_person_id"] = coerce_uuid(auto_pm)
-            if auto_assistant and not project.assistant_manager_person_id and "assistant_manager_person_id" not in data:
-                data["assistant_manager_person_id"] = coerce_uuid(auto_assistant)
+            if auto_spc and not project.assistant_manager_person_id and "assistant_manager_person_id" not in data:
+                data["assistant_manager_person_id"] = coerce_uuid(auto_spc)
         for key, value in data.items():
             setattr(project, key, value)
         if data.get("status") == ProjectStatus.completed and project.completed_at is None:

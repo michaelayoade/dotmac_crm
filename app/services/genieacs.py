@@ -69,9 +69,7 @@ class GenieACSClient:
         url = f"{self.base_url}{path}"
         try:
             with httpx.Client(timeout=self.timeout, headers=self.headers) as client:
-                response = client.request(
-                    method, url, params=params, json=json_data, **kwargs
-                )
+                response = client.request(method, url, params=params, json=json_data, **kwargs)
                 response.raise_for_status()
                 return response
         except httpx.HTTPStatusError as e:

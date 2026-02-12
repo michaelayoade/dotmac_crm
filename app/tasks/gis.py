@@ -45,9 +45,7 @@ def sync_gis_sources():
             deactivate_missing,
         )
         if sync_pops:
-            result = gis_sync_service.geo_sync.sync_pop_sites(
-                session, deactivate_missing=deactivate_missing
-            )
+            result = gis_sync_service.geo_sync.sync_pop_sites(session, deactivate_missing=deactivate_missing)
             logger.info(
                 "GIS sync pop sites created=%s updated=%s skipped=%s",
                 result.created,
@@ -55,9 +53,7 @@ def sync_gis_sources():
                 result.skipped,
             )
         if sync_addresses:
-            result = gis_sync_service.geo_sync.sync_addresses(
-                session, deactivate_missing=deactivate_missing
-            )
+            result = gis_sync_service.geo_sync.sync_addresses(session, deactivate_missing=deactivate_missing)
             logger.info(
                 "GIS sync addresses created=%s updated=%s skipped=%s",
                 result.created,

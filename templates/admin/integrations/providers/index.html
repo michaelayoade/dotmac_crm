@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, table_shell, table_row, empty_state %}
 
 {% block title %}Payment Providers - Integrations{% endblock %}
 
@@ -40,68 +40,65 @@
     </div>
 
     <!-- Providers Table -->
-    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead class="bg-slate-50 dark:bg-slate-800/50">
-                    <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Provider</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connector</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                        <th scope="col" class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    {% for provider in providers %}
-                    {% set type_val = provider.provider_type.value if provider.provider_type else 'manual' %}
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="px-6 py-4">
-                            <div class="flex items-center gap-3">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
-                                    <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
-                                </div>
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="providers-table", color="primary") %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Provider</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connector</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th scope="col" class="{{ pad }}"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for provider in providers %}
+                {% set type_val = provider.provider_type.value if provider.provider_type else 'manual' %}
+                {% call table_row(color="primary") %}
+                    <td class="{{ pad }}">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                                <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+                            </div>
                                 <div>
                                     <a href="/admin/integrations/providers/{{ provider.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ provider.name }}</a>
-                                </div>
                             </div>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                        </div>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
                             {% set type_colors = {'stripe': 'purple', 'paypal': 'blue', 'manual': 'slate', 'custom': 'amber'} %}
                             {% set color = type_colors.get(type_val, 'slate') %}
                             <span class="inline-flex items-center rounded-full bg-{{ color }}-100 px-2.5 py-0.5 text-xs font-medium text-{{ color }}-700 dark:bg-{{ color }}-900/30 dark:text-{{ color }}-400">{{ type_val | title }}</span>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                    <td class="{{ pad }} whitespace-nowrap">
                             {% if provider.connector_config %}
                             <span class="text-sm text-slate-900 dark:text-white">{{ provider.connector_config.name }}</span>
                             {% else %}
                             <span class="text-sm text-slate-400">None</span>
                             {% endif %}
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
+                    <td class="{{ pad }} whitespace-nowrap">
                             {% if provider.is_active %}
                             {{ status_badge("Active", "active", size="sm") }}
                             {% else %}
                             {{ status_badge("Inactive", "inactive", size="sm") }}
                             {% endif %}
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                    <td class="{{ pad }} whitespace-nowrap text-right text-sm">
                             <a href="/admin/integrations/providers/{{ provider.id }}" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
                         </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="5" class="px-6 py-12 text-center">
-                            <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
-                            <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">No payment providers</h3>
-                            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Get started by adding a payment provider.</p>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+                {% endcall %}
+                {% else %}
+                <tr>
+                    <td colspan="5" class="px-6 py-12">
+                        {{ empty_state("No payment providers", "Get started by adding a payment provider.") }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
 
     {% set activity_title = "Integrations Activity" %}
     {% set activity_link = "/admin/system/audit" %}

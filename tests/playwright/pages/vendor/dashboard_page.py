@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.base_page import BasePage
 
 
@@ -38,20 +39,14 @@ class VendorDashboardPage(BasePage):
 
     def get_available_projects_count(self) -> int:
         """Get count of available projects displayed."""
-        projects = self.page.locator("[data-testid='available-project']").or_(
-            self.page.locator(".available-project")
-        )
+        projects = self.page.locator("[data-testid='available-project']").or_(self.page.locator(".available-project"))
         return projects.count()
 
     def get_my_projects_count(self) -> int:
         """Get count of my projects displayed."""
-        projects = self.page.locator("[data-testid='my-project']").or_(
-            self.page.locator(".my-project")
-        )
+        projects = self.page.locator("[data-testid='my-project']").or_(self.page.locator(".my-project"))
         return projects.count()
 
     def logout(self) -> None:
         """Log out of vendor portal."""
-        self.page.get_by_role("button", name="Logout").or_(
-            self.page.get_by_role("link", name="Logout")
-        ).first.click()
+        self.page.get_by_role("button", name="Logout").or_(self.page.get_by_role("link", name="Logout")).first.click()

@@ -34,7 +34,9 @@ _OPEN_STATUSES = {
 
 def validate_ticket_creation(db: Session, payload: TicketCreate) -> None:
     """Evaluate pre-creation rules and reject if a matching rule fires reject_creation."""
-    rules: list[AutomationRule] = AutomationRulesManager.get_active_rules_for_event(db, EventType.ticket_pre_create.value)
+    rules: list[AutomationRule] = AutomationRulesManager.get_active_rules_for_event(
+        db, EventType.ticket_pre_create.value
+    )
     if not rules:
         return
 

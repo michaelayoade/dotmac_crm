@@ -127,7 +127,6 @@ def _resolve_connector_config(
         ChannelType.instagram_dm: ConnectorType.facebook,
     }
     expected = expected_map.get(channel_type, ConnectorType.email)
-
     if config.connector_type != expected:
         raise HTTPException(status_code=400, detail="Connector type mismatch")
     return config

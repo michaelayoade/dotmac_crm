@@ -12,12 +12,8 @@ class _FakeConversation:
 
 
 def test_update_conversation_status_invalid_transition():
-    with patch(
-        "app.services.crm.inbox.conversation_status.conversation_service"
-    ) as mock_service:
-        mock_service.Conversations.get.return_value = _FakeConversation(
-            ConversationStatus.resolved
-        )
+    with patch("app.services.crm.inbox.conversation_status.conversation_service") as mock_service:
+        mock_service.Conversations.get.return_value = _FakeConversation(ConversationStatus.resolved)
         result = update_conversation_status(
             None,
             conversation_id="conv-1",
@@ -29,14 +25,11 @@ def test_update_conversation_status_invalid_transition():
 
 
 def test_update_conversation_status_valid_transition():
-    with patch(
-        "app.services.crm.inbox.conversation_status.conversation_service"
-    ) as mock_service, patch(
-        "app.services.crm.inbox.conversation_status.log_conversation_action"
-    ) as mock_log:
-        mock_service.Conversations.get.return_value = _FakeConversation(
-            ConversationStatus.open
-        )
+    with (
+        patch("app.services.crm.inbox.conversation_status.conversation_service") as mock_service,
+        patch("app.services.crm.inbox.conversation_status.log_conversation_action") as mock_log,
+    ):
+        mock_service.Conversations.get.return_value = _FakeConversation(ConversationStatus.open)
         result = update_conversation_status(
             None,
             conversation_id="conv-1",
@@ -49,12 +42,8 @@ def test_update_conversation_status_valid_transition():
 
 
 def test_update_conversation_status_not_found():
-    with patch(
-        "app.services.crm.inbox.conversation_status.conversation_service"
-    ) as mock_service:
-        mock_service.Conversations.get.side_effect = HTTPException(
-            status_code=404, detail="Conversation not found"
-        )
+    with patch("app.services.crm.inbox.conversation_status.conversation_service") as mock_service:
+        mock_service.Conversations.get.side_effect = HTTPException(status_code=404, detail="Conversation not found")
         result = update_conversation_status(
             None,
             conversation_id="conv-1",

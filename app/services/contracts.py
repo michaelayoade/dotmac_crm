@@ -61,9 +61,7 @@ class ContractSignatures:
 
     @staticmethod
     @staticmethod
-    def list_for_account(
-        db: Session, account_id: str, limit: int = 100, offset: int = 0
-    ) -> list[ContractSignature]:
+    def list_for_account(db: Session, account_id: str, limit: int = 100, offset: int = 0) -> list[ContractSignature]:
         """List all contract signatures for an account.
 
         Args:

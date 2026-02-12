@@ -325,9 +325,7 @@ class TestConnectorConfigsUpdate:
     def test_raises_for_not_found(self, db_session):
         """Test raises 404 for non-existent config."""
         with pytest.raises(HTTPException) as exc_info:
-            connector_service.connector_configs.update(
-                db_session, str(uuid.uuid4()), ConnectorConfigUpdate(name="new")
-            )
+            connector_service.connector_configs.update(db_session, str(uuid.uuid4()), ConnectorConfigUpdate(name="new"))
 
         assert exc_info.value.status_code == 404
 

@@ -77,11 +77,7 @@ class NotificationHandler:
         if template_code is None:
             return
 
-        template_codes = (
-            list(template_code)
-            if isinstance(template_code, list | tuple | set)
-            else [template_code]
-        )
+        template_codes = list(template_code) if isinstance(template_code, list | tuple | set) else [template_code]
 
         for code in template_codes:
             # Look up template
@@ -93,17 +89,13 @@ class NotificationHandler:
             )
 
             if not template:
-                logger.debug(
-                    f"No active notification template for code {code}"
-                )
+                logger.debug(f"No active notification template for code {code}")
                 continue
 
             # Get recipient from event context
             recipient = self._resolve_recipient_for_template(db, event, code)
             if not recipient:
-                logger.debug(
-                    f"Cannot determine recipient for event {event.event_type.value}"
-                )
+                logger.debug(f"Cannot determine recipient for event {event.event_type.value}")
                 continue
 
             # Create notification
@@ -121,14 +113,9 @@ class NotificationHandler:
             )
             db.add(notification)
 
-            logger.info(
-                f"Queued notification for event {event.event_type.value} "
-                f"to {recipient}"
-            )
+            logger.info(f"Queued notification for event {event.event_type.value} to {recipient}")
 
-    def _resolve_recipient_for_template(
-        self, db: Session, event: Event, template_code: str
-    ) -> str | None:
+    def _resolve_recipient_for_template(self, db: Session, event: Event, template_code: str) -> str | None:
         """Resolve the notification recipient from event context."""
         if template_code in TECHNICIAN_TEMPLATE_CODES:
             email = event.payload.get("technician_email")

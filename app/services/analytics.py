@@ -42,9 +42,7 @@ class KPIConfigs(ListResponseMixin):
             query = query.filter(KPIConfig.is_active.is_(True))
         else:
             query = query.filter(KPIConfig.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": KPIConfig.created_at, "key": KPIConfig.key}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": KPIConfig.created_at, "key": KPIConfig.key})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -95,23 +93,15 @@ class KPIAggregates(ListResponseMixin):
         query = db.query(KPIAggregate)
         if key:
             query = query.filter(KPIAggregate.key == key)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": KPIAggregate.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": KPIAggregate.created_at})
         return apply_pagination(query, limit, offset).all()
 
 
 def compute_kpis(db: Session) -> list[dict]:
-    ticket_backlog = (
-        db.query(Ticket)
-        .filter(Ticket.status.notin_([TicketStatus.resolved, TicketStatus.closed]))
-        .count()
-    )
+    ticket_backlog = db.query(Ticket).filter(Ticket.status.notin_([TicketStatus.resolved, TicketStatus.closed])).count()
     work_order_backlog = (
         db.query(WorkOrder)
-        .filter(
-            WorkOrder.status.notin_([WorkOrderStatus.completed, WorkOrderStatus.canceled])
-        )
+        .filter(WorkOrder.status.notin_([WorkOrderStatus.completed, WorkOrderStatus.canceled]))
         .count()
     )
     sla_breaches = db.query(SlaBreach).count()

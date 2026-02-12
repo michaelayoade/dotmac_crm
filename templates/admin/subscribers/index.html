@@ -31,6 +31,7 @@
     {# Filters #}
     {% call filter_bar() %}
     <form hx-get="/admin/subscribers" hx-target="#subscribers-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
+        <input type="hidden" name="per_page" value="{{ per_page|default(20) }}">
         <div class="flex-1">
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Subscribers</label>
             {{ search_input("search", search or '', "Search by name, email, or subscriber ID...", "amber", {"hx-get": "/admin/subscribers", "hx-target": "#subscribers-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}

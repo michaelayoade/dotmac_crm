@@ -44,13 +44,9 @@ class GeoLayerSource(enum.Enum):
 class GeoLocation(Base):
     __tablename__ = "geo_locations"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
-    location_type: Mapped[GeoLocationType] = mapped_column(
-        Enum(GeoLocationType), default=GeoLocationType.custom
-    )
+    location_type: Mapped[GeoLocationType] = mapped_column(Enum(GeoLocationType), default=GeoLocationType.custom)
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     geom = mapped_column(Geometry("POINT", srid=4326), nullable=True)
@@ -58,22 +54,17 @@ class GeoLocation(Base):
         UUID(as_uuid=True)  # FK to addresses removed - model deleted
     )
     pop_site_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True  # FK to pop_sites removed
+        UUID(as_uuid=True),
+        nullable=True,  # FK to pop_sites removed
     )
-    olt_device_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
-    fdh_cabinet_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    olt_device_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    fdh_cabinet_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     tags: Mapped[list[str] | None] = mapped_column(JSON)
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -88,9 +79,7 @@ class ServiceBuilding(Base):
 
     __tablename__ = "service_buildings"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code: Mapped[str | None] = mapped_column(String(60), unique=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     clli: Mapped[str | None] = mapped_column(String(20))
@@ -106,9 +95,7 @@ class ServiceBuilding(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -117,13 +104,9 @@ class ServiceBuilding(Base):
 class GeoArea(Base):
     __tablename__ = "geo_areas"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
-    area_type: Mapped[GeoAreaType] = mapped_column(
-        Enum(GeoAreaType), default=GeoAreaType.custom
-    )
+    area_type: Mapped[GeoAreaType] = mapped_column(Enum(GeoAreaType), default=GeoAreaType.custom)
     geometry_geojson: Mapped[dict | None] = mapped_column(JSON)
     geom = mapped_column(Geometry("GEOMETRY", srid=4326), nullable=True)
     min_latitude: Mapped[float | None] = mapped_column(Float)
@@ -135,9 +118,7 @@ class GeoArea(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -147,24 +128,16 @@ class GeoLayer(Base):
     __tablename__ = "geo_layers"
     __table_args__ = (UniqueConstraint("layer_key", name="uq_geo_layers_layer_key"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     layer_key: Mapped[str] = mapped_column(String(80), nullable=False)
-    layer_type: Mapped[GeoLayerType] = mapped_column(
-        Enum(GeoLayerType), default=GeoLayerType.points
-    )
-    source_type: Mapped[GeoLayerSource] = mapped_column(
-        Enum(GeoLayerSource), default=GeoLayerSource.locations
-    )
+    layer_type: Mapped[GeoLayerType] = mapped_column(Enum(GeoLayerType), default=GeoLayerType.points)
+    source_type: Mapped[GeoLayerSource] = mapped_column(Enum(GeoLayerSource), default=GeoLayerSource.locations)
     style: Mapped[dict | None] = mapped_column(JSON)
     filters: Mapped[dict | None] = mapped_column(JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

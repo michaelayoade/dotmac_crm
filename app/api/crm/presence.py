@@ -16,9 +16,7 @@ def get_agent_presence(
     db: Session = Depends(get_db),
 ):
     presence = crm_service.agent_presence.get_or_create(db, agent_id)
-    effective_status = crm_service.agent_presence.effective_status(
-        presence, stale_after_minutes=stale_after_minutes
-    )
+    effective_status = crm_service.agent_presence.effective_status(presence, stale_after_minutes=stale_after_minutes)
     data = AgentPresenceRead.model_validate(presence).model_dump()
     data["effective_status"] = effective_status
     return data
@@ -32,9 +30,7 @@ def upsert_agent_presence(
     db: Session = Depends(get_db),
 ):
     presence = crm_service.agent_presence.upsert(db, agent_id, status=payload.status)
-    effective_status = crm_service.agent_presence.effective_status(
-        presence, stale_after_minutes=stale_after_minutes
-    )
+    effective_status = crm_service.agent_presence.effective_status(presence, stale_after_minutes=stale_after_minutes)
     data = AgentPresenceRead.model_validate(presence).model_dump()
     data["effective_status"] = effective_status
     return data

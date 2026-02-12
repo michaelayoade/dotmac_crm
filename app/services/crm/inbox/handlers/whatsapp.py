@@ -12,6 +12,7 @@ from app.logic.crm_inbox_logic import (
     InboundSelfMessageContext,
     LogicService,
 )
+from app.models.crm.conversation import Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import WhatsAppWebhookPayload
@@ -34,7 +35,6 @@ from app.services.crm.inbox_connectors import _resolve_connector_config, _resolv
 from app.services.crm.inbox_contacts import _resolve_person_for_contact, _resolve_person_for_inbound
 from app.services.crm.inbox_dedup import _find_duplicate_inbound_message
 from app.services.crm.inbox_self_detection import _extract_whatsapp_business_number
-from app.models.crm.conversation import Message
 
 logger = get_inbox_logger(__name__)
 USE_INBOX_LOGIC_SERVICE = os.getenv("USE_INBOX_LOGIC_SERVICE", "0") == "1"

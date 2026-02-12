@@ -11,25 +11,24 @@ from app.db import Base
 class BandwidthSample(Base):
     __tablename__ = "bandwidth_samples"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     subscription_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False  # FK to subscriptions removed
+        UUID(as_uuid=True),
+        nullable=False,  # FK to subscriptions removed
     )
     device_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True  # FK to network_devices removed
+        UUID(as_uuid=True),
+        nullable=True,  # FK to network_devices removed
     )
     interface_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True  # FK to device_interfaces removed
+        UUID(as_uuid=True),
+        nullable=True,  # FK to device_interfaces removed
     )
     rx_bps: Mapped[int] = mapped_column(Integer, default=0)
     tx_bps: Mapped[int] = mapped_column(Integer, default=0)
     sample_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     # Relationships to removed models commented out
     # subscription = relationship("Subscription", back_populates="bandwidth_samples")
@@ -44,30 +43,25 @@ class QueueMapping(Base):
     When the poller reads queue stats from a NAS device, it uses this mapping
     to associate the queue name with the correct subscription.
     """
-    __tablename__ = "queue_mappings"
-    __table_args__ = (
-        UniqueConstraint("nas_device_id", "queue_name", name="uq_queue_mappings_device_queue"),
-    )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    __tablename__ = "queue_mappings"
+    __table_args__ = (UniqueConstraint("nas_device_id", "queue_name", name="uq_queue_mappings_device_queue"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     nas_device_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False  # FK to nas_devices removed
+        UUID(as_uuid=True),
+        nullable=False,  # FK to nas_devices removed
     )
     queue_name: Mapped[str] = mapped_column(String(255), nullable=False)
     subscription_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False  # FK to subscriptions removed
+        UUID(as_uuid=True),
+        nullable=False,  # FK to subscriptions removed
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
     # nas_device = relationship("NasDevice")  # Model removed

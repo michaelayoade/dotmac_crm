@@ -40,9 +40,7 @@ def list_vendors(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return vendor_service.vendors.list_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return vendor_service.vendors.list_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.patch("/{vendor_id}", response_model=VendorRead)
@@ -66,9 +64,7 @@ def open_bidding(
     payload: ProjectBidOpenRequest,
     db: Session = Depends(get_db),
 ):
-    return vendor_service.installation_projects.open_for_bidding(
-        db, project_id, payload.bid_days
-    )
+    return vendor_service.installation_projects.open_for_bidding(db, project_id, payload.bid_days)
 
 
 @router.post("/projects/{project_id}/assign/{vendor_id}", response_model=InstallationProjectRead)
@@ -107,9 +103,7 @@ def reject_quote(
 
 @router.post("/as-built/{as_built_id}/accept", response_model=AsBuiltRouteRead)
 def accept_as_built(as_built_id: str, reviewer_id: str, db: Session = Depends(get_db)):
-    return vendor_service.as_built_routes.accept_and_convert(
-        db, as_built_id, reviewer_id
-    )
+    return vendor_service.as_built_routes.accept_and_convert(db, as_built_id, reviewer_id)
 
 
 @router.get("/as-built/{as_built_id}/compare", response_model=AsBuiltCompareResponse)

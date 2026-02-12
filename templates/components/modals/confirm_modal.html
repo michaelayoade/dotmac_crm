@@ -94,7 +94,7 @@
                         :disabled="submitting"
                         :class="{ 'opacity-50 cursor-wait': submitting }"
                         class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:hover:shadow-lg">
-                    <span x-show="!submitting">Delete</span>
+                    <span x-show="!submitting" x-text="confirmLabel"></span>
                     <span x-show="submitting" class="flex items-center gap-2">
                         <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -111,7 +111,7 @@
                         :disabled="submitting"
                         :class="{ 'opacity-50 cursor-wait': submitting }"
                         class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition-all hover:shadow-xl hover:shadow-amber-500/30 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:hover:shadow-lg">
-                    <span x-show="!submitting">Confirm</span>
+                    <span x-show="!submitting" x-text="confirmLabel"></span>
                     <span x-show="submitting" class="flex items-center gap-2">
                         <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -128,7 +128,7 @@
                         :disabled="submitting"
                         :class="{ 'opacity-50 cursor-wait': submitting }"
                         class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:shadow-xl hover:shadow-blue-500/30 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:hover:shadow-lg">
-                    <span x-show="!submitting">Confirm</span>
+                    <span x-show="!submitting" x-text="confirmLabel"></span>
                     <span x-show="submitting" class="flex items-center gap-2">
                         <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -151,13 +151,25 @@ function confirmModal() {
         actionUrl: '',
         method: 'POST',
         variant: 'danger',
+        confirmLabel: '',
         submitting: false,
         csrfToken: '',
 
         getCsrfToken() {
             const match = document.cookie.match(/csrf_token=([^;]+)/);
             if (match && match[1]) return match[1];
-            return document.querySelector('meta[name="csrf-token"]')?.content || '';
+            const metaToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            if (metaToken) {
+                this.ensureCsrfCookie(metaToken);
+            }
+            return metaToken;
+        },
+
+        ensureCsrfCookie(token) {
+            if (!token) return;
+            if (document.cookie.includes("csrf_token=")) return;
+            const secure = window.location.protocol === "https:" ? "; secure" : "";
+            document.cookie = `csrf_token=${encodeURIComponent(token)}; path=/; samesite=strict${secure}`;
         },
 
         open(detail) {
@@ -166,6 +178,13 @@ function confirmModal() {
             this.actionUrl = detail.actionUrl || '';
             this.method = detail.method || 'POST';
             this.variant = detail.variant || 'danger';
+            if (detail.confirmLabel) {
+                this.confirmLabel = detail.confirmLabel;
+            } else if (this.variant === 'danger') {
+                this.confirmLabel = 'Delete';
+            } else {
+                this.confirmLabel = 'Confirm';
+            }
             this.submitting = false;
             this.csrfToken = this.getCsrfToken();
             this.isOpen = true;
@@ -184,6 +203,7 @@ function confirmModal() {
             try {
                 const response = await fetch(this.actionUrl, {
                     method: this.method,
+                    credentials: "same-origin",
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
                         'X-CSRF-Token': this.csrfToken,

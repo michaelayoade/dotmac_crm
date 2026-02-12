@@ -110,11 +110,7 @@ def _geojson_to_geom(geojson: dict) -> object:
 
 
 def _get_route_geojson(db: Session, model, entity_id: str) -> dict | None:
-    geojson_str = (
-        db.query(func.ST_AsGeoJSON(model.route_geom))
-        .filter(model.id == coerce_uuid(entity_id))
-        .scalar()
-    )
+    geojson_str = db.query(func.ST_AsGeoJSON(model.route_geom)).filter(model.id == coerce_uuid(entity_id)).scalar()
     if not geojson_str:
         return None
     return json.loads(geojson_str)
@@ -149,17 +145,13 @@ def _apply_validity_defaults(db: Session, quote: ProjectQuote) -> None:
     if quote.valid_from is None:
         quote.valid_from = _now()
     if quote.valid_until is None:
-        days = settings_spec.resolve_value(
-            db, SettingDomain.network, "vendor_quote_validity_days"
-        )
+        days = settings_spec.resolve_value(db, SettingDomain.network, "vendor_quote_validity_days")
         days = _coerce_int(days, 30)
         quote.valid_until = quote.valid_from + timedelta(days=days)
 
 
 def check_approval_required(db: Session, quote: ProjectQuote) -> bool:
-    threshold = settings_spec.resolve_value(
-        db, SettingDomain.network, "vendor_quote_approval_threshold"
-    )
+    threshold = settings_spec.resolve_value(db, SettingDomain.network, "vendor_quote_approval_threshold")
     threshold_value = Decimal(str(threshold or "5000"))
     return Decimal(quote.total or Decimal("0.00")) > threshold_value
 
@@ -295,9 +287,7 @@ class InstallationProjects(ListResponseMixin):
     @staticmethod
     def open_for_bidding(db: Session, project_id: str, bid_days: int | None):
         project = _ensure_installation_project(db, project_id)
-        minimum_days = settings_spec.resolve_value(
-            db, SettingDomain.network, "vendor_bid_minimum_days"
-        )
+        minimum_days = settings_spec.resolve_value(db, SettingDomain.network, "vendor_bid_minimum_days")
         minimum_days = _coerce_int(minimum_days, 7)
         if bid_days is None:
             bid_days = minimum_days
@@ -371,9 +361,7 @@ class ProjectQuotes(ListResponseMixin):
             and project.bidding_close_at <= _now()
         ):
             raise HTTPException(status_code=400, detail="Bidding window has closed")
-        currency = settings_spec.resolve_value(
-            db, SettingDomain.billing, "default_currency"
-        ) or "NGN"
+        currency = settings_spec.resolve_value(db, SettingDomain.billing, "default_currency") or "NGN"
         quote = ProjectQuote(
             project_id=project.id,
             vendor_id=coerce_uuid(vendor_id),
@@ -631,7 +619,8 @@ class AsBuiltRoutes(ListResponseMixin):
         )
         submitted_by = (
             f"{as_built.submitted_by.first_name} {as_built.submitted_by.last_name}".strip()
-            if as_built.submitted_by else "Unknown"
+            if as_built.submitted_by
+            else "Unknown"
         )
         reviewed_by = reviewer_name or "Pending"
         report_title = f"As-Built Report - {project_name}"
@@ -789,9 +778,7 @@ class AsBuiltRoutes(ListResponseMixin):
         as_built = _ensure_as_built(db, as_built_id)
         proposed_geojson = None
         if as_built.proposed_revision_id:
-            proposed_geojson = _get_route_geojson(
-                db, ProposedRouteRevision, str(as_built.proposed_revision_id)
-            )
+            proposed_geojson = _get_route_geojson(db, ProposedRouteRevision, str(as_built.proposed_revision_id))
         as_built_geojson = _get_route_geojson(db, AsBuiltRoute, str(as_built.id))
         return {"proposed_geojson": proposed_geojson, "as_built_geojson": as_built_geojson}
 

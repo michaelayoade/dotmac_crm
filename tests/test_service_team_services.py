@@ -55,7 +55,8 @@ class TestServiceTeamsCRUD:
     def test_update(self, db_session):
         team = _make_team(db_session)
         updated = service_teams.update(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamUpdate(name="Updated Name"),
         )
         assert updated.name == "Updated Name"
@@ -71,7 +72,8 @@ class TestServiceTeamMembers:
     def test_add_member(self, db_session, person):
         team = _make_team(db_session)
         member = service_team_members.add_member(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamMemberCreate(person_id=person.id),
         )
         assert member.team_id == team.id
@@ -81,7 +83,8 @@ class TestServiceTeamMembers:
     def test_add_member_with_role(self, db_session, person):
         team = _make_team(db_session)
         member = service_team_members.add_member(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamMemberCreate(person_id=person.id, role=ServiceTeamMemberRole.lead),
         )
         assert member.role == ServiceTeamMemberRole.lead
@@ -89,12 +92,14 @@ class TestServiceTeamMembers:
     def test_add_duplicate_member(self, db_session, person):
         team = _make_team(db_session)
         service_team_members.add_member(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamMemberCreate(person_id=person.id),
         )
         with pytest.raises(HTTPException) as exc:
             service_team_members.add_member(
-                db_session, str(team.id),
+                db_session,
+                str(team.id),
                 ServiceTeamMemberCreate(person_id=person.id),
             )
         assert exc.value.status_code == 409
@@ -102,12 +107,14 @@ class TestServiceTeamMembers:
     def test_reactivate_inactive_member(self, db_session, person):
         team = _make_team(db_session)
         member = service_team_members.add_member(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamMemberCreate(person_id=person.id),
         )
         service_team_members.remove_member(db_session, str(team.id), str(member.id))
         reactivated = service_team_members.add_member(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamMemberCreate(person_id=person.id, role=ServiceTeamMemberRole.manager),
         )
         assert reactivated.is_active is True
@@ -116,7 +123,8 @@ class TestServiceTeamMembers:
     def test_remove_member(self, db_session, person):
         team = _make_team(db_session)
         member = service_team_members.add_member(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamMemberCreate(person_id=person.id),
         )
         service_team_members.remove_member(db_session, str(team.id), str(member.id))
@@ -126,11 +134,14 @@ class TestServiceTeamMembers:
     def test_update_member(self, db_session, person):
         team = _make_team(db_session)
         member = service_team_members.add_member(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamMemberCreate(person_id=person.id),
         )
         updated = service_team_members.update_member(
-            db_session, str(team.id), str(member.id),
+            db_session,
+            str(team.id),
+            str(member.id),
             ServiceTeamMemberUpdate(role=ServiceTeamMemberRole.manager),
         )
         assert updated.role == ServiceTeamMemberRole.manager
@@ -138,7 +149,8 @@ class TestServiceTeamMembers:
     def test_list_members(self, db_session, person):
         team = _make_team(db_session)
         service_team_members.add_member(
-            db_session, str(team.id),
+            db_session,
+            str(team.id),
             ServiceTeamMemberCreate(person_id=person.id),
         )
         members = service_team_members.list_members(db_session, str(team.id))
@@ -148,11 +160,13 @@ class TestServiceTeamMembers:
         team1 = _make_team(db_session, "Team A")
         team2 = _make_team(db_session, "Team B")
         service_team_members.add_member(
-            db_session, str(team1.id),
+            db_session,
+            str(team1.id),
             ServiceTeamMemberCreate(person_id=person.id),
         )
         service_team_members.add_member(
-            db_session, str(team2.id),
+            db_session,
+            str(team2.id),
             ServiceTeamMemberCreate(person_id=person.id),
         )
         memberships = service_team_members.get_person_teams(db_session, str(person.id))

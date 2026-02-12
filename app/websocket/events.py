@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """WebSocket event types for the inbox."""
 
     MESSAGE_NEW = "message_new"
@@ -31,11 +31,10 @@ class WebSocketEvent(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         if self.timestamp is None:
-
             object.__setattr__(self, "timestamp", datetime.now(UTC))
 
 
-class InboundMessageType(str, Enum):
+class InboundMessageType(StrEnum):
     """Types of messages clients can send."""
 
     SUBSCRIBE = "subscribe"

@@ -1,27 +1,33 @@
-{% from "components/ui/macros.html" import danger_button, empty_state, icon_edit, icon_view, pagination, row_action %}
+{% from "components/ui/macros.html" import empty_state, icon_edit, icon_view, pagination, row_action, table_shell, table_row %}
+{% set pad = 'px-6 py-3' %}
 
-<div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-    <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-slate-200/60 dark:divide-slate-700/60">
-            <thead>
-                <tr class="bg-gradient-to-r from-slate-50 to-slate-100/50 dark:from-slate-800/80 dark:to-slate-800/50">
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ticket</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assigned</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Channel</th>
-                    <th scope="col" class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
-                    <th scope="col" class="relative px-5 py-3.5"><span class="sr-only">Actions</span></th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+{% call table_shell(table_id="tickets-table", color="amber") %}
+    <table class="min-w-full divide-y divide-slate-200/60 dark:divide-slate-700/60">
+        <thead>
+            <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                <th scope="col" data-ticket-column="ticket" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ticket</th>
+                <th scope="col" data-ticket-column="type" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Type</th>
+                <th scope="col" data-ticket-column="customer" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Customer</th>
+                <th scope="col" data-ticket-column="subscriber" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Subscriber</th>
+                <th scope="col" data-ticket-column="region" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Region</th>
+                <th scope="col" data-ticket-column="priority" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Priority</th>
+                <th scope="col" data-ticket-column="status" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
+                <th scope="col" data-ticket-column="assigned" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Assigned</th>
+                <th scope="col" data-ticket-column="project_manager" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Project Manager</th>
+                <th scope="col" data-ticket-column="site_coordinator" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Site Coordinator</th>
+                <th scope="col" data-ticket-column="channel" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Channel</th>
+                <th scope="col" data-ticket-column="due_at" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Due Date</th>
+                <th scope="col" data-ticket-column="created" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Created</th>
+                <th scope="col" class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
                 {% for ticket in tickets %}
                 {% set status_val = ticket.status.value if ticket.status is not string else ticket.status %}
                 {% set priority_val = ticket.priority.value if ticket.priority is not string else ticket.priority %}
                 {% set channel_val = ticket.channel.value if ticket.channel is not string else ticket.channel %}
-                <tr class="group transition-colors hover:bg-gradient-to-r hover:from-amber-50/50 hover:to-orange-50/30 dark:hover:from-amber-900/10 dark:hover:to-orange-900/5">
-                    <td class="px-5 py-4">
+                {% call table_row(color="amber") %}
+                    <td data-ticket-column="ticket" class="{{ pad }}">
                         <div class="flex items-start gap-3">
                             <div class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full {% if priority_val == 'urgent' %}bg-red-500 animate-pulse{% elif priority_val == 'high' %}bg-orange-500{% elif status_val == 'new' or priority_val == 'medium' or priority_val == 'normal' %}bg-blue-500{% else %}bg-slate-300 dark:bg-slate-600{% endif %}"></div>
                             <div class="min-w-0 flex-1">
@@ -39,12 +45,37 @@
                             </div>
                         </div>
                     </td>
-                    <td class="px-5 py-4">
+                    <td data-ticket-column="type" class="{{ pad }}">
                         <div class="text-sm font-medium text-slate-900 dark:text-white">
                             {{ ticket.ticket_type or '—' }}
                         </div>
                     </td>
-                    <td class="px-5 py-4 whitespace-nowrap">
+                    <td data-ticket-column="customer" class="{{ pad }} whitespace-nowrap">
+                        {% if ticket.customer %}
+                        <div class="text-sm font-medium text-slate-900 dark:text-white">
+                            {{ ticket.customer.display_name or ((ticket.customer.first_name or '') ~ ' ' ~ (ticket.customer.last_name or '') | trim) or '—' }}
+                        </div>
+                        {% if ticket.customer.email %}
+                        <div class="text-xs text-slate-500 dark:text-slate-400">{{ ticket.customer.email }}</div>
+                        {% endif %}
+                        {% else %}
+                        <div class="text-sm text-slate-500 dark:text-slate-400">—</div>
+                        {% endif %}
+                    </td>
+                    <td data-ticket-column="subscriber" class="{{ pad }} whitespace-nowrap">
+                        {% if ticket.subscriber %}
+                        <div class="text-sm font-medium text-slate-900 dark:text-white">{{ ticket.subscriber.display_name or 'Subscriber' }}</div>
+                        {% if ticket.subscriber.subscriber_number %}
+                        <div class="text-xs text-slate-500 dark:text-slate-400">{{ ticket.subscriber.subscriber_number }}</div>
+                        {% endif %}
+                        {% else %}
+                        <div class="text-sm text-slate-500 dark:text-slate-400">—</div>
+                        {% endif %}
+                    </td>
+                    <td data-ticket-column="region" class="{{ pad }} whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">
+                        {{ ticket.region or '—' }}
+                    </td>
+                    <td data-ticket-column="priority" class="{{ pad }} whitespace-nowrap">
                         {# Priority Badge #}
                         {% if priority_val == 'urgent' %}
                         <span class="inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-red-500 to-rose-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
@@ -66,7 +97,7 @@
                         <span class="inline-flex items-center rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-400 dark:bg-slate-800 dark:text-slate-500">Lower</span>
                         {% endif %}
                     </td>
-                    <td class="px-5 py-4 whitespace-nowrap">
+                    <td data-ticket-column="status" class="{{ pad }} whitespace-nowrap">
                         {# Status Badge #}
                         {% if status_val == 'new' %}
                         <span class="inline-flex items-center gap-1 rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-400">
@@ -117,7 +148,7 @@
                         <span class="inline-flex items-center rounded-lg bg-red-100 px-2.5 py-1 text-xs font-medium text-red-600 dark:bg-red-500/20 dark:text-red-400">Canceled</span>
                         {% endif %}
                     </td>
-                    <td class="px-5 py-4 whitespace-nowrap">
+                    <td data-ticket-column="assigned" class="{{ pad }} whitespace-nowrap">
                         {% if ticket.assignees %}
                         <div class="text-sm font-medium text-slate-900 dark:text-white">
                             {% for assignee in ticket.assignees %}
@@ -137,7 +168,25 @@
                         <div class="text-sm text-slate-500 dark:text-slate-400 italic">Unassigned</div>
                         {% endif %}
                     </td>
-                    <td class="px-5 py-4 whitespace-nowrap">
+                    <td data-ticket-column="project_manager" class="{{ pad }} whitespace-nowrap">
+                        {% if ticket.ticket_manager %}
+                        <div class="text-sm font-medium text-slate-900 dark:text-white">
+                            {{ ticket.ticket_manager.display_name or ((ticket.ticket_manager.first_name or '') ~ ' ' ~ (ticket.ticket_manager.last_name or '') | trim) or '—' }}
+                        </div>
+                        {% else %}
+                        <div class="text-sm text-slate-500 dark:text-slate-400">—</div>
+                        {% endif %}
+                    </td>
+                    <td data-ticket-column="site_coordinator" class="{{ pad }} whitespace-nowrap">
+                        {% if ticket.assistant_manager %}
+                        <div class="text-sm font-medium text-slate-900 dark:text-white">
+                            {{ ticket.assistant_manager.display_name or ((ticket.assistant_manager.first_name or '') ~ ' ' ~ (ticket.assistant_manager.last_name or '') | trim) or '—' }}
+                        </div>
+                        {% else %}
+                        <div class="text-sm text-slate-500 dark:text-slate-400">—</div>
+                        {% endif %}
+                    </td>
+                    <td data-ticket-column="channel" class="{{ pad }} whitespace-nowrap">
                         {# Channel Badge #}
                         {% set channel_config = {
                             'email': {'icon': '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>', 'color': 'violet', 'label': 'Email'},
@@ -154,11 +203,19 @@
                             {{ ch.label }}
                         </span>
                     </td>
-                    <td class="px-5 py-4 whitespace-nowrap">
+                    <td data-ticket-column="due_at" class="{{ pad }} whitespace-nowrap">
+                        <div class="text-sm font-medium text-slate-900 dark:text-white">
+                            {{ ticket.due_at.strftime('%b %d, %Y') if ticket.due_at else '—' }}
+                        </div>
+                        {% if ticket.due_at %}
+                        <div class="text-xs text-slate-500 dark:text-slate-400">{{ ticket.due_at.strftime('%H:%M') }}</div>
+                        {% endif %}
+                    </td>
+                    <td data-ticket-column="created" class="{{ pad }} whitespace-nowrap">
                         <div class="text-sm font-medium text-slate-900 dark:text-white">{{ ticket.created_at.strftime('%b %d, %Y') if ticket.created_at else '-' }}</div>
                         <div class="text-xs text-slate-500 dark:text-slate-400">{{ ticket.created_at.strftime('%H:%M') if ticket.created_at else '' }}</div>
                     </td>
-                    <td class="px-5 py-4 whitespace-nowrap text-right">
+                    <td class="{{ pad }} whitespace-nowrap text-right">
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             {{ row_action("/admin/support/tickets/" ~ (ticket.number or ticket.id), icon_view(), "View ticket", "amber") }}
                             {{ row_action("/admin/support/tickets/" ~ (ticket.number or ticket.id) ~ "/edit", icon_edit(), "Edit ticket", "slate") }}
@@ -176,22 +233,31 @@
                             </form>
                         </div>
                     </td>
-                </tr>
+                {% endcall %}
                 {% else %}
                 {{ empty_state(
                     title="No tickets found",
-                    message="Try adjusting your filters to find what you're looking for." if (status or priority or channel) else "No support tickets have been created yet.",
+                    message="Try adjusting your filters to find what you're looking for." if (status or ticket_type or assigned or pm or spc) else "No support tickets have been created yet.",
                     icon='<svg class="h-8 w-8 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/></svg>',
                     color="amber",
                     color2="orange",
-                    action_label="Create First Ticket" if not (status or priority or channel) else "",
-                    action_href="/admin/support/tickets/create" if not (status or priority or channel) else "",
-                    colspan=8
+                    action_label="Create First Ticket" if not (status or ticket_type or assigned or pm or spc) else "",
+                    action_href="/admin/support/tickets/create" if not (status or ticket_type or assigned or pm or spc) else "",
+                    colspan=20
                 ) }}
                 {% endfor %}
-            </tbody>
-        </table>
-    </div>
+        </tbody>
+    </table>
 
-    {{ pagination(page|default(1), total_pages|default(1), total|default(0), per_page|default(20), "/admin/support/tickets", "#tickets-table", "amber") }}
-</div>
+    {% set pagination_params = [] %}
+    {% if search %}{% set _ = pagination_params.append('search=' ~ search|urlencode) %}{% endif %}
+    {% if status %}{% set _ = pagination_params.append('status=' ~ status|urlencode) %}{% endif %}
+    {% if ticket_type %}{% set _ = pagination_params.append('ticket_type=' ~ ticket_type|urlencode) %}{% endif %}
+    {% if assigned %}{% set _ = pagination_params.append('assigned=' ~ assigned|urlencode) %}{% endif %}
+    {% if pm %}{% set _ = pagination_params.append('pm=' ~ pm|urlencode) %}{% endif %}
+    {% if spc %}{% set _ = pagination_params.append('spc=' ~ spc|urlencode) %}{% endif %}
+    {% if subscriber %}{% set _ = pagination_params.append('subscriber=' ~ subscriber|urlencode) %}{% endif %}
+    {% if per_page %}{% set _ = pagination_params.append('per_page=' ~ per_page) %}{% endif %}
+    {% set pagination_base = "/admin/support/tickets" ~ ("?" ~ (pagination_params | join('&')) if pagination_params else "") %}
+    {{ pagination(page|default(1), total_pages|default(1), total|default(0), per_page|default(20), pagination_base, "#tickets-table", "amber") }}
+{% endcall %}

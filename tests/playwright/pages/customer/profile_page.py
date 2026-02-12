@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from playwright.sync_api import Page, expect
+
 from tests.playwright.pages.base_page import BasePage
 
 
@@ -22,15 +23,15 @@ class CustomerProfilePage(BasePage):
 
     def expect_personal_info_visible(self) -> None:
         """Assert personal info section is visible."""
-        expect(self.page.get_by_text("Name", exact=False).or_(
-            self.page.get_by_text("Email", exact=False)
-        ).first).to_be_visible()
+        expect(
+            self.page.get_by_text("Name", exact=False).or_(self.page.get_by_text("Email", exact=False)).first
+        ).to_be_visible()
 
     def expect_contact_info_visible(self) -> None:
         """Assert contact info section is visible."""
-        expect(self.page.get_by_text("Phone", exact=False).or_(
-            self.page.get_by_text("Address", exact=False)
-        ).first).to_be_visible()
+        expect(
+            self.page.get_by_text("Phone", exact=False).or_(self.page.get_by_text("Address", exact=False)).first
+        ).to_be_visible()
 
     def click_edit_profile(self) -> None:
         """Click edit profile button."""
@@ -58,9 +59,9 @@ class CustomerProfilePage(BasePage):
 
     def expect_profile_saved(self) -> None:
         """Assert profile was saved successfully."""
-        expect(self.page.get_by_text("saved", exact=False).or_(
-            self.page.get_by_text("updated", exact=False)
-        ).first).to_be_visible()
+        expect(
+            self.page.get_by_text("saved", exact=False).or_(self.page.get_by_text("updated", exact=False)).first
+        ).to_be_visible()
 
     def click_change_password(self) -> None:
         """Click change password button."""
@@ -82,15 +83,13 @@ class CustomerProfilePage(BasePage):
 
     def submit_password_change(self) -> None:
         """Submit password change."""
-        self.page.get_by_role("button", name="Change").or_(
-            self.page.get_by_role("button", name="Update")
-        ).first.click()
+        self.page.get_by_role("button", name="Change").or_(self.page.get_by_role("button", name="Update")).first.click()
 
     def expect_password_changed(self) -> None:
         """Assert password was changed successfully."""
-        expect(self.page.get_by_text("changed", exact=False).or_(
-            self.page.get_by_text("updated", exact=False)
-        ).first).to_be_visible()
+        expect(
+            self.page.get_by_text("changed", exact=False).or_(self.page.get_by_text("updated", exact=False)).first
+        ).to_be_visible()
 
     def manage_notifications(self) -> None:
         """Open notification settings."""
@@ -100,12 +99,8 @@ class CustomerProfilePage(BasePage):
 
     def toggle_email_notifications(self) -> None:
         """Toggle email notifications."""
-        self.page.get_by_label("Email notification").or_(
-            self.page.get_by_role("switch").first
-        ).click()
+        self.page.get_by_label("Email notification").or_(self.page.get_by_role("switch").first).click()
 
     def toggle_sms_notifications(self) -> None:
         """Toggle SMS notifications."""
-        self.page.get_by_label("SMS notification").or_(
-            self.page.get_by_role("switch").nth(1)
-        ).click()
+        self.page.get_by_label("SMS notification").or_(self.page.get_by_role("switch").nth(1)).click()

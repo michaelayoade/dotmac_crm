@@ -18,7 +18,6 @@ def get_meta_connection_status(db: Session) -> dict:
         .filter(ConnectorConfig.connector_type == ConnectorType.facebook)
         .first()
     )
-
     if not target or not target.connector_config:
         return {"connected": False, "pages": [], "instagram_accounts": []}
 

@@ -16,6 +16,7 @@ from app.services.dotmac_erp.contact_sync import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def sync_service(db_session):
     """Contact sync service with mocked client."""
@@ -74,6 +75,7 @@ def _make_contact(
 # ContactSyncResult
 # ---------------------------------------------------------------------------
 
+
 class TestContactSyncResult:
     def test_defaults(self):
         r = ContactSyncResult()
@@ -92,6 +94,7 @@ class TestContactSyncResult:
 # ---------------------------------------------------------------------------
 # Phone normalization
 # ---------------------------------------------------------------------------
+
 
 class TestPhoneNormalization:
     def test_single_phone(self):
@@ -116,6 +119,7 @@ class TestPhoneNormalization:
 # ---------------------------------------------------------------------------
 # Organization upsert
 # ---------------------------------------------------------------------------
+
 
 class TestUpsertOrganization:
     def test_create_new_org(self, sync_service, db_session):
@@ -159,6 +163,7 @@ class TestUpsertOrganization:
 # ---------------------------------------------------------------------------
 # Person resolve + upsert
 # ---------------------------------------------------------------------------
+
 
 class TestResolveAndUpsertContact:
     def test_create_new_person(self, sync_service, db_session):
@@ -259,6 +264,7 @@ class TestResolveAndUpsertContact:
 # Full sync_organizations flow
 # ---------------------------------------------------------------------------
 
+
 class TestSyncOrganizations:
     def test_returns_error_when_not_configured(self, db_session):
         svc = DotMacERPContactSync(db_session)
@@ -306,6 +312,7 @@ class TestSyncOrganizations:
 # Full sync_contacts flow
 # ---------------------------------------------------------------------------
 
+
 class TestSyncContacts:
     def test_returns_error_when_not_configured(self, db_session):
         svc = DotMacERPContactSync(db_session)
@@ -330,6 +337,7 @@ class TestSyncContacts:
 # ---------------------------------------------------------------------------
 # Full sync_all flow
 # ---------------------------------------------------------------------------
+
 
 class TestSyncAll:
     def test_sync_all_combines_results(self, sync_service, db_session):

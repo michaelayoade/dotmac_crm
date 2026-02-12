@@ -1,0 +1,152 @@
+{% set user_permissions = current_user.permissions if current_user is defined and current_user else [] %}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set is_admin = 'admin' in user_roles_lower %}
+{% set can_inbox = is_admin or 'crm:conversation:read' in user_permissions or 'crm:conversation:write' in user_permissions or 'crm:conversation' in user_permissions or 'crm' in user_permissions %}
+{% set can_work_orders = is_admin
+    or 'operations:work_order:read' in user_permissions
+    or 'operations:work_order:create' in user_permissions
+    or 'operations:work_order:update' in user_permissions
+    or 'operations:work_order:delete' in user_permissions
+    or 'operations:work_order:dispatch' in user_permissions
+    or 'operations:work_order' in user_permissions
+    or 'operations' in user_permissions
+%}
+{% set can_tickets = is_admin
+    or 'support:ticket:read' in user_permissions
+    or 'support:ticket:create' in user_permissions
+    or 'support:ticket:update' in user_permissions
+    or 'support:ticket:delete' in user_permissions
+    or 'support:ticket:assign' in user_permissions
+    or 'support:ticket' in user_permissions
+    or 'support' in user_permissions
+%}
+{% set can_projects = is_admin
+    or 'project:read' in user_permissions
+    or 'project:create' in user_permissions
+    or 'project:update' in user_permissions
+    or 'project:delete' in user_permissions
+    or 'project:task:read' in user_permissions
+    or 'project:task:write' in user_permissions
+    or 'project:task' in user_permissions
+    or 'project' in user_permissions
+%}
+
+{% if can_tickets or can_inbox %}
+<div id="dashboard-live-stats"
+     class="grid grid-cols-1 gap-5 lg:grid-cols-3 animate-fade-in-up"
+     style="animation-delay: 0.15s"
+     hx-get="/admin/dashboard/live-stats"
+     hx-trigger="every 30s"
+     hx-swap="outerHTML">
+    <!-- Ticket Status Breakdown -->
+    {% if can_tickets %}
+    <div class="lg:col-span-2">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800 h-full">
+            <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-rose-100 to-pink-200 text-rose-600 dark:from-rose-900/40 dark:to-pink-900/20 dark:text-rose-400">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"/></svg>
+                    </div>
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Support Tickets</h3>
+                </div>
+                <a href="/admin/tickets" class="text-xs font-medium text-cyan-600 hover:text-cyan-700 dark:text-cyan-400">View Tickets</a>
+            </div>
+            <div class="p-5">
+                <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                    <div class="rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 p-4 dark:from-blue-900/20 dark:to-blue-900/10 border border-blue-100 dark:border-blue-900/30">
+                        <p class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{ stats.open_tickets | default(0) }}</p>
+                        <p class="mt-1 text-xs font-medium text-blue-600/70 dark:text-blue-400/70">Open</p>
+                    </div>
+                    <div class="rounded-xl bg-gradient-to-br from-amber-50 to-amber-100/50 p-4 dark:from-amber-900/20 dark:to-amber-900/10 border border-amber-100 dark:border-amber-900/30">
+                        <p class="text-2xl font-bold text-amber-600 dark:text-amber-400">{{ stats.tickets_in_progress | default(0) }}</p>
+                        <p class="mt-1 text-xs font-medium text-amber-600/70 dark:text-amber-400/70">In Progress</p>
+                    </div>
+                    <div class="rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4 dark:from-emerald-900/20 dark:to-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30">
+                        <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{ stats.pending_work_orders | default(0) }}</p>
+                        <p class="mt-1 text-xs font-medium text-emerald-600/70 dark:text-emerald-400/70">Work Orders</p>
+                    </div>
+                    <div class="rounded-xl bg-gradient-to-br from-violet-50 to-violet-100/50 p-4 dark:from-violet-900/20 dark:to-violet-900/10 border border-violet-100 dark:border-violet-900/30">
+                        <p class="text-2xl font-bold text-violet-600 dark:text-violet-400">{{ stats.active_sales_orders | default(0) }}</p>
+                        <p class="mt-1 text-xs font-medium text-violet-600/70 dark:text-violet-400/70">Sales Orders</p>
+                    </div>
+                </div>
+
+                <div class="mt-4 flex flex-wrap items-center gap-3 text-xs">
+                    {% if can_projects %}
+                    <a href="/admin/projects" class="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 font-medium text-slate-600 transition hover:bg-slate-100 dark:bg-slate-700/40 dark:text-slate-300 dark:hover:bg-slate-700">
+                        <svg class="h-3.5 w-3.5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+                        <span class="font-bold">{{ stats.active_projects | default(0) }}</span> Active Projects
+                    </a>
+                    {% endif %}
+                    {% if can_work_orders %}
+                    <a href="/admin/operations/work-orders" class="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 font-medium text-slate-600 transition hover:bg-slate-100 dark:bg-slate-700/40 dark:text-slate-300 dark:hover:bg-slate-700">
+                        <svg class="h-3.5 w-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                        <span class="font-bold">{{ stats.pending_work_orders | default(0) }}</span> Pending Work Orders
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Inbox Health -->
+    {% if can_inbox %}
+    <div class="lg:col-span-1">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800 h-full">
+            <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-100 to-indigo-200 text-blue-600 dark:from-blue-900/40 dark:to-indigo-900/20 dark:text-blue-400">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                    </div>
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Inbox</h3>
+                </div>
+                <a href="/admin/crm/inbox" class="text-xs font-medium text-cyan-600 hover:text-cyan-700 dark:text-cyan-400">Open Inbox</a>
+            </div>
+            <div class="p-5">
+                {% if stats.unread_messages | default(0) > 0 %}
+                <div class="mb-4 flex items-center gap-3 rounded-xl bg-blue-50 px-4 py-3 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/30">
+                    <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500 text-sm font-bold text-white">{{ [stats.unread_messages | default(0), 99] | min }}</span>
+                    <div>
+                        <p class="text-sm font-semibold text-blue-700 dark:text-blue-300">Unread Messages</p>
+                        <p class="text-xs text-blue-600/70 dark:text-blue-400/60">Needs attention</p>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="grid grid-cols-2 gap-3 text-xs">
+                    <div class="rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-slate-700/40">
+                        <p class="text-slate-400 dark:text-slate-500">Open</p>
+                        <p class="mt-1 text-base font-semibold text-slate-900 dark:text-white">{{ stats.inbox_open | default(0) }}</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-slate-700/40">
+                        <p class="text-slate-400 dark:text-slate-500">Pending</p>
+                        <p class="mt-1 text-base font-semibold text-slate-900 dark:text-white">{{ stats.inbox_pending | default(0) }}</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-slate-700/40">
+                        <p class="text-slate-400 dark:text-slate-500">Snoozed</p>
+                        <p class="mt-1 text-base font-semibold text-slate-900 dark:text-white">{{ stats.inbox_snoozed | default(0) }}</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-slate-700/40">
+                        <p class="text-slate-400 dark:text-slate-500">Resolved</p>
+                        <p class="mt-1 text-base font-semibold text-slate-900 dark:text-white">{{ stats.inbox_resolved | default(0) }}</p>
+                    </div>
+                </div>
+
+                <div class="mt-4 space-y-1.5">
+                    <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                        <span>Outbox due</span>
+                        <span class="font-semibold text-slate-900 dark:text-white">{{ inbox_metrics.outbox.due | default(0) }}</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                        <span>Outbox failed</span>
+                        <span class="font-semibold text-rose-600 dark:text-rose-400">{{ inbox_metrics.outbox.failed | default(0) }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}

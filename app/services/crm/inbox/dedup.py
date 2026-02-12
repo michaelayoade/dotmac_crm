@@ -106,9 +106,7 @@ def _find_duplicate_inbound_message(
     """
     if message_id:
         existing_query = (
-            db.query(Message)
-            .filter(Message.channel_type == channel_type)
-            .filter(Message.external_id == message_id)
+            db.query(Message).filter(Message.channel_type == channel_type).filter(Message.external_id == message_id)
         )
         if not dedupe_across_targets:
             if channel_target_id:

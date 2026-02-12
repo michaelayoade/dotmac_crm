@@ -28,22 +28,48 @@ def gis_index(request: Request, tab: str = "locations", db: Session = Depends(ge
 
     # Get GIS data
     locations = gis_service.geo_locations.list(
-        db=db, location_type=None, address_id=None, pop_site_id=None, is_active=None,
-        min_latitude=None, min_longitude=None, max_latitude=None, max_longitude=None,
-        order_by="created_at", order_dir="desc", limit=100, offset=0
+        db=db,
+        location_type=None,
+        address_id=None,
+        pop_site_id=None,
+        is_active=None,
+        min_latitude=None,
+        min_longitude=None,
+        max_latitude=None,
+        max_longitude=None,
+        order_by="created_at",
+        order_dir="desc",
+        limit=100,
+        offset=0,
     )
     areas = gis_service.geo_areas.list(
-        db=db, area_type=None, is_active=None,
-        min_latitude=None, min_longitude=None, max_latitude=None, max_longitude=None,
-        order_by="created_at", order_dir="desc", limit=100, offset=0
+        db=db,
+        area_type=None,
+        is_active=None,
+        min_latitude=None,
+        min_longitude=None,
+        max_latitude=None,
+        max_longitude=None,
+        order_by="created_at",
+        order_dir="desc",
+        limit=100,
+        offset=0,
     )
     layers = gis_service.geo_layers.list(
-        db=db, layer_type=None, source_type=None, is_active=None,
-        order_by="created_at", order_dir="desc", limit=100, offset=0
+        db=db,
+        layer_type=None,
+        source_type=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="desc",
+        limit=100,
+        offset=0,
     )
 
     # Count coverage areas
-    coverage_areas = sum(1 for a in areas if a.area_type == GeoAreaType.coverage or a.area_type == GeoAreaType.service_area)
+    coverage_areas = sum(
+        1 for a in areas if a.area_type == GeoAreaType.coverage or a.area_type == GeoAreaType.service_area
+    )
 
     context = {
         "request": request,

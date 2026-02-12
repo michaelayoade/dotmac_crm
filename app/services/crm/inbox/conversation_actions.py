@@ -113,6 +113,7 @@ def resolve_conversation(
     merged_by_id: str | None,
     roles: list[str] | None = None,
     scopes: list[str] | None = None,
+    also_resolve: bool = False,
 ) -> ResolveConversationResult:
     if (roles is not None or scopes is not None) and not can_resolve_conversation(roles, scopes):
         return ResolveConversationResult(
@@ -160,6 +161,18 @@ def resolve_conversation(
             )
     except Exception as exc:
         return ResolveConversationResult(kind="error", conversation=conversation, error_detail=str(exc))
+
+    if also_resolve:
+        from app.services.crm.inbox.conversation_status import update_conversation_status
+
+        update_conversation_status(
+            db,
+            conversation_id=conversation_id,
+            new_status="resolved",
+            actor_id=merged_by_id,
+            roles=roles,
+            scopes=scopes,
+        )
 
     contact = contact_service.get_person_with_relationships(db, str(conversation.person_id))
     log_conversation_action(

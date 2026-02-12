@@ -123,6 +123,7 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
 
 # ── List ──────────────────────────────────────────────────────────────────────
 
+
 @router.get("", response_class=HTMLResponse)
 def campaign_list(
     request: Request,
@@ -133,7 +134,8 @@ def campaign_list(
     items = campaigns_service.list(db, status=status, search=search)
     status_counts = Campaigns.count_by_status(db)
     ctx = _base_ctx(
-        request, db,
+        request,
+        db,
         campaigns=items,
         status_counts=status_counts,
         filter_status=status or "",
@@ -144,10 +146,12 @@ def campaign_list(
 
 # ── Create ────────────────────────────────────────────────────────────────────
 
+
 @router.get("/new", response_class=HTMLResponse)
 def campaign_create_form(request: Request, db: Session = Depends(_get_db)):
     ctx = _base_ctx(
-        request, db,
+        request,
+        db,
         campaign=None,
         campaign_types=CampaignType,
         party_statuses=PartyStatus,
@@ -185,7 +189,11 @@ def campaign_create(
         ct = CampaignType.one_time
 
     segment_filter = _build_segment_filter(
-        seg_party_status, seg_regions, seg_active_status, seg_created_after, seg_created_before,
+        seg_party_status,
+        seg_regions,
+        seg_active_status,
+        seg_created_after,
+        seg_created_before,
     )
 
     errors: list[str] = []
@@ -231,7 +239,8 @@ def campaign_create(
             campaign_smtp_config_id=smtp_id_value or None,
         )
         ctx = _base_ctx(
-            request, db,
+            request,
+            db,
             campaign=campaign_stub,
             campaign_types=CampaignType,
             party_statuses=PartyStatus,
@@ -261,6 +270,7 @@ def campaign_create(
 
 # ── Detail ────────────────────────────────────────────────────────────────────
 
+
 @router.get("/{campaign_id}", response_class=HTMLResponse)
 def campaign_detail(
     request: Request,
@@ -279,7 +289,8 @@ def campaign_detail(
     steps = steps_service.list(db, campaign_id) if campaign.campaign_type == CampaignType.nurture else []
 
     ctx = _base_ctx(
-        request, db,
+        request,
+        db,
         campaign=campaign,
         stats=stats,
         recipients=recipients,
@@ -291,6 +302,7 @@ def campaign_detail(
 
 # ── Edit ──────────────────────────────────────────────────────────────────────
 
+
 @router.get("/{campaign_id}/edit", response_class=HTMLResponse)
 def campaign_edit_form(
     request: Request,
@@ -299,7 +311,8 @@ def campaign_edit_form(
 ):
     campaign = campaigns_service.get(db, campaign_id)
     ctx = _base_ctx(
-        request, db,
+        request,
+        db,
         campaign=campaign,
         campaign_types=CampaignType,
         party_statuses=PartyStatus,
@@ -335,7 +348,11 @@ def campaign_update(
         ct = CampaignType.one_time
 
     segment_filter = _build_segment_filter(
-        seg_party_status, seg_regions, seg_active_status, seg_created_after, seg_created_before,
+        seg_party_status,
+        seg_regions,
+        seg_active_status,
+        seg_created_after,
+        seg_created_before,
     )
 
     errors: list[str] = []
@@ -381,7 +398,8 @@ def campaign_update(
             campaign_smtp_config_id=smtp_id_value or None,
         )
         ctx = _base_ctx(
-            request, db,
+            request,
+            db,
             campaign=campaign_stub,
             campaign_types=CampaignType,
             party_statuses=PartyStatus,
@@ -411,6 +429,7 @@ def campaign_update(
 
 # ── Delete ────────────────────────────────────────────────────────────────────
 
+
 @router.post("/{campaign_id}/delete")
 def campaign_delete(
     campaign_id: str,
@@ -421,6 +440,7 @@ def campaign_delete(
 
 
 # ── Actions ───────────────────────────────────────────────────────────────────
+
 
 @router.post("/{campaign_id}/schedule")
 def campaign_schedule(
@@ -455,6 +475,7 @@ def campaign_cancel(
 
 # ── Preview ───────────────────────────────────────────────────────────────────
 
+
 @router.get("/{campaign_id}/preview", response_class=HTMLResponse)
 def campaign_preview(
     request: Request,
@@ -467,6 +488,7 @@ def campaign_preview(
 
 
 # ── HTMX Partials ────────────────────────────────────────────────────────────
+
 
 @router.get("/{campaign_id}/preview-audience", response_class=HTMLResponse)
 def campaign_preview_audience(
@@ -493,7 +515,8 @@ def campaign_recipients_table(
     persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
     person_map = {str(p.id): p for p in persons}
     ctx = _base_ctx(
-        request, db,
+        request,
+        db,
         recipients=recipients,
         person_map=person_map,
         campaign_id=campaign_id,
@@ -502,6 +525,7 @@ def campaign_recipients_table(
 
 
 # ── Nurture Steps ────────────────────────────────────────────────────────────
+
 
 @router.get("/{campaign_id}/steps", response_class=HTMLResponse)
 def campaign_steps_list(

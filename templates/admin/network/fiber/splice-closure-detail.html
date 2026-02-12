@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, table_shell, table_row, empty_state %}
 
 {% block title %}{{ closure.name }} - Splice Closure - Admin{% endblock %}
 
@@ -69,96 +69,83 @@
             </div>
 
             <!-- Trays -->
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700 flex items-center justify-between">
-                    <h2 class="font-semibold text-slate-900 dark:text-white">Splice Trays</h2>
-                    <a href="/admin/network/splice-closures/{{ closure.id }}/trays/new" class="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400">+ Add Tray</a>
-                </div>
+            {% set tray_actions %}
+            <a href="/admin/network/splice-closures/{{ closure.id }}/trays/new" class="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400">+ Add Tray</a>
+            {% endset %}
+            {% set pad = 'px-6 py-3' %}
+            {% call table_shell(table_id="splice-trays-table", title="Splice Trays", actions=tray_actions, color="primary") %}
                 {% if trays %}
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                        <thead class="bg-slate-50 dark:bg-slate-900/50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Tray #</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Name</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Splices</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                            {% for tray in trays %}
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{{ tray.tray_number }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ tray.name or '-' }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ tray.splices | length }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
-                                    <a href="/admin/network/splice-closures/{{ closure.id }}/trays/{{ tray.id }}/edit" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Tray #</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Name</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Splices</th>
+                            <th class="{{ pad }} text-right text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% for tray in trays %}
+                        {% call table_row(color="primary") %}
+                            <td class="{{ pad }} whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{{ tray.tray_number }}</td>
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ tray.name or '-' }}</td>
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ tray.splices | length }}</td>
+                            <td class="{{ pad }} whitespace-nowrap text-right text-sm">
+                                <a href="/admin/network/splice-closures/{{ closure.id }}/trays/{{ tray.id }}/edit" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
+                            </td>
+                        {% endcall %}
+                        {% endfor %}
+                    </tbody>
+                </table>
                 {% else %}
-                <div class="p-6">
-                    <div class="text-center py-8">
-                        <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-                        <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">No trays configured</h3>
-                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Add splice trays to organize fiber splices.</p>
-                    </div>
+                <div class="px-6 py-12">
+                    {{ empty_state("No trays configured", "Add splice trays to organize fiber splices.") }}
                 </div>
                 {% endif %}
-            </div>
+            {% endcall %}
 
             <!-- Splices -->
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700 flex items-center justify-between">
-                    <h2 class="font-semibold text-slate-900 dark:text-white">Fiber Splices</h2>
-                    <a href="/admin/network/splice-closures/{{ closure.id }}/splices/new" class="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400">+ Add Splice</a>
-                </div>
+            {% set splice_actions %}
+            <a href="/admin/network/splice-closures/{{ closure.id }}/splices/new" class="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400">+ Add Splice</a>
+            {% endset %}
+            {% call table_shell(table_id="fiber-splices-table", title="Fiber Splices", actions=splice_actions, color="primary") %}
                 {% if splices %}
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                        <thead class="bg-slate-50 dark:bg-slate-900/50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">From</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">To</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Type</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Loss (dB)</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Tray</th>
-                                <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                            {% for splice in splices %}
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-mono">
-                                    {{ splice.from_strand.cable_name if splice.from_strand else '-' }}:{{ splice.from_strand.strand_number if splice.from_strand else '' }}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white font-mono">
-                                    {{ splice.to_strand.cable_name if splice.to_strand else '-' }}:{{ splice.to_strand.strand_number if splice.to_strand else '' }}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ splice.splice_type or '-' }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ splice.loss_db if splice.loss_db else '-' }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ splice.tray.tray_number if splice.tray else '-' }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
-                                    <a href="/admin/network/splice-closures/{{ closure.id }}/splices/{{ splice.id }}/edit" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">From</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">To</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Type</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Loss (dB)</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Tray</th>
+                            <th class="{{ pad }} text-right text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% for splice in splices %}
+                        {% call table_row(color="primary") %}
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-900 dark:text-white font-mono">
+                                {{ splice.from_strand.cable_name if splice.from_strand else '-' }}:{{ splice.from_strand.strand_number if splice.from_strand else '' }}
+                            </td>
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-900 dark:text-white font-mono">
+                                {{ splice.to_strand.cable_name if splice.to_strand else '-' }}:{{ splice.to_strand.strand_number if splice.to_strand else '' }}
+                            </td>
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ splice.splice_type or '-' }}</td>
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ splice.loss_db if splice.loss_db else '-' }}</td>
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ splice.tray.tray_number if splice.tray else '-' }}</td>
+                            <td class="{{ pad }} whitespace-nowrap text-right text-sm">
+                                <a href="/admin/network/splice-closures/{{ closure.id }}/splices/{{ splice.id }}/edit" class="text-primary-600 hover:text-primary-700 dark:text-primary-400">Edit</a>
+                            </td>
+                        {% endcall %}
+                        {% endfor %}
+                    </tbody>
+                </table>
                 {% else %}
-                <div class="p-6">
-                    <div class="text-center py-8">
-                        <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
-                        <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">No splices recorded</h3>
-                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Splices will appear once fiber connections are made.</p>
-                    </div>
+                <div class="px-6 py-12">
+                    {{ empty_state("No splices recorded", "Splices will appear once fiber connections are made.") }}
                 </div>
                 {% endif %}
-            </div>
+            {% endcall %}
         </div>
 
         <!-- Sidebar -->

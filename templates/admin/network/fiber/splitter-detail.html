@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge %}
+{% from "components/ui/macros.html" import status_badge, table_shell, table_row, empty_state %}
 
 {% block title %}{{ splitter.name }} - Splitter - Admin{% endblock %}
 
@@ -70,57 +70,49 @@
             </div>
 
             <!-- Ports -->
-            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                    <h2 class="font-semibold text-slate-900 dark:text-white">Ports</h2>
-                </div>
+            {% set pad = 'px-6 py-3' %}
+            {% call table_shell(table_id="splitter-ports-table", title="Ports", color="primary") %}
                 {% if ports %}
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                        <thead class="bg-slate-50 dark:bg-slate-900/50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Port #</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Type</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Assignment</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                            {% for port in ports %}
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{{ port.port_number }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ port.port_type.value | title }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    {% if port.is_active %}
-                                    {{ status_badge("Active", "active", size="sm") }}
-                                    {% else %}
-                                    {{ status_badge("Inactive", "inactive", size="sm") }}
-                                    {% endif %}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
-                                    {% if port.assignments %}
-                                        {% for assignment in port.assignments if assignment.active %}
-                                            {% if assignment.account %}
-                                            <a href="/admin/subscribers/accounts/{{ assignment.account.id }}" class="text-primary-600 hover:text-primary-700">{{ assignment.account.account_number }}</a>
-                                            {% else %}-{% endif %}
-                                        {% else %}-{% endfor %}
-                                    {% else %}-{% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Port #</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Type</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Status</th>
+                            <th class="{{ pad }} text-left text-xs font-medium text-slate-500 uppercase tracking-wider dark:text-slate-400">Assignment</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% for port in ports %}
+                        {% call table_row(color="primary") %}
+                            <td class="{{ pad }} whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{{ port.port_number }}</td>
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">{{ port.port_type.value | title }}</td>
+                            <td class="{{ pad }} whitespace-nowrap">
+                                {% if port.is_active %}
+                                {{ status_badge("Active", "active", size="sm") }}
+                                {% else %}
+                                {{ status_badge("Inactive", "inactive", size="sm") }}
+                                {% endif %}
+                            </td>
+                            <td class="{{ pad }} whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
+                                {% if port.assignments %}
+                                    {% for assignment in port.assignments if assignment.active %}
+                                        {% if assignment.account %}
+                                        <a href="/admin/subscribers/accounts/{{ assignment.account.id }}" class="text-primary-600 hover:text-primary-700">{{ assignment.account.account_number }}</a>
+                                        {% else %}-{% endif %}
+                                    {% else %}-{% endfor %}
+                                {% else %}-{% endif %}
+                            </td>
+                        {% endcall %}
+                        {% endfor %}
+                    </tbody>
+                </table>
                 {% else %}
-                <div class="p-6">
-                    <div class="text-center py-8">
-                        <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                        <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">No ports configured</h3>
-                        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Ports will be created when the splitter is provisioned.</p>
-                    </div>
+                <div class="px-6 py-12">
+                    {{ empty_state("No ports configured", "Ports will be created when the splitter is provisioned.") }}
                 </div>
                 {% endif %}
-            </div>
+            {% endcall %}
         </div>
 
         <!-- Sidebar -->

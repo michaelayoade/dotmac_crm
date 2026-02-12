@@ -34,9 +34,7 @@ def login_submit(
     db: Session = Depends(get_db),
 ):
     """Process login form submission."""
-    return web_auth_service.login_submit(
-        request, db, username, password, remember, next
-    )
+    return web_auth_service.login_submit(request, db, username, password, remember, next)
 
 
 @router.get("/mfa", response_class=HTMLResponse)
@@ -93,9 +91,7 @@ def reset_password_submit(
     db: Session = Depends(get_db),
 ):
     """Process password reset form submission."""
-    return web_auth_service.reset_password_submit(
-        request, db, token, password, password_confirm
-    )
+    return web_auth_service.reset_password_submit(request, db, token, password, password_confirm)
 
 
 @router.get("/logout")

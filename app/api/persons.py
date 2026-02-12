@@ -30,9 +30,7 @@ def list_people(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return person_service.people.list_response(
-        db, email, status, is_active, order_by, order_dir, limit, offset
-    )
+    return person_service.people.list_response(db, email, status, is_active, order_by, order_dir, limit, offset)
 
 
 @router.patch("/{person_id}", response_model=PersonRead)

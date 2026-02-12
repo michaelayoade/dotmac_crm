@@ -50,9 +50,7 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
         if not subscriber_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            WorkOrder.subscriber_id == coerce_uuid(subscriber_id)
-        )
+        clone._query = clone._query.filter(WorkOrder.subscriber_id == coerce_uuid(subscriber_id))
         return clone
 
     def by_ticket(self, ticket_id: UUID | str | None) -> WorkOrderQuery:
@@ -60,9 +58,7 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
         if not ticket_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            WorkOrder.ticket_id == coerce_uuid(ticket_id)
-        )
+        clone._query = clone._query.filter(WorkOrder.ticket_id == coerce_uuid(ticket_id))
         return clone
 
     def by_project(self, project_id: UUID | str | None) -> WorkOrderQuery:
@@ -70,9 +66,7 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
         if not project_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            WorkOrder.project_id == coerce_uuid(project_id)
-        )
+        clone._query = clone._query.filter(WorkOrder.project_id == coerce_uuid(project_id))
         return clone
 
     def by_assigned_to(self, person_id: UUID | str | None) -> WorkOrderQuery:
@@ -80,9 +74,7 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            WorkOrder.assigned_to_person_id == coerce_uuid(person_id)
-        )
+        clone._query = clone._query.filter(WorkOrder.assigned_to_person_id == coerce_uuid(person_id))
         return clone
 
     def unassigned(self) -> WorkOrderQuery:
@@ -106,10 +98,7 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
         if not statuses:
             return self
         clone = self._clone()
-        status_enums = [
-            validate_enum(s, WorkOrderStatus, "status") if isinstance(s, str) else s
-            for s in statuses
-        ]
+        status_enums = [validate_enum(s, WorkOrderStatus, "status") if isinstance(s, str) else s for s in statuses]
         clone._query = clone._query.filter(WorkOrder.status.in_(status_enums))
         return clone
 
@@ -135,11 +124,13 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
 
     def pending(self) -> WorkOrderQuery:
         """Filter to pending work orders (draft, scheduled, dispatched)."""
-        return self.by_statuses([
-            WorkOrderStatus.draft,
-            WorkOrderStatus.scheduled,
-            WorkOrderStatus.dispatched,
-        ])
+        return self.by_statuses(
+            [
+                WorkOrderStatus.draft,
+                WorkOrderStatus.scheduled,
+                WorkOrderStatus.dispatched,
+            ]
+        )
 
     def in_progress(self) -> WorkOrderQuery:
         """Filter to in-progress work orders."""
@@ -147,9 +138,11 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
 
     def completed(self) -> WorkOrderQuery:
         """Filter to completed work orders."""
-        return self.by_statuses([
-            WorkOrderStatus.completed,
-        ])
+        return self.by_statuses(
+            [
+                WorkOrderStatus.completed,
+            ]
+        )
 
 
 class WorkOrderAssignmentQuery(BaseQuery[WorkOrderAssignment]):
@@ -165,9 +158,7 @@ class WorkOrderAssignmentQuery(BaseQuery[WorkOrderAssignment]):
         if not work_order_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            WorkOrderAssignment.work_order_id == coerce_uuid(work_order_id)
-        )
+        clone._query = clone._query.filter(WorkOrderAssignment.work_order_id == coerce_uuid(work_order_id))
         return clone
 
     def by_person(self, person_id: UUID | str | None) -> WorkOrderAssignmentQuery:
@@ -175,9 +166,7 @@ class WorkOrderAssignmentQuery(BaseQuery[WorkOrderAssignment]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            WorkOrderAssignment.person_id == coerce_uuid(person_id)
-        )
+        clone._query = clone._query.filter(WorkOrderAssignment.person_id == coerce_uuid(person_id))
         return clone
 
     def primary_only(self) -> WorkOrderAssignmentQuery:
@@ -200,9 +189,7 @@ class WorkOrderNoteQuery(BaseQuery[WorkOrderNote]):
         if not work_order_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            WorkOrderNote.work_order_id == coerce_uuid(work_order_id)
-        )
+        clone._query = clone._query.filter(WorkOrderNote.work_order_id == coerce_uuid(work_order_id))
         return clone
 
     def by_author(self, person_id: UUID | str | None) -> WorkOrderNoteQuery:
@@ -210,9 +197,7 @@ class WorkOrderNoteQuery(BaseQuery[WorkOrderNote]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(
-            WorkOrderNote.author_person_id == coerce_uuid(person_id)
-        )
+        clone._query = clone._query.filter(WorkOrderNote.author_person_id == coerce_uuid(person_id))
         return clone
 
     def is_internal(self, internal: bool | None) -> WorkOrderNoteQuery:

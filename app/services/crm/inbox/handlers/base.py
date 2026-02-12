@@ -41,9 +41,7 @@ class InboundSkipResult:
 
 
 class InboundHandler:
-    def process(
-        self, db: Session, payload
-    ) -> InboundProcessResult | InboundDuplicateResult | InboundSkipResult | None:
+    def process(self, db: Session, payload) -> InboundProcessResult | InboundDuplicateResult | InboundSkipResult | None:
         raise NotImplementedError
 
     def receive(self, db: Session, payload):
@@ -53,35 +51,31 @@ class InboundHandler:
         try:
             result = self.process(db, payload)
         except Exception:
-            MESSAGE_PROCESSING_TIME.labels(
-                channel_type=channel_label, direction="inbound"
-            ).observe(time.perf_counter() - start)
+            MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="inbound").observe(
+                time.perf_counter() - start
+            )
             INBOUND_MESSAGES.labels(channel_type=channel_label, status="error").inc()
             raise
         if result is None:
-            MESSAGE_PROCESSING_TIME.labels(
-                channel_type=channel_label, direction="inbound"
-            ).observe(time.perf_counter() - start)
+            MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="inbound").observe(
+                time.perf_counter() - start
+            )
             INBOUND_MESSAGES.labels(channel_type=channel_label, status="error").inc()
             return None
         if isinstance(result, InboundSkipResult):
             channel_label = result.channel_type
-            MESSAGE_PROCESSING_TIME.labels(
-                channel_type=channel_label, direction="inbound"
-            ).observe(time.perf_counter() - start)
-            INBOUND_MESSAGES.labels(
-                channel_type=channel_label, status=result.reason
-            ).inc()
+            MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="inbound").observe(
+                time.perf_counter() - start
+            )
+            INBOUND_MESSAGES.labels(channel_type=channel_label, status=result.reason).inc()
             return None
         if isinstance(result, InboundDuplicateResult):
             if getattr(result.message, "channel_type", None):
                 channel_label = result.message.channel_type.value
-            MESSAGE_PROCESSING_TIME.labels(
-                channel_type=channel_label, direction="inbound"
-            ).observe(time.perf_counter() - start)
-            INBOUND_MESSAGES.labels(
-                channel_type=channel_label, status="duplicate"
-            ).inc()
+            MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="inbound").observe(
+                time.perf_counter() - start
+            )
+            INBOUND_MESSAGES.labels(channel_type=channel_label, status="duplicate").inc()
             return result.message
 
         message_data = result.message_payload.model_dump(by_alias=False)
@@ -121,9 +115,7 @@ class InboundHandler:
                         "conversation_id": str(message.conversation_id),
                         "person_id": str(conversation.person_id),
                         "channel_type": message.channel_type.value,
-                        "channel_target_id": (
-                            str(message.channel_target_id) if message.channel_target_id else None
-                        ),
+                        "channel_target_id": (str(message.channel_target_id) if message.channel_target_id else None),
                         "subject": message.subject,
                         "external_id": message.external_id,
                     },
@@ -131,8 +123,8 @@ class InboundHandler:
             except Exception as exc:
                 logger.warning("inbound_emit_event_failed error=%s", exc)
 
-        MESSAGE_PROCESSING_TIME.labels(
-            channel_type=channel_label, direction="inbound"
-        ).observe(time.perf_counter() - start)
+        MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="inbound").observe(
+            time.perf_counter() - start
+        )
         INBOUND_MESSAGES.labels(channel_type=channel_label, status="success").inc()
         return message

@@ -88,9 +88,7 @@ class Skills(ListResponseMixin):
             query = query.filter(Skill.is_active.is_(True))
         else:
             query = query.filter(Skill.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": Skill.created_at, "name": Skill.name}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": Skill.created_at, "name": Skill.name})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -150,9 +148,7 @@ class Technicians(ListResponseMixin):
             query = query.filter(TechnicianProfile.is_active.is_(True))
         else:
             query = query.filter(TechnicianProfile.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": TechnicianProfile.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": TechnicianProfile.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -216,9 +212,7 @@ class TechnicianSkills(ListResponseMixin):
             query = query.filter(TechnicianSkill.is_active.is_(True))
         else:
             query = query.filter(TechnicianSkill.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": TechnicianSkill.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": TechnicianSkill.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -280,9 +274,7 @@ class Shifts(ListResponseMixin):
             query = query.filter(Shift.is_active.is_(True))
         else:
             query = query.filter(Shift.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": Shift.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": Shift.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -342,9 +334,7 @@ class AvailabilityBlocks(ListResponseMixin):
             query = query.filter(AvailabilityBlock.is_active.is_(True))
         else:
             query = query.filter(AvailabilityBlock.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": AvailabilityBlock.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": AvailabilityBlock.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -400,9 +390,7 @@ class DispatchRules(ListResponseMixin):
             query = query.filter(DispatchRule.is_active.is_(True))
         else:
             query = query.filter(DispatchRule.is_active == is_active)
-        query = apply_ordering(
-            query, order_by, order_dir, {"priority": DispatchRule.priority}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"priority": DispatchRule.priority})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -457,12 +445,9 @@ class AssignmentQueue(ListResponseMixin):
             query = query.filter(WorkOrderAssignmentQueue.work_order_id == work_order_id)
         if status:
             query = query.filter(
-                WorkOrderAssignmentQueue.status
-                == validate_enum(status, DispatchQueueStatus, "status")
+                WorkOrderAssignmentQueue.status == validate_enum(status, DispatchQueueStatus, "status")
             )
-        query = apply_ordering(
-            query, order_by, order_dir, {"created_at": WorkOrderAssignmentQueue.created_at}
-        )
+        query = apply_ordering(query, order_by, order_dir, {"created_at": WorkOrderAssignmentQueue.created_at})
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
@@ -485,12 +470,7 @@ class AssignmentQueue(ListResponseMixin):
         db.commit()
 
 
-def is_technician_available(
-    db: Session,
-    technician_id: str,
-    start_time: datetime,
-    duration_minutes: int = 60
-) -> bool:
+def is_technician_available(db: Session, technician_id: str, start_time: datetime, duration_minutes: int = 60) -> bool:
     """Check if technician is available for the given time slot."""
     end_time = start_time + timedelta(minutes=duration_minutes)
 
@@ -500,48 +480,54 @@ def is_technician_available(
         return False
 
     # Check shift coverage
-    shift = db.query(Shift).filter(
-        Shift.technician_id == technician.id,
-        Shift.start_at <= start_time,
-        Shift.end_at >= end_time,
-        Shift.is_active.is_(True)
-    ).first()
+    shift = (
+        db.query(Shift)
+        .filter(
+            Shift.technician_id == technician.id,
+            Shift.start_at <= start_time,
+            Shift.end_at >= end_time,
+            Shift.is_active.is_(True),
+        )
+        .first()
+    )
 
     if not shift:
         return False
 
     # Check for blocking availability (unavailable blocks)
-    block = db.query(AvailabilityBlock).filter(
-        AvailabilityBlock.technician_id == technician.id,
-        AvailabilityBlock.is_available.is_(False),
-        AvailabilityBlock.start_at < end_time,
-        AvailabilityBlock.end_at > start_time,
-        AvailabilityBlock.is_active.is_(True)
-    ).first()
+    block = (
+        db.query(AvailabilityBlock)
+        .filter(
+            AvailabilityBlock.technician_id == technician.id,
+            AvailabilityBlock.is_available.is_(False),
+            AvailabilityBlock.start_at < end_time,
+            AvailabilityBlock.end_at > start_time,
+            AvailabilityBlock.is_active.is_(True),
+        )
+        .first()
+    )
 
     if block:
         return False
 
     # Check for conflicting work orders
-    conflict = db.query(WorkOrder).filter(
-        WorkOrder.assigned_to_person_id == technician.person_id,
-        WorkOrder.status.in_([
-            WorkOrderStatus.scheduled,
-            WorkOrderStatus.dispatched,
-            WorkOrderStatus.in_progress
-        ]),
-        WorkOrder.scheduled_start < end_time,
-        WorkOrder.scheduled_end > start_time,
-        WorkOrder.is_active.is_(True)
-    ).first()
+    conflict = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.assigned_to_person_id == technician.person_id,
+            WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.in_progress]),
+            WorkOrder.scheduled_start < end_time,
+            WorkOrder.scheduled_end > start_time,
+            WorkOrder.is_active.is_(True),
+        )
+        .first()
+    )
 
     return conflict is None
 
 
 def find_technicians_with_skills(
-    db: Session,
-    required_skill_ids: list[str],
-    region: str | None = None
+    db: Session, required_skill_ids: list[str], region: str | None = None
 ) -> list[TechnicianProfile]:
     """Find technicians that have all required skills."""
     if not required_skill_ids:
@@ -556,14 +542,8 @@ def find_technicians_with_skills(
 
     # Subquery: count matching skills per technician
     skill_count_subq = (
-        db.query(
-            TechnicianSkill.technician_id,
-            func.count(TechnicianSkill.skill_id).label('skill_count')
-        )
-        .filter(
-            TechnicianSkill.skill_id.in_(skill_uuids),
-            TechnicianSkill.is_active.is_(True)
-        )
+        db.query(TechnicianSkill.technician_id, func.count(TechnicianSkill.skill_id).label("skill_count"))
+        .filter(TechnicianSkill.skill_id.in_(skill_uuids), TechnicianSkill.is_active.is_(True))
         .group_by(TechnicianSkill.technician_id)
         .subquery()
     )
@@ -571,10 +551,7 @@ def find_technicians_with_skills(
     query = (
         db.query(TechnicianProfile)
         .join(skill_count_subq, TechnicianProfile.id == skill_count_subq.c.technician_id)
-        .filter(
-            TechnicianProfile.is_active.is_(True),
-            skill_count_subq.c.skill_count >= len(skill_uuids)
-        )
+        .filter(TechnicianProfile.is_active.is_(True), skill_count_subq.c.skill_count >= len(skill_uuids))
     )
 
     if region:
@@ -584,10 +561,7 @@ def find_technicians_with_skills(
 
 
 def score_technician(
-    db: Session,
-    technician: TechnicianProfile,
-    required_skill_ids: list[str],
-    work_order: WorkOrder
+    db: Session, technician: TechnicianProfile, required_skill_ids: list[str], work_order: WorkOrder
 ) -> float:
     """Score a technician for a work order based on skills, workload, and proficiency."""
     score = 100.0
@@ -600,7 +574,7 @@ def score_technician(
             .filter(
                 TechnicianSkill.technician_id == technician.id,
                 TechnicianSkill.skill_id.in_(skill_uuids),
-                TechnicianSkill.is_active.is_(True)
+                TechnicianSkill.is_active.is_(True),
             )
             .all()
         )
@@ -612,17 +586,17 @@ def score_technician(
     today = datetime.now(UTC).date()
     tomorrow = today + timedelta(days=1)
 
-    active_work_orders = db.query(WorkOrder).filter(
-        WorkOrder.assigned_to_person_id == technician.person_id,
-        WorkOrder.status.in_([
-            WorkOrderStatus.scheduled,
-            WorkOrderStatus.dispatched,
-            WorkOrderStatus.in_progress
-        ]),
-        WorkOrder.scheduled_start >= datetime.combine(today, datetime.min.time()).replace(tzinfo=UTC),
-        WorkOrder.scheduled_start < datetime.combine(tomorrow, datetime.min.time()).replace(tzinfo=UTC),
-        WorkOrder.is_active.is_(True)
-    ).count()
+    active_work_orders = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.assigned_to_person_id == technician.person_id,
+            WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.in_progress]),
+            WorkOrder.scheduled_start >= datetime.combine(today, datetime.min.time()).replace(tzinfo=UTC),
+            WorkOrder.scheduled_start < datetime.combine(tomorrow, datetime.min.time()).replace(tzinfo=UTC),
+            WorkOrder.is_active.is_(True),
+        )
+        .count()
+    )
 
     # Assume max 8 work orders per day is full capacity
     workload_factor = max(0, 1 - (active_work_orders / 8))
@@ -631,23 +605,23 @@ def score_technician(
     # Primary skill bonus (0-10 points)
     if required_skill_ids:
         skill_uuids = [coerce_uuid(sid) for sid in required_skill_ids]
-        primary_skill = db.query(TechnicianSkill).filter(
-            TechnicianSkill.technician_id == technician.id,
-            TechnicianSkill.skill_id.in_(skill_uuids),
-            TechnicianSkill.is_primary.is_(True),
-            TechnicianSkill.is_active.is_(True)
-        ).first()
+        primary_skill = (
+            db.query(TechnicianSkill)
+            .filter(
+                TechnicianSkill.technician_id == technician.id,
+                TechnicianSkill.skill_id.in_(skill_uuids),
+                TechnicianSkill.is_primary.is_(True),
+                TechnicianSkill.is_active.is_(True),
+            )
+            .first()
+        )
         if primary_skill:
             score += 10
 
     return score
 
 
-def calculate_eta(
-    db: Session,
-    work_order_id: str,
-    travel_time_minutes: int = 30
-) -> datetime | None:
+def calculate_eta(db: Session, work_order_id: str, travel_time_minutes: int = 30) -> datetime | None:
     """Calculate and update ETA for a work order."""
     work_order = db.get(WorkOrder, coerce_uuid(work_order_id))
     if not work_order:
@@ -724,8 +698,7 @@ def auto_assign_work_order(db: Session, work_order_id: str):
     duration = work_order.estimated_duration_minutes or 60
     if work_order.scheduled_start:
         available_candidates = [
-            t for t in candidates
-            if is_technician_available(db, str(t.id), work_order.scheduled_start, duration)
+            t for t in candidates if is_technician_available(db, str(t.id), work_order.scheduled_start, duration)
         ]
         if not available_candidates:
             entry = WorkOrderAssignmentQueue(
@@ -740,10 +713,7 @@ def auto_assign_work_order(db: Session, work_order_id: str):
         candidates = available_candidates
 
     # 6. Score and rank technicians
-    scored_candidates = [
-        (t, score_technician(db, t, required_skills, work_order))
-        for t in candidates
-    ]
+    scored_candidates = [(t, score_technician(db, t, required_skills, work_order)) for t in candidates]
     scored_candidates.sort(key=lambda x: x[1], reverse=True)
 
     # 7. Assign to best match

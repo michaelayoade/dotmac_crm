@@ -51,7 +51,9 @@ class ServiceTeams(ListResponseMixin):
         if team_type:
             query = query.filter(ServiceTeam.team_type == team_type)
         query = apply_ordering(
-            query, order_by, order_dir,
+            query,
+            order_by,
+            order_dir,
             {"created_at": ServiceTeam.created_at, "name": ServiceTeam.name},
         )
         return apply_pagination(query, limit, offset).all()
@@ -136,9 +138,7 @@ class ServiceTeamMembers:
         is_active: bool | None = None,
     ) -> list[ServiceTeamMember]:
         get_or_404(db, ServiceTeam, team_id)
-        query = db.query(ServiceTeamMember).filter(
-            ServiceTeamMember.team_id == coerce_uuid(team_id)
-        )
+        query = db.query(ServiceTeamMember).filter(ServiceTeamMember.team_id == coerce_uuid(team_id))
         query = apply_is_active_filter(query, ServiceTeamMember, is_active)
         return query.order_by(ServiceTeamMember.created_at.asc()).all()
 
@@ -185,11 +185,7 @@ def _sync_crm_agents_for_team(db: Session, service_team_id) -> None:
 
     for crm_team in crm_teams:
         for person_id in active_person_ids:
-            agent = (
-                db.query(CrmAgent)
-                .filter(CrmAgent.person_id == person_id)
-                .first()
-            )
+            agent = db.query(CrmAgent).filter(CrmAgent.person_id == person_id).first()
             if not agent:
                 agent = CrmAgent(person_id=person_id, is_active=True)
                 db.add(agent)

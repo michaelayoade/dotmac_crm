@@ -44,7 +44,14 @@
                 <div class="p-6 text-sm text-slate-700 dark:text-slate-300">
                     {{ project.description or "No description provided." }}
                 </div>
-                {% set attachments = project.metadata_.get("attachments") if project.metadata_ and project.metadata_ is mapping else [] %}
+                {% set attachments = [] %}
+                {% if project.metadata_ %}
+                    {% if project.metadata_ is mapping %}
+                        {% set attachments = project.metadata_.get("attachments") or [] %}
+                    {% elif project.metadata_ is sequence and project.metadata_ is not string %}
+                        {% set attachments = project.metadata_ %}
+                    {% endif %}
+                {% endif %}
                 {% if attachments %}
                 <div class="border-t border-slate-200 px-6 py-4 text-sm dark:border-slate-700">
                     <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Attachments</h3>
@@ -241,7 +248,7 @@
                         </dd>
                     </div>
                     <div class="flex items-center justify-between">
-                        <dt>Assistant PM</dt>
+                        <dt>Site Project Coordinator</dt>
                         <dd>
                             {% if project.assistant_manager %}
                             {{ project.assistant_manager.first_name }} {{ project.assistant_manager.last_name }}
@@ -252,7 +259,50 @@
                     </div>
                     <div class="flex items-center justify-between">
                         <dt>Status</dt>
-                        <dd>{{ project.status.value if project.status else 'planned' }}</dd>
+                        <dd>
+                            {% set proj_status = project.status.value if project.status else 'planned' %}
+                            <form method="POST"
+                                  action="/admin/projects/{{ project.number or project.id }}/status"
+                                  hx-post="/admin/projects/{{ project.number or project.id }}/status"
+                                  hx-swap="none"
+                                  class="inline-block">
+                                <select name="status"
+                                        hx-post="/admin/projects/{{ project.number or project.id }}/status"
+                                        hx-swap="none"
+                                        hx-trigger="change"
+                                        class="rounded-lg border border-slate-200 bg-slate-50/50 py-1 pl-2 pr-7 text-xs font-medium text-slate-700 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-300 dark:focus:border-primary-500">
+                                    <option value="planned" {% if proj_status == 'planned' %}selected{% endif %}>Planned</option>
+                                    <option value="active" {% if proj_status == 'active' %}selected{% endif %}>Active</option>
+                                    <option value="on_hold" {% if proj_status == 'on_hold' %}selected{% endif %}>On Hold</option>
+                                    <option value="completed" {% if proj_status == 'completed' %}selected{% endif %}>Completed</option>
+                                    <option value="canceled" {% if proj_status == 'canceled' %}selected{% endif %}>Canceled</option>
+                                </select>
+                            </form>
+                        </dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <dt>Priority</dt>
+                        <dd>
+                            {% set proj_priority = project.priority.value if project.priority else 'normal' %}
+                            <form method="POST"
+                                  action="/admin/projects/{{ project.number or project.id }}/priority"
+                                  hx-post="/admin/projects/{{ project.number or project.id }}/priority"
+                                  hx-swap="none"
+                                  class="inline-block">
+                                <select name="priority"
+                                        hx-post="/admin/projects/{{ project.number or project.id }}/priority"
+                                        hx-swap="none"
+                                        hx-trigger="change"
+                                        class="rounded-lg border border-slate-200 bg-slate-50/50 py-1 pl-2 pr-7 text-xs font-medium text-slate-700 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-300 dark:focus:border-primary-500">
+                                    <option value="lower" {% if proj_priority == 'lower' %}selected{% endif %}>Lower</option>
+                                    <option value="low" {% if proj_priority == 'low' %}selected{% endif %}>Low</option>
+                                    <option value="medium" {% if proj_priority == 'medium' %}selected{% endif %}>Medium</option>
+                                    <option value="normal" {% if proj_priority == 'normal' %}selected{% endif %}>Normal</option>
+                                    <option value="high" {% if proj_priority == 'high' %}selected{% endif %}>High</option>
+                                    <option value="urgent" {% if proj_priority == 'urgent' %}selected{% endif %}>Urgent</option>
+                                </select>
+                            </form>
+                        </dd>
                     </div>
                     <div class="flex items-center justify-between">
                         <dt>Type</dt>
@@ -261,10 +311,6 @@
                     <div class="flex items-center justify-between">
                         <dt>Region</dt>
                         <dd>{{ project.region or '—' }}</dd>
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <dt>Priority</dt>
-                        <dd>{{ project.priority.value if project.priority else 'normal' }}</dd>
                     </div>
                     <div class="flex items-center justify-between">
                         <dt>Start</dt>
@@ -356,7 +402,7 @@
             </div>
             {% endif %}
             <div class="text-center">
-                <a href="/admin/operations/material-requests/new?project_id={{ project.id }}"
+                <a href="/admin/operations/material-requests/new?project_id={{ project.number or project.id }}"
                    class="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
                     Request Materials

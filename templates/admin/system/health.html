@@ -1,82 +1,171 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, stats_card, dashboard_kpi_grid, dashboard_filter_panel %}
 
 {% block title %}Server Health - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Server Health</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Live resource usage and uptime for this node.</p>
-        </div>
-        <div class="text-xs text-slate-400 dark:text-slate-500">
-            Updated {{ health.generated_at.strftime('%Y-%m-%d %H:%M') if health.generated_at else '' }}
-        </div>
+    {# ── Page Header with live status ── #}
+    {% set health_ok = not health_status.issues %}
+    {% set header_actions %}
+    <div class="flex items-center gap-3">
+        <span class="inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold
+            {% if health_ok %}border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400
+            {% else %}border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400{% endif %}">
+            <span class="relative flex h-2 w-2">
+                {% if health_ok %}
+                <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                {% else %}
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
+                {% endif %}
+            </span>
+            {% if health_ok %}All Systems Operational{% else %}{{ health_status.issues | length }} Alert{{ 's' if health_status.issues | length != 1 }}{% endif %}
+        </span>
+        <span class="text-xs text-slate-400 dark:text-slate-500">
+            {{ health.generated_at.strftime('%H:%M:%S') if health.generated_at else '' }}
+        </span>
+    </div>
+    {% endset %}
+
+    <div id="health-header">
+        {{ page_header("Server Health", "Live resource usage and uptime for this node", color="emerald", color2="green", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>', actions=header_actions) }}
     </div>
 
+    {% call dashboard_filter_panel(color="emerald", title="Date Scope") %}
+    <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-end">
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</label>
+            <select name="period_days" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                <option value="7" {% if period_days == 7 %}selected{% endif %}>Last 7 days</option>
+                <option value="30" {% if period_days == 30 %}selected{% endif %}>Last 30 days</option>
+                <option value="90" {% if period_days == 90 %}selected{% endif %}>Last 90 days</option>
+                <option value="180" {% if period_days == 180 %}selected{% endif %}>Last 180 days</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+            <input type="date" name="start_date" value="{{ start_date or '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+            <input type="date" name="end_date" value="{{ end_date or '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div class="md:col-span-2 flex items-center gap-2 md:justify-end">
+            <a href="/admin/system/health" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
+            <button type="submit" class="inline-flex items-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Apply</button>
+        </div>
+    </form>
+    <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Server health is a live snapshot; date scope is saved in URL for dashboard consistency.</p>
+    {% endcall %}
+
+    {# ── Health Alerts ── #}
     {% if health_status.issues %}
-    <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-        <p class="font-semibold">Health Alerts</p>
-        <ul class="mt-2 list-disc pl-5 space-y-1">
-            {% for issue in health_status.issues %}
-            <li>{{ issue.message }}</li>
-            {% endfor %}
-        </ul>
+    <div class="animate-fade-in-up rounded-2xl border border-amber-200/60 bg-amber-50 p-5 dark:border-amber-800/40 dark:bg-amber-900/20" style="animation-delay: 50ms">
+        <div class="flex items-start gap-3">
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+                <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            </div>
+            <div>
+                <h3 class="font-semibold text-amber-800 dark:text-amber-200">Health Alerts</h3>
+                <ul class="mt-2 space-y-1">
+                    {% for issue in health_status.issues %}
+                    <li class="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+                        <span class="h-1 w-1 shrink-0 rounded-full bg-amber-500"></span>
+                        {{ issue.message }}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
     </div>
     {% endif %}
 
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Uptime</p>
-            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ health.uptime_display }}</p>
+    {# ── Top Stats ── #}
+    {% call dashboard_kpi_grid(cols="4") %}
+        <div class="animate-fade-in-up" style="animation-delay: 75ms">
+            {{ stats_card("Uptime", health.uptime_display, color="emerald", color2="green", href="#health-header", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>') }}
         </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">CPU Cores</p>
-            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ health.cpu_count }}</p>
+        <div class="animate-fade-in-up" style="animation-delay: 125ms">
+            {{ stats_card("CPU Cores", health.cpu_count, color="indigo", color2="violet", href="#health-header", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>') }}
         </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Process Memory</p>
-            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ health.process.rss }}</p>
+        <div class="animate-fade-in-up" style="animation-delay: 175ms">
+            {{ stats_card("Process Memory", health.process.rss, color="cyan", color2="blue", href="#memory-panel", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>') }}
         </div>
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Load Avg</p>
-            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-                {% if health.load_avg %}
-                {{ "%.2f"|format(health.load_avg[0]) }} / {{ "%.2f"|format(health.load_avg[1]) }} / {{ "%.2f"|format(health.load_avg[2]) }}
-                {% else %}
-                --
-                {% endif %}
-            </p>
+        <div class="animate-fade-in-up" style="animation-delay: 225ms">
+            {% set load_display %}{% if health.load_avg %}{{ "%.2f"|format(health.load_avg[0]) }} / {{ "%.2f"|format(health.load_avg[1]) }} / {{ "%.2f"|format(health.load_avg[2]) }}{% else %}--{% endif %}{% endset %}
+            {{ stats_card("Load Average", load_display, color="violet", color2="purple", href="#health-header", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>') }}
         </div>
-    </div>
+    {% endcall %}
 
+    {# ── Memory & Disk Panels ── #}
     <div class="grid gap-6 lg:grid-cols-2">
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Memory</h2>
-            <div class="mt-4 flex items-center justify-between">
-                <div>
-                    <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ health.memory.used_pct }}</p>
-                    <p class="text-xs text-slate-500 dark:text-slate-400">Used</p>
+        {# Memory Panel #}
+        {% set mem_pct_raw = health.memory.used_pct | replace('%', '') | float %}
+        {% set mem_color = 'emerald' if mem_pct_raw < 60 else ('amber' if mem_pct_raw < 80 else 'red') %}
+        <div id="memory-panel" class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 275ms">
+            <div class="flex items-center gap-3 mb-5">
+                <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-{{ mem_color }}-100 to-{{ mem_color }}-200 dark:from-{{ mem_color }}-900/40 dark:to-{{ mem_color }}-800/30">
+                    <svg class="h-4.5 w-4.5 text-{{ mem_color }}-600 dark:text-{{ mem_color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
                 </div>
-                <div class="text-right text-sm text-slate-500 dark:text-slate-400">
-                    <p>{{ health.memory.used }} used</p>
-                    <p>{{ health.memory.available }} available</p>
-                    <p>{{ health.memory.total }} total</p>
+                <div>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Memory</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">System RAM usage</p>
+                </div>
+                <span class="ml-auto text-2xl font-bold text-slate-900 dark:text-white">{{ health.memory.used_pct }}</span>
+            </div>
+            {# Progress bar #}
+            <div class="relative h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                <div class="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-{{ mem_color }}-400 to-{{ mem_color }}-500 transition-all duration-500"
+                     style="width: {{ mem_pct_raw }}%"></div>
+            </div>
+            <div class="mt-4 grid grid-cols-3 gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Used</p>
+                    <p class="mt-1 text-sm font-medium text-slate-900 dark:text-white">{{ health.memory.used }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Available</p>
+                    <p class="mt-1 text-sm font-medium text-slate-900 dark:text-white">{{ health.memory.available }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Total</p>
+                    <p class="mt-1 text-sm font-medium text-slate-900 dark:text-white">{{ health.memory.total }}</p>
                 </div>
             </div>
         </div>
 
-        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Disk</h2>
-            <div class="mt-4 flex items-center justify-between">
-                <div>
-                    <p class="text-2xl font-bold text-slate-900 dark:text-white">{{ health.disk.used_pct }}</p>
-                    <p class="text-xs text-slate-500 dark:text-slate-400">Used</p>
+        {# Disk Panel #}
+        {% set disk_pct_raw = health.disk.used_pct | replace('%', '') | float %}
+        {% set disk_color = 'emerald' if disk_pct_raw < 60 else ('amber' if disk_pct_raw < 80 else 'red') %}
+        <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 325ms">
+            <div class="flex items-center gap-3 mb-5">
+                <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-{{ disk_color }}-100 to-{{ disk_color }}-200 dark:from-{{ disk_color }}-900/40 dark:to-{{ disk_color }}-800/30">
+                    <svg class="h-4.5 w-4.5 text-{{ disk_color }}-600 dark:text-{{ disk_color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
                 </div>
-                <div class="text-right text-sm text-slate-500 dark:text-slate-400">
-                    <p>{{ health.disk.used }} used</p>
-                    <p>{{ health.disk.free }} free</p>
-                    <p>{{ health.disk.total }} total</p>
+                <div>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Disk</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Storage utilization</p>
+                </div>
+                <span class="ml-auto text-2xl font-bold text-slate-900 dark:text-white">{{ health.disk.used_pct }}</span>
+            </div>
+            {# Progress bar #}
+            <div class="relative h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                <div class="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-{{ disk_color }}-400 to-{{ disk_color }}-500 transition-all duration-500"
+                     style="width: {{ disk_pct_raw }}%"></div>
+            </div>
+            <div class="mt-4 grid grid-cols-3 gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Used</p>
+                    <p class="mt-1 text-sm font-medium text-slate-900 dark:text-white">{{ health.disk.used }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Free</p>
+                    <p class="mt-1 text-sm font-medium text-slate-900 dark:text-white">{{ health.disk.free }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Total</p>
+                    <p class="mt-1 text-sm font-medium text-slate-900 dark:text-white">{{ health.disk.total }}</p>
                 </div>
             </div>
         </div>

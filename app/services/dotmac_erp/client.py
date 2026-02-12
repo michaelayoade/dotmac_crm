@@ -23,11 +23,13 @@ class DotMacERPError(Exception):
 
 class DotMacERPAuthError(DotMacERPError):
     """Authentication error (401/403)."""
+
     pass
 
 
 class DotMacERPNotFoundError(DotMacERPError):
     """Resource not found (404)."""
+
     pass
 
 
@@ -196,7 +198,7 @@ class DotMacERPClient:
 
             except DotMacERPRateLimitError as e:
                 # Wait for rate limit to reset
-                wait_time = e.retry_after or (self.retry_delay * (2 ** attempt))
+                wait_time = e.retry_after or (self.retry_delay * (2**attempt))
                 logger.warning(f"Rate limited, waiting {wait_time}s before retry")
                 time.sleep(wait_time)
                 last_error = e
@@ -207,7 +209,7 @@ class DotMacERPClient:
 
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 if attempt < self.retries:
-                    wait_time = self.retry_delay * (2 ** attempt)
+                    wait_time = self.retry_delay * (2**attempt)
                     logger.warning(f"Request failed, retrying in {wait_time}s: {e}")
                     time.sleep(wait_time)
                     last_error = e

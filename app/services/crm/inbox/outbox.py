@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-import random
+import secrets
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.crm.outbox import OutboxMessage
@@ -31,7 +32,8 @@ def _now() -> datetime:
 
 def _compute_backoff_seconds(attempts: int, base: float = 5.0, max_backoff: float = 300.0) -> float:
     backoff = min(base * (2 ** max(attempts - 1, 0)), max_backoff)
-    return backoff + random.uniform(0, backoff * 0.25)
+    jitter = backoff * (secrets.randbelow(2500) / 10000)
+    return backoff + jitter
 
 
 def enqueue_outbound_message(
@@ -43,7 +45,10 @@ def enqueue_outbound_message(
     priority: int = 0,
     scheduled_at: datetime | None = None,
     dispatch: bool = True,
+    trace_id: str | None = None,
 ) -> OutboxMessage:
+    if idempotency_key:
+        idempotency_key = idempotency_key.strip() or None
     if idempotency_key:
         existing = (
             db.query(OutboxMessage)
@@ -55,19 +60,37 @@ def enqueue_outbound_message(
             return existing
 
     next_attempt_at = scheduled_at if scheduled_at and scheduled_at > _now() else _now()
+    payload_data = json.loads(payload.model_dump_json())
+    if trace_id:
+        payload_data.setdefault("metadata", {})
+        if isinstance(payload_data.get("metadata"), dict):
+            payload_data["metadata"]["trace_id"] = trace_id
     outbox = OutboxMessage(
         conversation_id=coerce_uuid(str(payload.conversation_id)),
         channel_type=payload.channel_type,
         status=STATUS_QUEUED,
         attempts=0,
         next_attempt_at=next_attempt_at,
-        payload=json.loads(payload.model_dump_json()),
+        payload=payload_data,
         author_id=coerce_uuid(author_id) if author_id else None,
         idempotency_key=idempotency_key,
         priority=priority,
     )
     db.add(outbox)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if idempotency_key:
+            existing = (
+                db.query(OutboxMessage)
+                .filter(OutboxMessage.idempotency_key == idempotency_key)
+                .order_by(OutboxMessage.created_at.desc())
+                .first()
+            )
+            if existing:
+                return existing
+        raise
     db.refresh(outbox)
 
     if dispatch:
@@ -96,10 +119,16 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
     db.refresh(outbox)
 
     try:
+        trace_id = None
+        if isinstance(outbox.payload, dict):
+            metadata = outbox.payload.get("metadata")
+            if isinstance(metadata, dict):
+                trace_id = metadata.get("trace_id")
         message = send_message_with_retry(
             db,
             InboxSendRequest.model_validate(outbox.payload or {}),
             author_id=str(outbox.author_id) if outbox.author_id else None,
+            trace_id=trace_id,
             max_attempts=2,
             base_backoff=0.5,
             max_backoff=2.0,
@@ -114,9 +143,7 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
     except TransientOutboundError as exc:
         outbox.status = STATUS_RETRYING
         outbox.last_error = str(exc)
-        outbox.next_attempt_at = _now() + timedelta(
-            seconds=_compute_backoff_seconds(outbox.attempts or 1)
-        )
+        outbox.next_attempt_at = _now() + timedelta(seconds=_compute_backoff_seconds(outbox.attempts or 1))
         db.commit()
         db.refresh(outbox)
         raise
@@ -131,9 +158,7 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
         if exc.retryable:
             outbox.status = STATUS_RETRYING
             outbox.last_error = str(exc.detail)
-            outbox.next_attempt_at = _now() + timedelta(
-                seconds=_compute_backoff_seconds(outbox.attempts or 1)
-            )
+            outbox.next_attempt_at = _now() + timedelta(seconds=_compute_backoff_seconds(outbox.attempts or 1))
             db.commit()
             db.refresh(outbox)
             raise TransientOutboundError(str(exc.detail))

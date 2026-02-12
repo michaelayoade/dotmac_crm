@@ -24,12 +24,8 @@ class SocialComment(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    platform: Mapped[SocialCommentPlatform] = mapped_column(
-        Enum(SocialCommentPlatform), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    platform: Mapped[SocialCommentPlatform] = mapped_column(Enum(SocialCommentPlatform), nullable=False)
     external_id: Mapped[str] = mapped_column(String(200), nullable=False)
     external_post_id: Mapped[str | None] = mapped_column(String(200))
     source_account_id: Mapped[str | None] = mapped_column(String(200))
@@ -41,9 +37,7 @@ class SocialComment(Base):
     raw_payload: Mapped[dict | None] = mapped_column(JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -61,24 +55,16 @@ class SocialCommentReply(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    comment_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False
-    )
-    platform: Mapped[SocialCommentPlatform] = mapped_column(
-        Enum(SocialCommentPlatform), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    comment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    platform: Mapped[SocialCommentPlatform] = mapped_column(Enum(SocialCommentPlatform), nullable=False)
     external_id: Mapped[str | None] = mapped_column(String(200))
     message: Mapped[str] = mapped_column(Text, nullable=False)
     created_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict | None] = mapped_column(JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

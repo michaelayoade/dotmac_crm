@@ -9,9 +9,7 @@ import uuid
 
 from app.logging import get_logger
 
-request_id: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "inbox_request_id", default=""
-)
+request_id: contextvars.ContextVar[str] = contextvars.ContextVar("inbox_request_id", default="")
 
 
 def set_request_id(value: str | None = None) -> str:

@@ -65,9 +65,7 @@ class ScheduledTasks(ListResponseMixin):
         if "schedule_type" in data:
             data["schedule_type"] = _validate_schedule_type(data["schedule_type"])
         if "interval_seconds" in data and data["interval_seconds"] is not None and data["interval_seconds"] < 1:
-            raise HTTPException(
-                status_code=400, detail="interval_seconds must be >= 1"
-            )
+            raise HTTPException(status_code=400, detail="interval_seconds must be >= 1")
         for key, value in data.items():
             setattr(task, key, value)
         db.commit()

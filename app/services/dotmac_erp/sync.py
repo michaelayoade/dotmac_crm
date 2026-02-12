@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SyncResult:
     """Result of a sync operation."""
+
     projects_synced: int = 0
     tickets_synced: int = 0
     work_orders_synced: int = 0
@@ -47,6 +48,7 @@ class SyncResult:
 @dataclass
 class SyncEntityResult:
     """Result of syncing a single entity to ERP."""
+
     entity_type: str
     entity_id: str
     success: bool
@@ -165,7 +167,9 @@ class DotMacERPSync:
     def _map_project(self, project: Project) -> dict:
         """Map a Project model to ERP sync payload."""
         payload = {
+            "crm_id": str(project.id),
             "omni_id": str(project.id),
+            "erpnext_id": project.erpnext_id,
             "name": project.name,
             "code": project.code,
             "project_type": project.project_type.value if project.project_type else None,
@@ -190,7 +194,9 @@ class DotMacERPSync:
     def _map_ticket(self, ticket: Ticket) -> dict:
         """Map a Ticket model to ERP sync payload."""
         payload = {
+            "crm_id": str(ticket.id),
             "omni_id": str(ticket.id),
+            "erpnext_id": ticket.erpnext_id,
             "subject": ticket.title,
             "ticket_number": ticket.number or str(ticket.id),
             "ticket_type": ticket.ticket_type,
@@ -589,10 +595,7 @@ class DotMacERPSync:
             .all()
         )
 
-        logger.info(
-            f"Syncing to ERP: {len(projects)} projects, {len(tickets)} tickets, "
-            f"{len(work_orders)} work orders"
-        )
+        logger.info(f"Syncing to ERP: {len(projects)} projects, {len(tickets)} tickets, {len(work_orders)} work orders")
 
         return self.bulk_sync(projects=projects, tickets=tickets, work_orders=work_orders)
 
@@ -610,25 +613,12 @@ class DotMacERPSync:
 
         cutoff = datetime.now(UTC) - timedelta(minutes=since_minutes)
 
-        projects = (
-            self.db.query(Project)
-            .filter(Project.is_active.is_(True))
-            .filter(Project.updated_at >= cutoff)
-            .all()
-        )
+        projects = self.db.query(Project).filter(Project.is_active.is_(True)).filter(Project.updated_at >= cutoff).all()
 
-        tickets = (
-            self.db.query(Ticket)
-            .filter(Ticket.is_active.is_(True))
-            .filter(Ticket.updated_at >= cutoff)
-            .all()
-        )
+        tickets = self.db.query(Ticket).filter(Ticket.is_active.is_(True)).filter(Ticket.updated_at >= cutoff).all()
 
         work_orders = (
-            self.db.query(WorkOrder)
-            .filter(WorkOrder.is_active.is_(True))
-            .filter(WorkOrder.updated_at >= cutoff)
-            .all()
+            self.db.query(WorkOrder).filter(WorkOrder.is_active.is_(True)).filter(WorkOrder.updated_at >= cutoff).all()
         )
 
         logger.info(

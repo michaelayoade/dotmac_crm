@@ -329,9 +329,9 @@ def get_agent_labels(db: Session, agents: list) -> dict[str, str]:
     for agent in agents:
         if agent.person_id and agent.person_id in person_map:
             person = person_map[agent.person_id]
-            label = person.display_name or " ".join(
-                part for part in [person.first_name, person.last_name] if part
-            ).strip()
+            label = (
+                person.display_name or " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+            )
             labels[str(agent.id)] = label or "Agent"
         else:
             labels[str(agent.id)] = "Agent"
@@ -344,19 +344,9 @@ def get_agent_team_options(db: Session) -> dict:
 
     Returns: {agents, teams, agent_labels}
     """
-    teams = (
-        db.query(CrmTeam)
-        .filter(CrmTeam.is_active.is_(True))
-        .order_by(CrmTeam.name.asc())
-        .limit(200)
-        .all()
-    )
+    teams = db.query(CrmTeam).filter(CrmTeam.is_active.is_(True)).order_by(CrmTeam.name.asc()).limit(200).all()
     agents = (
-        db.query(CrmAgent)
-        .filter(CrmAgent.is_active.is_(True))
-        .order_by(CrmAgent.created_at.desc())
-        .limit(200)
-        .all()
+        db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).limit(200).all()
     )
     agent_labels = get_agent_labels(db, agents)
 

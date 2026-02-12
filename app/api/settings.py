@@ -18,9 +18,7 @@ def list_gis_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_gis_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_gis_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -29,9 +27,7 @@ def list_gis_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-gis"],
 )
-def upsert_gis_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_gis_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_gis_setting(db, key, payload)
 
 
@@ -57,9 +53,7 @@ def list_geocoding_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_geocoding_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_geocoding_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -68,9 +62,7 @@ def list_geocoding_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-geocoding"],
 )
-def upsert_geocoding_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_geocoding_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_geocoding_setting(db, key, payload)
 
 
@@ -96,9 +88,7 @@ def list_radius_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_radius_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_radius_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -107,9 +97,7 @@ def list_radius_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-radius"],
 )
-def upsert_radius_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_radius_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_radius_setting(db, key, payload)
 
 
@@ -131,9 +119,7 @@ def list_auth_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_auth_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_auth_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -142,9 +128,7 @@ def list_auth_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-auth"],
 )
-def upsert_auth_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_auth_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_auth_setting(db, key, payload)
 
 
@@ -170,9 +154,7 @@ def list_audit_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_audit_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_audit_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -181,9 +163,7 @@ def list_audit_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-audit"],
 )
-def upsert_audit_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_audit_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_audit_setting(db, key, payload)
 
 
@@ -209,9 +189,7 @@ def list_imports_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_imports_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_imports_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -220,9 +198,7 @@ def list_imports_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-imports"],
 )
-def upsert_imports_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_imports_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_imports_setting(db, key, payload)
 
 
@@ -248,9 +224,7 @@ def list_notification_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_notification_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_notification_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -259,9 +233,7 @@ def list_notification_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-notification"],
 )
-def upsert_notification_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_notification_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_notification_setting(db, key, payload)
 
 
@@ -287,9 +259,7 @@ def list_scheduler_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_scheduler_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_scheduler_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -298,9 +268,7 @@ def list_scheduler_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-scheduler"],
 )
-def upsert_scheduler_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_scheduler_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_scheduler_setting(db, key, payload)
 
 
@@ -326,9 +294,7 @@ def list_billing_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_billing_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_billing_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -337,9 +303,7 @@ def list_billing_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-billing"],
 )
-def upsert_billing_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_billing_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_billing_setting(db, key, payload)
 
 
@@ -365,9 +329,7 @@ def list_catalog_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_catalog_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_catalog_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -376,9 +338,7 @@ def list_catalog_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-catalog"],
 )
-def upsert_catalog_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_catalog_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_catalog_setting(db, key, payload)
 
 
@@ -404,9 +364,7 @@ def list_subscriber_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_subscriber_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_subscriber_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -415,9 +373,7 @@ def list_subscriber_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-subscriber"],
 )
-def upsert_subscriber_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_subscriber_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_subscriber_setting(db, key, payload)
 
 
@@ -443,9 +399,7 @@ def list_usage_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_usage_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_usage_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -454,9 +408,7 @@ def list_usage_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-usage"],
 )
-def upsert_usage_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_usage_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_usage_setting(db, key, payload)
 
 
@@ -482,9 +434,7 @@ def list_collections_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_collections_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_collections_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -493,9 +443,7 @@ def list_collections_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-collections"],
 )
-def upsert_collections_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_collections_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_collections_setting(db, key, payload)
 
 
@@ -521,9 +469,7 @@ def list_provisioning_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_provisioning_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_provisioning_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -532,9 +478,7 @@ def list_provisioning_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-provisioning"],
 )
-def upsert_provisioning_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_provisioning_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_provisioning_setting(db, key, payload)
 
 
@@ -560,9 +504,7 @@ def list_projects_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_projects_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_projects_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -571,9 +513,7 @@ def list_projects_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-projects"],
 )
-def upsert_projects_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_projects_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_projects_setting(db, key, payload)
 
 
@@ -599,9 +539,7 @@ def list_workflow_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_workflow_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_workflow_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -610,9 +548,7 @@ def list_workflow_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-workflow"],
 )
-def upsert_workflow_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_workflow_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_workflow_setting(db, key, payload)
 
 
@@ -638,9 +574,7 @@ def list_network_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_network_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_network_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -649,9 +583,7 @@ def list_network_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-network"],
 )
-def upsert_network_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_network_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_network_setting(db, key, payload)
 
 
@@ -677,9 +609,7 @@ def list_inventory_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_inventory_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_inventory_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -688,9 +618,7 @@ def list_inventory_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-inventory"],
 )
-def upsert_inventory_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_inventory_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_inventory_setting(db, key, payload)
 
 
@@ -716,9 +644,7 @@ def list_lifecycle_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_lifecycle_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_lifecycle_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -727,9 +653,7 @@ def list_lifecycle_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-lifecycle"],
 )
-def upsert_lifecycle_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_lifecycle_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_lifecycle_setting(db, key, payload)
 
 
@@ -755,9 +679,7 @@ def list_comms_settings(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return settings_service.list_comms_settings_response(
-        db, is_active, order_by, order_dir, limit, offset
-    )
+    return settings_service.list_comms_settings_response(db, is_active, order_by, order_dir, limit, offset)
 
 
 @router.put(
@@ -766,9 +688,7 @@ def list_comms_settings(
     status_code=status.HTTP_200_OK,
     tags=["settings-comms"],
 )
-def upsert_comms_setting(
-    key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)
-):
+def upsert_comms_setting(key: str, payload: DomainSettingUpdate, db: Session = Depends(get_db)):
     return settings_service.upsert_comms_setting(db, key, payload)
 
 

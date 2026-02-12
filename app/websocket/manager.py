@@ -70,9 +70,7 @@ class ConnectionManager:
                 return
             pubsub = self._pubsub
             while self._running:
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=1.0
-                )
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message["type"] == "pmessage":
                     channel = message["channel"]
                     data = message["data"]
@@ -194,9 +192,7 @@ class ConnectionManager:
             conversation_id,
         )
 
-    async def broadcast_to_conversation(
-        self, conversation_id: str, event: WebSocketEvent
-    ) -> None:
+    async def broadcast_to_conversation(self, conversation_id: str, event: WebSocketEvent) -> None:
         """Broadcast an event to all subscribers of a conversation via Redis."""
         event_data = event.model_dump(mode="json")
 
@@ -204,12 +200,8 @@ class ConnectionManager:
         # Redis listener will dispatch to local connections, so don't dispatch twice
         if self._redis_client:
             try:
-                payload = json.dumps(
-                    {"conversation_id": conversation_id, "event": event_data}
-                )
-                await self._redis_client.publish(
-                    f"{CHANNEL_PREFIX}{conversation_id}", payload
-                )
+                payload = json.dumps({"conversation_id": conversation_id, "event": event_data})
+                await self._redis_client.publish(f"{CHANNEL_PREFIX}{conversation_id}", payload)
                 return  # Redis will handle local delivery via listener
             except Exception as exc:
                 logger.warning("websocket_broadcast_redis_error error=%s", exc)

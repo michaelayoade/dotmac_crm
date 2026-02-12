@@ -88,10 +88,7 @@ class DomainSettings(ListResponseMixin):
         if not self.domain:
             raise HTTPException(status_code=400, detail="Setting domain is required")
         setting = (
-            db.query(DomainSetting)
-            .filter(DomainSetting.domain == self.domain)
-            .filter(DomainSetting.key == key)
-            .first()
+            db.query(DomainSetting).filter(DomainSetting.domain == self.domain).filter(DomainSetting.key == key).first()
         )
         if not setting:
             raise HTTPException(status_code=404, detail="Setting not found")
@@ -101,10 +98,7 @@ class DomainSettings(ListResponseMixin):
         if not self.domain:
             raise HTTPException(status_code=400, detail="Setting domain is required")
         setting = (
-            db.query(DomainSetting)
-            .filter(DomainSetting.domain == self.domain)
-            .filter(DomainSetting.key == key)
-            .first()
+            db.query(DomainSetting).filter(DomainSetting.domain == self.domain).filter(DomainSetting.key == key).first()
         )
         if setting:
             data = payload.model_dump(exclude_unset=True)
@@ -141,10 +135,7 @@ class DomainSettings(ListResponseMixin):
         if not self.domain:
             raise HTTPException(status_code=400, detail="Setting domain is required")
         existing = (
-            db.query(DomainSetting)
-            .filter(DomainSetting.domain == self.domain)
-            .filter(DomainSetting.key == key)
-            .first()
+            db.query(DomainSetting).filter(DomainSetting.domain == self.domain).filter(DomainSetting.key == key).first()
         )
         if existing:
             return existing

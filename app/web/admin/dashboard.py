@@ -30,6 +30,12 @@ def dashboard_stats_partial(request: Request, db: Session = Depends(get_db)):
     return web_admin_dashboard_service.dashboard_stats_partial(request, db)
 
 
+@router.get("/dashboard/live-stats", response_class=HTMLResponse)
+def dashboard_live_stats_partial(request: Request, db: Session = Depends(get_db)):
+    """HTMX partial for frequently-updating live stats."""
+    return web_admin_dashboard_service.dashboard_live_stats_partial(request, db)
+
+
 @router.get("/dashboard/activity", response_class=HTMLResponse)
 def dashboard_activity_partial(request: Request, db: Session = Depends(get_db)):
     """HTMX partial for recent activity feed."""

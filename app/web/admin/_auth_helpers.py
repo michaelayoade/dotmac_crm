@@ -2,6 +2,7 @@
 
 This module exists to avoid circular imports between __init__.py and route modules.
 """
+
 from fastapi import Request
 from sqlalchemy.orm import Session
 

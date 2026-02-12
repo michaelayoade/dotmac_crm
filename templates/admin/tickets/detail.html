@@ -381,7 +381,11 @@
                 </div>
                 <div class="p-5">
                     <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/status" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/status" hx-swap="none" class="space-y-3">
-                        <select name="status" class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
+                        <select name="status"
+                                hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/status"
+                                hx-swap="none"
+                                hx-trigger="change"
+                                class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
                             <option value="new" {% if status_val == 'new' %}selected{% endif %}>New</option>
                             <option value="open" {% if status_val == 'open' %}selected{% endif %}>Open</option>
                             <option value="pending" {% if status_val == 'pending' %}selected{% endif %}>Pending</option>
@@ -393,7 +397,7 @@
                             <option value="closed" {% if status_val == 'closed' %}selected{% endif %}>Closed</option>
                             <option value="canceled" {% if status_val == 'canceled' %}selected{% endif %}>Canceled</option>
                         </select>
-                        {{ submit_button("Update Status", color="amber", full_width=True, loading_label="Updating...") }}
+                        <noscript>{{ submit_button("Update Status", color="amber", full_width=True, loading_label="Updating...") }}</noscript>
                     </form>
                 </div>
             </div>
@@ -408,7 +412,11 @@
                 </div>
                 <div class="p-5">
                     <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority" hx-swap="none" class="space-y-3">
-                        <select name="priority" class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
+                        <select name="priority"
+                                hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority"
+                                hx-swap="none"
+                                hx-trigger="change"
+                                class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
                             {% if priority_val == 'normal' %}
                             <option value="normal" selected>Normal</option>
                             {% endif %}
@@ -418,9 +426,11 @@
                             <option value="high" {% if priority_val == 'high' %}selected{% endif %}>High</option>
                             <option value="urgent" {% if priority_val == 'urgent' %}selected{% endif %}>Urgent</option>
                         </select>
-                        <button type="submit" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
-                            Update Priority
-                        </button>
+                        <noscript>
+                            <button type="submit" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
+                                Update Priority
+                            </button>
+                        </noscript>
                     </form>
                 </div>
             </div>
@@ -514,7 +524,7 @@
                         {% endif %}
                     </div>
                     <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Ticket Manager</dt>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Project Manager</dt>
                         {% if ticket.ticket_manager %}
                         <dd class="mt-1.5">
                             <a href="/admin/customers/person/{{ ticket.ticket_manager.id }}" class="group inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
@@ -527,7 +537,7 @@
                         {% endif %}
                     </div>
                     <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Assistant Manager</dt>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Site Project Coordinator</dt>
                         {% if ticket.assistant_manager %}
                         <dd class="mt-1.5">
                             <a href="/admin/customers/person/{{ ticket.assistant_manager.id }}" class="group inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400">
@@ -639,7 +649,7 @@
             </div>
             {% endif %}
             <div class="text-center">
-                <a href="/admin/operations/material-requests/new?ticket_id={{ ticket.id }}"
+                <a href="/admin/operations/material-requests/new?ticket_id={{ ticket.number or ticket.id }}"
                    class="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
                     Request Materials

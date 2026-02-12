@@ -59,8 +59,7 @@ class IntegrationTargets(ListResponseMixin):
         query = db.query(IntegrationTarget)
         if target_type:
             query = query.filter(
-                IntegrationTarget.target_type
-                == validate_enum(target_type, IntegrationTargetType, "target_type")
+                IntegrationTarget.target_type == validate_enum(target_type, IntegrationTargetType, "target_type")
             )
         if is_active is None:
             query = query.filter(IntegrationTarget.is_active.is_(True))
@@ -86,8 +85,7 @@ class IntegrationTargets(ListResponseMixin):
         query = db.query(IntegrationTarget)
         if target_type:
             query = query.filter(
-                IntegrationTarget.target_type
-                == validate_enum(target_type, IntegrationTargetType, "target_type")
+                IntegrationTarget.target_type == validate_enum(target_type, IntegrationTargetType, "target_type")
             )
         query = apply_ordering(
             query,
@@ -168,19 +166,23 @@ class IntegrationTargets(ListResponseMixin):
                     poll_interval = job.interval_seconds
                 elif job.interval_minutes:
                     poll_interval = job.interval_minutes * 60
-            result.update({
-                "smtp": smtp,
-                "imap": imap,
-                "pop3": pop3,
-                "poll_interval_seconds": poll_interval,
-                "polling_active": bool(job and job.is_active),
-                "receiving_enabled": bool((imap or pop3) and job and job.is_active),
-            })
+            result.update(
+                {
+                    "smtp": smtp,
+                    "imap": imap,
+                    "pop3": pop3,
+                    "poll_interval_seconds": poll_interval,
+                    "polling_active": bool(job and job.is_active),
+                    "receiving_enabled": bool((imap or pop3) and job and job.is_active),
+                }
+            )
         elif connector_type == ConnectorType.whatsapp:
-            result.update({
-                "base_url": config.base_url,
-                "phone_number_id": metadata.get("phone_number_id"),
-            })
+            result.update(
+                {
+                    "base_url": config.base_url,
+                    "phone_number_id": metadata.get("phone_number_id"),
+                }
+            )
 
         return result
 
@@ -220,14 +222,10 @@ class IntegrationJobs(ListResponseMixin):
         if target_id:
             query = query.filter(IntegrationJob.target_id == target_id)
         if job_type:
-            query = query.filter(
-                IntegrationJob.job_type
-                == validate_enum(job_type, IntegrationJobType, "job_type")
-            )
+            query = query.filter(IntegrationJob.job_type == validate_enum(job_type, IntegrationJobType, "job_type"))
         if schedule_type:
             query = query.filter(
-                IntegrationJob.schedule_type
-                == validate_enum(schedule_type, IntegrationScheduleType, "schedule_type")
+                IntegrationJob.schedule_type == validate_enum(schedule_type, IntegrationScheduleType, "schedule_type")
             )
         if is_active is None:
             query = query.filter(IntegrationJob.is_active.is_(True))
@@ -256,14 +254,10 @@ class IntegrationJobs(ListResponseMixin):
         if target_id:
             query = query.filter(IntegrationJob.target_id == target_id)
         if job_type:
-            query = query.filter(
-                IntegrationJob.job_type
-                == validate_enum(job_type, IntegrationJobType, "job_type")
-            )
+            query = query.filter(IntegrationJob.job_type == validate_enum(job_type, IntegrationJobType, "job_type"))
         if schedule_type:
             query = query.filter(
-                IntegrationJob.schedule_type
-                == validate_enum(schedule_type, IntegrationScheduleType, "schedule_type")
+                IntegrationJob.schedule_type == validate_enum(schedule_type, IntegrationScheduleType, "schedule_type")
             )
         query = apply_ordering(
             query,
@@ -327,14 +321,13 @@ class IntegrationJobs(ListResponseMixin):
                 config = db.get(ConnectorConfig, job.target.connector_config_id)
                 if config and config.connector_type == ConnectorType.email:
                     from app.services.crm import inbox as crm_inbox_service
+
                     logger.info(
                         "EMAIL_POLL_SCHEDULER_ENTRY job_id=%s target_id=%s",
                         job_id,
                         job.target_id,
                     )
-                    metrics = crm_inbox_service.poll_email_targets(
-                        db, target_id=str(job.target_id)
-                    )
+                    metrics = crm_inbox_service.poll_email_targets(db, target_id=str(job.target_id))
             run.status = IntegrationRunStatus.success
             run.metrics = metrics
         except Exception as exc:
@@ -364,10 +357,7 @@ class IntegrationRuns(ListResponseMixin):
         if job_id:
             query = query.filter(IntegrationRun.job_id == job_id)
         if status:
-            query = query.filter(
-                IntegrationRun.status
-                == validate_enum(status, IntegrationRunStatus, "status")
-            )
+            query = query.filter(IntegrationRun.status == validate_enum(status, IntegrationRunStatus, "status"))
         query = apply_ordering(
             query,
             order_by,
@@ -398,10 +388,7 @@ def list_interval_jobs(db: Session) -> list[IntegrationJob]:
         db.query(IntegrationJob)
         .filter(IntegrationJob.is_active.is_(True))
         .filter(IntegrationJob.schedule_type == IntegrationScheduleType.interval)
-        .filter(
-            (IntegrationJob.interval_seconds.isnot(None))
-            | (IntegrationJob.interval_minutes.isnot(None))
-        )
+        .filter((IntegrationJob.interval_seconds.isnot(None)) | (IntegrationJob.interval_minutes.isnot(None)))
         .all()
     )
 

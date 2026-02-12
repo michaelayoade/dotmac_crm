@@ -67,28 +67,23 @@ def get_meta_settings(db: Session) -> dict:
     from app.services import settings_spec
 
     return {
-        "meta_app_id": settings_spec.resolve_value(
-            db, SettingDomain.comms, "meta_app_id"
-        ) or os.getenv("META_APP_ID"),
-        "meta_app_secret": settings_spec.resolve_value(
-            db, SettingDomain.comms, "meta_app_secret"
-        ) or os.getenv("META_APP_SECRET"),
-        "meta_webhook_verify_token": settings_spec.resolve_value(
-            db, SettingDomain.comms, "meta_webhook_verify_token"
-        ) or os.getenv("META_WEBHOOK_VERIFY_TOKEN"),
-        "meta_oauth_redirect_uri": settings_spec.resolve_value(
-            db, SettingDomain.comms, "meta_oauth_redirect_uri"
-        ) or os.getenv("META_OAUTH_REDIRECT_URI"),
-        "whatsapp_app_id": settings_spec.resolve_value(
-            db, SettingDomain.comms, "whatsapp_app_id"
-        ) or os.getenv("WHATSAPP_APP_ID"),
-        "whatsapp_app_secret": settings_spec.resolve_value(
-            db, SettingDomain.comms, "whatsapp_app_secret"
-        ) or os.getenv("WHATSAPP_APP_SECRET"),
+        "meta_app_id": settings_spec.resolve_value(db, SettingDomain.comms, "meta_app_id") or os.getenv("META_APP_ID"),
+        "meta_app_secret": settings_spec.resolve_value(db, SettingDomain.comms, "meta_app_secret")
+        or os.getenv("META_APP_SECRET"),
+        "meta_webhook_verify_token": settings_spec.resolve_value(db, SettingDomain.comms, "meta_webhook_verify_token")
+        or os.getenv("META_WEBHOOK_VERIFY_TOKEN"),
+        "meta_oauth_redirect_uri": settings_spec.resolve_value(db, SettingDomain.comms, "meta_oauth_redirect_uri")
+        or os.getenv("META_OAUTH_REDIRECT_URI"),
+        "whatsapp_app_id": settings_spec.resolve_value(db, SettingDomain.comms, "whatsapp_app_id")
+        or os.getenv("WHATSAPP_APP_ID"),
+        "whatsapp_app_secret": settings_spec.resolve_value(db, SettingDomain.comms, "whatsapp_app_secret")
+        or os.getenv("WHATSAPP_APP_SECRET"),
         "whatsapp_webhook_verify_token": settings_spec.resolve_value(
             db, SettingDomain.comms, "whatsapp_webhook_verify_token"
-        ) or os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN"),
+        )
+        or os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN"),
     }
+
 
 META_OAUTH_BASE_URL = "https://www.facebook.com"
 
@@ -101,6 +96,7 @@ def _get_meta_graph_api_version(db: Session | None) -> str:
 def _get_meta_graph_base_url(db: Session | None) -> str:
     version = _get_meta_graph_api_version(db)
     return f"https://graph.facebook.com/{version}"
+
 
 # Required scopes for Facebook Pages (Messenger)
 FACEBOOK_SCOPES = [
@@ -401,7 +397,7 @@ def store_page_token(
         external_account_id=page_data["id"],
         external_account_name=page_data.get("name"),
         access_token=page_token,
-        token_type="bearer",
+        token_type="bearer",  # nosec B106 - OAuth token type literal
         token_expires_at=token_expires_at,
         scopes=FACEBOOK_SCOPES,
         last_refreshed_at=datetime.now(UTC),
@@ -480,7 +476,7 @@ def store_instagram_token(
         external_account_id=ig_account["id"],
         external_account_name=account_name,
         access_token=page_access_token,
-        token_type="bearer",
+        token_type="bearer",  # nosec B106 - OAuth token type literal
         token_expires_at=token_expires_at,
         scopes=INSTAGRAM_SCOPES,
         last_refreshed_at=datetime.now(UTC),
@@ -520,9 +516,7 @@ def get_active_page_tokens(
         .filter(OAuthToken.is_active.is_(True))
     )
     if connector_config_id:
-        query = query.filter(
-            OAuthToken.connector_config_id == coerce_uuid(connector_config_id)
-        )
+        query = query.filter(OAuthToken.connector_config_id == coerce_uuid(connector_config_id))
     return query.all()
 
 
@@ -546,9 +540,7 @@ def get_active_instagram_tokens(
         .filter(OAuthToken.is_active.is_(True))
     )
     if connector_config_id:
-        query = query.filter(
-            OAuthToken.connector_config_id == coerce_uuid(connector_config_id)
-        )
+        query = query.filter(OAuthToken.connector_config_id == coerce_uuid(connector_config_id))
     return query.all()
 
 
@@ -614,9 +606,7 @@ def deactivate_missing_tokens(
         .filter(OAuthToken.account_type == "instagram_business")
     )
     if instagram_ids:
-        instagram_query = instagram_query.filter(
-            OAuthToken.external_account_id.notin_(instagram_ids)
-        )
+        instagram_query = instagram_query.filter(OAuthToken.external_account_id.notin_(instagram_ids))
     instagram_deactivated = instagram_query.update({"is_active": False})
 
     db.commit()
