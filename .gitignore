@@ -52,3 +52,6 @@ htmlcov/
 .coverage
 .pytest_cache/
 .claude/
+
+# Reports (may contain PII)
+docs/reports/

@@ -709,6 +709,13 @@
            name="{{ name }}"
            value="{{ value }}"
            placeholder="{{ placeholder }}"
+           data-search-input="true"
+           autocomplete="new-password"
+           data-lpignore="true"
+           data-1p-ignore="true"
+           autocapitalize="off"
+           autocorrect="off"
+           spellcheck="false"
            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-{{ color }}-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-{{ color }}-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-{{ color }}-500 dark:focus:bg-slate-800"
            {% for key, val in hx_attrs.items() if val is not none and val != '' %}{{ key }}="{{ val }}"{% endfor %} />
 </div>
