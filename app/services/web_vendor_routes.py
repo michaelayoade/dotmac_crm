@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -115,7 +115,54 @@ def quote_builder(request: Request, project_id: str, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
+    vendor_id = str(context["vendor"].id)
     project = vendor_service.installation_projects.get(db, project_id)
+    existing_quote = vendor_service.project_quotes.get_latest_for_vendor_project(
+        db,
+        installation_project_id=str(project.id),
+        vendor_id=vendor_id,
+    )
+    # Prevent vendors from accessing arbitrary InstallationProjects by ID.
+    from datetime import UTC, datetime
+
+    from app.models.vendor import InstallationProjectStatus
+
+    now = datetime.now(UTC)
+    is_direct_assigned = str(project.assigned_vendor_id or "") == vendor_id
+    is_open_for_bidding = (
+        project.status == InstallationProjectStatus.open_for_bidding
+        and project.bidding_open_at
+        and project.bidding_open_at <= now
+        and project.bidding_close_at
+        and project.bidding_close_at >= now
+    )
+    if not (is_direct_assigned or is_open_for_bidding or existing_quote):
+        return HTMLResponse(content="Forbidden", status_code=403)
+
+    quote = existing_quote or vendor_service.project_quotes.get_or_create_for_vendor_project(
+        db,
+        installation_project_id=str(project.id),
+        vendor_id=vendor_id,
+        created_by_person_id=str(context["person"].id),
+    )
+    route_revisions = vendor_service.proposed_route_revisions.list(
+        db,
+        quote_id=str(quote.id),
+        status=None,
+        order_by="revision_number",
+        order_dir="desc",
+        limit=50,
+        offset=0,
+    )
+    line_items = vendor_service.quote_line_items.list(
+        db,
+        quote_id=str(quote.id),
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=200,
+        offset=0,
+    )
     return templates.TemplateResponse(
         "vendor/quotes/builder.html",
         {
@@ -124,6 +171,9 @@ def quote_builder(request: Request, project_id: str, db: Session):
             "vendor": context["vendor"],
             "current_user": context["current_user"],
             "project": project,
+            "quote": quote,
+            "route_revisions": route_revisions,
+            "line_items": line_items,
         },
     )
 
@@ -132,7 +182,28 @@ def as_built_submit(request: Request, project_id: str, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
+    vendor_id = str(context["vendor"].id)
     project = vendor_service.installation_projects.get(db, project_id)
+    existing_quote = vendor_service.project_quotes.get_latest_for_vendor_project(
+        db,
+        installation_project_id=str(project.id),
+        vendor_id=vendor_id,
+    )
+    approved_quote_vendor_match = False
+    if project.approved_quote_id:
+        approved_quote = None
+        try:
+            approved_quote = vendor_service.project_quotes.get(db, str(project.approved_quote_id))
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        if approved_quote:
+            approved_quote_vendor_match = str(approved_quote.vendor_id) == vendor_id
+
+    # Allow as-built only for assigned vendor, approved quote vendor, or a vendor with an existing quote.
+    is_assigned_vendor = str(project.assigned_vendor_id or "") == vendor_id
+    if not (is_assigned_vendor or approved_quote_vendor_match or existing_quote):
+        return HTMLResponse(content="Forbidden", status_code=403)
     return templates.TemplateResponse(
         "vendor/as-built/submit.html",
         {
@@ -141,6 +212,7 @@ def as_built_submit(request: Request, project_id: str, db: Session):
             "vendor": context["vendor"],
             "current_user": context["current_user"],
             "project": project,
+            "project_id": str(project.id),
         },
     )
 
@@ -151,6 +223,7 @@ def vendor_fiber_map(request: Request, db: Session):
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
         return HTMLResponse(content="Forbidden", status_code=403)
+    initial_quote_id = request.query_params.get("quote_id") or ""
 
     import json
 
@@ -322,6 +395,7 @@ def vendor_fiber_map(request: Request, db: Session):
             "stats": stats,
             "qa_stats": qa_stats,
             "cost_settings": cost_settings,
+            "initial_quote_id": initial_quote_id,
         },
     )
 

@@ -4,8 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection
@@ -633,61 +633,101 @@ def sales_pipeline_metrics(
     """
     from app.models.crm.enums import LeadStatus
 
-    query = db.query(Lead).filter(Lead.is_active.is_(True))
+    open_statuses = [
+        LeadStatus.new,
+        LeadStatus.contacted,
+        LeadStatus.qualified,
+        LeadStatus.proposal,
+        LeadStatus.negotiation,
+    ]
+    open_query = (
+        db.query(Lead)
+        .options(joinedload(Lead.stage))
+        .filter(Lead.is_active.is_(True))
+        .filter(Lead.status.in_(open_statuses))
+    )
 
     if pipeline_id:
-        query = query.filter(Lead.pipeline_id == coerce_uuid(pipeline_id))
-    if start_at:
-        query = query.filter(Lead.created_at >= start_at)
-    if end_at:
-        query = query.filter(Lead.created_at <= end_at)
+        open_query = open_query.filter(Lead.pipeline_id == coerce_uuid(pipeline_id))
     if owner_agent_id:
-        query = query.filter(Lead.owner_agent_id == coerce_uuid(owner_agent_id))
+        open_query = open_query.filter(Lead.owner_agent_id == coerce_uuid(owner_agent_id))
+    if start_at:
+        open_query = open_query.filter(Lead.created_at >= start_at)
+    if end_at:
+        open_query = open_query.filter(Lead.created_at <= end_at)
 
-    leads = query.all()
+    open_leads = open_query.all()
 
     total_value = Decimal("0.00")
     weighted_value = Decimal("0.00")
-    open_deals = 0
-    won_deals = 0
-    lost_deals = 0
-    won_value = Decimal("0.00")
+    open_deals = len(open_leads)
 
-    for lead in leads:
+    for lead in open_leads:
         if lead.estimated_value:
             total_value += lead.estimated_value
-            if lead.probability is not None:
-                weighted_value += lead.estimated_value * Decimal(lead.probability) / Decimal(100)
+            probability = lead.probability
+            if probability is None and lead.stage:
+                probability = lead.stage.default_probability
+            if probability is not None:
+                weighted_value += lead.estimated_value * Decimal(probability) / Decimal(100)
 
-        if lead.status == LeadStatus.won:
-            won_deals += 1
-            if lead.estimated_value:
-                won_value += lead.estimated_value
-        elif lead.status == LeadStatus.lost:
-            lost_deals += 1
-        else:
-            open_deals += 1
+    closed_query = (
+        db.query(
+            func.sum(case((Lead.status == LeadStatus.won, 1), else_=0)).label("won_count"),
+            func.sum(case((Lead.status == LeadStatus.lost, 1), else_=0)).label("lost_count"),
+            func.sum(case((Lead.status == LeadStatus.won, Lead.estimated_value), else_=0)).label("won_value"),
+        )
+        .filter(Lead.is_active.is_(True))
+        .filter(Lead.status.in_([LeadStatus.won, LeadStatus.lost]))
+        .filter(Lead.closed_at.isnot(None))
+    )
+
+    if pipeline_id:
+        closed_query = closed_query.filter(Lead.pipeline_id == coerce_uuid(pipeline_id))
+    if owner_agent_id:
+        closed_query = closed_query.filter(Lead.owner_agent_id == coerce_uuid(owner_agent_id))
+    if start_at:
+        closed_query = closed_query.filter(Lead.closed_at >= start_at)
+    if end_at:
+        closed_query = closed_query.filter(Lead.closed_at <= end_at)
+
+    closed_row = closed_query.first()
+    won_deals = int(closed_row.won_count or 0) if closed_row else 0
+    lost_deals = int(closed_row.lost_count or 0) if closed_row else 0
+    won_value = Decimal(closed_row.won_value or 0) if closed_row else Decimal("0.00")
 
     total_closed = won_deals + lost_deals
     win_rate = (won_deals / total_closed * 100) if total_closed > 0 else None
     avg_deal_size = (won_value / Decimal(won_deals)) if won_deals > 0 else None
 
-    # Get stage breakdown
+    # Get stage breakdown (open leads only, no period filter)
     stages_query = db.query(PipelineStage).filter(PipelineStage.is_active.is_(True))
     if pipeline_id:
         stages_query = stages_query.filter(PipelineStage.pipeline_id == coerce_uuid(pipeline_id))
     stages = stages_query.order_by(PipelineStage.order_index.asc()).all()
 
+    stage_totals: dict[str, dict[str, Decimal | int]] = {}
+    for stage in stages:
+        stage_totals[str(stage.id)] = {"count": 0, "value": Decimal("0.00")}
+
+    for lead in open_leads:
+        if not lead.stage_id:
+            continue
+        key = str(lead.stage_id)
+        if key not in stage_totals:
+            continue
+        stage_totals[key]["count"] = int(stage_totals[key]["count"]) + 1
+        stage_totals[key]["value"] = Decimal(stage_totals[key]["value"]) + Decimal(lead.estimated_value or 0)
+
     stage_breakdown = []
     for stage in stages:
-        stage_leads = [lead for lead in leads if lead.stage_id == stage.id]
-        stage_value = sum((lead.estimated_value or Decimal(0)) for lead in stage_leads)
+        totals = stage_totals.get(str(stage.id), {"count": 0, "value": Decimal("0.00")})
         stage_breakdown.append(
             {
                 "id": str(stage.id),
                 "name": stage.name,
-                "count": len(stage_leads),
-                "value": float(stage_value),
+                "count": int(totals["count"]),
+                "value": float(totals["value"]),
             }
         )
 
@@ -728,7 +768,7 @@ def sales_forecast(
     if pipeline_id:
         query = query.filter(Lead.pipeline_id == coerce_uuid(pipeline_id))
 
-    leads = query.all()
+    leads = query.options(joinedload(Lead.stage)).all()
 
     today = datetime.now().date()
     forecast = []
@@ -746,10 +786,14 @@ def sales_forecast(
         ]
 
         expected_value = sum((lead.estimated_value or Decimal(0)) for lead in month_leads)
-        weighted_value = sum(
-            (lead.estimated_value or Decimal(0)) * Decimal(lead.probability or 50) / Decimal(100)
-            for lead in month_leads
-        )
+        weighted_value = Decimal("0.00")
+        for lead in month_leads:
+            probability = lead.probability
+            if probability is None and lead.stage:
+                probability = lead.stage.default_probability
+            if probability is None:
+                continue
+            weighted_value += (lead.estimated_value or Decimal(0)) * Decimal(probability) / Decimal(100)
 
         forecast.append(
             {
@@ -777,67 +821,102 @@ def agent_sales_performance(
     """
     from app.models.crm.enums import LeadStatus
 
-    # Get all agents who own leads
-    leads_query = db.query(Lead).filter(
-        Lead.is_active.is_(True),
-        Lead.owner_agent_id.isnot(None),
+    closed_query = (
+        db.query(
+            Lead.owner_agent_id.label("agent_id"),
+            func.sum(case((Lead.status == LeadStatus.won, 1), else_=0)).label("deals_won"),
+            func.sum(case((Lead.status == LeadStatus.lost, 1), else_=0)).label("deals_lost"),
+            func.sum(case((Lead.status == LeadStatus.won, Lead.estimated_value), else_=0)).label("won_value"),
+            func.count(Lead.id).label("total_closed"),
+        )
+        .filter(Lead.is_active.is_(True))
+        .filter(Lead.owner_agent_id.isnot(None))
+        .filter(Lead.status.in_([LeadStatus.won, LeadStatus.lost]))
+        .filter(Lead.closed_at.isnot(None))
     )
 
     if start_at:
-        leads_query = leads_query.filter(Lead.created_at >= start_at)
+        closed_query = closed_query.filter(Lead.closed_at >= start_at)
     if end_at:
-        leads_query = leads_query.filter(Lead.created_at <= end_at)
+        closed_query = closed_query.filter(Lead.closed_at <= end_at)
     if pipeline_id:
-        leads_query = leads_query.filter(Lead.pipeline_id == coerce_uuid(pipeline_id))
+        closed_query = closed_query.filter(Lead.pipeline_id == coerce_uuid(pipeline_id))
 
-    leads = leads_query.all()
+    closed_rows = closed_query.group_by(Lead.owner_agent_id).all()
+    closed_map: dict[str, dict[str, Any]] = {}
+    for row in closed_rows:
+        agent_id = str(row.agent_id)
+        won_value = Decimal(row.won_value or 0)
+        total_closed = int(row.total_closed or 0)
+        deals_won = int(row.deals_won or 0)
+        deals_lost = int(row.deals_lost or 0)
+        win_rate = (deals_won / total_closed * 100) if total_closed > 0 else None
+        closed_map[agent_id] = {
+            "deals_won": deals_won,
+            "deals_lost": deals_lost,
+            "total_deals": total_closed,
+            "won_value": float(won_value),
+            "win_rate": round(win_rate, 1) if win_rate is not None else None,
+        }
 
-    # Group leads by owner agent
-    agent_leads: dict[str, list] = {}
-    for lead in leads:
-        agent_id = str(lead.owner_agent_id)
-        if agent_id not in agent_leads:
-            agent_leads[agent_id] = []
-        agent_leads[agent_id].append(lead)
+    activity_query = (
+        db.query(
+            Lead.owner_agent_id.label("agent_id"),
+            func.count(func.distinct(Message.id)).label("activity_count"),
+        )
+        .join(Conversation, Conversation.person_id == Lead.person_id)
+        .join(Message, Message.conversation_id == Conversation.id)
+        .join(CrmAgent, CrmAgent.id == Lead.owner_agent_id)
+        .filter(Lead.is_active.is_(True))
+        .filter(Lead.owner_agent_id.isnot(None))
+        .filter(Message.author_id == CrmAgent.person_id)
+    )
 
-    # Get agent names
-    agent_ids = list(agent_leads.keys())
-    agents = db.query(CrmAgent).filter(CrmAgent.id.in_([coerce_uuid(a) for a in agent_ids])).all()
-    agent_map = {str(a.id): a for a in agents}
+    if start_at:
+        activity_query = activity_query.filter(Message.created_at >= start_at)
+    if end_at:
+        activity_query = activity_query.filter(Message.created_at <= end_at)
+    if pipeline_id:
+        activity_query = activity_query.filter(Lead.pipeline_id == coerce_uuid(pipeline_id))
 
-    # Get person names
-    person_ids = [a.person_id for a in agents if a.person_id]
-    persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
-    person_map = {p.id: p for p in persons}
+    activity_rows = activity_query.group_by(Lead.owner_agent_id).all()
+    activity_map = {str(row.agent_id): int(row.activity_count or 0) for row in activity_rows}
 
-    results: list[dict[str, Any]] = []
-    for agent_id, agent_lead_list in agent_leads.items():
-        agent = agent_map.get(agent_id)
-        person = person_map.get(agent.person_id) if agent and agent.person_id else None
+    agent_ids = sorted(set(closed_map.keys()) | set(activity_map.keys()))
+    if not agent_ids:
+        return []
 
+    agents = (
+        db.query(CrmAgent, Person)
+        .join(Person, Person.id == CrmAgent.person_id)
+        .filter(CrmAgent.id.in_([coerce_uuid(a) for a in agent_ids]))
+        .all()
+    )
+    agent_name_map: dict[str, str] = {}
+    for agent, person in agents:
         name = "Unknown Agent"
         if person:
             name = person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or "Agent"
+        agent_name_map[str(agent.id)] = name
 
-        won = [lead for lead in agent_lead_list if lead.status == LeadStatus.won]
-        lost = [lead for lead in agent_lead_list if lead.status == LeadStatus.lost]
-
-        won_value = sum((lead.estimated_value or Decimal(0)) for lead in won)
-        total_closed = len(won) + len(lost)
-        win_rate = (len(won) / total_closed * 100) if total_closed > 0 else None
-
+    results: list[dict[str, Any]] = []
+    for agent_id in agent_ids:
+        base = closed_map.get(
+            agent_id,
+            {"deals_won": 0, "deals_lost": 0, "total_deals": 0, "won_value": 0.0, "win_rate": None},
+        )
         results.append(
             {
                 "agent_id": agent_id,
-                "name": name,
-                "deals_won": len(won),
-                "deals_lost": len(lost),
-                "total_deals": len(agent_lead_list),
-                "won_value": float(won_value),
-                "win_rate": round(win_rate, 1) if win_rate is not None else None,
+                "name": agent_name_map.get(agent_id, "Unknown Agent"),
+                "deals_won": base["deals_won"],
+                "deals_lost": base["deals_lost"],
+                "total_deals": base["total_deals"],
+                "won_value": base["won_value"],
+                "win_rate": base["win_rate"],
+                "activity_count": activity_map.get(agent_id, 0),
             }
         )
 
-    # Sort by won value descending
     results.sort(key=lambda x: float(x.get("won_value") or 0), reverse=True)
     return results
