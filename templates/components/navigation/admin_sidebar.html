@@ -158,6 +158,18 @@
         <span x-show="!sidebarCollapsed">Dashboard</span>
     </a>
 
+    <!-- 1b. NEXTCLOUD TALK (opens drawer) -->
+    <button type="button"
+            x-on:click="window.dispatchEvent(new CustomEvent('nextcloud-talk-toggle'))"
+            class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                   text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white">
+        <svg class="h-5 w-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M8 10h8M8 14h5m9-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span x-show="!sidebarCollapsed">Talk</span>
+    </button>
+
     <!-- 2. CUSTOMERS (Collapsible Section) -->
     {% if customers_section_visible %}
     <button x-on:click="openSection = openSection === 'customers' ? '' : 'customers'" x-show="!sidebarCollapsed"

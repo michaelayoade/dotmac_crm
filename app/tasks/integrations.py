@@ -1,6 +1,9 @@
 import time
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
+
 from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.logging import get_logger
@@ -532,6 +535,94 @@ def sync_dotmac_erp_shifts(days_ahead: int = 14, time_off_days_ahead: int = 30):
 
 
 @celery_app.task(
+    name="app.tasks.integrations.sync_dotmac_erp_technicians",
+    time_limit=300,
+    soft_time_limit=240,
+)
+def sync_dotmac_erp_technicians():
+    """Pull technicians from DotMac ERP employees feed.
+
+    Rule: ERP employees in department "Projects" are treated as technicians.
+    Behavior: Upsert TechnicianProfile records; deactivate ERP-linked technicians
+    that are no longer eligible.
+    """
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("DOTMAC_ERP_TECHNICIAN_SYNC_START")
+
+    try:
+        from app.services.dotmac_erp import dotmac_erp_technician_sync
+
+        # Guard against rare cases where a pooled connection is returned in a bad transaction
+        # state (INTRANS), causing SQLAlchemy pre-ping to fail when toggling autocommit.
+        try:
+            session.execute(text("select 1"))
+        except ProgrammingError as e:
+            msg = str(e).lower()
+            if "autocommit" in msg and "intrans" in msg:
+                logger.warning("DOTMAC_ERP_TECHNICIAN_SYNC_DB_POOL_INTRANS resetting_pool=true error=%s", str(e))
+                session.close()
+                engine = getattr(SessionLocal, "kw", {}).get("bind")
+                if engine is not None:
+                    engine.dispose()
+                session = SessionLocal()
+                session.execute(text("select 1"))
+            else:
+                raise
+
+        sync_service = dotmac_erp_technician_sync(session)
+        result = sync_service.sync_all()
+        sync_service.close()
+
+        logger.info(
+            "DOTMAC_ERP_TECHNICIAN_SYNC_COMPLETE persons_created=%d persons_updated=%d "
+            "techs_created=%d techs_updated=%d techs_reactivated=%d techs_deactivated=%d "
+            "employees_seen=%d employees_eligible=%d errors=%d duration=%.2fs",
+            result.persons_created,
+            result.persons_updated,
+            result.technicians_created,
+            result.technicians_updated,
+            result.technicians_reactivated,
+            result.technicians_deactivated,
+            result.employees_seen,
+            result.employees_eligible,
+            len(result.errors),
+            result.duration_seconds,
+        )
+
+        if result.has_errors:
+            status = "partial"
+            for error in result.errors[:10]:
+                logger.warning("DOTMAC_ERP_TECHNICIAN_SYNC_ERROR %s", error)
+
+        return {
+            "persons_created": result.persons_created,
+            "persons_updated": result.persons_updated,
+            "technicians_created": result.technicians_created,
+            "technicians_updated": result.technicians_updated,
+            "technicians_reactivated": result.technicians_reactivated,
+            "technicians_deactivated": result.technicians_deactivated,
+            "employees_seen": result.employees_seen,
+            "employees_eligible": result.employees_eligible,
+            "total_synced": result.total_synced,
+            "errors": result.errors,
+            "duration_seconds": result.duration_seconds,
+        }
+
+    except Exception as e:
+        status = "error"
+        logger.exception("DOTMAC_ERP_TECHNICIAN_SYNC_FAILED error=%s", str(e))
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("dotmac_erp_technician_sync", status, duration)
+
+
+@celery_app.task(
     name="app.tasks.integrations.sync_material_request_to_erp",
     bind=True,
     time_limit=60,
@@ -811,6 +902,87 @@ def sync_dotmac_erp_teams():
         session.close()
         duration = time.monotonic() - start
         observe_job("dotmac_erp_team_sync", status, duration)
+
+
+@celery_app.task(
+    name="app.tasks.integrations.sync_dotmac_erp_agents",
+    time_limit=300,
+    soft_time_limit=240,
+)
+def sync_dotmac_erp_agents():
+    """Pull CRM agents from DotMac ERP employees in the configured department."""
+    from app.services.dotmac_erp import dotmac_erp_agent_sync, record_agent_sync_result
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("DOTMAC_ERP_AGENT_SYNC_START")
+
+    try:
+        sync_service = dotmac_erp_agent_sync(session)
+        result = sync_service.sync_all()
+        sync_service.close()
+
+        logger.info(
+            "DOTMAC_ERP_AGENT_SYNC_COMPLETE persons_created=%d persons_updated=%d "
+            "agents_created=%d agents_updated=%d agents_reactivated=%d "
+            "agents_deactivated=%d employees_seen=%d employees_eligible=%d "
+            "errors=%d duration=%.2fs",
+            result.persons_created,
+            result.persons_updated,
+            result.agents_created,
+            result.agents_updated,
+            result.agents_reactivated,
+            result.agents_deactivated,
+            result.employees_seen,
+            result.employees_eligible,
+            len(result.errors),
+            result.duration_seconds,
+        )
+
+        if result.has_errors:
+            status = "partial"
+            for error in result.errors[:10]:
+                logger.warning("DOTMAC_ERP_AGENT_SYNC_ERROR %s", error)
+
+        record_agent_sync_result(
+            persons_created=result.persons_created,
+            persons_updated=result.persons_updated,
+            agents_created=result.agents_created,
+            agents_updated=result.agents_updated,
+            agents_reactivated=result.agents_reactivated,
+            agents_deactivated=result.agents_deactivated,
+            employees_seen=result.employees_seen,
+            employees_eligible=result.employees_eligible,
+            errors=result.errors,
+            duration_seconds=result.duration_seconds,
+        )
+
+        return {
+            "persons_created": result.persons_created,
+            "persons_updated": result.persons_updated,
+            "agents_created": result.agents_created,
+            "agents_updated": result.agents_updated,
+            "agents_reactivated": result.agents_reactivated,
+            "agents_deactivated": result.agents_deactivated,
+            "employees_seen": result.employees_seen,
+            "employees_eligible": result.employees_eligible,
+            "total_synced": result.total_synced,
+            "errors": result.errors,
+            "duration_seconds": result.duration_seconds,
+        }
+
+    except Exception as e:
+        status = "error"
+        logger.exception("DOTMAC_ERP_AGENT_SYNC_FAILED error=%s", str(e))
+        session.rollback()
+        raise
+
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("dotmac_erp_agent_sync", status, duration)
 
 
 @celery_app.task(

@@ -224,7 +224,7 @@
 
     const inventory = [
         {% for inv in inventory_items %}
-        { id: {{ inv.id | tojson }}, sku: {{ (inv.sku or '') | tojson }}, name: {{ inv.name | tojson }} },
+        { id: {{ inv.id | string | tojson }}, sku: {{ (inv.sku or '') | tojson }}, name: {{ (inv.name or '') | tojson }} },
         {% endfor %}
     ];
 

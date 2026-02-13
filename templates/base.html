@@ -23,6 +23,8 @@
 
     {% if request.state.branding is defined and request.state.branding.favicon_url %}
     <link rel="icon" href="{{ request.state.branding.favicon_url }}">
+    {% else %}
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
     {% endif %}
 
     <!-- Compiled CSS (includes Tailwind + fonts + custom styles) -->
@@ -382,6 +384,7 @@
         }
     </script>
 
+    <script src="/static/js/ui-filter-state.js"></script>
     {% block scripts %}{% endblock %}
 
     <!-- Global Confirmation Modal -->
@@ -415,6 +418,7 @@
             });
         });
     </script>
+    <script src="/static/js/nextcloud-talk-floater.js"></script>
     <script src="/static/js/vendor/alpine-focus.min.js"></script>
     <script src="/static/js/vendor/alpine-collapse.min.js"></script>
     <script src="/static/js/vendor/alpine.min.js"></script>

@@ -1552,6 +1552,7 @@ def project_template_task_delete(request: Request, template_id: str, task_id: st
 @router.get("/{project_ref}", response_class=HTMLResponse)
 def project_detail(request: Request, project_ref: str, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
+    from app.services.crm.inbox.agents import list_active_agents_for_mentions
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
@@ -1667,6 +1668,7 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
             "customer_name": customer_name,
             "customer_address": customer_address,
             "csrf_token": get_csrf_token(request),
+            "mention_agents": list_active_agents_for_mentions(db),
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         },
@@ -1679,6 +1681,7 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
+    mentions_raw = _form_str(form.get("mentions")).strip()
     attachments = form.getlist("attachments")
     if not body:
         return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
@@ -1699,6 +1702,37 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
             }
         )
         projects_service.project_comments.create(db=db, payload=payload)
+        if mentions_raw:
+            try:
+                import json
+
+                from app.services.agent_mentions import notify_agent_mentions
+
+                parsed = json.loads(mentions_raw)
+                mentioned_agent_ids = parsed if isinstance(parsed, list) else []
+                preview = body
+                if len(preview) > 140:
+                    preview = preview[:137].rstrip() + "..."
+                ref = project.number or str(project.id)
+                subtitle = f"Project {ref}"
+                if project.name:
+                    subtitle = f"{subtitle} · {project.name}"
+                notify_agent_mentions(
+                    db,
+                    mentioned_agent_ids=list(mentioned_agent_ids),
+                    actor_person_id=str(current_user.get("person_id")) if current_user else None,
+                    payload={
+                        "kind": "mention",
+                        "title": "Mentioned in project",
+                        "subtitle": subtitle,
+                        "preview": preview or None,
+                        "target_url": f"/admin/projects/{project.number or project.id}",
+                        "project_id": str(project.id),
+                        "project_number": project.number,
+                    },
+                )
+            except Exception:
+                pass
         _log_activity(
             db=db,
             request=request,
@@ -2094,6 +2128,7 @@ def project_delete(request: Request, project_ref: str, db: Session = Depends(get
 @router.get("/tasks/{task_ref}", response_class=HTMLResponse)
 def project_task_detail(request: Request, task_ref: str, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
+    from app.services.crm.inbox.agents import list_active_agents_for_mentions
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
@@ -2144,6 +2179,7 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
             "comments": comments,
             "activities": activities,
             "csrf_token": get_csrf_token(request),
+            "mention_agents": list_active_agents_for_mentions(db),
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         },
@@ -2156,6 +2192,7 @@ async def project_task_comment_create(request: Request, task_ref: str, db: Sessi
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
+    mentions_raw = _form_str(form.get("mentions")).strip()
     attachments = form.getlist("attachments")
     if not body:
         return RedirectResponse(f"/admin/projects/tasks/{task_ref}", status_code=303)
@@ -2176,6 +2213,38 @@ async def project_task_comment_create(request: Request, task_ref: str, db: Sessi
             }
         )
         projects_service.project_task_comments.create(db=db, payload=payload)
+        if mentions_raw:
+            try:
+                import json
+
+                from app.services.agent_mentions import notify_agent_mentions
+
+                parsed = json.loads(mentions_raw)
+                mentioned_agent_ids = parsed if isinstance(parsed, list) else []
+                preview = body
+                if len(preview) > 140:
+                    preview = preview[:137].rstrip() + "..."
+                ref = task.number or str(task.id)
+                subtitle = f"Task {ref}"
+                if task.title:
+                    subtitle = f"{subtitle} · {task.title}"
+                notify_agent_mentions(
+                    db,
+                    mentioned_agent_ids=list(mentioned_agent_ids),
+                    actor_person_id=str(current_user.get("person_id")) if current_user else None,
+                    payload={
+                        "kind": "mention",
+                        "title": "Mentioned in task",
+                        "subtitle": subtitle,
+                        "preview": preview or None,
+                        "target_url": f"/admin/projects/tasks/{task.number or task.id}",
+                        "task_id": str(task.id),
+                        "task_number": task.number,
+                        "project_id": str(task.project_id) if getattr(task, "project_id", None) else None,
+                    },
+                )
+            except Exception:
+                pass
         _log_activity(
             db=db,
             request=request,

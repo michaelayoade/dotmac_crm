@@ -148,6 +148,7 @@ class PrivateNoteRequest(BaseModel):
     body: str
     visibility: Literal["author", "team", "admins"] | None = None
     attachments: list[dict] | None = None
+    mentions: list[str] | None = None
 
 
 def _ensure_pydyf_compat() -> None:
@@ -573,8 +574,23 @@ def _resolve_brand_logo_src(branding: dict, request: Request) -> str | None:
         return logo_url
 
     prefix = settings.branding_url_prefix.rstrip("/") + "/"
-    if isinstance(logo_url, str) and logo_url.startswith(prefix):
-        filename = logo_url.replace(prefix, "", 1)
+
+    # Prefer embedding branding assets as data URLs when they point at our local upload dir.
+    # This makes PDF rendering resilient even when outbound HTTPS fetches fail (missing CA certs, no egress, etc).
+    candidate_path: str | None = None
+    if isinstance(logo_url, str):
+        if logo_url.startswith(prefix):
+            candidate_path = logo_url
+        else:
+            try:
+                parsed = urlparse(logo_url)
+            except ValueError:
+                parsed = None
+            if parsed and parsed.path and parsed.path.startswith(prefix):
+                candidate_path = parsed.path
+
+    if candidate_path:
+        filename = candidate_path.replace(prefix, "", 1)
         if filename:
             file_path = Path(settings.branding_upload_dir) / filename
             if not file_path.resolve().is_relative_to(Path(settings.branding_upload_dir).resolve()):
@@ -1388,6 +1404,7 @@ async def inbox_conversation_detail(
         current_roles,
     )
     from app.logic import private_note_logic
+    from app.services.crm.inbox.agents import list_active_agents_for_mentions
     from app.services.crm.inbox.templates import message_templates
 
     templates_list = message_templates.list(
@@ -1397,6 +1414,7 @@ async def inbox_conversation_detail(
         limit=200,
         offset=0,
     )
+    mention_agents = list_active_agents_for_mentions(db)
 
     return templates.TemplateResponse(
         "admin/crm/_message_thread.html",
@@ -1409,6 +1427,7 @@ async def inbox_conversation_detail(
             "current_roles": current_roles,
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
             "message_templates": templates_list,
+            "mention_agents": mention_agents,
         },
     )
 
@@ -1677,6 +1696,7 @@ async def send_message(
     conversation_id: str,
     message: str | None = Form(None),
     attachments: str | None = Form(None),
+    mentions: str | None = Form(None),
     idempotency_key: str | None = Form(None),
     reply_to_message_id: str | None = Form(None),
     template_id: str | None = Form(None),
@@ -1726,6 +1746,32 @@ async def send_message(
             return Response(status_code=204, headers={"HX-Redirect": url})
         return RedirectResponse(url=url, status_code=303)
 
+    # Mentions are optional and should never block sending a message.
+    if mentions and result.message and result.conversation:
+        try:
+            import json
+
+            from app.services.crm.inbox.notifications import notify_agents_mentioned
+
+            parsed = json.loads(mentions)
+            mentioned_agent_ids = parsed if isinstance(parsed, list) else []
+
+            metadata = result.message.metadata_ if isinstance(result.message.metadata_, dict) else {}
+            metadata["mentions"] = {"agent_ids": list(mentioned_agent_ids)}
+            result.message.metadata_ = dict(metadata)
+            db.add(result.message)
+            db.commit()
+
+            notify_agents_mentioned(
+                db,
+                conversation=result.conversation,
+                message=result.message,
+                mentioned_agent_ids=list(mentioned_agent_ids),
+                actor_person_id=author_id,
+            )
+        except Exception:
+            pass
+
     try:
         if not result.conversation:
             raise ValueError("Conversation not found")
@@ -1751,6 +1797,7 @@ async def send_message(
             current_roles,
         )
         from app.logic import private_note_logic
+        from app.services.crm.inbox.agents import list_active_agents_for_mentions
         from app.services.crm.inbox.templates import message_templates
 
         template_list = message_templates.list(
@@ -1760,6 +1807,7 @@ async def send_message(
             limit=200,
             offset=0,
         )
+        mention_agents = list_active_agents_for_mentions(db)
 
         if request.headers.get("HX-Request") != "true":
             return RedirectResponse(
@@ -1777,6 +1825,7 @@ async def send_message(
                 "current_roles": current_roles,
                 "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
                 "message_templates": template_list,
+                "mention_agents": mention_agents,
             },
         )
     except Exception as exc:
@@ -1885,6 +1934,7 @@ def create_private_note_api(
             body=payload.body,
             requested_visibility=payload.visibility,
             attachments=attachments,
+            mentions=payload.mentions,
             roles=_get_current_roles(request),
             scopes=_get_current_scopes(request),
         )

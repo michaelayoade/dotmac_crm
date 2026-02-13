@@ -1604,37 +1604,74 @@ def dotmac_erp_index(
     from app.models.domain_settings import SettingDomain
     from app.services import settings_spec
     from app.services.dotmac_erp import (
+        get_agent_sync_history,
         get_contact_sync_history,
         get_daily_stats,
         get_inventory_sync_history,
+        get_last_agent_sync,
         get_last_contact_sync,
         get_last_inventory_sync,
+        get_last_material_request_sync,
+        get_last_shift_sync,
         get_last_sync,
+        get_last_team_sync,
+        get_material_request_sync_history,
+        get_shift_sync_history,
         get_sync_history,
+        get_team_sync_history,
     )
 
-    # Get configuration
-    enabled = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_sync_enabled")
-    base_url = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_base_url")
-    token = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_token")
-    timeout = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_timeout_seconds") or 30
-    interval = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_sync_interval_minutes") or 60
+    _rv = settings_spec.resolve_value  # shorthand
+
+    # Get configuration — connection
+    enabled = _rv(db, SettingDomain.integration, "dotmac_erp_sync_enabled")
+    base_url = _rv(db, SettingDomain.integration, "dotmac_erp_base_url")
+    token = _rv(db, SettingDomain.integration, "dotmac_erp_token")
+    timeout = _rv(db, SettingDomain.integration, "dotmac_erp_timeout_seconds") or 30
+    interval = _rv(db, SettingDomain.integration, "dotmac_erp_sync_interval_minutes") or 60
+
+    # Get configuration — per-sync-type
+    inventory_sync_enabled = _rv(db, SettingDomain.integration, "dotmac_erp_inventory_sync_enabled")
+    inventory_sync_interval = _rv(db, SettingDomain.integration, "dotmac_erp_inventory_sync_interval_minutes") or 120
+    contact_sync_enabled = _rv(db, SettingDomain.integration, "dotmac_erp_contact_sync_enabled")
+    contact_sync_interval = _rv(db, SettingDomain.integration, "dotmac_erp_contact_sync_interval_minutes") or 60
+    shift_sync_enabled = _rv(db, SettingDomain.integration, "dotmac_erp_shift_sync_enabled")
+    shift_sync_interval = _rv(db, SettingDomain.integration, "dotmac_erp_shift_sync_interval_minutes") or 60
+    team_sync_enabled = _rv(db, SettingDomain.integration, "dotmac_erp_team_sync_enabled")
+    team_sync_interval = _rv(db, SettingDomain.integration, "dotmac_erp_team_sync_interval_minutes") or 60
+    agent_sync_enabled = _rv(db, SettingDomain.integration, "dotmac_erp_agent_sync_enabled")
+    agent_sync_interval = _rv(db, SettingDomain.integration, "dotmac_erp_agent_sync_interval_minutes") or 60
+    agent_sync_department = (
+        _rv(db, SettingDomain.integration, "dotmac_erp_agent_sync_department") or "Customer Experience"
+    )
 
     # Get outbound sync stats (push to ERP)
     daily_stats = get_daily_stats()
     last_sync = get_last_sync()
     history = get_sync_history(limit=10)
 
-    # Get inventory sync stats (pull from ERP)
+    # Get pull sync stats
     last_inventory_sync = get_last_inventory_sync()
     inventory_history = get_inventory_sync_history(limit=10)
     last_contact_sync = get_last_contact_sync()
     contact_history = get_contact_sync_history(limit=10)
+    last_shift_sync = get_last_shift_sync()
+    shift_history = get_shift_sync_history(limit=10)
+    last_team_sync = get_last_team_sync()
+    team_history = get_team_sync_history(limit=10)
+    last_agent_sync = get_last_agent_sync()
+    agent_history = get_agent_sync_history(limit=10)
+    last_mr_sync = get_last_material_request_sync()
+    mr_history = get_material_request_sync_history(limit=10)
 
     # Format last sync times
     last_sync_ago = _humanize_time_ago(last_sync.get("timestamp") if last_sync else None)
     last_inventory_sync_ago = _humanize_time_ago(last_inventory_sync.get("timestamp") if last_inventory_sync else None)
     last_contact_sync_ago = _humanize_time_ago(last_contact_sync.get("timestamp") if last_contact_sync else None)
+    last_shift_sync_ago = _humanize_time_ago(last_shift_sync.get("timestamp") if last_shift_sync else None)
+    last_team_sync_ago = _humanize_time_ago(last_team_sync.get("timestamp") if last_team_sync else None)
+    last_agent_sync_ago = _humanize_time_ago(last_agent_sync.get("timestamp") if last_agent_sync else None)
+    last_mr_sync_ago = _humanize_time_ago(last_mr_sync.get("timestamp") if last_mr_sync else None)
 
     # Calculate total today
     total_today = daily_stats.get("projects", 0) + daily_stats.get("tickets", 0) + daily_stats.get("work_orders", 0)
@@ -1642,22 +1679,54 @@ def dotmac_erp_index(
     context = _base_context(request, db, active_page="dotmac-erp")
     context.update(
         {
+            # Connection config
             "enabled": bool(enabled),
             "base_url": base_url or "",
             "has_token": bool(token),
             "timeout": timeout,
             "interval": interval,
+            # Per-sync-type config
+            "inventory_sync_enabled": bool(inventory_sync_enabled),
+            "inventory_sync_interval": inventory_sync_interval,
+            "contact_sync_enabled": bool(contact_sync_enabled),
+            "contact_sync_interval": contact_sync_interval,
+            "shift_sync_enabled": bool(shift_sync_enabled),
+            "shift_sync_interval": shift_sync_interval,
+            "team_sync_enabled": bool(team_sync_enabled),
+            "team_sync_interval": team_sync_interval,
+            "agent_sync_enabled": bool(agent_sync_enabled),
+            "agent_sync_interval": agent_sync_interval,
+            "agent_sync_department": agent_sync_department,
+            # Outbound push stats
             "daily_stats": daily_stats,
             "total_today": total_today,
             "last_sync": last_sync,
             "last_sync_ago": last_sync_ago,
             "history": history,
+            # Inventory
             "last_inventory_sync": last_inventory_sync,
             "last_inventory_sync_ago": last_inventory_sync_ago,
             "inventory_history": inventory_history,
+            # Contacts
             "last_contact_sync": last_contact_sync,
             "last_contact_sync_ago": last_contact_sync_ago,
             "contact_history": contact_history,
+            # Shifts
+            "last_shift_sync": last_shift_sync,
+            "last_shift_sync_ago": last_shift_sync_ago,
+            "shift_history": shift_history,
+            # Teams
+            "last_team_sync": last_team_sync,
+            "last_team_sync_ago": last_team_sync_ago,
+            "team_history": team_history,
+            "last_agent_sync": last_agent_sync,
+            "last_agent_sync_ago": last_agent_sync_ago,
+            "agent_history": agent_history,
+            # Material requests
+            "last_mr_sync": last_mr_sync,
+            "last_mr_sync_ago": last_mr_sync_ago,
+            "mr_history": mr_history,
+            # UI state
             "humanize_time_ago": _humanize_time_ago,
             "settings_saved": bool(saved),
             "settings_error": error,
@@ -1674,6 +1743,17 @@ def dotmac_erp_save_settings(
     token: str | None = Form(None),
     timeout: str | None = Form(None),
     interval: str | None = Form(None),
+    inventory_sync_enabled: str | None = Form(None),
+    inventory_sync_interval: str | None = Form(None),
+    contact_sync_enabled: str | None = Form(None),
+    contact_sync_interval: str | None = Form(None),
+    shift_sync_enabled: str | None = Form(None),
+    shift_sync_interval: str | None = Form(None),
+    team_sync_enabled: str | None = Form(None),
+    team_sync_interval: str | None = Form(None),
+    agent_sync_enabled: str | None = Form(None),
+    agent_sync_interval: str | None = Form(None),
+    agent_sync_department: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Save DotMac ERP sync settings."""
@@ -1681,24 +1761,31 @@ def dotmac_erp_save_settings(
 
     errors = []
 
-    # Validate inputs
-    timeout_val = 30
-    if timeout:
+    def _validate_int(raw: str | None, default: int, label: str, min_val: int = 5, max_val: int = 99999) -> int:
+        if not raw:
+            return default
         try:
-            timeout_val = int(timeout)
-            if timeout_val < 5 or timeout_val > 120:
-                errors.append("Timeout must be between 5 and 120 seconds")
+            val = int(raw)
+            if val < min_val:
+                errors.append(f"{label} must be at least {min_val}")
+            if val > max_val:
+                errors.append(f"{label} must be at most {max_val}")
+            return val
         except ValueError:
-            errors.append("Timeout must be a number")
+            errors.append(f"{label} must be a number")
+            return default
 
-    interval_val = 60
-    if interval:
-        try:
-            interval_val = int(interval)
-            if interval_val < 5:
-                errors.append("Sync interval must be at least 5 minutes")
-        except ValueError:
-            errors.append("Interval must be a number")
+    timeout_val = _validate_int(timeout, 30, "Timeout", min_val=5, max_val=120)
+    interval_val = _validate_int(interval, 60, "Push sync interval")
+    inv_interval_val = _validate_int(inventory_sync_interval, 120, "Inventory sync interval")
+    contact_interval_val = _validate_int(contact_sync_interval, 60, "Contact sync interval")
+    shift_interval_val = _validate_int(shift_sync_interval, 60, "Shift sync interval")
+    team_interval_val = _validate_int(team_sync_interval, 60, "Team sync interval")
+    agent_interval_val = _validate_int(agent_sync_interval, 60, "Agent sync interval")
+
+    agent_department_value = (agent_sync_department or "").strip()
+    if not agent_department_value:
+        agent_department_value = "Customer Experience"
 
     if errors:
         return RedirectResponse(
@@ -1735,22 +1822,29 @@ def dotmac_erp_save_settings(
             )
             db.add(setting)
 
-    # Save enabled
+    # Connection settings
     _upsert_setting("dotmac_erp_sync_enabled", bool(enabled), SettingValueType.boolean)
-
-    # Save base_url
     if base_url and base_url.strip():
         _upsert_setting("dotmac_erp_base_url", base_url.strip(), SettingValueType.string)
-
-    # Save token (only if provided - keep existing otherwise)
     if token and token.strip():
         _upsert_setting("dotmac_erp_token", token.strip(), SettingValueType.string)
-
-    # Save timeout
     _upsert_setting("dotmac_erp_timeout_seconds", timeout_val, SettingValueType.integer)
 
-    # Save interval
+    # Push sync interval
     _upsert_setting("dotmac_erp_sync_interval_minutes", interval_val, SettingValueType.integer)
+
+    # Per-sync-type settings
+    _upsert_setting("dotmac_erp_inventory_sync_enabled", bool(inventory_sync_enabled), SettingValueType.boolean)
+    _upsert_setting("dotmac_erp_inventory_sync_interval_minutes", inv_interval_val, SettingValueType.integer)
+    _upsert_setting("dotmac_erp_contact_sync_enabled", bool(contact_sync_enabled), SettingValueType.boolean)
+    _upsert_setting("dotmac_erp_contact_sync_interval_minutes", contact_interval_val, SettingValueType.integer)
+    _upsert_setting("dotmac_erp_shift_sync_enabled", bool(shift_sync_enabled), SettingValueType.boolean)
+    _upsert_setting("dotmac_erp_shift_sync_interval_minutes", shift_interval_val, SettingValueType.integer)
+    _upsert_setting("dotmac_erp_team_sync_enabled", bool(team_sync_enabled), SettingValueType.boolean)
+    _upsert_setting("dotmac_erp_team_sync_interval_minutes", team_interval_val, SettingValueType.integer)
+    _upsert_setting("dotmac_erp_agent_sync_enabled", bool(agent_sync_enabled), SettingValueType.boolean)
+    _upsert_setting("dotmac_erp_agent_sync_interval_minutes", agent_interval_val, SettingValueType.integer)
+    _upsert_setting("dotmac_erp_agent_sync_department", agent_department_value, SettingValueType.string)
 
     db.commit()
 
@@ -1798,7 +1892,7 @@ def dotmac_erp_test(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f"Connection error: {e!s}"
+            f"Connection error: {html_escape(str(e))}"
             "</div>",
             status_code=200,
         )
@@ -1838,7 +1932,7 @@ def dotmac_erp_sync_now(
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f"Failed to queue sync task: {e!s}"
+            f"Failed to queue sync task: {html_escape(str(e))}"
             "</div>",
             status_code=500,
         )
@@ -1864,7 +1958,7 @@ def dotmac_erp_inventory_sync_now(request: Request, db: Session = Depends(get_db
     except Exception as e:
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
-            f"Failed to queue inventory sync task: {e!s}"
+            f"Failed to queue inventory sync task: {html_escape(str(e))}"
             "</div>",
             status_code=500,
         )
@@ -1890,6 +1984,81 @@ def dotmac_erp_contacts_sync_now(request: Request, db: Session = Depends(get_db)
         return HTMLResponse(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
             f"Failed to queue contacts sync task: {html_escape(str(e))}"
+            "</div>",
+            status_code=500,
+        )
+
+
+@router.post("/dotmac-erp/shifts-sync", response_class=HTMLResponse)
+def dotmac_erp_shifts_sync_now(request: Request, db: Session = Depends(get_db)):
+    """Trigger manual shift sync from DotMac ERP (HTMX)."""
+    from app.tasks.integrations import sync_dotmac_erp_shifts
+
+    try:
+        task = sync_dotmac_erp_shifts.delay()
+
+        return HTMLResponse(
+            '<div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">'
+            f"Shift sync started. Task ID: {task.id[:8]}..."
+            '<br><span class="text-xs">Refresh the page to see results.</span>'
+            "</div>",
+            status_code=200,
+        )
+
+    except Exception as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f"Failed to queue shift sync task: {html_escape(str(e))}"
+            "</div>",
+            status_code=500,
+        )
+
+
+@router.post("/dotmac-erp/teams-sync", response_class=HTMLResponse)
+def dotmac_erp_teams_sync_now(request: Request, db: Session = Depends(get_db)):
+    """Trigger manual team sync from DotMac ERP (HTMX)."""
+    from app.tasks.integrations import sync_dotmac_erp_teams
+
+    try:
+        task = sync_dotmac_erp_teams.delay()
+
+        return HTMLResponse(
+            '<div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">'
+            f"Team sync started. Task ID: {task.id[:8]}..."
+            '<br><span class="text-xs">Refresh the page to see results.</span>'
+            "</div>",
+            status_code=200,
+        )
+
+    except Exception as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f"Failed to queue team sync task: {html_escape(str(e))}"
+            "</div>",
+            status_code=500,
+        )
+
+
+@router.post("/dotmac-erp/agents-sync", response_class=HTMLResponse)
+def dotmac_erp_agents_sync_now(request: Request, db: Session = Depends(get_db)):
+    """Trigger manual CRM agent sync from DotMac ERP (HTMX)."""
+    from app.tasks.integrations import sync_dotmac_erp_agents
+
+    try:
+        task = sync_dotmac_erp_agents.delay()
+
+        return HTMLResponse(
+            '<div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-400">'
+            f"Agent sync started. Task ID: {task.id[:8]}..."
+            '<br><span class="text-xs">Refresh the page to see results.</span>'
+            "</div>",
+            status_code=200,
+        )
+
+    except Exception as e:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f"Failed to queue agent sync task: {html_escape(str(e))}"
             "</div>",
             status_code=500,
         )

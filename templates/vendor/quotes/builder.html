@@ -6,22 +6,480 @@
 <div class="space-y-6">
     <div>
         <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Quote builder</h1>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Project {{ project.project_id }}</p>
+        {% set proj = project.project %}
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Project {{ (proj.code or proj.number or proj.name) if proj else (project.project_id|string|truncate(8, True, '')) }}
+        </p>
     </div>
 
     <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div class="grid gap-4 md:grid-cols-2">
-            <div class="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                Map drawing tools will appear here for route planning.
+            <div class="space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Route planner</h2>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Draw a plan and save it as a route revision for this quote.</p>
+                    </div>
+                    <a href="/vendor/fiber-map?quote_id={{ quote.id }}" target="_blank"
+                       class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                        Open full screen
+                    </a>
+                </div>
+                <div class="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40">
+                    <iframe
+                        title="Fiber map"
+                        src="/vendor/fiber-map?quote_id={{ quote.id }}"
+                        class="h-[520px] w-full"
+                        loading="lazy"
+                        referrerpolicy="no-referrer"
+                    ></iframe>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                    Quote ID: <code class="rounded bg-slate-100 px-1 py-0.5 text-slate-700 dark:bg-slate-800 dark:text-slate-200">{{ quote.id }}</code>
+                </p>
             </div>
-            <div>
-                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Line items</h2>
-                <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Add cable, splice, and labor items using the API endpoints.</p>
-                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
-                    Use <code class="text-emerald-600">/api/vendor/quotes</code> and related endpoints to build and submit your quote.
+            <div class="space-y-6">
+                <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Route revisions</h2>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Saved plans for this quote.</p>
+                        </div>
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                            {{ route_revisions|length }}
+                        </span>
+                    </div>
+                    {% if route_revisions %}
+                    <div class="mt-3 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                            <thead class="bg-slate-50 dark:bg-slate-900/40">
+                                <tr>
+                                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Revision</th>
+                                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Status</th>
+                                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Length</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
+                                {% for rev in route_revisions %}
+                                <tr>
+                                    <td class="px-3 py-2 font-medium text-slate-900 dark:text-white">#{{ rev.revision_number }}</td>
+                                    <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ rev.status.value if rev.status else '—' }}</td>
+                                    <td class="px-3 py-2 text-slate-700 dark:text-slate-200">
+                                        {% if rev.length_meters %}{{ '%.0f'|format(rev.length_meters) }} m{% else %}—{% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="mt-3 rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        No revisions yet. Use the route planner to save one.
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Line items</h2>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Materials, labor, and other costs.</p>
+                        </div>
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                            {{ line_items|length }}
+                        </span>
+                    </div>
+
+                    <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Type</label>
+                                <input id="li-item-type" type="text" placeholder="labor / cable / splice ..."
+                                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Description</label>
+                                <input id="li-description" type="text" placeholder="Drop cable, trenching, splicing..."
+                                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Quantity</label>
+                                <input id="li-quantity" type="number" step="0.001" min="0"
+                                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
+                                       value="1.000">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Unit price</label>
+                                <input id="li-unit-price" type="number" step="0.01" min="0"
+                                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
+                                       value="0.00">
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Notes</label>
+                                <input id="li-notes" type="text" placeholder="Optional"
+                                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                            </div>
+                        </div>
+                        <div class="mt-3 flex items-center justify-between gap-3">
+                            <div id="li-message" class="text-sm text-slate-600 dark:text-slate-300"></div>
+                            <button id="li-add"
+                                    class="inline-flex items-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30">
+                                Add line item
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                            <thead class="bg-slate-50 dark:bg-slate-900/40">
+                                <tr>
+                                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Description</th>
+                                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Qty</th>
+                                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Unit</th>
+                                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Amount</th>
+                                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lineitems-body" class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
+                                {% if line_items %}
+                                {% for item in line_items %}
+                                <tr data-lineitem-row
+                                    data-id="{{ item.id }}"
+                                    data-item-type="{{ (item.item_type or '')|e }}"
+                                    data-description="{{ (item.description or '')|e }}"
+                                    data-quantity="{{ item.quantity }}"
+                                    data-unit-price="{{ item.unit_price }}"
+                                    data-notes="{{ (item.notes or '')|e }}">
+                                    <td class="px-3 py-2 text-slate-900 dark:text-white">
+                                        <div class="font-medium">{{ item.description or item.item_type or 'Line item' }}</div>
+                                        {% if item.notes %}<div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{ item.notes }}</div>{% endif %}
+                                    </td>
+                                    <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">{{ item.quantity }}</td>
+                                    <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">{{ item.unit_price }}</td>
+                                    <td class="px-3 py-2 text-right font-medium text-slate-900 dark:text-white" data-amount>{{ item.amount }}</td>
+                                    <td class="px-3 py-2 text-right">
+                                        <div class="inline-flex items-center gap-2">
+                                            <button type="button" data-lineitem-edit
+                                                    class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                                                Edit
+                                            </button>
+                                            <button type="button" data-lineitem-delete
+                                                    class="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30">
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% else %}
+                                <tr id="lineitems-empty">
+                                    <td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                                        No line items yet. Add one above.
+                                    </td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="mt-3 flex items-center justify-between text-sm">
+                        <div class="text-slate-500 dark:text-slate-400">Subtotal (client):</div>
+                        <div id="lineitems-subtotal" class="font-semibold text-slate-900 dark:text-white"></div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<div id="lineitem-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <div class="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit line item</h3>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Updates are saved immediately.</p>
+            </div>
+            <button type="button" id="li-modal-close"
+                    class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                Close
+            </button>
+        </div>
+
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Type</label>
+                <input id="li-edit-item-type" type="text"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Description</label>
+                <input id="li-edit-description" type="text"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Quantity</label>
+                <input id="li-edit-quantity" type="number" step="0.001" min="0"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Unit price</label>
+                <input id="li-edit-unit-price" type="number" step="0.01" min="0"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Notes</label>
+                <input id="li-edit-notes" type="text"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+        </div>
+
+        <div class="mt-4 flex items-center justify-between gap-3">
+            <div id="li-edit-message" class="text-sm text-slate-600 dark:text-slate-300"></div>
+            <div class="inline-flex items-center gap-2">
+                <button type="button" id="li-modal-cancel"
+                        class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                    Cancel
+                </button>
+                <button type="button" id="li-modal-save"
+                        class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                    Save changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+    const quoteId = {{ (quote.id|string) | tojson }};
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    const addBtn = document.getElementById('li-add');
+    const msg = document.getElementById('li-message');
+    const tbody = document.getElementById('lineitems-body');
+    const subtotalEl = document.getElementById('lineitems-subtotal');
+
+    const modal = document.getElementById('lineitem-modal');
+    const modalClose = document.getElementById('li-modal-close');
+    const modalCancel = document.getElementById('li-modal-cancel');
+    const modalSave = document.getElementById('li-modal-save');
+    const editMsg = document.getElementById('li-edit-message');
+
+    const fType = document.getElementById('li-item-type');
+    const fDesc = document.getElementById('li-description');
+    const fQty = document.getElementById('li-quantity');
+    const fUnit = document.getElementById('li-unit-price');
+    const fNotes = document.getElementById('li-notes');
+
+    const eType = document.getElementById('li-edit-item-type');
+    const eDesc = document.getElementById('li-edit-description');
+    const eQty = document.getElementById('li-edit-quantity');
+    const eUnit = document.getElementById('li-edit-unit-price');
+    const eNotes = document.getElementById('li-edit-notes');
+
+    let editingRow = null;
+
+    function setText(el, text) {
+        if (!el) return;
+        el.textContent = text || '';
+    }
+
+    function moneyToNumber(value) {
+        if (value == null) return 0;
+        const s = String(value).replace(/[^0-9.+-]/g, '');
+        const n = Number(s);
+        return Number.isFinite(n) ? n : 0;
+    }
+
+    function updateSubtotal() {
+        if (!subtotalEl) return;
+        const amounts = Array.from(document.querySelectorAll('[data-lineitem-row] [data-amount]')).map((el) =>
+            moneyToNumber(el.textContent)
+        );
+        const sum = amounts.reduce((a, b) => a + b, 0);
+        subtotalEl.textContent = sum.toFixed(2);
+    }
+
+    function rowHtml(item) {
+        const safe = (v) => (v == null ? '' : String(v));
+        const desc = safe(item.description) || safe(item.item_type) || 'Line item';
+        const notes = safe(item.notes || '');
+        const notesHtml = notes ? `<div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">${escapeHtml(notes)}</div>` : '';
+        return `
+            <tr data-lineitem-row
+                data-id="${safe(item.id)}"
+                data-item-type="${escapeHtml(item.item_type || '')}"
+                data-description="${escapeHtml(item.description || '')}"
+                data-quantity="${safe(item.quantity)}"
+                data-unit-price="${safe(item.unit_price)}"
+                data-notes="${escapeHtml(item.notes || '')}">
+                <td class="px-3 py-2 text-slate-900 dark:text-white">
+                    <div class="font-medium">${escapeHtml(desc)}</div>
+                    ${notesHtml}
+                </td>
+                <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">${safe(item.quantity)}</td>
+                <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">${safe(item.unit_price)}</td>
+                <td class="px-3 py-2 text-right font-medium text-slate-900 dark:text-white" data-amount>${safe(item.amount)}</td>
+                <td class="px-3 py-2 text-right">
+                    <div class="inline-flex items-center gap-2">
+                        <button type="button" data-lineitem-edit
+                                class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                            Edit
+                        </button>
+                        <button type="button" data-lineitem-delete
+                                class="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30">
+                            Delete
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    function openModalForRow(row) {
+        editingRow = row;
+        setText(editMsg, '');
+        eType.value = row.dataset.itemType || '';
+        eDesc.value = row.dataset.description || '';
+        eQty.value = row.dataset.quantity || '';
+        eUnit.value = row.dataset.unitPrice || '';
+        eNotes.value = row.dataset.notes || '';
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function closeModal() {
+        editingRow = null;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    modalClose?.addEventListener('click', closeModal);
+    modalCancel?.addEventListener('click', closeModal);
+    modal?.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+
+    addBtn?.addEventListener('click', async () => {
+        setText(msg, '');
+        addBtn.disabled = true;
+        addBtn.textContent = 'Adding...';
+        try {
+            const payload = {
+                item_type: (fType.value || '').trim() || null,
+                description: (fDesc.value || '').trim() || null,
+                quantity: String(fQty.value || '1.000'),
+                unit_price: String(fUnit.value || '0.00'),
+                notes: (fNotes.value || '').trim() || null
+            };
+            const res = await fetch(`/api/vendor/quotes/${quoteId}/line-items`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || data.error || `Request failed (${res.status})`);
+
+            const empty = document.getElementById('lineitems-empty');
+            if (empty) empty.remove();
+            tbody.insertAdjacentHTML('beforeend', rowHtml(data));
+            fType.value = '';
+            fDesc.value = '';
+            fQty.value = '1.000';
+            fUnit.value = '0.00';
+            fNotes.value = '';
+            updateSubtotal();
+            setText(msg, 'Added.');
+        } catch (e) {
+            setText(msg, e.message || 'Failed to add line item.');
+        } finally {
+            addBtn.disabled = false;
+            addBtn.textContent = 'Add line item';
+        }
+    });
+
+    tbody?.addEventListener('click', async (e) => {
+        const target = e.target;
+        const row = target?.closest?.('[data-lineitem-row]');
+        if (!row) return;
+
+        if (target.matches('[data-lineitem-edit]')) {
+            openModalForRow(row);
+            return;
+        }
+
+        if (target.matches('[data-lineitem-delete]')) {
+            const id = row.dataset.id;
+            if (!id) return;
+            if (!confirm('Delete this line item?')) return;
+            target.disabled = true;
+            try {
+                const res = await fetch(`/api/vendor/quotes/${quoteId}/line-items/${id}`, { method: 'DELETE' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || data.error || `Request failed (${res.status})`);
+                row.remove();
+                if (!tbody.querySelector('[data-lineitem-row]')) {
+                    tbody.insertAdjacentHTML(
+                        'beforeend',
+                        `<tr id="lineitems-empty"><td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No line items yet. Add one above.</td></tr>`
+                    );
+                }
+                updateSubtotal();
+            } catch (err) {
+                alert(err.message || 'Failed to delete line item.');
+            } finally {
+                target.disabled = false;
+            }
+        }
+    });
+
+    modalSave?.addEventListener('click', async () => {
+        if (!editingRow) return;
+        const id = editingRow.dataset.id;
+        if (!id) return;
+        setText(editMsg, '');
+        modalSave.disabled = true;
+        modalSave.textContent = 'Saving...';
+        try {
+            const payload = {
+                item_type: (eType.value || '').trim() || null,
+                description: (eDesc.value || '').trim() || null,
+                quantity: String(eQty.value || '1.000'),
+                unit_price: String(eUnit.value || '0.00'),
+                notes: (eNotes.value || '').trim() || null
+            };
+            const res = await fetch(`/api/vendor/quotes/${quoteId}/line-items/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || data.error || `Request failed (${res.status})`);
+
+            // Replace row with updated server response.
+            const tmp = document.createElement('tbody');
+            tmp.innerHTML = rowHtml(data);
+            const newRow = tmp.firstElementChild;
+            editingRow.replaceWith(newRow);
+            updateSubtotal();
+            closeModal();
+        } catch (err) {
+            setText(editMsg, err.message || 'Failed to update line item.');
+        } finally {
+            modalSave.disabled = false;
+            modalSave.textContent = 'Save changes';
+        }
+    });
+
+    updateSubtotal();
+})();
+</script>
 {% endblock %}

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.sales import Lead
 from app.models.domain_settings import SettingDomain
+from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import Person
 from app.models.projects import (
     Project,
@@ -57,6 +58,81 @@ from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
+
+
+def _notify_project_roles_created_in_app(db: Session, project: Project) -> None:
+    """Create in-app notifications for internal roles on project creation.
+
+    We store these as Notification rows with a non-email channel so the email queue
+    does not attempt delivery. Admin UI shows Notification rows in the dropdown
+    filtered by recipient (email/person_id/user_id).
+    """
+    role_specs: list[tuple[str, str]] = [
+        ("owner_person_id", "Owner"),
+        ("manager_person_id", "Manager"),
+        ("project_manager_person_id", "Project Manager"),
+        ("assistant_manager_person_id", "Site Project Coordinator"),
+    ]
+
+    roles_by_person_id: dict[object, list[str]] = {}
+    person_ids: list[object] = []
+    for attr, label in role_specs:
+        person_id = getattr(project, attr, None)
+        if not person_id:
+            continue
+        if person_id not in roles_by_person_id:
+            roles_by_person_id[person_id] = []
+            person_ids.append(person_id)
+        if label not in roles_by_person_id[person_id]:
+            roles_by_person_id[person_id].append(label)
+
+    if not person_ids:
+        return
+
+    people = db.query(Person).filter(Person.id.in_(person_ids)).all()
+    people_by_id = {p.id: p for p in people}
+
+    # Use APP_URL (or DomainSetting notification/app_url) so links work across hosts.
+    from app.services import email as email_service
+
+    base_url = (email_service._get_app_url(db) or "").rstrip("/")
+    project_ref = project.number or str(project.id)
+    project_url = f"{base_url}/admin/projects/{project_ref}" if base_url else f"/admin/projects/{project_ref}"
+
+    site = (project.customer_address or project.region or "").strip()
+
+    subject = f"New Project Assignment: {project.name}"
+    now = datetime.now(UTC)
+
+    # De-dupe by recipient email so one person with multiple roles gets one notification.
+    created_for: set[str] = set()
+    for person_id, roles in roles_by_person_id.items():
+        person = people_by_id.get(person_id)
+        if not person or not isinstance(person.email, str) or not person.email.strip():
+            continue
+        recipient = person.email.strip()
+        if recipient in created_for:
+            continue
+        created_for.add(recipient)
+
+        roles_label = ", ".join(roles)
+        body_lines = [f"You have been assigned as {roles_label} for this project."]
+        if site:
+            body_lines.append(f"Site: {site}.")
+        body_lines.append(f"Open: {project_url}")
+
+        db.add(
+            Notification(
+                channel=NotificationChannel.push,
+                recipient=recipient,
+                subject=subject,
+                body="\n".join(body_lines),
+                status=NotificationStatus.delivered,
+                sent_at=now,
+            )
+        )
+
+    db.commit()
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -417,6 +493,15 @@ class Projects(ListResponseMixin):
             ProjectTemplateTasks.replace_project_tasks(
                 db=db, project_id=str(project.id), template_id=str(payload.project_template_id)
             )
+
+        # In-app notifications for internal project roles.
+        # Project has already been committed above, so failures here won't roll back creation.
+        try:
+            _notify_project_roles_created_in_app(db, project)
+        except Exception:
+            db.rollback()
+            logger.exception("project_created_in_app_notifications_failed project_id=%s", project.id)
+
         return project
 
     @staticmethod

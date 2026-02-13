@@ -491,6 +491,7 @@
 <script>
 (function() {
     const costSettings = {{ cost_settings | tojson | safe }};
+    const initialQuoteId = {{ (initial_quote_id or '') | tojson }};
 
     function escapeHtml(value) {
         return String(value ?? '')
@@ -853,6 +854,8 @@
 
         const saveBtn = document.getElementById('btn-save-plan');
         if (saveBtn) saveBtn.addEventListener('click', () => savePlanToQuote());
+        const quoteIdInput = document.getElementById('plan-quote-id');
+        if (quoteIdInput && initialQuoteId && !quoteIdInput.value) quoteIdInput.value = initialQuoteId;
     }
 
     function buildPlanGeojson() {
@@ -1105,6 +1108,11 @@
     renderGeoJson(geojsonData);
     updateLayerCountBadges();
     updateVisibleFeatureCount();
+
+    // If we were opened from the quote builder, default to planning mode.
+    if (initialQuoteId && !planMode) {
+        togglePlanMode();
+    }
 
     // ========== Search Functionality ==========
     const searchInput = document.getElementById('map-search-input');

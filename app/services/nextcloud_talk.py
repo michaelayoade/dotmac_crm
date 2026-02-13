@@ -53,12 +53,22 @@ class NextcloudTalkClient:
         self.timeout = timeout
         self.auth = httpx.BasicAuth(username, app_password)
         self.headers = {"OCS-APIRequest": "true", "Accept": "application/json"}
-        self.ocs_base_path = "/ocs/v2.php/apps/spreed/api/v4"
+        # Conversation management endpoints (v4)
+        self.ocs_conversations_base_path = "/ocs/v2.php/apps/spreed/api/v4"
+        # Chat endpoints (v1)
+        self.ocs_chat_base_path = "/ocs/v2.php/apps/spreed/api/v1"
 
     def _parse_ocs(self, response: httpx.Response) -> Any:
         try:
             payload = response.json()
         except ValueError as exc:
+            snippet = (response.text or "")[:500]
+            logger.error(
+                "Nextcloud Talk returned non-JSON response (status=%s, content_type=%s, snippet=%r)",
+                response.status_code,
+                response.headers.get("content-type"),
+                snippet,
+            )
             raise NextcloudTalkError("Invalid JSON response from Nextcloud Talk") from exc
 
         if not isinstance(payload, dict) or "ocs" not in payload:
@@ -66,8 +76,23 @@ class NextcloudTalkClient:
 
         meta = payload.get("ocs", {}).get("meta", {})
         statuscode = meta.get("statuscode")
-        if statuscode != 100:
+        # Nextcloud deployments vary:
+        # - Many OCS APIs return statuscode=100 for success
+        # - Some Talk endpoints mirror HTTP status codes (200/201/etc)
+        ok = False
+        if statuscode in (100, "100"):
+            ok = True
+        elif isinstance(statuscode, int) and 200 <= statuscode < 300:
+            ok = True
+        elif isinstance(statuscode, str) and statuscode.isdigit():
+            try:
+                ok = 200 <= int(statuscode) < 300
+            except ValueError:
+                ok = False
+
+        if not ok:
             message = meta.get("message") or meta.get("status") or "Unknown error"
+            logger.error("Nextcloud Talk OCS error statuscode=%s message=%r", statuscode, message)
             raise NextcloudTalkError(f"OCS error {statuscode}: {message}")
 
         return payload.get("ocs", {}).get("data")
@@ -78,15 +103,23 @@ class NextcloudTalkClient:
         path: str,
         params: dict | None = None,
         data: dict | None = None,
+        *,
+        base_path: str | None = None,
+        send_json: bool = False,
     ) -> Any:
-        url = f"{self.base_url}{self.ocs_base_path}{path}"
+        # Nextcloud OCS APIs often default to XML unless format=json is requested.
+        # Accept: application/json is not always sufficient across deployments.
+        params = dict(params or {})
+        params.setdefault("format", "json")
+        url = f"{self.base_url}{(base_path or self.ocs_conversations_base_path)}{path}"
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.request(
                     method,
                     url,
                     params=params,
-                    data=data,
+                    json=data if (send_json and data is not None) else None,
+                    data=None if send_json else data,
                     headers=self.headers,
                     auth=self.auth,
                 )
@@ -105,7 +138,7 @@ class NextcloudTalkClient:
         return self._parse_ocs(response)
 
     def list_rooms(self) -> list[dict]:
-        data = self._request("GET", "/room")
+        data = self._request("GET", "/room", base_path=self.ocs_conversations_base_path)
         if data is None:
             return []
         if isinstance(data, list):
@@ -121,7 +154,14 @@ class NextcloudTalkClient:
         payload = {"roomName": room_name, "roomType": room_type}
         if options:
             payload.update(options)
-        data = self._request("POST", "/room", data=payload)
+        # v4 room endpoints commonly expect JSON (matches curl examples).
+        data = self._request(
+            "POST",
+            "/room",
+            data=payload,
+            base_path=self.ocs_conversations_base_path,
+            send_json=True,
+        )
         if isinstance(data, dict):
             return data
         return {"data": data}
@@ -135,7 +175,46 @@ class NextcloudTalkClient:
         payload = {"message": message}
         if options:
             payload.update(options)
-        data = self._request("POST", f"/room/{room_token}/message", data=payload)
+        # Chat API uses /chat/{token}
+        data = self._request(
+            "POST",
+            f"/chat/{room_token}",
+            data=payload,
+            base_path=self.ocs_chat_base_path,
+        )
         if isinstance(data, dict):
             return data
         return {"data": data}
+
+    def list_messages(
+        self,
+        room_token: str,
+        *,
+        last_known_message_id: int = 0,
+        limit: int = 100,
+        timeout: int = 0,
+    ) -> list[dict]:
+        """List chat messages for a room.
+
+        Uses the OCS chat API (v1): GET /chat/{token}
+        """
+        params: dict[str, Any] = {
+            "lookIntoFuture": 0,
+            "limit": int(limit),
+            "timeout": int(timeout),
+            "lastKnownMessageId": int(last_known_message_id),
+            "includeLastKnown": 0,
+        }
+        data = self._request(
+            "GET",
+            f"/chat/{room_token}",
+            params=params,
+            base_path=self.ocs_chat_base_path,
+        )
+        if data is None:
+            return []
+        if isinstance(data, list):
+            return [m for m in data if isinstance(m, dict)]
+        if isinstance(data, dict):
+            return [data]
+        return []

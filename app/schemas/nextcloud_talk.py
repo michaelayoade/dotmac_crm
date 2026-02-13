@@ -32,3 +32,32 @@ class NextcloudTalkRoomCreateRequest(NextcloudTalkAuth):
 class NextcloudTalkMessageRequest(NextcloudTalkAuth):
     message: str = Field(min_length=1)
     options: dict | None = None
+
+
+class NextcloudTalkMessageListRequest(NextcloudTalkAuth):
+    last_known_message_id: int = Field(default=0, ge=0)
+    limit: int = Field(default=100, ge=1, le=200)
+    timeout: int = Field(default=0, ge=0, le=60)
+
+
+class NextcloudTalkLoginRequest(BaseModel):
+    base_url: str = Field(min_length=1, max_length=500)
+    username: str = Field(min_length=1, max_length=150)
+    app_password: str = Field(min_length=1, max_length=255)
+
+
+class NextcloudTalkRoomCreateMeRequest(BaseModel):
+    room_name: str = Field(min_length=1, max_length=200)
+    room_type: str | int = Field(default="public")
+    options: dict | None = None
+
+
+class NextcloudTalkMessageSendMeRequest(BaseModel):
+    message: str = Field(min_length=1)
+    options: dict | None = None
+
+
+class NextcloudTalkMessageListMeRequest(BaseModel):
+    last_known_message_id: int = Field(default=0, ge=0)
+    limit: int = Field(default=100, ge=1, le=200)
+    timeout: int = Field(default=0, ge=0, le=60)

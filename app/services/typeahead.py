@@ -131,22 +131,20 @@ def subscribers_response(db: Session, query: str, limit: int) -> dict:
 def vendors(db: Session, query: str, limit: int) -> list[dict]:
     """Search vendors by name."""
     term = (query or "").strip()
-    if not term:
-        return []
-    like_term = f"%{term}%"
-    results = (
-        db.query(Vendor)
-        .filter(
+    query_builder = db.query(Vendor).filter(Vendor.is_active.is_(True))
+
+    if term:
+        like_term = f"%{term}%"
+        query_builder = query_builder.filter(
             or_(
                 Vendor.name.ilike(like_term),
                 Vendor.code.ilike(like_term),
                 Vendor.contact_name.ilike(like_term),
             )
         )
-        .filter(Vendor.is_active.is_(True))
-        .limit(limit)
-        .all()
-    )
+
+    # When term is empty (e.g. typeahead focus), return a small list of active vendors.
+    results = query_builder.order_by(Vendor.name.asc()).limit(limit).all()
     return [{"id": v.id, "label": v.name} for v in results]
 
 

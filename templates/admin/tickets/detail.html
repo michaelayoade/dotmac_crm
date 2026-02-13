@@ -176,10 +176,16 @@
                                     <form method="POST"
                                           action="/admin/support/tickets/{{ ticket.number or ticket.id }}/comments/{{ comment.id }}/edit"
                                           class="mt-2 space-y-2">
-                                        <textarea name="body"
-                                                  rows="3"
-                                                  required
-                                                  class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">{{ comment.body }}</textarea>
+                                        <div class="relative" data-mention-root>
+                                            <textarea name="body"
+                                                      rows="3"
+                                                      required
+                                                      data-mention-textarea
+                                                      class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">{{ comment.body }}</textarea>
+                                            <input type="hidden" name="mentions" value="[]" data-mention-hidden>
+                                            <div class="absolute left-0 right-0 z-50 mt-1 hidden max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                                                 data-mention-menu></div>
+                                        </div>
                                         <div class="flex items-center gap-2">
                                             {{ submit_button("Save", color="amber", size="sm") }}
                                             <button type="button"
@@ -223,7 +229,17 @@
                     <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/comments" enctype="multipart/form-data" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/comments" hx-encoding="multipart/form-data" hx-swap="none" class="space-y-4">
                         <div>
                             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Add Comment</label>
-                            <textarea name="body" rows="3" required class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500" placeholder="Type your comment here..."></textarea>
+                            <div class="relative" data-mention-root>
+                                <textarea name="body"
+                                          rows="3"
+                                          required
+                                          data-mention-textarea
+                                          class="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500"
+                                          placeholder="Type your comment here..."></textarea>
+                                <input type="hidden" name="mentions" value="[]" data-mention-hidden>
+                                <div class="absolute left-0 right-0 z-50 mt-1 hidden max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                                     data-mention-menu></div>
+                            </div>
                         </div>
                         <div>
                             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Attachments</label>
@@ -658,5 +674,172 @@
         </div>
     </div>
 </div>
+
+<script>
+(() => {
+  const mentionAgents = {{ (mention_agents or [])|tojson }};
+  if (!Array.isArray(mentionAgents) || mentionAgents.length === 0) return;
+
+  const drafts = new WeakMap(); // textarea -> [{id,label}]
+
+  function findQuery(textarea) {
+    const value = textarea.value || "";
+    const pos = textarea.selectionStart || 0;
+    const at = value.lastIndexOf("@", pos - 1);
+    if (at < 0) return null;
+    const between = value.slice(at + 1, pos);
+    if (/\s/.test(between)) return null;
+    const prev = at > 0 ? value[at - 1] : "";
+    if (prev && /[A-Za-z0-9_]/.test(prev)) return null;
+    return { start: at, query: between };
+  }
+
+  function syncHidden(textarea) {
+    const root = textarea.closest("[data-mention-root]");
+    if (!root) return;
+    const hidden = root.querySelector("[data-mention-hidden]");
+    if (!hidden) return;
+    const value = textarea.value || "";
+    const draft = drafts.get(textarea) || [];
+    const still = draft.filter((m) => m && m.label && value.includes(`@${m.label}`));
+    drafts.set(textarea, still);
+    hidden.value = JSON.stringify(still.map((m) => m.id).filter(Boolean));
+  }
+
+  function closeMenu(root) {
+    const menu = root.querySelector("[data-mention-menu]");
+    if (!menu) return;
+    menu.classList.add("hidden");
+    menu.innerHTML = "";
+    menu.dataset.index = "0";
+  }
+
+  function openMenu(root, matches) {
+    const menu = root.querySelector("[data-mention-menu]");
+    if (!menu) return;
+    menu.dataset.index = "0";
+    menu.innerHTML = matches
+      .map(
+        (a, idx) =>
+          `<button type="button" data-mention-item data-id="${a.id}" data-label="${(a.label || "").replace(/"/g, "&quot;")}" class="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800 ${idx === 0 ? "bg-slate-100 dark:bg-slate-800" : ""}"><span class="text-slate-800 dark:text-slate-200">${a.label}</span><span class="text-[10px] text-slate-400">mention</span></button>`
+      )
+      .join("");
+    menu.classList.remove("hidden");
+  }
+
+  function updateMenu(textarea) {
+    const root = textarea.closest("[data-mention-root]");
+    if (!root) return;
+    const found = findQuery(textarea);
+    if (!found) return closeMenu(root);
+
+    const q = (found.query || "").toLowerCase();
+    let matches = mentionAgents;
+    if (q) {
+      matches = mentionAgents.filter((a) => (a.label || "").toLowerCase().includes(q));
+    }
+    matches = matches.slice(0, 8);
+    if (matches.length === 0) return closeMenu(root);
+    openMenu(root, matches);
+  }
+
+  function insertMention(textarea, agent) {
+    const found = findQuery(textarea);
+    if (!found) return;
+    const value = textarea.value || "";
+    const before = value.slice(0, found.start);
+    const after = value.slice(textarea.selectionStart || 0);
+    const label = agent.label || "Agent";
+    const insert = `@${label} `;
+    textarea.value = before + insert + after;
+    const newPos = (before + insert).length;
+    textarea.setSelectionRange(newPos, newPos);
+
+    const existing = drafts.get(textarea) || [];
+    const next = existing.filter((m) => m && m.id && m.label && m.id !== agent.id);
+    next.push({ id: agent.id, label });
+    drafts.set(textarea, next);
+
+    syncHidden(textarea);
+    updateMenu(textarea);
+  }
+
+  function moveIndex(root, delta) {
+    const menu = root.querySelector("[data-mention-menu]");
+    if (!menu || menu.classList.contains("hidden")) return;
+    const items = Array.from(menu.querySelectorAll("[data-mention-item]"));
+    if (items.length === 0) return;
+    const current = parseInt(menu.dataset.index || "0", 10) || 0;
+    const next = Math.max(0, Math.min(items.length - 1, current + delta));
+    menu.dataset.index = String(next);
+    items.forEach((el, idx) => {
+      if (idx === next) el.classList.add("bg-slate-100", "dark:bg-slate-800");
+      else el.classList.remove("bg-slate-100", "dark:bg-slate-800");
+    });
+  }
+
+  function pickActive(textarea) {
+    const root = textarea.closest("[data-mention-root]");
+    if (!root) return;
+    const menu = root.querySelector("[data-mention-menu]");
+    if (!menu || menu.classList.contains("hidden")) return;
+    const items = Array.from(menu.querySelectorAll("[data-mention-item]"));
+    if (items.length === 0) return;
+    const idx = parseInt(menu.dataset.index || "0", 10) || 0;
+    const el = items[idx];
+    const id = el.getAttribute("data-id");
+    const label = el.getAttribute("data-label");
+    if (!id || !label) return;
+    insertMention(textarea, { id, label });
+    closeMenu(root);
+  }
+
+  function wireRoot(root) {
+    const textarea = root.querySelector("[data-mention-textarea]");
+    if (!textarea) return;
+    drafts.set(textarea, drafts.get(textarea) || []);
+
+    textarea.addEventListener("input", () => {
+      syncHidden(textarea);
+      updateMenu(textarea);
+    });
+    textarea.addEventListener("keydown", (e) => {
+      const menu = root.querySelector("[data-mention-menu]");
+      const open = menu && !menu.classList.contains("hidden");
+      if (!open) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        moveIndex(root, 1);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        moveIndex(root, -1);
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickActive(textarea);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closeMenu(root);
+      }
+    });
+
+    root.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-mention-item]");
+      if (!btn) return;
+      e.preventDefault();
+      const id = btn.getAttribute("data-id");
+      const label = btn.getAttribute("data-label");
+      if (!id || !label) return;
+      insertMention(textarea, { id, label });
+      closeMenu(root);
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!root.contains(e.target)) closeMenu(root);
+    });
+  }
+
+  document.querySelectorAll("[data-mention-root]").forEach(wireRoot);
+})();
+</script>
 
 {% endblock %}

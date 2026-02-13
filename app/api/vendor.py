@@ -15,6 +15,7 @@ from app.schemas.vendor import (
     QuoteLineItemCreate,
     QuoteLineItemCreateRequest,
     QuoteLineItemRead,
+    QuoteLineItemUpdate,
 )
 from app.services import vendor as vendor_service
 from app.services import vendor_portal
@@ -96,6 +97,73 @@ def add_line_item(
     return vendor_service.quote_line_items.create(
         db,
         QuoteLineItemCreate(**payload_data),
+        vendor_id=str(context["vendor"].id),
+    )
+
+
+@router.get(
+    "/quotes/{quote_id}/line-items",
+    response_model=ListResponse[QuoteLineItemRead],
+)
+def list_line_items(
+    request: Request,
+    quote_id: str,
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    quote = vendor_service.project_quotes.get(db, quote_id)
+    if str(quote.vendor_id) != str(context["vendor"].id):
+        raise HTTPException(status_code=403, detail="Quote ownership required")
+    items = vendor_service.quote_line_items.list(
+        db,
+        quote_id=quote_id,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=limit,
+        offset=offset,
+    )
+    return list_response(items, limit, offset)
+
+
+@router.patch(
+    "/quotes/{quote_id}/line-items/{line_item_id}",
+    response_model=QuoteLineItemRead,
+)
+def update_line_item(
+    request: Request,
+    quote_id: str,
+    line_item_id: str,
+    payload: QuoteLineItemUpdate,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.quote_line_items.update(
+        db,
+        quote_id=quote_id,
+        line_item_id=line_item_id,
+        payload=payload,
+        vendor_id=str(context["vendor"].id),
+    )
+
+
+@router.delete(
+    "/quotes/{quote_id}/line-items/{line_item_id}",
+    response_model=QuoteLineItemRead,
+)
+def delete_line_item(
+    request: Request,
+    quote_id: str,
+    line_item_id: str,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.quote_line_items.delete(
+        db,
+        quote_id=quote_id,
+        line_item_id=line_item_id,
         vendor_id=str(context["vendor"].id),
     )
 

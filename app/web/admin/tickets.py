@@ -1523,6 +1523,10 @@ def ticket_detail(
     except Exception:
         subscriber_details = None
 
+    from app.services.crm.inbox.agents import list_active_agents_for_mentions
+
+    mention_agents = list_active_agents_for_mentions(db)
+
     return templates.TemplateResponse(
         "admin/tickets/detail.html",
         {
@@ -1535,6 +1539,7 @@ def ticket_detail(
             "ticket_attachments": ticket_attachments,
             "customer_details": customer_details,
             "subscriber_details": subscriber_details,
+            "mention_agents": mention_agents,
             "current_user": current_user,
             "sidebar_stats": sidebar_stats,
             "active_page": "tickets",
@@ -1701,6 +1706,7 @@ async def add_ticket_comment(
     ticket_ref: str,
     body: str = Form(...),
     is_internal: str | None = Form(None),
+    mentions: str | None = Form(None),
     attachments: UploadFile | list[UploadFile] | None = File(None),
     db: Session = Depends(get_db),
 ):
@@ -1734,13 +1740,39 @@ async def add_ticket_comment(
         )
         tickets_service.ticket_comments.create(db=db, payload=payload)
         current_user = get_current_user(request)
+        actor_id = str(current_user.get("person_id")) if current_user else None
+
+        # Best-effort @mention notifications (does not affect comment creation).
+        if mentions:
+            try:
+                import json
+
+                from app.services.ticket_mentions import notify_ticket_comment_mentions
+
+                parsed = json.loads(mentions)
+                mentioned_agent_ids = parsed if isinstance(parsed, list) else []
+                preview = (body or "").strip()
+                if len(preview) > 140:
+                    preview = preview[:137].rstrip() + "..."
+                notify_ticket_comment_mentions(
+                    db,
+                    ticket_id=str(ticket.id),
+                    ticket_number=ticket.number,
+                    ticket_title=ticket.title,
+                    comment_preview=preview or None,
+                    mentioned_agent_ids=list(mentioned_agent_ids),
+                    actor_person_id=actor_id,
+                )
+            except Exception:
+                pass
+
         _log_activity(
             db=db,
             request=request,
             action="comment",
             entity_type="ticket",
             entity_id=str(ticket.id),
-            actor_id=str(current_user.get("person_id")) if current_user else None,
+            actor_id=actor_id,
             metadata={"internal": is_internal == "true"},
         )
 
@@ -1769,6 +1801,7 @@ def edit_ticket_comment(
     ticket_ref: str,
     comment_id: str,
     body: str = Form(...),
+    mentions: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Edit a ticket comment body."""
@@ -1792,13 +1825,38 @@ def edit_ticket_comment(
         payload = TicketCommentUpdate(body=body_clean)
         tickets_service.ticket_comments.update(db=db, comment_id=comment_id, payload=payload)
         current_user = get_current_user(request)
+        actor_id = str(current_user.get("person_id")) if current_user else None
+
+        if mentions:
+            try:
+                import json
+
+                from app.services.ticket_mentions import notify_ticket_comment_mentions
+
+                parsed = json.loads(mentions)
+                mentioned_agent_ids = parsed if isinstance(parsed, list) else []
+                preview = body_clean
+                if len(preview) > 140:
+                    preview = preview[:137].rstrip() + "..."
+                notify_ticket_comment_mentions(
+                    db,
+                    ticket_id=str(ticket.id),
+                    ticket_number=ticket.number,
+                    ticket_title=ticket.title,
+                    comment_preview=preview or None,
+                    mentioned_agent_ids=list(mentioned_agent_ids),
+                    actor_person_id=actor_id,
+                )
+            except Exception:
+                pass
+
         _log_activity(
             db=db,
             request=request,
             action="comment_edit",
             entity_type="ticket",
             entity_id=str(ticket.id),
-            actor_id=str(current_user.get("person_id")) if current_user else None,
+            actor_id=actor_id,
         )
 
         if request.headers.get("HX-Request"):

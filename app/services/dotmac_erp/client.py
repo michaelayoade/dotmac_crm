@@ -438,10 +438,46 @@ class DotMacERPClient:
         if include_inactive:
             params["include_inactive"] = "true"
 
-        result = self._request("GET", "/api/v1/sync/crm/workforce/departments", params=params)
-        if isinstance(result, dict):
-            return result.get("departments", [])
-        return result if isinstance(result, list) else []
+        def _parse_departments(payload: object) -> list[dict]:
+            if isinstance(payload, dict):
+                value = payload.get("departments", [])
+                return value if isinstance(value, list) else []
+            return payload if isinstance(payload, list) else []
+
+        def _members_have_any_keys(departments: list[dict], keys: set[str]) -> bool:
+            # Look at a small sample; we only use this to decide whether to try the alternate path.
+            for dept in departments[:25]:
+                members = dept.get("members") if isinstance(dept, dict) else None
+                if not isinstance(members, list) or not members:
+                    continue
+                for m in members[:25]:
+                    if isinstance(m, dict) and keys.intersection(m.keys()):
+                        return True
+            return False
+
+        # Some deployments expose this endpoint without the /api/v1 prefix, and in some environments
+        # these paths can be routed to different upstreams. Prefer /api/v1, but fall back to /sync if:
+        # - /api/v1 returns 404, or
+        # - /api/v1 responds but doesn't include expected member enrichment fields.
+        result = None
+        try:
+            result = self._request("GET", "/api/v1/sync/crm/workforce/departments", params=params)
+        except DotMacERPNotFoundError:
+            result = self._request("GET", "/sync/crm/workforce/departments", params=params)
+
+        departments = _parse_departments(result)
+        if departments and not _members_have_any_keys(
+            departments, {"designation_name", "designation_id", "designation"}
+        ):
+            try:
+                alt = self._request("GET", "/sync/crm/workforce/departments", params=params)
+                alt_departments = _parse_departments(alt)
+                if alt_departments:
+                    return alt_departments
+            except DotMacERPNotFoundError:
+                pass
+
+        return departments
 
     # ============ Inventory API Methods ============
 

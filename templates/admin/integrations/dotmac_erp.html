@@ -3,6 +3,72 @@
 {% from "components/ui/macros.html" import submit_button %}
 {% block title %}DotMac ERP Sync - Admin{% endblock %}
 
+{# ── Reusable macros for this page ────────────────────────────── #}
+
+{% macro sync_status_icon(success) %}
+{% if success %}
+<span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+    Success
+</span>
+{% else %}
+<span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    Error
+</span>
+{% endif %}
+{% endmacro %}
+
+{% macro error_details_row(entry, colspan) %}
+{% if entry.error_details is defined and entry.error_details %}
+<tr x-show="expanded === '{{ entry.timestamp }}'" x-cloak>
+    <td colspan="{{ colspan }}" class="px-6 py-3 bg-red-50/50 dark:bg-red-900/10">
+        <div class="space-y-1">
+            {% for err in entry.error_details %}
+            <div class="text-xs text-red-700 dark:text-red-400 font-mono truncate" title="{{ err if err is string else err.error|default(err|string) }}">
+                {{ err if err is string else err.error|default(err|string) }}
+            </div>
+            {% endfor %}
+        </div>
+    </td>
+</tr>
+{% elif entry.error is defined and entry.error %}
+<tr x-show="expanded === '{{ entry.timestamp }}'" x-cloak>
+    <td colspan="{{ colspan }}" class="px-6 py-3 bg-red-50/50 dark:bg-red-900/10">
+        <div class="text-xs text-red-700 dark:text-red-400 font-mono truncate">{{ entry.error }}</div>
+    </td>
+</tr>
+{% endif %}
+{% endmacro %}
+
+{% macro empty_history_row(colspan, msg) %}
+<tr>
+    <td colspan="{{ colspan }}" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">{{ msg }}</td>
+</tr>
+{% endmacro %}
+
+{% macro sync_enable_toggle(name, label, description, checked) %}
+<label class="flex items-center gap-3 cursor-pointer">
+    <input type="checkbox" name="{{ name }}" value="true" {% if checked %}checked{% endif %}
+           class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+    <div>
+        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{{ label }}</span>
+        <p class="text-xs text-slate-500 dark:text-slate-400">{{ description }}</p>
+    </div>
+</label>
+{% endmacro %}
+
+{% macro interval_input(name, value, label) %}
+<div>
+    <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">{{ label }}</label>
+    <div class="flex items-center gap-2">
+        <input type="number" name="{{ name }}" value="{{ value }}" min="5"
+               class="block w-24 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+        <span class="text-xs text-slate-500 dark:text-slate-400">min</span>
+    </div>
+</div>
+{% endmacro %}
+
 {% block content %}
 <div class="space-y-6">
     <!-- Header -->
@@ -10,7 +76,7 @@
         <div>
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">DotMac ERP Sync</h1>
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Sync data between Omni and DotMac ERP for expense tracking and inventory management.
+                Sync data between Omni and DotMac ERP for expense tracking, inventory, contacts, scheduling, and teams.
             </p>
         </div>
         <div class="flex items-center gap-3">
@@ -18,7 +84,7 @@
                 hx-post="/admin/integrations/dotmac-erp/test"
                 hx-target="#action-result"
                 hx-swap="innerHTML"
-                class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -34,8 +100,8 @@
     <!-- Status Cards -->
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <!-- Status -->
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</p>
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Push Sync</p>
             <div class="mt-2 flex items-center gap-2">
                 {% if enabled %}
                 <span class="inline-flex h-3 w-3 rounded-full bg-green-500"></span>
@@ -48,29 +114,25 @@
         </div>
 
         <!-- Last Outbound Sync -->
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Push to ERP</p>
             <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ last_sync_ago }}</p>
             {% if last_sync %}
-            <p class="text-xs text-slate-500 dark:text-slate-400">
-                {{ last_sync.total }} items synced
-            </p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">{{ last_sync.total }} items synced</p>
             {% endif %}
         </div>
 
         <!-- Last Inventory Sync -->
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Inventory Pull</p>
             <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ last_inventory_sync_ago }}</p>
             {% if last_inventory_sync %}
-            <p class="text-xs text-slate-500 dark:text-slate-400">
-                {{ last_inventory_sync.total }} records updated
-            </p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">{{ last_inventory_sync.total }} records updated</p>
             {% endif %}
         </div>
 
         <!-- Errors -->
-        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Errors Today</p>
             <p class="mt-2 text-2xl font-bold {% if daily_stats.errors > 0 %}text-red-600 dark:text-red-400{% else %}text-slate-900 dark:text-white{% endif %}">
                 {{ daily_stats.errors }}
@@ -83,11 +145,11 @@
         </div>
     </div>
 
-    <!-- Configuration -->
-    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Configuration</h2>
-        </div>
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- Configuration                                              -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Configuration</h2>
 
         {% if settings_saved %}
         <div class="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">
@@ -100,78 +162,114 @@
         </div>
         {% endif %}
 
-        <form method="POST" action="/admin/integrations/dotmac-erp/settings" class="mt-4">
+        <form method="POST" action="/admin/integrations/dotmac-erp/settings" class="mt-4 space-y-6">
             {% include "components/forms/csrf_input.html" %}
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <!-- Enabled Toggle -->
-                <div class="sm:col-span-2 lg:col-span-3">
-                    <label class="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" name="enabled" value="true" {% if enabled %}checked{% endif %}
-                               class="h-5 w-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
-                        <div>
-                            <span class="text-sm font-medium text-slate-900 dark:text-white">Enable ERP Sync</span>
-                            <p class="text-xs text-slate-500 dark:text-slate-400">Automatically sync data to DotMac ERP on schedule</p>
+
+            <!-- Connection settings -->
+            <fieldset>
+                <legend class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">Connection</legend>
+                <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div class="lg:col-span-2">
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                            Base URL <span class="text-red-500">*</span>
+                        </label>
+                        <input type="url" name="base_url" value="{{ base_url or '' }}"
+                               placeholder="https://erp.example.com"
+                               class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                            API Token <span class="text-red-500">*</span>
+                        </label>
+                        <input type="password" name="token" value=""
+                               placeholder="{% if has_token %}••••••••{% else %}Enter token{% endif %}"
+                               class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% if has_token %}
+                        <p class="mt-1 text-xs text-green-600 dark:text-green-400">Token is set. Leave blank to keep current.</p>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                            Timeout (seconds)
+                        </label>
+                        <input type="number" name="timeout" value="{{ timeout }}" min="5" max="120"
+                               class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+                </div>
+            </fieldset>
+
+            <!-- Sync schedules -->
+            <fieldset>
+                <legend class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">Sync Schedules</legend>
+                <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <!-- Outbound push -->
+                    <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-700/30">
+                        {{ sync_enable_toggle("enabled", "Outbound Push", "Projects, tickets, work orders → ERP", enabled) }}
+                        <div class="mt-3 ml-7">
+                            {{ interval_input("interval", interval, "Push interval") }}
                         </div>
-                    </label>
-                </div>
+                    </div>
 
-                <!-- Base URL -->
-                <div class="lg:col-span-2">
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                        Base URL <span class="text-red-500">*</span>
-                    </label>
-                    <input type="url" name="base_url" value="{{ base_url or '' }}"
-                           placeholder="https://erp.example.com"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">The DotMac ERP API endpoint</p>
-                </div>
+                    <!-- Inventory -->
+                    <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-700/30">
+                        {{ sync_enable_toggle("inventory_sync_enabled", "Inventory Pull", "Items, locations, stock ← ERP", inventory_sync_enabled) }}
+                        <div class="mt-3 ml-7">
+                            {{ interval_input("inventory_sync_interval", inventory_sync_interval, "Pull interval") }}
+                        </div>
+                    </div>
 
-                <!-- API Token -->
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                        API Token <span class="text-red-500">*</span>
-                    </label>
-                    <input type="password" name="token" value=""
-                           placeholder="{% if has_token %}••••••••{% else %}Enter token{% endif %}"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    {% if has_token %}
-                    <p class="mt-1 text-xs text-green-600 dark:text-green-400">Token is set. Leave blank to keep current.</p>
-                    {% else %}
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Bearer token for API authentication</p>
-                    {% endif %}
-                </div>
+                    <!-- Contacts -->
+                    <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-700/30">
+                        {{ sync_enable_toggle("contact_sync_enabled", "Contact Pull", "Contacts & organizations ← ERP", contact_sync_enabled) }}
+                        <div class="mt-3 ml-7">
+                            {{ interval_input("contact_sync_interval", contact_sync_interval, "Pull interval") }}
+                        </div>
+                    </div>
 
-                <!-- Timeout -->
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                        Request Timeout (seconds)
-                    </label>
-                    <input type="number" name="timeout" value="{{ timeout }}" min="5" max="120"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">5-120 seconds</p>
-                </div>
+                    <!-- Shifts -->
+                    <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-700/30">
+                        {{ sync_enable_toggle("shift_sync_enabled", "Shift Pull", "Technician shifts & time-off ← ERP", shift_sync_enabled) }}
+                        <div class="mt-3 ml-7">
+                            {{ interval_input("shift_sync_interval", shift_sync_interval, "Pull interval") }}
+                        </div>
+                    </div>
 
-                <!-- Sync Interval -->
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                        Sync Interval (minutes)
-                    </label>
-                    <input type="number" name="interval" value="{{ interval }}" min="5"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">How often to auto-sync (min 5)</p>
-                </div>
-            </div>
+                    <!-- Teams -->
+                    <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-700/30">
+                        {{ sync_enable_toggle("team_sync_enabled", "Team Pull", "Departments & members ← ERP", team_sync_enabled) }}
+                        <div class="mt-3 ml-7">
+                            {{ interval_input("team_sync_interval", team_sync_interval, "Pull interval") }}
+                        </div>
+                    </div>
 
-            <div class="mt-6 flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <!-- CRM Agents -->
+                    <div class="rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-700/30">
+                        {{ sync_enable_toggle("agent_sync_enabled", "CRM Agent Pull", "CRM agents ← ERP employees", agent_sync_enabled) }}
+                        <div class="mt-3 ml-7 space-y-3">
+                            {{ interval_input("agent_sync_interval", agent_sync_interval, "Pull interval") }}
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Department</label>
+                                <input type="text" name="agent_sync_department" value="{{ agent_sync_department }}"
+                                       placeholder="Customer Experience"
+                                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </fieldset>
+
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
                 {{ submit_button("Save Settings") }}
             </div>
         </form>
     </div>
 
-    <!-- Sync Actions -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- Sync Actions — row 1: Push, Inventory, Contacts            -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
     <div class="grid gap-6 lg:grid-cols-3">
         <!-- Outbound Sync (Push to ERP) -->
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
                 <div>
                     <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Push to ERP</h2>
@@ -180,7 +278,7 @@
                 <div x-data="{ open: false }" class="relative">
                     <button
                         @click="open = !open"
-                        class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
+                        class="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
                     >
                         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
@@ -194,7 +292,8 @@
                         x-show="open"
                         @click.away="open = false"
                         x-transition
-                        class="absolute right-0 z-10 mt-2 w-56 origin-top-right rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
+                        x-cloak
+                        class="absolute right-0 z-10 mt-2 w-56 origin-top-right rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
                     >
                         <div class="py-1">
                             <form hx-post="/admin/integrations/dotmac-erp/sync" hx-target="#action-result" hx-swap="innerHTML">
@@ -235,7 +334,7 @@
         </div>
 
         <!-- Inventory Sync (Pull from ERP) -->
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
                 <div>
                     <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pull from ERP</h2>
@@ -245,7 +344,7 @@
                     hx-post="/admin/integrations/dotmac-erp/inventory-sync"
                     hx-target="#action-result"
                     hx-swap="innerHTML"
-                    class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                    class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
                 >
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -276,14 +375,13 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
                     </svg>
                     <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">No inventory sync yet</p>
-                    <p class="text-xs text-slate-400 dark:text-slate-500">Click "Sync Inventory" to pull data from ERP</p>
                 </div>
                 {% endif %}
             </div>
         </div>
 
         <!-- Contacts Sync (Pull from ERP) -->
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
                 <div>
                     <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pull Contacts</h2>
@@ -293,7 +391,7 @@
                     hx-post="/admin/integrations/dotmac-erp/contacts-sync"
                     hx-target="#action-result"
                     hx-swap="innerHTML"
-                    class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
                 >
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356-2A9 9 0 116.582 6M20 20v-5h-.581"/>
@@ -321,18 +419,204 @@
                 {% else %}
                 <div class="text-center py-4">
                     <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 14a4 4 0 00-8 0m8 0v4H8v-4m8 0a4 4 0 00-8 0m8 0H8m12-6a4 4 0 11-8 0 4 4 0 018 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
                     </svg>
                     <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">No contact sync yet</p>
-                    <p class="text-xs text-slate-400 dark:text-slate-500">Click "Sync Contacts" to pull data from ERP</p>
                 </div>
                 {% endif %}
             </div>
         </div>
     </div>
 
-    <!-- Recent Outbound Sync History -->
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- Sync Actions — row 2: Shifts, Teams, Material Requests     -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="grid gap-6 lg:grid-cols-3">
+        <!-- Shift Sync (Pull from ERP) -->
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <div>
+                    <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pull Shifts</h2>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Technician shifts & time-off</p>
+                </div>
+                <button
+                    hx-post="/admin/integrations/dotmac-erp/shifts-sync"
+                    hx-target="#action-result"
+                    hx-swap="innerHTML"
+                    class="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+                >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    Sync Shifts
+                </button>
+            </div>
+            <div class="p-6">
+                {% if last_shift_sync %}
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_shift_sync.shifts_created + last_shift_sync.shifts_updated }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Shifts</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_shift_sync.time_off_created + last_shift_sync.time_off_updated }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Time-Off</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_shift_sync.technicians_matched }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Matched</div>
+                    </div>
+                </div>
+                <p class="text-center text-xs text-slate-400 dark:text-slate-500 mt-3">Last sync: {{ last_shift_sync_ago }}</p>
+                {% else %}
+                <div class="text-center py-4">
+                    <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">No shift sync yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Team Sync (Pull from ERP) -->
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <div>
+                    <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pull Teams</h2>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Departments & members</p>
+                </div>
+                <button
+                    hx-post="/admin/integrations/dotmac-erp/teams-sync"
+                    hx-target="#action-result"
+                    hx-swap="innerHTML"
+                    class="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2"
+                >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                    Sync Teams
+                </button>
+            </div>
+            <div class="p-6">
+                {% if last_team_sync %}
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_team_sync.teams_created + last_team_sync.teams_updated }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Teams</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_team_sync.members_added + last_team_sync.members_updated }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Members</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_team_sync.persons_matched }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Matched</div>
+                    </div>
+                </div>
+                <p class="text-center text-xs text-slate-400 dark:text-slate-500 mt-3">Last sync: {{ last_team_sync_ago }}</p>
+                {% else %}
+                <div class="text-center py-4">
+                    <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                    <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">No team sync yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- CRM Agent Sync (Pull from ERP) -->
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <div>
+                    <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pull Agents</h2>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">CRM agents from ERP department</p>
+                </div>
+                <button
+                    hx-post="/admin/integrations/dotmac-erp/agents-sync"
+                    hx-target="#action-result"
+                    hx-swap="innerHTML"
+                    class="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
+                >
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356-2A9 9 0 116.582 6M20 20v-5h-.581"/>
+                    </svg>
+                    Sync Agents
+                </button>
+            </div>
+            <div class="p-6">
+                {% if last_agent_sync %}
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_agent_sync.agents_created + last_agent_sync.agents_updated }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Agents</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_agent_sync.employees_eligible }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Eligible</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ last_agent_sync.agents_deactivated }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Deactivated</div>
+                    </div>
+                </div>
+                <p class="text-center text-xs text-slate-400 dark:text-slate-500 mt-3">Last sync: {{ last_agent_sync_ago }}</p>
+                {% else %}
+                <div class="text-center py-4">
+                    <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">No agent sync yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Material Request Sync (Event-driven push) -->
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <div>
+                    <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Material Requests</h2>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Auto-pushed on approval</p>
+                </div>
+                <span class="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-400">
+                    Event-driven
+                </span>
+            </div>
+            <div class="p-6">
+                {% if last_mr_sync %}
+                <div class="grid grid-cols-2 gap-4 text-center">
+                    <div>
+                        <div class="text-2xl font-bold {% if last_mr_sync.success %}text-green-600 dark:text-green-400{% else %}text-red-600 dark:text-red-400{% endif %}">
+                            {{ "OK" if last_mr_sync.success else "Fail" }}
+                        </div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Last Status</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ "%.2f"|format(last_mr_sync.duration_seconds) }}s</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Duration</div>
+                    </div>
+                </div>
+                <p class="text-center text-xs text-slate-400 dark:text-slate-500 mt-3">Last sync: {{ last_mr_sync_ago }}</p>
+                {% else %}
+                <div class="text-center py-4">
+                    <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                    </svg>
+                    <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">No material request syncs yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- History Tables                                             -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+
+    <!-- Outbound Sync History -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" x-data="{ expanded: null }">
         <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Outbound Sync History</h2>
         </div>
@@ -352,54 +636,25 @@
                 <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
                     {% if history %}
                     {% for entry in history %}
-                    <tr class="text-sm">
-                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">
-                            {{ humanize_time_ago(entry.timestamp) }}
-                        </td>
+                    <tr class="text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30" @click="expanded = expanded === '{{ entry.timestamp }}' ? null : '{{ entry.timestamp }}'">
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">{{ humanize_time_ago(entry.timestamp) }}</td>
                         <td class="whitespace-nowrap px-6 py-4">
-                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
-                                {% if entry.mode == 'recently_updated' %}
-                                bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-400
-                                {% elif entry.mode == 'all_active' %}
-                                bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-400
-                                {% else %}
-                                bg-slate-100 text-slate-800 dark:bg-slate-500/20 dark:text-slate-400
-                                {% endif %}
-                            ">
-                                {{ entry.mode|replace('_', ' ')|title }}
-                            </span>
+                            <span class="inline-flex items-center rounded-lg px-2.5 py-0.5 text-xs font-medium
+                                {% if entry.mode == 'recently_updated' %}bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-400
+                                {% elif entry.mode == 'all_active' %}bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-400
+                                {% else %}bg-slate-100 text-slate-800 dark:bg-slate-500/20 dark:text-slate-400{% endif %}
+                            ">{{ entry.mode|replace('_', ' ')|title }}</span>
                         </td>
                         <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.projects }}</td>
                         <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.tickets }}</td>
                         <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.work_orders }}</td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">
-                            {{ "%.2f"|format(entry.duration_seconds) }}s
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4">
-                            {% if entry.success %}
-                            <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
-                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                </svg>
-                                Success
-                            </span>
-                            {% else %}
-                            <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400" title="{{ entry.errors }} error(s)">
-                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                </svg>
-                                {{ entry.errors }} error{{ 's' if entry.errors != 1 else '' }}
-                            </span>
-                            {% endif %}
-                        </td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">{{ "%.2f"|format(entry.duration_seconds) }}s</td>
+                        <td class="whitespace-nowrap px-6 py-4">{{ sync_status_icon(entry.success) }}</td>
                     </tr>
+                    {{ error_details_row(entry, 7) }}
                     {% endfor %}
                     {% else %}
-                    <tr>
-                        <td colspan="7" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                            No outbound sync history yet.
-                        </td>
-                    </tr>
+                    {{ empty_history_row(7, "No outbound sync history yet.") }}
                     {% endif %}
                 </tbody>
             </table>
@@ -407,7 +662,7 @@
     </div>
 
     <!-- Contacts Sync History -->
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" x-data="{ expanded: null }">
         <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Contacts Sync History</h2>
         </div>
@@ -426,47 +681,18 @@
                 <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
                     {% if contact_history %}
                     {% for entry in contact_history %}
-                    <tr class="text-sm">
-                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">
-                            {{ humanize_time_ago(entry.timestamp) }}
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">
-                            {{ entry.contacts_created + entry.contacts_updated }}
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">
-                            {{ entry.orgs_created + entry.orgs_updated }}
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">
-                            {{ entry.contacts_linked }}
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">
-                            {{ "%.2f"|format(entry.duration_seconds) }}s
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4">
-                            {% if entry.success %}
-                            <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
-                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                </svg>
-                                Success
-                            </span>
-                            {% else %}
-                            <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400" title="{{ entry.errors }} error(s)">
-                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                </svg>
-                                {{ entry.errors }} error{{ 's' if entry.errors != 1 else '' }}
-                            </span>
-                            {% endif %}
-                        </td>
+                    <tr class="text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30" @click="expanded = expanded === '{{ entry.timestamp }}' ? null : '{{ entry.timestamp }}'">
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">{{ humanize_time_ago(entry.timestamp) }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.contacts_created + entry.contacts_updated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.orgs_created + entry.orgs_updated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.contacts_linked }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">{{ "%.2f"|format(entry.duration_seconds) }}s</td>
+                        <td class="whitespace-nowrap px-6 py-4">{{ sync_status_icon(entry.success) }}</td>
                     </tr>
+                    {{ error_details_row(entry, 6) }}
                     {% endfor %}
                     {% else %}
-                    <tr>
-                        <td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                            No contacts sync history yet. Click "Sync Contacts" to pull data from ERP.
-                        </td>
-                    </tr>
+                    {{ empty_history_row(6, "No contacts sync history yet.") }}
                     {% endif %}
                 </tbody>
             </table>
@@ -474,7 +700,7 @@
     </div>
 
     <!-- Inventory Sync History -->
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" x-data="{ expanded: null }">
         <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Inventory Sync History</h2>
         </div>
@@ -493,49 +719,172 @@
                 <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
                     {% if inventory_history %}
                     {% for entry in inventory_history %}
-                    <tr class="text-sm">
-                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">
-                            {{ humanize_time_ago(entry.timestamp) }}
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">
-                            <span title="Created: {{ entry.items_created }}, Updated: {{ entry.items_updated }}">
-                                {{ entry.items_created + entry.items_updated }}
-                            </span>
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">
-                            <span title="Created: {{ entry.locations_created }}, Updated: {{ entry.locations_updated }}">
-                                {{ entry.locations_created + entry.locations_updated }}
-                            </span>
-                        </td>
+                    <tr class="text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30" @click="expanded = expanded === '{{ entry.timestamp }}' ? null : '{{ entry.timestamp }}'">
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">{{ humanize_time_ago(entry.timestamp) }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white" title="Created: {{ entry.items_created }}, Updated: {{ entry.items_updated }}">{{ entry.items_created + entry.items_updated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white" title="Created: {{ entry.locations_created }}, Updated: {{ entry.locations_updated }}">{{ entry.locations_created + entry.locations_updated }}</td>
                         <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.stock_updated }}</td>
-                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">
-                            {{ "%.2f"|format(entry.duration_seconds) }}s
-                        </td>
-                        <td class="whitespace-nowrap px-6 py-4">
-                            {% if entry.success %}
-                            <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
-                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                </svg>
-                                Success
-                            </span>
-                            {% else %}
-                            <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400" title="{{ entry.errors }} error(s)">
-                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                </svg>
-                                {{ entry.errors }} error{{ 's' if entry.errors != 1 else '' }}
-                            </span>
-                            {% endif %}
-                        </td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">{{ "%.2f"|format(entry.duration_seconds) }}s</td>
+                        <td class="whitespace-nowrap px-6 py-4">{{ sync_status_icon(entry.success) }}</td>
                     </tr>
+                    {{ error_details_row(entry, 6) }}
                     {% endfor %}
                     {% else %}
-                    <tr>
-                        <td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                            No inventory sync history yet. Click "Sync Inventory" to pull data from ERP.
-                        </td>
+                    {{ empty_history_row(6, "No inventory sync history yet.") }}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Shift Sync History -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" x-data="{ expanded: null }">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Shift Sync History</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        <th class="px-6 py-3">Time</th>
+                        <th class="px-6 py-3 text-right">Shifts</th>
+                        <th class="px-6 py-3 text-right">Time-Off</th>
+                        <th class="px-6 py-3 text-right">Matched</th>
+                        <th class="px-6 py-3 text-right">Skipped</th>
+                        <th class="px-6 py-3 text-right">Duration</th>
+                        <th class="px-6 py-3">Status</th>
                     </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if shift_history %}
+                    {% for entry in shift_history %}
+                    <tr class="text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30" @click="expanded = expanded === '{{ entry.timestamp }}' ? null : '{{ entry.timestamp }}'">
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">{{ humanize_time_ago(entry.timestamp) }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.shifts_created + entry.shifts_updated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.time_off_created + entry.time_off_updated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.technicians_matched }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-500 dark:text-slate-400">{{ entry.technicians_skipped }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">{{ "%.2f"|format(entry.duration_seconds) }}s</td>
+                        <td class="whitespace-nowrap px-6 py-4">{{ sync_status_icon(entry.success) }}</td>
+                    </tr>
+                    {{ error_details_row(entry, 7) }}
+                    {% endfor %}
+                    {% else %}
+                    {{ empty_history_row(7, "No shift sync history yet.") }}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Team Sync History -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" x-data="{ expanded: null }">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Team Sync History</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        <th class="px-6 py-3">Time</th>
+                        <th class="px-6 py-3 text-right">Teams</th>
+                        <th class="px-6 py-3 text-right">Members</th>
+                        <th class="px-6 py-3 text-right">Matched</th>
+                        <th class="px-6 py-3 text-right">Deactivated</th>
+                        <th class="px-6 py-3 text-right">Duration</th>
+                        <th class="px-6 py-3">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if team_history %}
+                    {% for entry in team_history %}
+                    <tr class="text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30" @click="expanded = expanded === '{{ entry.timestamp }}' ? null : '{{ entry.timestamp }}'">
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">{{ humanize_time_ago(entry.timestamp) }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.teams_created + entry.teams_updated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.members_added + entry.members_updated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.persons_matched }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-500 dark:text-slate-400">{{ entry.teams_deactivated + entry.members_deactivated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">{{ "%.2f"|format(entry.duration_seconds) }}s</td>
+                        <td class="whitespace-nowrap px-6 py-4">{{ sync_status_icon(entry.success) }}</td>
+                    </tr>
+                    {{ error_details_row(entry, 7) }}
+                    {% endfor %}
+                    {% else %}
+                    {{ empty_history_row(7, "No team sync history yet.") }}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- CRM Agent Sync History -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" x-data="{ expanded: null }">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">CRM Agent Sync History</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        <th class="px-6 py-3">Time</th>
+                        <th class="px-6 py-3 text-right">Agents</th>
+                        <th class="px-6 py-3 text-right">Eligible</th>
+                        <th class="px-6 py-3 text-right">Deactivated</th>
+                        <th class="px-6 py-3 text-right">Duration</th>
+                        <th class="px-6 py-3">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if agent_history %}
+                    {% for entry in agent_history %}
+                    <tr class="text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30" @click="expanded = expanded === '{{ entry.timestamp }}' ? null : '{{ entry.timestamp }}'">
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">{{ humanize_time_ago(entry.timestamp) }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.agents_created + entry.agents_updated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-900 dark:text-white">{{ entry.employees_eligible }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-500 dark:text-slate-400">{{ entry.agents_deactivated }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">{{ "%.2f"|format(entry.duration_seconds) }}s</td>
+                        <td class="whitespace-nowrap px-6 py-4">{{ sync_status_icon(entry.success) }}</td>
+                    </tr>
+                    {{ error_details_row(entry, 6) }}
+                    {% endfor %}
+                    {% else %}
+                    {{ empty_history_row(6, "No CRM agent sync history yet.") }}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Material Request Sync History -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" x-data="{ expanded: null }">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Material Request Sync History</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                        <th class="px-6 py-3">Time</th>
+                        <th class="px-6 py-3">MR ID</th>
+                        <th class="px-6 py-3">ERP ID</th>
+                        <th class="px-6 py-3 text-right">Duration</th>
+                        <th class="px-6 py-3">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% if mr_history %}
+                    {% for entry in mr_history %}
+                    <tr class="text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30" @click="expanded = expanded === '{{ entry.timestamp }}' ? null : '{{ entry.timestamp }}'">
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400">{{ humanize_time_ago(entry.timestamp) }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-900 dark:text-white font-mono text-xs">{{ entry.material_request_id[:8] }}...</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-slate-600 dark:text-slate-400 font-mono text-xs">{{ entry.erp_material_request_id or '—' }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-right text-slate-600 dark:text-slate-400">{{ "%.2f"|format(entry.duration_seconds) }}s</td>
+                        <td class="whitespace-nowrap px-6 py-4">{{ sync_status_icon(entry.success) }}</td>
+                    </tr>
+                    {{ error_details_row(entry, 5) }}
+                    {% endfor %}
+                    {% else %}
+                    {{ empty_history_row(5, "No material request sync history yet.") }}
                     {% endif %}
                 </tbody>
             </table>
