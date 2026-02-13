@@ -736,6 +736,129 @@ def sync_material_request_to_erp(self, material_request_id: str):
 
 
 @celery_app.task(
+    name="app.tasks.integrations.sync_purchase_order_to_erp",
+    bind=True,
+    time_limit=60,
+    soft_time_limit=45,
+    max_retries=5,
+    autoretry_for=(DotMacERPTransientError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+def sync_purchase_order_to_erp(self, work_order_id: str, quote_id: str):
+    """Push a purchase order to DotMac ERP for an approved vendor quote.
+
+    Args:
+        work_order_id: UUID of the work order
+        quote_id: UUID of the approved ProjectQuote
+
+    Returns:
+        Dict with sync result
+    """
+    from sqlalchemy.orm import joinedload, selectinload
+
+    from app.models.vendor import ProjectQuote
+    from app.models.workforce import WorkOrder
+    from app.services.dotmac_erp import (
+        DotMacERPAuthError,
+        DotMacERPError,
+        DotMacERPRateLimitError,
+    )
+    from app.services.dotmac_erp.po_sync import dotmac_erp_purchase_order_sync
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("PO_SYNC_START work_order_id=%s quote_id=%s", work_order_id, quote_id)
+
+    try:
+        wo = session.get(WorkOrder, coerce_uuid(work_order_id))
+        if not wo:
+            logger.warning("PO_SYNC_WO_NOT_FOUND work_order_id=%s", work_order_id)
+            return {"success": False, "error": "Work order not found"}
+
+        quote = session.get(
+            ProjectQuote,
+            coerce_uuid(quote_id),
+            options=[
+                selectinload(ProjectQuote.line_items),
+                joinedload(ProjectQuote.vendor),
+                joinedload(ProjectQuote.reviewed_by),
+            ],
+        )
+        if not quote:
+            logger.warning("PO_SYNC_QUOTE_NOT_FOUND quote_id=%s", quote_id)
+            return {"success": False, "error": "Quote not found"}
+
+        sync_service = dotmac_erp_purchase_order_sync(session)
+        result = sync_service.sync_purchase_order(wo, quote)
+        sync_service.close()
+
+        if result.success:
+            logger.info(
+                "PO_SYNC_COMPLETE work_order_id=%s erp_po_id=%s",
+                work_order_id,
+                result.erp_po_id,
+            )
+        else:
+            status = "error"
+            logger.warning(
+                "PO_SYNC_FAILED work_order_id=%s error=%s",
+                work_order_id,
+                result.error,
+            )
+
+        return {
+            "success": result.success,
+            "work_order_id": result.work_order_id,
+            "erp_po_id": result.erp_po_id,
+            "error": result.error,
+        }
+
+    except DotMacERPRateLimitError as e:
+        status = "retry"
+        retry_after = e.retry_after or 60
+        logger.warning(
+            "PO_SYNC_RATE_LIMITED work_order_id=%s retry_after=%s",
+            work_order_id,
+            retry_after,
+        )
+        raise self.retry(exc=e, countdown=retry_after)
+    except DotMacERPAuthError as e:
+        status = "error"
+        logger.error(
+            "PO_SYNC_AUTH_ERROR work_order_id=%s error=%s",
+            work_order_id,
+            str(e),
+        )
+        return {"success": False, "error": str(e), "error_type": "auth"}
+    except DotMacERPError as e:
+        status = "error"
+        logger.error(
+            "PO_SYNC_ERROR work_order_id=%s error=%s",
+            work_order_id,
+            str(e),
+        )
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        status = "error"
+        logger.exception(
+            "PO_SYNC_FAILED work_order_id=%s error=%s",
+            work_order_id,
+            str(e),
+        )
+        session.rollback()
+        raise
+
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("po_sync", status, duration)
+
+
+@celery_app.task(
     name="app.tasks.integrations.sync_dotmac_erp_contacts",
     time_limit=600,
     soft_time_limit=540,

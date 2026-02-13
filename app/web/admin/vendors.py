@@ -1,8 +1,9 @@
 """Admin vendor portal web routes."""
 
 import os
+from urllib.parse import quote as urlquote
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -13,7 +14,7 @@ from app.db import SessionLocal
 from app.models.auth import AuthProvider, UserCredential
 from app.models.person import Person, PersonStatus
 from app.models.rbac import PersonRole, Role
-from app.models.vendor import Vendor, VendorUser
+from app.models.vendor import ProjectQuoteStatus, Vendor, VendorUser
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.person import PersonCreate
 from app.schemas.rbac import PersonRoleCreate
@@ -64,6 +65,16 @@ def _base_context(request: Request, db: Session, active_page: str):
         "current_user": get_current_user(request),
         "sidebar_stats": get_sidebar_stats(db),
     }
+
+
+def _current_person_id(request: Request) -> str | None:
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request) or {}
+    person_id = current_user.get("person_id")
+    if not person_id:
+        return None
+    return str(person_id)
 
 
 def _create_person_credential(
@@ -229,6 +240,7 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
         "license_number": _form_str_opt(form.get("license_number")),
         "service_area": _form_str_opt(form.get("service_area")),
         "notes": _form_str_opt(form.get("notes")),
+        "erp_id": _form_str_opt(form.get("erp_id")),
     }
     user_payload: dict[str, str | None] | None = None
     if create_user:
@@ -268,6 +280,7 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
         license_number = payload.get("license_number") if isinstance(payload.get("license_number"), str) else None
         service_area = payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
         notes = payload.get("notes") if isinstance(payload.get("notes"), str) else None
+        erp_id = payload.get("erp_id") if isinstance(payload.get("erp_id"), str) else None
         data = VendorCreate(
             name=str(payload.get("name") or "").strip(),
             code=code,
@@ -278,6 +291,7 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
             service_area=service_area,
             notes=notes,
             is_active=is_active,
+            erp_id=erp_id,
         )
     except ValidationError as exc:
         context = _base_context(request, db, active_page="vendors")
@@ -391,6 +405,7 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
         "license_number": _form_str_opt(form.get("license_number")),
         "service_area": _form_str_opt(form.get("service_area")),
         "notes": _form_str_opt(form.get("notes")),
+        "erp_id": _form_str_opt(form.get("erp_id")),
     }
     try:
         update_code = payload.get("code") if isinstance(payload.get("code"), str) else None
@@ -402,6 +417,7 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
         )
         update_service_area = payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
         update_notes = payload.get("notes") if isinstance(payload.get("notes"), str) else None
+        update_erp_id = payload.get("erp_id") if isinstance(payload.get("erp_id"), str) else None
         data = VendorUpdate(
             name=payload.get("name") if isinstance(payload.get("name"), str) else None,
             code=update_code,
@@ -412,6 +428,7 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
             service_area=update_service_area,
             notes=update_notes,
             is_active=is_active,
+            erp_id=update_erp_id,
         )
     except ValidationError as exc:
         context = _base_context(request, db, active_page="vendors")
@@ -487,7 +504,12 @@ def vendor_projects_list(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/quotes", response_class=HTMLResponse)
-def vendor_quotes_list(request: Request, db: Session = Depends(get_db)):
+def vendor_quotes_list(
+    request: Request,
+    db: Session = Depends(get_db),
+    quote_action: str | None = None,
+    quote_error_detail: str | None = None,
+):
     quotes = vendor_service.project_quotes.list(
         db=db,
         project_id=None,
@@ -500,8 +522,78 @@ def vendor_quotes_list(request: Request, db: Session = Depends(get_db)):
         offset=0,
     )
     context = _base_context(request, db, active_page="vendor-quotes")
-    context.update({"quotes": quotes})
+    context.update(
+        {
+            "quotes": quotes,
+            "quote_action": quote_action,
+            "quote_error_detail": quote_error_detail,
+        }
+    )
     return templates.TemplateResponse("admin/vendors/quotes/review.html", context)
+
+
+@router.post("/quotes/{quote_id}/approve", response_class=HTMLResponse)
+def vendor_quote_approve(
+    quote_id: str,
+    request: Request,
+    review_notes: str | None = Form(None),
+    override_threshold: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+
+    quote = vendor_service.project_quotes.get(db, quote_id)
+    if quote.status not in {ProjectQuoteStatus.submitted, ProjectQuoteStatus.under_review}:
+        detail = urlquote("Only submitted quotes can be approved.", safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+
+    try:
+        vendor_service.project_quotes.approve(
+            db,
+            quote_id=quote_id,
+            reviewer_person_id=reviewer_person_id,
+            review_notes=(review_notes or "").strip() or None,
+            override=bool(override_threshold),
+        )
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to approve quote."), safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+
+    return RedirectResponse(url="/admin/vendors/quotes?quote_action=approved", status_code=303)
+
+
+@router.post("/quotes/{quote_id}/reject", response_class=HTMLResponse)
+def vendor_quote_reject(
+    quote_id: str,
+    request: Request,
+    review_notes: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+
+    quote = vendor_service.project_quotes.get(db, quote_id)
+    if quote.status not in {ProjectQuoteStatus.submitted, ProjectQuoteStatus.under_review}:
+        detail = urlquote("Only submitted quotes can be rejected.", safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+
+    try:
+        vendor_service.project_quotes.reject(
+            db,
+            quote_id=quote_id,
+            reviewer_person_id=reviewer_person_id,
+            review_notes=(review_notes or "").strip() or None,
+        )
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to reject quote."), safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+
+    return RedirectResponse(url="/admin/vendors/quotes?quote_action=rejected", status_code=303)
 
 
 @router.get("/as-built", response_class=HTMLResponse)

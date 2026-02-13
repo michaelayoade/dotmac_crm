@@ -352,6 +352,26 @@ class DotMacERPClient:
         except DotMacERPNotFoundError:
             return None
 
+    # ============ Purchase Order API Methods ============
+
+    def create_purchase_order(self, payload: dict, idempotency_key: str | None = None) -> dict:
+        """Push an approved vendor quote as a purchase order to ERP.
+
+        Args:
+            payload: Purchase order data (see PurchaseOrderSync._map_purchase_order)
+            idempotency_key: Idempotency key for safe retries
+
+        Returns:
+            ERP response with purchase_order_id
+        """
+        result = self._request(
+            "POST",
+            "/api/v1/sync/crm/purchase-orders",
+            json_data=payload,
+            idempotency_key=idempotency_key or f"po-{uuid.uuid4()}",
+        )
+        return result if isinstance(result, dict) else {}
+
     # ============ Customer/Contact API Methods ============
 
     def get_companies(

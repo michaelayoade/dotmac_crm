@@ -58,6 +58,57 @@ _ENTITY_RESOLVERS: dict[str, Any] = {
 }
 
 
+class _SafeFormatDict(dict):
+    def __missing__(self, key: str) -> str:
+        return ""
+
+
+def _build_work_order_title(params: dict, event: Event) -> str:
+    """Build work-order title from template/context with safe fallbacks."""
+    default_title = "Auto-generated work order"
+    title_template = params.get("title_template")
+    title_value = params.get("title")
+    template = title_template or title_value
+
+    if isinstance(template, str) and template.strip():
+        payload = event.payload or {}
+        project_identifier = (
+            payload.get("project_code")
+            or payload.get("project_name")
+            or payload.get("project_id")
+            or (str(event.project_id) if event.project_id else "")
+        )
+        vendor_label = payload.get("vendor_name") or "Vendor"
+        context = _SafeFormatDict(
+            {
+                "event_type": event.event_type.value,
+                "project_id": str(event.project_id) if event.project_id else "",
+                "ticket_id": str(event.ticket_id) if event.ticket_id else "",
+                "work_order_id": str(event.work_order_id) if event.work_order_id else "",
+                "project_code": str(project_identifier or ""),
+                "project_name": str(payload.get("project_name") or ""),
+                "vendor_name": str(vendor_label),
+                "quote_id": str(payload.get("quote_id") or ""),
+                "installation_project_id": str(payload.get("installation_project_id") or ""),
+            }
+        )
+        for key, value in payload.items():
+            if value is None:
+                continue
+            context[str(key)] = str(value)
+        return template.format_map(context).strip() or default_title
+
+    if event.event_type.value == "vendor_quote.submitted":
+        project_code = (event.payload or {}).get("project_code")
+        project_name = (event.payload or {}).get("project_name")
+        vendor_name = (event.payload or {}).get("vendor_name")
+        identifier = project_code or project_name or (str(event.project_id) if event.project_id else "Project")
+        vendor_label = vendor_name or "Vendor"
+        return f"Vendor Quote Work Order - {identifier} - {vendor_label}"
+
+    return default_title
+
+
 def execute_actions(
     db: Session,
     actions: list[dict],
@@ -402,20 +453,58 @@ def _execute_send_notification(db: Session, params: dict, event: Event) -> None:
 
 
 def _execute_create_work_order(db: Session, params: dict, event: Event) -> None:
-    """Create a WorkOrder linked to a ticket."""
-    title = params.get("title", "Auto-generated work order")
+    """Create or update a WorkOrder from event context."""
+    title = _build_work_order_title(params, event)
+    upsert_existing = bool(params.get("upsert_existing"))
+    match_title_exact = bool(params.get("match_title_exact"))
+    source_name = str(params.get("source_name") or "automation.create_work_order")
 
-    work_order = WorkOrder(title=title)
+    existing_work_order: WorkOrder | None = None
+    if upsert_existing:
+        query = db.query(WorkOrder).filter(WorkOrder.is_active.is_(True))
+        if event.ticket_id:
+            query = query.filter(WorkOrder.ticket_id == event.ticket_id)
+        if event.project_id:
+            query = query.filter(WorkOrder.project_id == event.project_id)
+        if match_title_exact:
+            query = query.filter(WorkOrder.title == title)
+        existing_work_order = query.order_by(WorkOrder.created_at.desc()).first()
 
-    if event.ticket_id:
+    work_order = existing_work_order or WorkOrder()
+    work_order.title = title
+
+    if event.ticket_id and work_order.ticket_id is None:
         work_order.ticket_id = event.ticket_id
-    if event.project_id:
+    if event.project_id and work_order.project_id is None:
         work_order.project_id = event.project_id
     if params.get("assigned_technician_id"):
         work_order.assigned_to_person_id = coerce_uuid(params["assigned_technician_id"])
 
-    db.add(work_order)
+    metadata = dict(work_order.metadata_ or {})
+    metadata["automation_source"] = source_name
+    metadata["source_event_type"] = event.event_type.value
+    if event.payload.get("quote_id"):
+        metadata["source_quote_id"] = str(event.payload["quote_id"])
+    if event.payload.get("installation_project_id"):
+        metadata["source_installation_project_id"] = str(event.payload["installation_project_id"])
+    work_order.metadata_ = metadata
+
+    if existing_work_order is None:
+        db.add(work_order)
     db.flush()
+
+    # Queue PO creation on ERP if this WO originated from an approved quote
+    quote_id = event.payload.get("quote_id")
+    if quote_id and work_order.id:
+        try:
+            from app.tasks.integrations import sync_purchase_order_to_erp
+
+            sync_purchase_order_to_erp.apply_async(
+                args=[str(work_order.id), str(quote_id)],
+                countdown=5,
+            )
+        except Exception:
+            logger.warning("Failed to queue PO sync for WO %s", work_order.id, exc_info=True)
 
 
 def _execute_emit_event(db: Session, params: dict, event: Event, triggered_by_automation: bool) -> None:
