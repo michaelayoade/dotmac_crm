@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime
 from enum import Enum
 from uuid import UUID
@@ -27,6 +28,7 @@ SENSITIVE_FIELDS = {
 }
 
 AUDIT_TIMEZONE = ZoneInfo("Africa/Lagos")
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 
 def _normalize_value(value):
@@ -151,7 +153,7 @@ def humanize_entity(entity_type: str | None, entity_id: str | None = None) -> st
         for part in parts:
             if part in {"admin", "api", "system", "portal", "vendor", "reseller"}:
                 continue
-            if part.isdigit():
+            if part.isdigit() or _UUID_RE.match(part):
                 continue
             cleaned.append(part)
         label = " ".join(cleaned) if cleaned else entity_type.strip("/")

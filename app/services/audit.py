@@ -2,6 +2,7 @@ from fastapi import HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditActorType, AuditEvent
+from app.models.person import Person
 from app.schemas.audit import AuditEventCreate
 from app.services.common import apply_ordering, apply_pagination
 from app.services.response import ListResponseMixin
@@ -117,6 +118,8 @@ class AuditEvents(ListResponseMixin):
             "query": query_params,
         }
         person = getattr(request.state, "user", None)
+        if not person and actor_id and resolved_actor_type == AuditActorType.user:
+            person = db.get(Person, actor_id)
         if person:
             display_name = person.display_name or f"{person.first_name} {person.last_name}".strip()
             if display_name:

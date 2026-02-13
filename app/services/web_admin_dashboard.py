@@ -31,6 +31,7 @@ from app.services import (
     web_admin as web_admin_service,
 )
 from app.services.audit_helpers import (
+    _resolve_actor_name,
     extract_changes,
     format_audit_datetime,
     format_changes,
@@ -298,6 +299,16 @@ def _build_activity_context(db: Session) -> dict:
         offset=0,
     )
 
+    # Batch-load Person records for user-type actors
+    actor_ids = {
+        str(event.actor_id)
+        for event in recent_activity
+        if event.actor_id and _is_user_actor(event.actor_type)
+    }
+    people: dict[str, Person] = {}
+    if actor_ids:
+        people = {str(p.id): p for p in db.query(Person).filter(Person.id.in_(actor_ids)).all()}
+
     activity_items = []
     for event in recent_activity:
         changes = extract_changes(event.metadata_, event.action)
@@ -309,6 +320,7 @@ def _build_activity_context(db: Session) -> dict:
                 "entity_id": event.entity_id,
                 "actor_type": event.actor_type.value if event.actor_type else None,
                 "actor_id": event.actor_id,
+                "actor_name": _resolve_actor_name(event, people),
                 "created_at": format_audit_datetime(event.occurred_at, "%Y-%m-%d %H:%M"),
                 "is_user_actor": _is_user_actor(event.actor_type),
                 "changes": format_changes(changes),
