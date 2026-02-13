@@ -25,6 +25,7 @@ class VendorBase(BaseModel):
     service_area: str | None = None
     is_active: bool = True
     notes: str | None = None
+    erp_id: str | None = Field(default=None, max_length=100)
 
 
 class VendorCreate(VendorBase):
@@ -41,6 +42,7 @@ class VendorUpdate(BaseModel):
     service_area: str | None = None
     is_active: bool | None = None
     notes: str | None = None
+    erp_id: str | None = Field(default=None, max_length=100)
 
 
 class VendorRead(VendorBase):
