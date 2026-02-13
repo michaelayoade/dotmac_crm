@@ -3,23 +3,27 @@
 {% set section_for_page = {
     'inbox': 'customers', 'contacts': 'customers', 'subscribers': 'customers', 'quotes': 'customers', 'sales': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
     'inventory': 'operations',
-    'network-map': 'network', 'network-devices': 'network', 'core-devices': 'network', 'olts': 'network', 'onts': 'network', 'devices': 'network',
+    'network-map': 'operations', 'network-devices': 'operations', 'core-devices': 'operations', 'olts': 'operations', 'onts': 'operations', 'devices': 'operations',
     'automations': 'system', 'pop-sites': 'system', 'configuration': 'system',
-    'fiber-plant': 'network', 'fiber-map': 'network', 'fiber-change-requests': 'network', 'fdh-cabinets': 'network', 'splitters': 'network', 'fiber-strands': 'network', 'splice-closures': 'network', 'fiber-reports': 'network',
+    'fiber-plant': 'operations', 'fiber-map': 'operations', 'fiber-change-requests': 'operations', 'fdh-cabinets': 'operations', 'splitters': 'operations', 'fiber-strands': 'operations', 'splice-closures': 'operations', 'fiber-reports': 'operations',
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
-    'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations',
+    'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations',
     'material-requests': 'operations',
     'my-performance': 'reports',
     'service-teams': 'system'
 } %}
 {% set field_service_pages = ['installations', 'technicians', 'dispatch', 'work-orders'] %}
+{% set project_pages = ['projects', 'vendor-quotes'] %}
 {% set section_for_menu = {
-    'core-network': 'network', 'gpon': 'network', 'fiber': 'network'
+    'core-network': 'operations', 'gpon': 'operations', 'fiber': 'operations'
 } %}
 {% set initial_section = section_for_page.get(active_page, section_for_menu.get(active_menu, '')) %}
 {% set initial_menu = active_menu | default('') %}
 {% if not initial_menu and active_page in field_service_pages %}
 {% set initial_menu = 'field-service' %}
+{% endif %}
+{% if not initial_menu and active_page in project_pages %}
+{% set initial_menu = 'projects' %}
 {% endif %}
 
 {% set user_permissions = current_user.permissions if current_user is defined and current_user else [] %}
@@ -104,7 +108,7 @@
     or 'operations:material_request' in user_permissions
     or 'operations' in user_permissions
 %}
-{% set operations_section_visible = can_sales_orders or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory or can_material_requests %}
+{% set operations_section_visible = can_fiber_map or can_sales_orders or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory or can_material_requests %}
 {% set network_section_visible = can_fiber_map %}
 
 {% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
@@ -288,18 +292,6 @@
     </div>
     {% endif %}
 
-    <!-- 3. NETWORK - Simplified to just Fiber Map for techs/vendors -->
-    {% if can_fiber_map %}
-    <a href="/admin/network/map"
-       class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-              {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page in ['network-map', 'fiber-map', 'fiber-plant'] else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
-        <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
-        </svg>
-        <span x-show="!sidebarCollapsed">Fiber Map</span>
-    </a>
-    {% endif %}
-
     <!-- 6. OPERATIONS (Collapsible Section) -->
     {% if operations_section_visible %}
     <button x-on:click="openSection = openSection === 'operations' ? '' : 'operations'" x-show="!sidebarCollapsed"
@@ -311,6 +303,18 @@
     </button>
 
     <div x-show="openSection === 'operations' && !sidebarCollapsed" x-collapse x-cloak class="space-y-1">
+        <!-- Fiber Map -->
+        {% if can_fiber_map %}
+        <a href="/admin/network/map"
+           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page in ['network-map', 'fiber-map', 'fiber-plant'] else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+            </svg>
+            <span>Fiber Map</span>
+        </a>
+        {% endif %}
+
         <!-- Sales Orders -->
         {% if can_sales_orders %}
         <a href="/admin/operations/sales-orders"
@@ -374,16 +378,27 @@
         </a>
         {% endif %}
 
-        <!-- Projects -->
+        <!-- Projects (Group) -->
         {% if can_projects %}
-        <a href="/admin/projects"
-           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'projects' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
-            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        <button x-on:click="openMenu = openMenu === 'projects' ? '' : 'projects'" x-show="!sidebarCollapsed"
+                class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                       {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page in project_pages or request.url.path.startswith('/admin/vendors/quotes') else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+            <span class="flex items-center gap-3">
+                <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <span>Projects</span>
+            </span>
+            <svg x-show="!sidebarCollapsed" class="h-4 w-4 transition-transform" :class="{ 'rotate-180': openMenu === 'projects' }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
             </svg>
-            <span>Projects</span>
-        </a>
+        </button>
+        <div x-show="openMenu === 'projects' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
+            <a href="/admin/projects" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'projects' else '' }}">Projects</a>
+            {% if is_admin %}
+            <a href="/admin/vendors/quotes" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'vendor-quotes' or request.url.path.startswith('/admin/vendors/quotes') else '' }}">Vendor Quotes</a>
+            {% endif %}
+        </div>
         {% endif %}
 
         <!-- Inventory -->

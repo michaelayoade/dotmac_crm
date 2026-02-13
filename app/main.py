@@ -442,8 +442,14 @@ def _to_list(setting: DomainSetting, upper: bool) -> set[str] | list[str]:
     return items
 
 
+# High-frequency endpoints that produce noise in the audit trail
+_AUDIT_SKIP_SUFFIXES = ("/presence",)
+
+
 def _is_audit_path_skipped(path: str, skip_paths: list[str]) -> bool:
-    return any(path.startswith(prefix) for prefix in skip_paths)
+    if any(path.startswith(prefix) for prefix in skip_paths):
+        return True
+    return path.endswith(_AUDIT_SKIP_SUFFIXES)
 
 
 def _include_api_router(router, dependencies=None):

@@ -21,7 +21,8 @@
             </div>
             <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-slate-900 dark:text-white">
-                    {{ event.action }}
+                    <span class="text-cyan-600 dark:text-cyan-400">{{ event.actor_name }}</span>
+                    {{ event.action|lower }}
                     <span class="text-slate-500 dark:text-slate-400">{{ event.entity_type }}</span>
                 </p>
                 {% if event.changes %}
