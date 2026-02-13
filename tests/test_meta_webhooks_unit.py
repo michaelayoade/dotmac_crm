@@ -4,8 +4,9 @@ from app.services import meta_webhooks
 
 
 def test_normalize_external_id_and_ref():
-    short = meta_webhooks._normalize_external_id("abc")
-    assert short == "abc"
+    short_digest, short_raw = meta_webhooks._normalize_external_id("abc")
+    assert short_digest == "abc"
+    assert short_raw is None
     long_value = "x" * 130
     digest, raw = meta_webhooks._normalize_external_id(long_value)
     assert raw == long_value

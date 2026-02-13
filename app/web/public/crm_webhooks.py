@@ -8,6 +8,7 @@ from typing import TypedDict
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 from starlette.requests import ClientDisconnect
+from starlette.responses import JSONResponse
 
 from app.db import SessionLocal
 from app.logging import get_logger
@@ -276,19 +277,6 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # Return 500 so the provider retries — body was not fully read.
         return Response(status_code=500)
 
-    # Optional signature validation if header + app secret are available
-    signature = request.headers.get("X-Hub-Signature-256")
-    settings = meta_oauth.get_meta_settings(db)
-    app_secret = settings.get("whatsapp_app_secret") or settings.get("meta_app_secret")
-    if signature and app_secret:
-        try:
-            if not meta_webhooks.verify_webhook_signature(body, signature, app_secret):
-                logger.warning("whatsapp_webhook_signature_invalid")
-                return Response(status_code=401)
-        except Exception as exc:
-            logger.warning("whatsapp_webhook_signature_validation_failed error=%s", exc)
-            return Response(status_code=401)
-
     try:
         # First try normalized payload
         try:
@@ -309,12 +297,50 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         except Exception:
             logger.debug("Failed to parse normalized WhatsApp webhook body.", exc_info=True)
 
+        # Fallback to Meta native payload; require valid signature.
+        settings = meta_oauth.get_meta_settings(db)
+        app_secret = settings.get("whatsapp_app_secret") or settings.get("meta_app_secret")
+        signature = request.headers.get("X-Hub-Signature-256")
+        if not app_secret:
+            logger.warning("whatsapp_webhook_secret_missing")
+            _record_channel_stat("whatsapp", ok=False)
+            return JSONResponse(
+                status_code=503,
+                content={"status": "error", "detail": "Webhook secret not configured"},
+            )
+        if not signature:
+            logger.warning("whatsapp_webhook_signature_missing")
+            _record_channel_stat("whatsapp", ok=False)
+            return JSONResponse(
+                status_code=401,
+                content={"status": "error", "detail": "Signature required"},
+            )
+        try:
+            if not meta_webhooks.verify_webhook_signature(body, signature, app_secret):
+                logger.warning("whatsapp_webhook_signature_invalid")
+                _record_channel_stat("whatsapp", ok=False)
+                return JSONResponse(
+                    status_code=401,
+                    content={"status": "error", "detail": "Invalid signature"},
+                )
+        except Exception as exc:
+            logger.warning("whatsapp_webhook_signature_validation_failed error=%s", exc)
+            _record_channel_stat("whatsapp", ok=False)
+            return JSONResponse(
+                status_code=401,
+                content={"status": "error", "detail": "Signature validation failed"},
+            )
+
         # Fallback to Meta native payload
         try:
             payload = json.loads(body.decode("utf-8"))
         except Exception as exc:
             logger.warning("whatsapp_webhook_invalid_payload error=%s", exc)
-            return {"status": "error", "detail": "Invalid payload"}
+            _record_channel_stat("whatsapp", ok=False)
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "detail": "Invalid payload"},
+            )
 
         messages = _extract_meta_whatsapp_messages(payload, trace_id=trace_id)
         if not messages:
@@ -337,7 +363,10 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
     except Exception:
         logger.exception("whatsapp_webhook_unhandled")
         _record_channel_stat("whatsapp", ok=False)
-        return {"status": "error", "detail": "Unhandled error"}
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "detail": "Unhandled error"},
+        )
 
 
 @router.post("/email", status_code=status.HTTP_200_OK)
@@ -443,7 +472,10 @@ async def meta_webhook(
         except Exception as exc:
             logger.warning("meta_webhook_invalid_payload error=%s", exc)
             _record_channel_stat("meta", ok=False)
-            return {"status": "error", "detail": "Invalid payload"}
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "detail": "Invalid payload"},
+            )
 
         event_count = sum(len(entry.messaging or []) + len(entry.changes or []) for entry in payload.entry)
         webhook_tasks.process_meta_webhook.delay(payload.model_dump(), trace_id=trace_id)
@@ -461,4 +493,7 @@ async def meta_webhook(
     except Exception:
         logger.exception("meta_webhook_unhandled")
         _record_channel_stat("meta", ok=False)
-        return {"status": "error", "detail": "Unhandled error"}
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "detail": "Unhandled error"},
+        )
