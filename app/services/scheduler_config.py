@@ -504,6 +504,27 @@ def build_beat_schedule() -> dict:
             interval_seconds=dotmac_erp_sync_interval_seconds,
         )
 
+        # DotMac ERP inventory sync - pulls inventory items and stock from ERP
+        dotmac_erp_inventory_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_inventory_sync_enabled",
+            "DOTMAC_ERP_INVENTORY_SYNC_ENABLED",
+            False,
+        )
+        dotmac_erp_inventory_sync_interval_minutes = _coerce_int(
+            resolve_value(session, SettingDomain.integration, "dotmac_erp_inventory_sync_interval_minutes"),
+            120,
+        )
+        dotmac_erp_inventory_sync_interval_seconds = max(dotmac_erp_inventory_sync_interval_minutes * 60, 300)
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_inventory_sync",
+            task_name="app.tasks.integrations.sync_dotmac_erp_inventory",
+            enabled=dotmac_erp_inventory_sync_enabled,
+            interval_seconds=dotmac_erp_inventory_sync_interval_seconds,
+        )
+
         # DotMac ERP shift sync - pulls technician shifts and time-off from ERP
         dotmac_erp_shift_sync_enabled = _effective_bool(
             session,
@@ -565,6 +586,48 @@ def build_beat_schedule() -> dict:
             task_name="app.tasks.integrations.sync_dotmac_erp_teams",
             enabled=dotmac_erp_team_sync_enabled,
             interval_seconds=dotmac_erp_team_sync_interval_seconds,
+        )
+
+        # DotMac ERP CRM agent sync - pulls employees in configured dept into CRM agents
+        dotmac_erp_agent_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_agent_sync_enabled",
+            "DOTMAC_ERP_AGENT_SYNC_ENABLED",
+            False,
+        )
+        dotmac_erp_agent_sync_interval_minutes = _coerce_int(
+            resolve_value(session, SettingDomain.integration, "dotmac_erp_agent_sync_interval_minutes"),
+            60,
+        )
+        dotmac_erp_agent_sync_interval_seconds = max(dotmac_erp_agent_sync_interval_minutes * 60, 300)
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_agent_sync",
+            task_name="app.tasks.integrations.sync_dotmac_erp_agents",
+            enabled=dotmac_erp_agent_sync_enabled,
+            interval_seconds=dotmac_erp_agent_sync_interval_seconds,
+        )
+
+        # DotMac ERP technician sync - pulls technicians (employees in Projects dept) into technician_profiles
+        dotmac_erp_technician_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_technician_sync_enabled",
+            "DOTMAC_ERP_TECHNICIAN_SYNC_ENABLED",
+            False,
+        )
+        dotmac_erp_technician_sync_interval_minutes = _coerce_int(
+            resolve_value(session, SettingDomain.integration, "dotmac_erp_technician_sync_interval_minutes"),
+            60,
+        )
+        dotmac_erp_technician_sync_interval_seconds = max(dotmac_erp_technician_sync_interval_minutes * 60, 300)
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_technician_sync",
+            task_name="app.tasks.integrations.sync_dotmac_erp_technicians",
+            enabled=dotmac_erp_technician_sync_enabled,
+            interval_seconds=dotmac_erp_technician_sync_interval_seconds,
         )
 
         # Survey triggers - checks for ticket_closed / work_order_completed triggers

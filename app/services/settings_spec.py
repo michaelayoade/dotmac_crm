@@ -1700,7 +1700,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         key="brand_logo_url",
         env_var=None,
         value_type=SettingValueType.string,
-        default=None,
+        default="https://crm.dotmac.io/static/uploads/branding/logo_8d2cac85d71249e68aa8965fe54f815e.png",
         label="Brand Logo URL",
     ),
     SettingSpec(
@@ -2161,6 +2161,24 @@ SETTINGS_SPECS: list[SettingSpec] = [
         min_value=5,
         label="DotMac ERP Sync Interval (minutes)",
     ),
+    # ============== Integration Domain: DotMac ERP Inventory Sync ==============
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_inventory_sync_enabled",
+        env_var="DOTMAC_ERP_INVENTORY_SYNC_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Enable ERP Inventory Sync",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_inventory_sync_interval_minutes",
+        env_var="DOTMAC_ERP_INVENTORY_SYNC_INTERVAL_MINUTES",
+        value_type=SettingValueType.integer,
+        default=120,
+        min_value=5,
+        label="Inventory Sync Interval (minutes)",
+    ),
     # ============== Integration Domain: DotMac ERP Shift Sync ==============
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2196,6 +2214,67 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=30,
         min_value=1,
         label="Time-Off Sync Days Ahead",
+    ),
+    # ============== Integration Domain: DotMac ERP Technician Sync ==============
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_technician_sync_enabled",
+        env_var="DOTMAC_ERP_TECHNICIAN_SYNC_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Enable ERP Technician Sync",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_technician_sync_interval_minutes",
+        env_var="DOTMAC_ERP_TECHNICIAN_SYNC_INTERVAL_MINUTES",
+        value_type=SettingValueType.integer,
+        default=60,
+        min_value=5,
+        label="Technician Sync Interval (minutes)",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_technician_sync_department",
+        env_var="DOTMAC_ERP_TECHNICIAN_SYNC_DEPARTMENT",
+        value_type=SettingValueType.string,
+        default="Projects",
+        label="Technician Department Name (ERP)",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_hr_api_key",
+        env_var="DOTMAC_ERP_HR_API_KEY",
+        value_type=SettingValueType.string,
+        default=None,
+        is_secret=True,
+        label="DotMac ERP HR API Key (optional, for technician title/designation sync)",
+    ),
+    # ============== Integration Domain: DotMac ERP CRM Agent Sync ==============
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_agent_sync_enabled",
+        env_var="DOTMAC_ERP_AGENT_SYNC_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Enable ERP CRM Agent Sync",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_agent_sync_interval_minutes",
+        env_var="DOTMAC_ERP_AGENT_SYNC_INTERVAL_MINUTES",
+        value_type=SettingValueType.integer,
+        default=60,
+        min_value=5,
+        label="CRM Agent Sync Interval (minutes)",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_agent_sync_department",
+        env_var="DOTMAC_ERP_AGENT_SYNC_DEPARTMENT",
+        value_type=SettingValueType.string,
+        default="Customer Experience",
+        label="CRM Agent Department Name (ERP)",
     ),
     # ============== Integration Domain: DotMac ERP Contact Sync ==============
     SettingSpec(

@@ -487,9 +487,7 @@ class TestImportTasks:
         db_session.add(ref)
         db_session.commit()
 
-        importer.client.get_all.return_value = iter(
-            [{"name": "TASK-001", "project": "PROJ-FOR-TASK"}]
-        )
+        importer.client.get_all.return_value = iter([{"name": "TASK-001", "project": "PROJ-FOR-TASK"}])
         importer.client.get_doc.return_value = {
             "name": "TASK-001",
             "subject": "Splice segment A",
@@ -512,9 +510,7 @@ class TestImportTasks:
         assert task.project_id == project.id
 
     def test_task_without_project_skipped(self, db_session, importer):
-        importer.client.get_all.return_value = iter(
-            [{"name": "TASK-ORPHAN", "project": None}]
-        )
+        importer.client.get_all.return_value = iter([{"name": "TASK-ORPHAN", "project": None}])
 
         with patch("app.services.numbering.generate_number", return_value="TK-0002"):
             stats, _ = importer._import_tasks(db_session)
@@ -536,9 +532,7 @@ class TestImportTasks:
         db_session.add(ref)
         db_session.commit()
 
-        importer.client.get_all.return_value = iter(
-            [{"name": "TASK-TC-001", "project": "PROJ-TC"}]
-        )
+        importer.client.get_all.return_value = iter([{"name": "TASK-TC-001", "project": "PROJ-TC"}])
         importer.client.get_doc.return_value = {
             "name": "TASK-TC-001",
             "subject": "Task with comments",

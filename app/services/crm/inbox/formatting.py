@@ -625,8 +625,13 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     if html_body:
         html_body = _replace_cid_images(html_body, attachments)
     html_source = html_body or content
-    if not html_body and "&lt;" in content and "&gt;" in content:
-        html_source = html.unescape(content)
+    # If we run plain-text content through the HTML sanitizer, strings like
+    # "<user@example.com>" (common in DSN bounce messages) get parsed as tags
+    # and can disappear in the UI. For non-HTML bodies, escape as plain text.
+    if html_body:
+        content_html = _sanitize_message_html(html_source)
+    else:
+        content_html = html.escape(content or "")
 
     reply_to = metadata.get("reply_to") if isinstance(metadata, dict) else None
     if not reply_to and msg.reply_to_message_id:
@@ -672,7 +677,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "conversation_id": str(msg.conversation_id),
         "direction": msg.direction.value,
         "content": content,
-        "content_html": _sanitize_message_html(html_source),
+        "content_html": content_html,
         "html_body": html_body,
         "timestamp": msg.received_at or msg.sent_at or msg.created_at,
         "status": msg.status.value if msg.status else "received",

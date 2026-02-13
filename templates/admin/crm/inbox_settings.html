@@ -1406,32 +1406,36 @@
                 </table>
             {% endcall %}
 
-            {% call table_shell(table_id="inbox-agents-table", title="Agents", count=agents | length, search_name="agent_list_search", search_placeholder="Search agents...") %}
-                {% if can_manage_settings %}
-                <form id="bulk-agent-action-form" method="POST" action="/admin/crm/inbox/agents/bulk" class="mb-3 flex flex-wrap items-center gap-2">
-                    <select name="action"
-                            class="w-48 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                        <option value="deactivate">Deactivate selected</option>
-                    </select>
-                    <button type="submit"
-                            data-bulk-agent-submit
-                            disabled
-                            onclick="return confirm('Deactivate selected agents?')"
-                            class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-300">
-                        Apply
-                    </button>
-                </form>
-                {% endif %}
-                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                    <thead>
-                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
-                            <th class="{{ pad }} w-10 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                {% if can_manage_settings %}
-                                <input type="checkbox"
-                                       data-agent-select-all
-                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-900">
-                                {% endif %}
-                            </th>
+	            {% call table_shell(table_id="inbox-agents-table", title="Agents", count=agents | length, search_name="agent_list_search", search_placeholder="Search agents...") %}
+	                {% if can_manage_settings %}
+	                <form id="bulk-agent-action-form" method="POST" action="/admin/crm/inbox/agents/bulk" class="mb-3 flex flex-wrap items-center gap-2">
+	                    <select name="action"
+	                            class="w-48 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+	                        <option value="deactivate">Deactivate selected</option>
+	                    </select>
+	                    {# Single control to toggle selection across the table. #}
+	                    {% if (agents | length) > 1 %}
+	                    <button type="button"
+	                            data-agent-toggle-all
+	                            class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+	                        Select all
+	                    </button>
+	                    {% endif %}
+	                    <button type="submit"
+	                            data-bulk-agent-submit
+	                            disabled
+	                            onclick="return confirm('Deactivate selected agents?')"
+	                            class="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-300">
+	                        Apply
+	                    </button>
+	                </form>
+	                {% endif %}
+	                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+	                    <thead>
+	                        <tr class="border-b border-slate-100 dark:border-slate-700/50">
+	                            <th class="{{ pad }} w-10 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+	                                {# Checkbox column header. #}
+	                            </th>
                             <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agent</th>
                             <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
                             <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Teams</th>
@@ -1662,31 +1666,39 @@ function initAgentListSearch() {
 }
 
 function initBulkAgentActions() {
-    const selectAll = document.querySelector('[data-agent-select-all]');
+    const toggleAll = document.querySelector('[data-agent-toggle-all]');
     const submitButton = document.querySelector('[data-bulk-agent-submit]');
     const itemSelector = 'input[data-agent-select-item]';
-    const items = Array.from(document.querySelectorAll(itemSelector));
 
-    if (!submitButton || !items.length) return;
+    if (!submitButton) return;
+
+    const getItems = () => Array.from(document.querySelectorAll(itemSelector));
 
     const syncState = () => {
+        const items = getItems();
         const checkedItems = items.filter((item) => item.checked);
         submitButton.disabled = checkedItems.length === 0;
-        if (selectAll) {
-            selectAll.checked = checkedItems.length > 0 && checkedItems.length === items.length;
-            selectAll.indeterminate = checkedItems.length > 0 && checkedItems.length < items.length;
+        if (toggleAll) {
+            toggleAll.textContent =
+                checkedItems.length > 0 && checkedItems.length === items.length ? 'Clear all' : 'Select all';
         }
     };
 
-    items.forEach((item) => {
-        item.addEventListener('change', syncState);
+    // Delegate change handling so it still works if the table content is re-rendered.
+    document.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        if (!target.matches(itemSelector)) return;
+        syncState();
     });
 
-    if (selectAll) {
-        selectAll.addEventListener('change', () => {
-            const checked = Boolean(selectAll.checked);
+    if (toggleAll) {
+        toggleAll.addEventListener('click', () => {
+            const items = getItems();
+            const checkedItems = items.filter((item) => item.checked);
+            const shouldClear = checkedItems.length > 0 && checkedItems.length === items.length;
             items.forEach((item) => {
-                item.checked = checked;
+                item.checked = !shouldClear;
             });
             syncState();
         });

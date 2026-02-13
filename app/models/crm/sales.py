@@ -71,6 +71,7 @@ class Lead(Base):
     currency: Mapped[str | None] = mapped_column(String(3))
     probability: Mapped[int | None] = mapped_column(Integer)
     expected_close_date: Mapped[date | None] = mapped_column(Date)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lost_reason: Mapped[str | None] = mapped_column(String(200))
     region: Mapped[str | None] = mapped_column(String(80))
     address: Mapped[str | None] = mapped_column(Text)

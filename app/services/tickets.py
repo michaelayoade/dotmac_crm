@@ -1,11 +1,15 @@
 import builtins
+import logging
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.crm.sales import Lead
 from app.models.domain_settings import SettingDomain
+from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import Person
+from app.models.rbac import PersonRole, Role
 from app.models.tickets import (
     Ticket,
     TicketAssignee,
@@ -33,6 +37,144 @@ from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
+
+logger = logging.getLogger(__name__)
+
+
+def _notify_ticket_role_assignment_in_app(
+    db: Session,
+    *,
+    ticket: Ticket,
+    role_assignments: dict[str, object],
+) -> set[str]:
+    """Create in-app notifications for internal roles on a ticket.
+
+    role_assignments maps "role label" -> person_id (UUID or str).
+    We de-dupe by recipient email so one person with multiple roles receives one notification.
+    """
+    # Group roles by person_id and discard empty.
+    roles_by_person_id: dict[object, list[str]] = {}
+    person_ids: list[object] = []
+    for role_label, person_id in role_assignments.items():
+        if not person_id:
+            continue
+        if person_id not in roles_by_person_id:
+            roles_by_person_id[person_id] = []
+            person_ids.append(person_id)
+        if role_label not in roles_by_person_id[person_id]:
+            roles_by_person_id[person_id].append(role_label)
+
+    if not person_ids:
+        return set()
+
+    people = db.query(Person).filter(Person.id.in_(person_ids)).all()
+    people_by_id = {p.id: p for p in people}
+
+    from app.services import email as email_service
+
+    base_url = (email_service._get_app_url(db) or "").rstrip("/")
+    ticket_ref = ticket.number or str(ticket.id)
+    ticket_url = (
+        f"{base_url}/admin/support/tickets/{ticket_ref}" if base_url else f"/admin/support/tickets/{ticket_ref}"
+    )
+
+    subject = f"New Ticket Assignment: {ticket.title}"
+    site = (ticket.region or "").strip()
+    now = datetime.now(UTC)
+
+    created_for: set[str] = set()
+    for person_id, roles in roles_by_person_id.items():
+        person = people_by_id.get(person_id)
+        if not person or not isinstance(person.email, str) or not person.email.strip():
+            continue
+        recipient = person.email.strip()
+        if recipient in created_for:
+            continue
+        created_for.add(recipient)
+
+        roles_label = ", ".join(roles)
+        body_lines = [f"You have been assigned as {roles_label} for this ticket."]
+        if site:
+            body_lines.append(f"Site: {site}.")
+        body_lines.append(f"Open: {ticket_url}")
+
+        db.add(
+            Notification(
+                channel=NotificationChannel.push,
+                recipient=recipient,
+                subject=subject,
+                body="\n".join(body_lines),
+                status=NotificationStatus.delivered,
+                sent_at=now,
+            )
+        )
+
+    db.commit()
+    return created_for
+
+
+def _notify_new_ticket_in_app_to_role(
+    db: Session,
+    *,
+    ticket: Ticket,
+    role_name: str,
+    skip_recipients: set[str] | None = None,
+) -> set[str]:
+    """Broadcast an in-app notification to all active people in a role."""
+    skip = skip_recipients or set()
+
+    role = db.query(Role).filter(Role.is_active.is_(True)).filter(Role.name.ilike(role_name)).first()
+    if not role:
+        return set()
+
+    people = (
+        db.query(Person)
+        .join(PersonRole, PersonRole.person_id == Person.id)
+        .filter(PersonRole.role_id == role.id)
+        .filter(Person.is_active.is_(True))
+        .all()
+    )
+    if not people:
+        return set()
+
+    from app.services import email as email_service
+
+    base_url = (email_service._get_app_url(db) or "").rstrip("/")
+    ticket_ref = ticket.number or str(ticket.id)
+    ticket_url = (
+        f"{base_url}/admin/support/tickets/{ticket_ref}" if base_url else f"/admin/support/tickets/{ticket_ref}"
+    )
+
+    subject = f"New Ticket Created: {ticket.title}"
+    site = (ticket.region or "").strip()
+    now = datetime.now(UTC)
+
+    created_for: set[str] = set()
+    for person in people:
+        if not isinstance(person.email, str) or not person.email.strip():
+            continue
+        recipient = person.email.strip()
+        if recipient in skip or recipient in created_for:
+            continue
+        created_for.add(recipient)
+        body_lines = ["A new ticket was created."]
+        if site:
+            body_lines.append(f"Site: {site}.")
+        body_lines.append(f"Open: {ticket_url}")
+
+        db.add(
+            Notification(
+                channel=NotificationChannel.push,
+                recipient=recipient,
+                subject=subject,
+                body="\n".join(body_lines),
+                status=NotificationStatus.delivered,
+                sent_at=now,
+            )
+        )
+
+    db.commit()
+    return created_for
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -274,6 +416,29 @@ class Tickets(ListResponseMixin):
         db.commit()
         db.refresh(ticket)
 
+        # In-app notifications for internal ticket roles.
+        # Ticket has already been committed above, so failures here won't roll back creation.
+        try:
+            already_notified = _notify_ticket_role_assignment_in_app(
+                db,
+                ticket=ticket,
+                role_assignments={
+                    "Technician": ticket.assigned_to_person_id,
+                    "Ticket Manager": ticket.ticket_manager_person_id,
+                    "Site Project Coordinator": ticket.assistant_manager_person_id,
+                },
+            )
+            _notify_new_ticket_in_app_to_role(
+                db,
+                ticket=ticket,
+                role_name="Operations",
+                skip_recipients=already_notified,
+            )
+        except Exception:
+            db.rollback()
+            # Keep creating ticket even if notification creation fails.
+            logger.exception("ticket_created_in_app_notifications_failed ticket_id=%s", ticket.id)
+
         customer_name = _resolve_customer_name(ticket, db)
         customer_email = _resolve_customer_email(ticket, db)
 
@@ -419,6 +584,8 @@ class Tickets(ListResponseMixin):
         previous_status = ticket.status
         previous_priority = ticket.priority
         previous_assigned_to = ticket.assigned_to_person_id
+        previous_ticket_manager = ticket.ticket_manager_person_id
+        previous_assistant_manager = ticket.assistant_manager_person_id
         data = payload.model_dump(exclude_unset=True)
         fields_set = payload.model_fields_set
         assignee_ids: list[str] | None = None
@@ -479,6 +646,21 @@ class Tickets(ListResponseMixin):
 
         db.commit()
         db.refresh(ticket)
+
+        # In-app notifications when internal roles change.
+        try:
+            changed_roles: dict[str, object] = {}
+            if ticket.assigned_to_person_id and ticket.assigned_to_person_id != previous_assigned_to:
+                changed_roles["Technician"] = ticket.assigned_to_person_id
+            if ticket.ticket_manager_person_id and ticket.ticket_manager_person_id != previous_ticket_manager:
+                changed_roles["Ticket Manager"] = ticket.ticket_manager_person_id
+            if ticket.assistant_manager_person_id and ticket.assistant_manager_person_id != previous_assistant_manager:
+                changed_roles["Site Project Coordinator"] = ticket.assistant_manager_person_id
+            if changed_roles:
+                _notify_ticket_role_assignment_in_app(db, ticket=ticket, role_assignments=changed_roles)
+        except Exception:
+            db.rollback()
+            logger.exception("ticket_role_change_in_app_notifications_failed ticket_id=%s", ticket.id)
 
         # Emit ticket events based on status transitions
         new_status = ticket.status

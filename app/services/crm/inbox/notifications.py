@@ -84,6 +84,92 @@ def _set_reminder_state(
 logger = get_logger(__name__)
 
 
+def notify_agents_mentioned(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    mentioned_agent_ids: list[str] | None,
+    actor_person_id: str | None = None,
+) -> None:
+    """Notify one or more agents that they were @mentioned.
+
+    This uses websocket `AGENT_NOTIFICATION` events (same surface as inbox reply/reminder).
+    """
+    if not mentioned_agent_ids:
+        return
+    # Only agent-authored messages should generate mentions.
+    if message.direction == MessageDirection.inbound:
+        return
+
+    agent_uuids = []
+    for raw in mentioned_agent_ids:
+        try:
+            agent_uuids.append(coerce_uuid(raw))
+        except Exception:
+            continue
+    if not agent_uuids:
+        return
+
+    agents = (
+        db.query(CrmAgent)
+        .filter(CrmAgent.id.in_(agent_uuids))
+        .filter(CrmAgent.is_active.is_(True))
+        .filter(CrmAgent.person_id.isnot(None))
+        .all()
+    )
+    if not agents:
+        return
+
+    actor_uuid = None
+    if actor_person_id:
+        try:
+            actor_uuid = str(coerce_uuid(actor_person_id))
+        except Exception:
+            actor_uuid = None
+
+    recipient_person_ids = []
+    seen = set()
+    for agent in agents:
+        pid = str(agent.person_id)
+        if actor_uuid and pid == actor_uuid:
+            continue
+        if pid in seen:
+            continue
+        seen.add(pid)
+        recipient_person_ids.append(pid)
+    if not recipient_person_ids:
+        return
+
+    contact = db.get(Person, conversation.person_id) if conversation.person_id else None
+    payload = {
+        "kind": "mention",
+        "title": "Mentioned",
+        "subtitle": _contact_name(contact),
+        "preview": _message_preview(message),
+        "conversation_id": str(conversation.id),
+        "contact_id": str(conversation.person_id) if conversation.person_id else None,
+        "message_id": str(message.id),
+        "channel": message.channel_type.value if message.channel_type else None,
+        "last_message_at": (
+            (message.received_at or message.created_at).isoformat()
+            if message.received_at or message.created_at
+            else None
+        ),
+    }
+    from app.websocket.broadcaster import broadcast_agent_notification
+
+    for person_id in recipient_person_ids:
+        broadcast_agent_notification(person_id, payload)
+    try:
+        from app.services.agent_mentions import queue_mention_email_notifications
+
+        queue_mention_email_notifications(db, recipient_person_ids=recipient_person_ids, payload=payload)
+    except Exception:
+        # Email mention notifications are best-effort.
+        pass
+
+
 def notify_assigned_agent_new_reply(db: Session, conversation: Conversation, message: Message) -> None:
     if message.direction != MessageDirection.inbound:
         return

@@ -164,6 +164,7 @@ from app.models.notification import (  # noqa: F401
     OnCallRotation,
     OnCallRotationMember,
 )
+from app.models.nextcloud_talk import NextcloudTalkAccount  # noqa: F401
 from app.models.oauth_token import OAuthToken  # noqa: F401
 from app.models.person import (  # noqa: F401
     ChannelType as PersonChannelType,

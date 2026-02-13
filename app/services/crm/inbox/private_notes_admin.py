@@ -47,6 +47,7 @@ def create_private_note_with_attachments(
     body: str,
     requested_visibility: str | None,
     attachments: list[dict] | None,
+    mentions: list[str] | None = None,
     roles: list[str] | None = None,
     scopes: list[str] | None = None,
 ):
@@ -68,6 +69,31 @@ def create_private_note_with_attachments(
     )
     if attachments:
         apply_message_attachments(db, note, attachments)
+
+    if mentions:
+        # Persist mention metadata on the message and emit websocket notifications.
+        try:
+            from app.models.crm.conversation import Conversation
+            from app.services.common import coerce_uuid
+            from app.services.crm.inbox.notifications import notify_agents_mentioned
+
+            conv = db.get(Conversation, coerce_uuid(conversation_id))
+            if conv:
+                metadata = note.metadata_ if isinstance(note.metadata_, dict) else {}
+                metadata["mentions"] = {"agent_ids": list(mentions)}
+                note.metadata_ = dict(metadata)
+                db.add(note)
+                db.commit()
+                notify_agents_mentioned(
+                    db,
+                    conversation=conv,
+                    message=note,
+                    mentioned_agent_ids=list(mentions),
+                    actor_person_id=author_id,
+                )
+        except Exception:
+            # Mentions should never break note creation.
+            pass
     return note
 
 

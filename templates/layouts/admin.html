@@ -372,7 +372,224 @@
             </div>
         </main>
     </div>
+
+    <!-- Nextcloud Talk Drawer (opened via sidebar button) -->
+    {% if current_user is defined and current_user %}
+    <div x-data="window.nextcloudTalkFloater ? window.nextcloudTalkFloater() : {}"
+         x-init="init && init()"
+         x-on:nextcloud-talk-toggle.window="toggle && toggle()">
+
+        <!-- Overlay -->
+        <div x-show="open"
+             x-transition.opacity
+             x-cloak
+             class="fixed inset-0 z-40 bg-black/0"
+             @click="close && close()"></div>
+
+        <!-- Floating Panel -->
+        <div x-show="open"
+             x-transition
+             x-cloak
+             x-ref="panel"
+             @keydown.escape.window="close && close()"
+             :style="(windowStyle && windowStyle()) || {}"
+             :class="isMobile
+                ? 'fixed inset-0 z-50 w-full h-full rounded-none'
+                : 'fixed z-50 rounded-2xl resize overflow-hidden'"
+             class="min-w-[20rem] min-h-[28rem] border border-slate-200 bg-white shadow-premium-lg dark:border-slate-700 dark:bg-slate-900">
+            <div class="flex h-full flex-col">
+                <div class="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700 select-none"
+                     :class="isMobile ? '' : 'cursor-move'"
+                     @mousedown.prevent="startDrag && startDrag($event)"
+                     @touchstart.passive="startDrag && startDrag($event)">
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold text-slate-900 dark:text-white">Nextcloud Talk</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400 truncate" x-text="selectedRoomName || 'Select a room'"></div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                @click="refreshRooms && refreshRooms()"
+                                :disabled="loadingRooms || !connected">
+                            Refresh
+                        </button>
+                        <button type="button"
+                                x-show="connected"
+                                x-cloak
+                                class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50"
+                                :disabled="loggingOut"
+                                @click="disconnect && disconnect()">
+                            <span x-show="!loggingOut">Logout</span>
+                            <span x-show="loggingOut" x-cloak>Logging out...</span>
+                        </button>
+                        <button type="button"
+                                class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                @click="close && close()">
+                            Close
+                        </button>
+                    </div>
+                </div>
+
+                <template x-if="!connected">
+                    <div class="flex flex-1 min-h-0 flex-col">
+                        <div class="p-6 pb-3">
+                            <div class="text-sm font-semibold text-slate-900 dark:text-white">Login to Nextcloud Talk</div>
+                            <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                Enter your Nextcloud base URL, username, and app password.
+                            </div>
+                        </div>
+
+                        <div class="flex-1 min-h-0 overflow-y-auto px-6 pb-4">
+                            <div class="grid gap-3">
+                                <input type="text"
+                                       x-model="login.base_url"
+                                       placeholder="Base URL (https://nextcloud.example.com)"
+                                       class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                <input type="text"
+                                       x-model="login.username"
+                                       placeholder="Username"
+                                       class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                <input type="password"
+                                       x-model="login.app_password"
+                                       placeholder="App password (Nextcloud)"
+                                       class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+
+                                <div x-show="error"
+                                     class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+                                     x-text="error"></div>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-slate-200 px-6 py-4 dark:border-slate-700">
+                            <button type="button"
+                                    class="w-full rounded-xl bg-primary-600 px-3 py-2 text-sm font-semibold text-white shadow-sm ring-1 ring-primary-500/20 hover:bg-primary-700 disabled:opacity-50 dark:bg-primary-500 dark:hover:bg-primary-400"
+                                    :disabled="!(loginReady && loginReady()) || loggingIn"
+                                    @click="connect && connect()">
+                                <span x-show="!loggingIn">Connect</span>
+                                <span x-show="loggingIn" x-cloak>Connecting...</span>
+                            </button>
+                            <div class="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                Stored per user (server-side).
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <template x-if="connected">
+                <div class="flex flex-1 min-h-0">
+                    <!-- Rooms -->
+                    <div class="w-56 border-r border-slate-200 dark:border-slate-700 flex flex-col min-h-0 bg-white/60 dark:bg-slate-900/40">
+                        <div class="p-3">
+                            <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Chats</div>
+                        </div>
+                        <div class="px-3 pb-3">
+                            <button type="button"
+                                    class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                    @click="newRoomOpen = !newRoomOpen">
+                                New room
+                            </button>
+                            <div x-show="newRoomOpen" x-transition x-cloak class="mt-2 space-y-2">
+                                <input type="text"
+                                       x-model="newRoomName"
+                                       placeholder="Room name"
+                                       class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                <select x-model="newRoomType"
+                                        class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                    <option value="public">Public</option>
+                                    <option value="private">Private</option>
+                                </select>
+                                <button type="button"
+                                        class="w-full rounded-xl bg-accent-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-accent-700 disabled:opacity-50"
+                                        :disabled="creatingRoom || !(newRoomName || '').trim()"
+                                        @click="createRoom && createRoom()">
+                                    <span x-show="!creatingRoom">Create</span>
+                                    <span x-show="creatingRoom" x-cloak>Creating...</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="flex-1 overflow-y-auto">
+                            <template x-if="loadingRooms">
+                                <div class="px-3 pb-3 text-xs text-slate-500 dark:text-slate-400">Loading...</div>
+                            </template>
+                            <template x-for="room in rooms" :key="room.token || room.roomToken">
+                                <button type="button"
+                                        class="w-full px-3 py-2 text-left text-xs transition hover:bg-emerald-50/70 dark:hover:bg-emerald-500/10"
+                                        :class="(selectedRoomToken && (room.token || room.roomToken) === selectedRoomToken) ? 'bg-emerald-50 dark:bg-emerald-500/10' : ''"
+                                        @click="selectRoom && selectRoom(String(room.token || room.roomToken), String(room.displayName || room.name || room.roomName || 'Room'))">
+                                    <div class="font-semibold text-slate-900 dark:text-white truncate" x-text="room.displayName || room.name || room.roomName || 'Room'"></div>
+                                    <div class="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 truncate" x-text="room.token || room.roomToken"></div>
+                                </button>
+                            </template>
+                            <template x-if="!loadingRooms && (!rooms || rooms.length === 0)">
+                                <div class="px-3 pb-3 text-xs text-slate-500 dark:text-slate-400">No rooms found.</div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Chat -->
+                    <div class="flex-1 min-h-0 flex flex-col bg-amber-50/70 dark:bg-slate-950/20">
+                        <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-2" x-ref="messages">
+                            <template x-if="loadingMessages">
+                                <div class="text-xs text-slate-500 dark:text-slate-400">Loading messages...</div>
+                            </template>
+                            <template x-for="msg in (displayedMessages ? displayedMessages() : [])" :key="msg.id">
+                                <div class="flex w-full min-w-0"
+                                     :class="(isMine && isMine(msg)) ? 'justify-end' : 'justify-start'">
+                                    <div class="min-w-0 max-w-[85%] overflow-hidden rounded-2xl px-3 py-2 text-sm shadow-sm"
+                                         :class="(isMine && isMine(msg))
+                                            ? 'bg-emerald-100 text-slate-900 dark:bg-emerald-500/20 dark:text-slate-100'
+                                            : 'bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100'">
+                                        <div class="flex items-baseline justify-between gap-3">
+                                            <div class="text-[11px] font-semibold text-slate-600 dark:text-slate-300 truncate"
+                                                 x-text="(isMine && isMine(msg)) ? 'You' : (msg.actorDisplayName || msg.actorId || 'User')"></div>
+                                            <div class="text-[10px] text-slate-500 dark:text-slate-400 shrink-0"
+                                                 x-text="msg.timestamp ? new Date(Number(msg.timestamp) * 1000).toLocaleTimeString() : ''"></div>
+                                        </div>
+                                        <div class="mt-1 min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed"
+                                             x-text="msg.message || ''"></div>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="selectedRoomToken && (!displayedMessages || (displayedMessages() || []).length === 0) && !loadingMessages">
+                                <div class="text-xs text-slate-500 dark:text-slate-400">No messages yet.</div>
+                            </template>
+                            <template x-if="!selectedRoomToken">
+                                <div class="text-xs text-slate-500 dark:text-slate-400">Select a room.</div>
+                            </template>
+                        </div>
+
+                        <div class="border-t border-slate-200 p-3 dark:border-slate-700 bg-white/80 dark:bg-slate-900/60 overflow-x-hidden">
+                            <div x-show="error" class="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300" x-text="error"></div>
+                            <div class="flex items-end gap-2">
+                                <textarea rows="1"
+                                          x-model="draft"
+                                          :disabled="!selectedRoomToken || sending"
+                                          @keydown.enter.prevent="if (!$event.shiftKey) { send && send() } else { draft = (draft || '') + '\\n' }"
+                                          placeholder="Type a message..."
+                                          class="min-w-0 flex-1 resize-none rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"></textarea>
+                                <button type="button"
+                                        @click="send && send()"
+                                        :disabled="!selectedRoomToken || sending || !(draft || '').trim()"
+                                        class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-400">
+                                    <svg x-show="!sending" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10l18-7-7 18-2-8-9-3z"/>
+                                    </svg>
+                                    <svg x-show="sending" x-cloak class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </template>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </div>
+
 {% endblock %}
 
 {% block scripts %}

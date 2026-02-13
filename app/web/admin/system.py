@@ -3514,6 +3514,8 @@ async def settings_branding_update(
     request: Request,
     logo: UploadFile | None = File(None),
     favicon: UploadFile | None = File(None),
+    logo_url: str | None = Form(None),
+    favicon_url: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Upload branding assets (logo/favicon) and store their URLs in settings."""
@@ -3522,11 +3524,13 @@ async def settings_branding_update(
         logo = None
     if favicon and not favicon.filename:
         favicon = None
+    logo_url_value = (_form_str_opt(logo_url) or "").strip()
+    favicon_url_value = (_form_str_opt(favicon_url) or "").strip()
     service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(SettingDomain.comms)
     if not service:
         errors.append("Settings service not configured for branding.")
-    if not logo and not favicon:
-        errors.append("Please upload a logo and/or favicon.")
+    if not logo and not favicon and not logo_url_value and not favicon_url_value:
+        errors.append("Please upload a logo/favicon and/or provide a logo/favicon URL.")
 
     try:
         if service and logo:
@@ -3542,6 +3546,16 @@ async def settings_branding_update(
                 is_active=True,
             )
             service.upsert_by_key(db, "brand_logo_url", payload)
+        elif service and logo_url_value:
+            payload = DomainSettingUpdate(
+                value_type=settings_spec.SettingValueType.string,
+                value_text=logo_url_value,
+                value_json=None,
+                is_secret=False,
+                is_active=True,
+            )
+            service.upsert_by_key(db, "brand_logo_url", payload)
+
         if service and favicon:
             previous_favicon = settings_spec.resolve_value(db, SettingDomain.comms, "brand_favicon_url")
             favicon_url = await branding_assets.save_branding_asset(
@@ -3550,6 +3564,15 @@ async def settings_branding_update(
             payload = DomainSettingUpdate(
                 value_type=settings_spec.SettingValueType.string,
                 value_text=favicon_url,
+                value_json=None,
+                is_secret=False,
+                is_active=True,
+            )
+            service.upsert_by_key(db, "brand_favicon_url", payload)
+        elif service and favicon_url_value:
+            payload = DomainSettingUpdate(
+                value_type=settings_spec.SettingValueType.string,
+                value_text=favicon_url_value,
                 value_json=None,
                 is_secret=False,
                 is_active=True,

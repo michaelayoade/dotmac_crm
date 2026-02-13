@@ -182,21 +182,21 @@
 
 <!-- Messages Container -->
 <div id="messages-container" class="relative z-0 flex-1 min-h-0 overflow-y-auto inbox-scroll px-6 py-6">
-<div id="message-list" class="max-w-3xl mx-auto space-y-6">
+<div id="message-list" class="max-w-6xl mx-auto space-y-4">
         {% for msg in messages %}
         {% if msg.is_private_note %}
         {% include "admin/crm/_private_note_item.html" %}
         {% else %}
         <div class="msg-slide-up {% if msg.direction == 'outbound' %}flex justify-end{% endif %}" style="animation-delay: {{ loop.index0 * 50 }}ms;">
-            <div class="{% if msg.direction == 'outbound' %}max-w-[75%]{% else %}max-w-[80%]{% endif %}">
+            <div class="w-full {% if msg.direction == 'outbound' %}pl-[18%]{% else %}pr-[18%]{% endif %}">
                 {% if msg.direction == 'inbound' %}
                 <!-- Inbound message -->
                 <div class="flex items-start gap-3">
                     <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-xs font-semibold text-slate-800 border border-slate-200 dark:bg-gradient-to-br dark:from-slate-700 dark:to-slate-800 dark:text-white dark:border-slate-600/30">
                         {{ msg.sender.initials }}
                     </div>
-                    <div class="flex-1">
-                        <div class="message-inbound rounded-2xl rounded-tl-md px-4 py-3 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40">
+                    <div class="min-w-0">
+                        <div class="{% if msg.html_body %}w-full max-w-full{% else %}message-inbound inline-flex w-fit max-w-[60%] flex-col gap-2 rounded-2xl rounded-tl-md px-3 py-1.5 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40{% endif %}">
                             {% if msg.reply_to %}
                             <div class="mb-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-[11px] text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/50 dark:text-slate-300">
                                 <div class="text-[10px] uppercase tracking-wide text-slate-400">Replying to {{ msg.reply_to.author or 'Unknown' }}</div>
@@ -205,16 +205,11 @@
                                 </div>
                             </div>
                             {% endif %}
-                            <div class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
-                                {% if msg.html_body %}
-                                <iframe class="email-html-frame"
-                                        srcdoc="{{ msg.html_body | e }}"
+                            <div class="text-sm text-slate-800 whitespace-pre-wrap break-words max-w-full leading-tight dark:text-slate-200">{% if msg.html_body %}<iframe class="email-html-frame"
+                                        srcdoc="<style>html,body{margin:0;padding:0;overflow:hidden}img,table,td,th{max-width:100% !important;}table{width:100% !important;}body{box-sizing:border-box}</style>{{ msg.html_body | e }}"
                                         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                                        style="width: 100%; border: none; min-height: 140px;"></iframe>
-                                {% else %}
-                                {{ msg.content_html | safe if msg.content_html else msg.content }}
-                                {% endif %}
-                            </div>
+                                        scrolling="no"
+                                        style="display: block; width: 100%; border: none; min-height: 140px; overflow: hidden;"></iframe>{% else %}{{- msg.content_html | safe if msg.content_html else msg.content | trim -}}{% endif %}</div>
                             {% if msg.attachments %}
                             <div class="mt-3 space-y-2">
                                 {% for attachment in msg.attachments %}
@@ -269,8 +264,8 @@
                     <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-primary-600 to-primary-700 flex items-center justify-center text-xs font-semibold text-white">
                         {{ msg.sender.initials }}
                     </div>
-                    <div class="flex-1">
-                        <div class="message-outbound rounded-2xl rounded-tr-md px-4 py-3 bg-primary-500/10 border border-primary-500/20 dark:bg-transparent dark:border-primary-500/20">
+                    <div class="min-w-0">
+                        <div class="{% if msg.html_body %}w-full max-w-full{% else %}message-outbound inline-flex w-fit max-w-[55%] flex-col gap-2 rounded-2xl rounded-tr-md px-3 py-1.5 bg-primary-500/10 border border-primary-500/20 dark:bg-transparent dark:border-primary-500/20{% endif %}">
                             {% if msg.reply_to %}
                             <div class="mb-2 rounded-lg border border-primary-200/60 bg-white/70 px-3 py-2 text-[11px] text-slate-600 dark:border-primary-500/30 dark:bg-slate-900/50 dark:text-slate-300">
                                 <div class="text-[10px] uppercase tracking-wide text-slate-400">Replying to {{ msg.reply_to.author or 'Unknown' }}</div>
@@ -279,16 +274,11 @@
                                 </div>
                             </div>
                             {% endif %}
-                            <div class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed dark:text-slate-200">
-                                {% if msg.html_body %}
-                                <iframe class="email-html-frame"
-                                        srcdoc="{{ msg.html_body | e }}"
+                            <div class="text-sm text-slate-800 whitespace-pre-wrap break-words max-w-full leading-tight dark:text-slate-200">{% if msg.html_body %}<iframe class="email-html-frame"
+                                        srcdoc="<style>html,body{margin:0;padding:0;overflow:hidden}img,table,td,th{max-width:100% !important;}table{width:100% !important;}body{box-sizing:border-box}</style>{{ msg.html_body | e }}"
                                         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                                        style="width: 100%; border: none; min-height: 140px;"></iframe>
-                                {% else %}
-                                {{ msg.content_html | safe if msg.content_html else msg.content }}
-                                {% endif %}
-                            </div>
+                                        scrolling="no"
+                                        style="display: block; width: 100%; border: none; min-height: 140px; overflow: hidden;"></iframe>{% else %}{{- msg.content_html | safe if msg.content_html else msg.content | trim -}}{% endif %}</div>
                             {% if msg.attachments %}
                             <div class="mt-3 space-y-2">
                                 {% for attachment in msg.attachments %}
@@ -359,7 +349,7 @@
             <div class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-xs font-semibold text-slate-800 border border-slate-200 dark:bg-gradient-to-br dark:from-slate-700 dark:to-slate-800 dark:text-white dark:border-slate-600/30">
                 {{ conversation.contact.avatar_initials }}
             </div>
-            <div class="message-inbound rounded-2xl rounded-tl-md px-4 py-3 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40">
+            <div class="message-inbound rounded-2xl rounded-tl-md px-3 py-1.5 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40">
                 <div class="flex gap-1.5">
                     <span class="w-2 h-2 rounded-full bg-slate-500 typing-dot"></span>
                     <span class="w-2 h-2 rounded-full bg-slate-500 typing-dot"></span>
@@ -370,13 +360,138 @@
     </div>
 </div>
 
-<!-- Compose Area -->
-<div class="border-t border-slate-200 bg-slate-50/90 backdrop-blur-sm px-6 py-4 dark:border-slate-800/60 dark:bg-slate-900/50"
-     x-data="{
-         showPrivateNote: sessionStorage.getItem('privateNoteOpen:{{ conversation.id }}') === '1',
-         privateNoteDraft: sessionStorage.getItem('privateNoteDraft:{{ conversation.id }}') || ''
-     }"
-     x-init="if (privateNoteDraft && !showPrivateNote) { showPrivateNote = true; }">
+	<!-- Compose Area -->
+	<div class="border-t border-slate-200 bg-slate-50/90 backdrop-blur-sm px-6 py-4 dark:border-slate-800/60 dark:bg-slate-900/50"
+	     data-mention-agents="{{ (mention_agents or [])|tojson|forceescape }}"
+	     x-data="{
+	         showPrivateNote: sessionStorage.getItem('privateNoteOpen:{{ conversation.id }}') === '1',
+	         privateNoteDraft: sessionStorage.getItem('privateNoteDraft:{{ conversation.id }}') || '',
+	         mentionAgents: [],
+	         mentionOpen: false,
+	         mentionTarget: null,
+	         mentionMatches: [],
+	         mentionIndex: 0,
+         privateMentionDraft: [],
+         messageMentionDraft: [],
+
+         _findMentionQuery(textarea) {
+             if (!textarea) return null;
+             const value = textarea.value || '';
+             const pos = textarea.selectionStart || 0;
+             // Find last '@' before caret; only treat it as a trigger if there's no whitespace between.
+             const at = value.lastIndexOf('@', pos - 1);
+             if (at < 0) return null;
+             const between = value.slice(at + 1, pos);
+             if (/\s/.test(between)) return null;
+             const prev = at > 0 ? value[at - 1] : '';
+             if (prev && /[A-Za-z0-9_]/.test(prev)) return null;
+             return { start: at, query: between };
+         },
+
+         _updateMatches(textarea) {
+             const found = this._findMentionQuery(textarea);
+             if (!found) {
+                 this.mentionOpen = false;
+                 this.mentionMatches = [];
+                 this.mentionIndex = 0;
+                 return;
+             }
+             const q = (found.query || '').toLowerCase();
+             const agents = Array.isArray(this.mentionAgents) ? this.mentionAgents : [];
+             let matches = agents;
+             if (q) {
+                 matches = agents.filter((a) => (a.label || '').toLowerCase().includes(q));
+             }
+             this.mentionMatches = matches.slice(0, 8);
+             this.mentionOpen = this.mentionMatches.length > 0;
+             this.mentionIndex = 0;
+         },
+
+         _insertMention(kind, textarea, agent) {
+             if (!textarea || !agent) return;
+             const found = this._findMentionQuery(textarea);
+             if (!found) return;
+             const before = textarea.value.slice(0, found.start);
+             const after = textarea.value.slice(textarea.selectionStart || 0);
+             const label = agent.label || 'Agent';
+             const insert = `@${label} `;
+             textarea.value = before + insert + after;
+             const newPos = (before + insert).length;
+             textarea.setSelectionRange(newPos, newPos);
+             textarea.dispatchEvent(new Event('input'));
+
+             // Track mentions so we can send stable IDs to the backend.
+             const existing = kind === 'message'
+                 ? (Array.isArray(this.messageMentionDraft) ? this.messageMentionDraft : [])
+                 : (Array.isArray(this.privateMentionDraft) ? this.privateMentionDraft : []);
+             const next = existing.filter((m) => m && m.id && m.label && (m.id !== agent.id));
+             next.push({ id: agent.id, label });
+             if (kind === 'message') {
+                 this.messageMentionDraft = next;
+             } else {
+                 this.privateMentionDraft = next;
+             }
+             this._syncMentions(kind, textarea);
+
+             this.mentionOpen = false;
+             this.mentionMatches = [];
+             this.mentionIndex = 0;
+         },
+
+         _syncMentions(kind, textarea) {
+             const value = (textarea && textarea.value) ? textarea.value : '';
+             const mentions = kind === 'message'
+                 ? (Array.isArray(this.messageMentionDraft) ? this.messageMentionDraft : [])
+                 : (Array.isArray(this.privateMentionDraft) ? this.privateMentionDraft : []);
+             const stillPresent = mentions.filter((m) => m && m.label && value.includes(`@${m.label}`));
+             if (kind === 'message') {
+                 this.messageMentionDraft = stillPresent;
+             } else {
+                 this.privateMentionDraft = stillPresent;
+             }
+             const ids = stillPresent.map((m) => m.id).filter(Boolean);
+             const privateField = this.$refs.privateNoteMentions;
+             const msgField = this.$refs.messageMentions;
+             if (kind === 'private' && privateField) privateField.value = JSON.stringify(ids);
+             if (kind === 'message' && msgField) msgField.value = JSON.stringify(ids);
+         },
+
+         onMentionInput(kind, event) {
+             const textarea = event.target;
+             this.mentionTarget = textarea;
+             this._updateMatches(textarea);
+             this._syncMentions(kind, textarea);
+         },
+
+	         onMentionKeydown(kind, event) {
+	             if (!this.mentionOpen) return;
+	             const textarea = event.target;
+	             // This component has two mention-enabled textareas (private note + message).
+	             // Only intercept keys if the open menu belongs to the textarea receiving this event.
+	             if (!textarea || this.mentionTarget !== textarea) return;
+	             if (!Array.isArray(this.mentionMatches) || this.mentionMatches.length === 0) return;
+	             if (event.key === 'ArrowDown') {
+	                 event.preventDefault();
+	                 this.mentionIndex = Math.min(this.mentionIndex + 1, this.mentionMatches.length - 1);
+	             } else if (event.key === 'ArrowUp') {
+	                 event.preventDefault();
+	                 this.mentionIndex = Math.max(this.mentionIndex - 1, 0);
+	             } else if (event.key === 'Enter' || event.key === 'Tab') {
+	                 event.preventDefault();
+	                 const agent = this.mentionMatches[this.mentionIndex];
+	                 this._insertMention(kind, this.mentionTarget, agent);
+	             } else if (event.key === 'Escape') {
+	                 event.preventDefault();
+	                 this.mentionOpen = false;
+	             }
+	         }
+	     }"
+	     x-init="
+	         // Keep JSON out of the x-data attribute to avoid breaking HTML quoting.
+	         // (tojson contains double quotes which can terminate a double-quoted attribute)
+	         try { mentionAgents = JSON.parse($el.dataset.mentionAgents || '[]'); } catch (e) { mentionAgents = []; }
+	         if (privateNoteDraft && !showPrivateNote) { showPrivateNote = true; }
+	     ">
     {% if reply_error %}
     <div class="max-w-3xl mx-auto mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
         Reply failed. Please try again.
@@ -414,8 +529,26 @@
                       if (!privateNoteDraft.trim()) {
                           sessionStorage.removeItem('privateNoteDraft:{{ conversation.id }}');
                       }
-                  "
+                      onMentionInput('private', $event);
+                   "
+                  @keydown="onMentionKeydown('private', $event)"
                   class="w-full rounded-xl border border-slate-700/50 bg-slate-900/40 px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400/60"></textarea>
+        <input type="hidden" name="mentions" x-ref="privateNoteMentions" value="[]">
+        <div x-show="mentionOpen && mentionTarget === $refs.privateNoteInput"
+             x-transition
+             class="relative">
+            <div class="absolute z-50 mt-1 w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                <template x-for="(agent, idx) in mentionMatches" :key="agent.id">
+                    <button type="button"
+                            @click="_insertMention('private', $refs.privateNoteInput, agent)"
+                            class="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800"
+                            :class="idx === mentionIndex ? 'bg-slate-100 dark:bg-slate-800' : ''">
+                        <span class="text-slate-800 dark:text-slate-200" x-text="agent.label"></span>
+                        <span class="text-[10px] text-slate-400">mention</span>
+                    </button>
+                </template>
+            </div>
+        </div>
         <div class="flex items-center justify-end">
             {{ submit_button("Add note", color="amber", size="sm", loading_label="Adding...") }}
         </div>
@@ -538,6 +671,7 @@
                               if (!form || form.dataset.submitting === '1') { return; }
                               form.requestSubmit();
                           "
+                          @keydown="onMentionKeydown('message', $event)"
                           @blur="if ($root && $root.flushPendingThreadRefresh) { $root.flushPendingThreadRefresh(); }"
                           @input="
                               $el.style.height = 'auto';
@@ -545,7 +679,24 @@
                               if ($refs.messageError) { $refs.messageError.textContent = ''; }
                               if ($root && $root.storeDraft) { $root.storeDraft('{{ conversation.id }}', $el.value); }
                               if ($root && $root.sendTypingIndicator) { $root.sendTypingIndicator('{{ conversation.id }}'); }
+                              onMentionInput('message', $event);
                           "></textarea>
+                <input type="hidden" name="mentions" x-ref="messageMentions" value="[]">
+                <div x-show="mentionOpen && mentionTarget === $refs.messageInput"
+                     x-transition
+                     class="relative">
+                    <div class="absolute z-50 mt-1 w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                        <template x-for="(agent, idx) in mentionMatches" :key="agent.id">
+                            <button type="button"
+                                    @click="_insertMention('message', $refs.messageInput, agent)"
+                                    class="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    :class="idx === mentionIndex ? 'bg-slate-100 dark:bg-slate-800' : ''">
+                                <span class="text-slate-800 dark:text-slate-200" x-text="agent.label"></span>
+                                <span class="text-[10px] text-slate-400">mention</span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
             </div>
 
             <!-- Send button -->

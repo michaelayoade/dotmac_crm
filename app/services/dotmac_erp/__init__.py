@@ -1,5 +1,10 @@
 """DotMac ERP integration service for syncing with erp.dotmac.io."""
 
+from app.services.dotmac_erp.agent_sync import (
+    AgentSyncResult,
+    DotMacERPAgentSync,
+    dotmac_erp_agent_sync,
+)
 from app.services.dotmac_erp.client import (
     DotMacERPAuthError,
     DotMacERPClient,
@@ -29,9 +34,11 @@ from app.services.dotmac_erp.shift_sync import (
     dotmac_erp_shift_sync,
 )
 from app.services.dotmac_erp.stats import (
+    get_agent_sync_history,
     get_contact_sync_history,
     get_daily_stats,
     get_inventory_sync_history,
+    get_last_agent_sync,
     get_last_contact_sync,
     get_last_inventory_sync,
     get_last_material_request_sync,
@@ -41,6 +48,8 @@ from app.services.dotmac_erp.stats import (
     get_material_request_sync_history,
     get_shift_sync_history,
     get_sync_history,
+    get_team_sync_history,
+    record_agent_sync_result,
     record_contact_sync_result,
     record_inventory_sync_result,
     record_material_request_sync_result,
@@ -54,9 +63,16 @@ from app.services.dotmac_erp.team_sync import (
     TeamSyncResult,
     dotmac_erp_team_sync,
 )
+from app.services.dotmac_erp.technician_sync import (
+    DotMacERPTechnicianSync,
+    TechnicianSyncResult,
+    dotmac_erp_technician_sync,
+)
 
 __all__ = [
+    "AgentSyncResult",
     "ContactSyncResult",
+    "DotMacERPAgentSync",
     "DotMacERPAuthError",
     "DotMacERPClient",
     "DotMacERPContactSync",
@@ -68,21 +84,27 @@ __all__ = [
     "DotMacERPShiftSync",
     "DotMacERPSync",
     "DotMacERPTeamSync",
+    "DotMacERPTechnicianSync",
     "DotMacERPTransientError",
     "InventorySyncResult",
     "MaterialRequestSyncResult",
     "ShiftSyncResult",
     "SyncResult",
     "TeamSyncResult",
+    "TechnicianSyncResult",
+    "dotmac_erp_agent_sync",
     "dotmac_erp_contact_sync",
     "dotmac_erp_inventory_sync",
     "dotmac_erp_material_request_sync",
     "dotmac_erp_shift_sync",
     "dotmac_erp_sync",
     "dotmac_erp_team_sync",
+    "dotmac_erp_technician_sync",
+    "get_agent_sync_history",
     "get_contact_sync_history",
     "get_daily_stats",
     "get_inventory_sync_history",
+    "get_last_agent_sync",
     "get_last_contact_sync",
     "get_last_inventory_sync",
     "get_last_material_request_sync",
@@ -92,6 +114,8 @@ __all__ = [
     "get_material_request_sync_history",
     "get_shift_sync_history",
     "get_sync_history",
+    "get_team_sync_history",
+    "record_agent_sync_result",
     "record_contact_sync_result",
     "record_inventory_sync_result",
     "record_material_request_sync_result",

@@ -111,6 +111,7 @@ class LeadRead(LeadBase):
 
     id: UUID
     weighted_value: Decimal | None = None
+    closed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

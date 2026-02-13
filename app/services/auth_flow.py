@@ -225,6 +225,11 @@ def _mfa_key(db: Session | None) -> bytes:
     key = resolve_secret(key)
     if not key:
         raise HTTPException(status_code=500, detail="TOTP encryption key not configured")
+    # Fernet keys are urlsafe base64 with length multiple of 4. Some deployments
+    # store keys without '=' padding; normalize so cryptography can decode it.
+    padding = (-len(key)) % 4
+    if padding:
+        key = f"{key}{'=' * padding}"
     return key.encode()
 
 

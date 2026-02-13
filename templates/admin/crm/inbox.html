@@ -1002,6 +1002,11 @@ function inboxController() {
                         const body = doc.body;
                         const html = doc.documentElement;
                         if (!body || !html) return;
+                        body.style.margin = '0';
+                        body.style.padding = '0';
+                        body.style.overflow = 'hidden';
+                        html.style.overflow = 'hidden';
+                        html.style.width = '100%';
                         const height = Math.max(
                             body.scrollHeight,
                             body.offsetHeight,
@@ -1009,7 +1014,10 @@ function inboxController() {
                             html.offsetHeight
                         );
                         if (height > 0) {
+                            frame.style.height = '0px';
                             frame.style.height = `${height}px`;
+                            frame.style.overflow = 'hidden';
+                            frame.style.width = '100%';
                         }
                     } catch (err) {
                         // Ignore resize failures for sandboxed content.
@@ -1424,13 +1432,18 @@ function inboxController() {
         },
 
         handleAgentNotification(payload) {
-            if (!payload || !payload.conversation_id) return;
-            if (this.selectedConversation && this.selectedConversation === payload.conversation_id) {
+            if (!payload) return;
+            const isConversation = !!payload.conversation_id;
+            const isTicket = !!payload.ticket_id;
+            if (!isConversation && !isTicket) return;
+            if (isConversation && this.selectedConversation && this.selectedConversation === payload.conversation_id) {
                 return;
             }
-            const existing = this.notifications.filter(
-                (note) => note.conversationId !== payload.conversation_id
-            );
+            const existing = this.notifications.filter((note) => {
+                if (isConversation) return note.conversationId !== payload.conversation_id;
+                if (isTicket) return note.ticketId !== payload.ticket_id;
+                return true;
+            });
             const notification = this.buildNotification(payload);
             this.notifications = [notification, ...existing].slice(0, 4);
             if (notification.autoDismissMs > 0) {
@@ -1445,6 +1458,11 @@ function inboxController() {
             const id = `notif-${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const createdAt = payload.last_message_at ? new Date(payload.last_message_at) : new Date();
             const autoDismissMs = (this.notificationAutoDismissSeconds || 0) * 1000;
+            const ticketRef = payload.ticket_number || payload.ticket_id || null;
+            const computedUrl = payload.conversation_id
+                ? null
+                : (ticketRef ? `/admin/support/tickets/${ticketRef}` : null);
+            const targetUrl = payload.target_url || computedUrl;
             return {
                 id,
                 kind: payload.kind || 'reply',
@@ -1454,6 +1472,9 @@ function inboxController() {
                 conversationId: payload.conversation_id,
                 contactId: payload.contact_id || null,
                 channel: payload.channel || null,
+                ticketId: payload.ticket_id || null,
+                ticketNumber: payload.ticket_number || null,
+                targetUrl,
                 timeLabel: this.formatTimeLabel(createdAt),
                 autoDismissMs,
                 timeoutId: null
@@ -1469,7 +1490,12 @@ function inboxController() {
         },
 
         openNotification(notification) {
-            if (!notification || !notification.conversationId) return;
+            if (!notification) return;
+            if (notification.targetUrl) {
+                window.location.href = notification.targetUrl;
+                return;
+            }
+            if (!notification.conversationId) return;
             this.dismissNotification(notification.id);
             this.selectConversation(notification.conversationId, notification.contactId);
         },
@@ -1499,12 +1525,17 @@ function inboxController() {
             const form = event.target;
             const bodyField = form.querySelector('textarea[name="body"]');
             const visibilityField = form.querySelector('select[name="visibility"]');
+            const mentionsField = form.querySelector('input[name="mentions"]');
             const errorEl = form.querySelector('[data-private-note-error]');
             const conversationId = form.getAttribute('data-conversation-id');
             if (errorEl) errorEl.textContent = '';
 
             const body = bodyField ? bodyField.value : '';
             const visibility = visibilityField ? visibilityField.value : null;
+            let mentions = [];
+            if (mentionsField && mentionsField.value) {
+                try { mentions = JSON.parse(mentionsField.value) || []; } catch (err) { mentions = []; }
+            }
             const token = this.getCsrfToken();
 
             fetch(form.action, {
@@ -1514,7 +1545,7 @@ function inboxController() {
                     'Accept': 'text/html',
                     'X-CSRF-Token': token || ''
                 },
-                body: JSON.stringify({ body, visibility, attachments: this.pendingAttachments })
+                body: JSON.stringify({ body, visibility, attachments: this.pendingAttachments, mentions })
             })
             .then(async (response) => {
                 if (!response.ok) {

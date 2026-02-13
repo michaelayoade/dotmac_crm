@@ -63,7 +63,8 @@ def search_pop_sites(
 
 @router.get("/vendors", response_model=ListResponse[TypeaheadItem])
 def search_vendors(
-    q: str = Query(min_length=2),
+    # Allow empty queries so typeahead fields can fetch on focus/click.
+    q: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
