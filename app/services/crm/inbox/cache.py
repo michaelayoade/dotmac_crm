@@ -1,4 +1,9 @@
-"""Lightweight in-memory cache for CRM inbox services."""
+"""Lightweight in-memory cache for CRM inbox services.
+
+NOTE: This is a per-process cache. Cross-worker invalidation relies on short
+TTLs (5s for inbox list).  A Redis pubsub layer could be added later for
+instant invalidation across workers, but the short TTLs are sufficient for now.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +13,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 INBOX_LIST_TTL_SECONDS = 5
-COMMENTS_LIST_TTL_SECONDS = 300
-COMMENTS_THREAD_TTL_SECONDS = 300
+COMMENTS_LIST_TTL_SECONDS = 60
+COMMENTS_THREAD_TTL_SECONDS = 60
 
 
 @dataclass

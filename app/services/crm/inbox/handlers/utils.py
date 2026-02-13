@@ -7,9 +7,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.crm.conversation import Conversation, Message
+from app.models.crm.conversation import Conversation, ConversationAssignment, Message
 from app.models.crm.enums import MessageDirection, MessageStatus
-from app.models.crm.team import CrmAgent
+from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.context import get_inbox_logger
 from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
@@ -70,13 +70,43 @@ def post_process_inbound_message(
             build_conversation_summary(db, conversation, message),
         )
 
-        agent_ids = (
-            db.query(CrmAgent.person_id)
-            .filter(CrmAgent.is_active.is_(True))
-            .filter(CrmAgent.person_id.isnot(None))
-            .distinct()
+        # Notify agents assigned to this conversation or on the same team
+        agent_person_ids: set[str] = set()
+        assignments = (
+            db.query(ConversationAssignment.agent_id, ConversationAssignment.team_id)
+            .filter(ConversationAssignment.conversation_id == conversation.id)
+            .filter(ConversationAssignment.is_active.is_(True))
             .all()
         )
+        team_ids = set()
+        for assignment in assignments:
+            if assignment.agent_id:
+                agent = db.get(CrmAgent, assignment.agent_id)
+                if agent and agent.person_id:
+                    agent_person_ids.add(str(agent.person_id))
+            if assignment.team_id:
+                team_ids.add(assignment.team_id)
+        if team_ids:
+            team_agent_links = (
+                db.query(CrmAgentTeam.agent_id)
+                .filter(CrmAgentTeam.team_id.in_(team_ids))
+                .filter(CrmAgentTeam.is_active.is_(True))
+                .all()
+            )
+            for (member_agent_id,) in team_agent_links:
+                agent = db.get(CrmAgent, member_agent_id)
+                if agent and agent.person_id:
+                    agent_person_ids.add(str(agent.person_id))
+        # Fallback: if no specific agents, notify all active agents
+        if not agent_person_ids:
+            all_agents = (
+                db.query(CrmAgent.person_id)
+                .filter(CrmAgent.is_active.is_(True))
+                .filter(CrmAgent.person_id.isnot(None))
+                .distinct()
+                .all()
+            )
+            agent_person_ids = {str(row[0]) for row in all_agents}
         inbox_payload = {
             "conversation_id": str(conversation.id),
             "message_id": str(message.id),
@@ -87,8 +117,8 @@ def post_process_inbound_message(
                 else None
             ),
         }
-        for agent_id in agent_ids:
-            broadcast_inbox_updated(str(agent_id[0]), inbox_payload)
+        for person_id in agent_person_ids:
+            broadcast_inbox_updated(person_id, inbox_payload)
 
         inbox_cache.invalidate_inbox_list()
     except Exception as exc:

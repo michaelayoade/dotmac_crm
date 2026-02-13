@@ -100,7 +100,7 @@ def _pick_round_robin_agent(db: Session, team: CrmTeam, rule_id: str) -> str | N
     rr_state[rule_id] = next_agent_id
     metadata["routing_rr"] = rr_state
     team.metadata_ = metadata
-    db.commit()
+    db.flush()
     return next_agent_id
 
 

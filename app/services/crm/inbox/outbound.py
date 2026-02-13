@@ -1005,8 +1005,6 @@ def _send_chat_widget_message(
     return message
 
 
-
-
 # -----------------------------------------------------------------------------
 # Main send_message function
 # -----------------------------------------------------------------------------
@@ -1219,8 +1217,8 @@ def send_message(
             )
 
         raise InboxValidationError("channel_unsupported", "Unsupported channel type")
-    except InboxError as exc:
-        raise exc.to_http_exception() from exc
+    except InboxError:
+        raise
 
 
 def send_message_with_retry(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import email
 import imaplib
 import poplib
@@ -202,17 +203,34 @@ def _imap_poll(
     if not host or not isinstance(username, str) or not isinstance(password, str) or not username or not password:
         raise HTTPException(status_code=400, detail="IMAP config incomplete")
 
-    metadata = dict(config.metadata_ or {})
-    last_uid = metadata.get("imap_last_uid") if isinstance(metadata.get("imap_last_uid"), int) else None
-
     client = (
         imaplib.IMAP4_SSL(host, port, timeout=EMAIL_POLL_CONNECT_TIMEOUT)
         if use_ssl
         else imaplib.IMAP4(host, port, timeout=EMAIL_POLL_CONNECT_TIMEOUT)
     )
+    try:
+        return _imap_poll_inner(db, config, imap_config, auth_config, target_id, client)
+    finally:
+        with contextlib.suppress(Exception):
+            client.logout()
+
+
+def _imap_poll_inner(
+    db: Session,
+    config: ConnectorConfig,
+    imap_config: dict,
+    auth_config: dict,
+    target_id: str | None,
+    client,
+) -> int:
+    username = auth_config.get("username")
+    password = auth_config.get("password")
     client.login(username, password)
     mailbox = imap_config.get("mailbox", "INBOX")
     mailbox_value = mailbox.strip() if isinstance(mailbox, str) and mailbox.strip() else "INBOX"
+
+    metadata = dict(config.metadata_ or {})
+    last_uid = metadata.get("imap_last_uid") if isinstance(metadata.get("imap_last_uid"), int) else None
 
     def _uid_search(search_criteria: str) -> list[bytes]:
         # Some IMAP servers reject UTF-8 unless explicitly enabled; fall back to US-ASCII.
@@ -356,7 +374,6 @@ def _imap_poll(
             metadata["imap_last_uid"] = last_uid
             config.metadata_ = metadata
             db.commit()
-        client.logout()
         return processed
     if uids:
         try:
@@ -452,7 +469,6 @@ def _imap_poll(
         config.metadata_ = metadata
         db.commit()
 
-    client.logout()
     return processed
 
 
@@ -486,12 +502,30 @@ def _pop3_poll(
         if use_ssl
         else poplib.POP3(host, port, timeout=EMAIL_POLL_CONNECT_TIMEOUT)
     )
-    client.user(username)
-    client.pass_(password)
+    try:
+        client.user(username)
+        client.pass_(password)
+        return _pop3_poll_inner(
+            db, config, auth_config, target_id, client, metadata, last_uidl, seen_uidls, seen_uidls_raw
+        )
+    finally:
+        with contextlib.suppress(Exception):
+            client.quit()
 
+
+def _pop3_poll_inner(
+    db: Session,
+    config: ConnectorConfig,
+    auth_config: dict,
+    target_id: str | None,
+    client,
+    metadata: dict,
+    last_uidl: str | None,
+    seen_uidls: set[str],
+    seen_uidls_raw: list,
+) -> int:
     _resp, listings, _ = client.uidl()
     if not listings:
-        client.quit()
         return 0
 
     processed = 0
@@ -570,7 +604,6 @@ def _pop3_poll(
         config.metadata_ = metadata
         db.commit()
 
-    client.quit()
     return processed
 
 

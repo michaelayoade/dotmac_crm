@@ -152,16 +152,18 @@ def _resolve_person_for_inbound(
             channel_type,
             normalized_address or address,
         )
+        needs_commit = False
         if (
             channel_type == ChannelType.email
             and normalized_address
             and (not person.email or person.email.endswith("@example.invalid"))
         ):
             person.email = normalized_address
-            db.commit()
-            db.refresh(person)
+            needs_commit = True
         if display_name and not person.display_name:
             person.display_name = display_name
+            needs_commit = True
+        if needs_commit:
             db.commit()
             db.refresh(person)
         return person, channel

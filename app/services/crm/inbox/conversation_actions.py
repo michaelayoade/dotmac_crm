@@ -162,6 +162,8 @@ def resolve_conversation(
     except Exception as exc:
         return ResolveConversationResult(kind="error", conversation=conversation, error_detail=str(exc))
 
+    db.refresh(conversation)
+
     if also_resolve:
         from app.services.crm.inbox.conversation_status import update_conversation_status
 
