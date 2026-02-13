@@ -232,9 +232,13 @@ def submit_as_built(
     db: Session = Depends(get_db),
 ):
     context = require_vendor_context(request, db)
+    project = vendor_service.installation_projects.get(db, str(payload.project_id))
+    vendor_id = str(context["vendor"].id)
+    if not vendor_service.project_quotes.has_submitted_for_vendor_project(db, str(project.id), vendor_id):
+        raise HTTPException(status_code=403, detail="Quote must be submitted before as-built can be provided")
     return vendor_service.as_built_routes.create(
         db,
         payload,
-        vendor_id=str(context["vendor"].id),
+        vendor_id=vendor_id,
         submitted_by_person_id=str(context["person"].id),
     )

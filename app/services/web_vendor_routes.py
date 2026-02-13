@@ -7,9 +7,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.models.projects import Project
 from app.models.rbac import PersonRole, Role
+from app.models.vendor import InstallationProject
 from app.services import vendor as vendor_service
 from app.services import vendor_portal
+from app.services.common import coerce_uuid
 
 templates = Jinja2Templates(directory="templates")
 
@@ -34,6 +37,56 @@ def _require_vendor_context(request: Request, db: Session):
     if not context:
         return None
     return context
+
+
+def _resolve_installation_project(db: Session, project_ref: str) -> InstallationProject:
+    # Accept canonical installation project UUIDs and friendly project code/number refs.
+    try:
+        return vendor_service.installation_projects.get(db, project_ref)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+
+    query = (
+        db.query(InstallationProject)
+        .join(Project, Project.id == InstallationProject.project_id)
+        .filter(InstallationProject.is_active.is_(True))
+    )
+    project = query.filter((Project.code == project_ref) | (Project.number == project_ref)).first()
+    if project:
+        return project
+
+    try:
+        project_uuid = coerce_uuid(project_ref)
+    except Exception:
+        project_uuid = None
+    if project_uuid:
+        project = query.filter(InstallationProject.project_id == project_uuid).first()
+        if project:
+            return project
+
+    raise HTTPException(status_code=404, detail="Installation project not found")
+
+
+def _as_built_eligible_project_ids(db: Session, projects: list[InstallationProject], vendor_id: str) -> set[str]:
+    from app.models.vendor import ProjectQuote, ProjectQuoteStatus
+
+    project_ids = [project.id for project in projects]
+    if not project_ids:
+        return set()
+    eligible_statuses = (ProjectQuoteStatus.submitted, ProjectQuoteStatus.under_review, ProjectQuoteStatus.approved)
+    rows = (
+        db.query(ProjectQuote.project_id)
+        .filter(
+            ProjectQuote.project_id.in_(project_ids),
+            ProjectQuote.vendor_id == coerce_uuid(vendor_id),
+            ProjectQuote.is_active.is_(True),
+            ProjectQuote.status.in_(eligible_statuses),
+        )
+        .distinct()
+        .all()
+    )
+    return {str(row[0]) for row in rows}
 
 
 def _has_vendor_role(db: Session, person_id: str, vendor_role: str | None) -> bool:
@@ -62,6 +115,7 @@ def vendor_dashboard(request: Request, db: Session):
     vendor_id = str(context["vendor"].id)
     available = vendor_service.installation_projects.list_available_for_vendor(db, vendor_id, limit=10, offset=0)
     mine = vendor_service.installation_projects.list_for_vendor(db, vendor_id, limit=10, offset=0)
+    as_built_project_ids = _as_built_eligible_project_ids(db, mine, vendor_id)
     return templates.TemplateResponse(
         "vendor/dashboard/index.html",
         {
@@ -71,6 +125,7 @@ def vendor_dashboard(request: Request, db: Session):
             "current_user": context["current_user"],
             "available_projects": available,
             "my_projects": mine,
+            "as_built_project_ids": as_built_project_ids,
         },
     )
 
@@ -99,6 +154,7 @@ def vendor_projects_mine(request: Request, db: Session):
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     vendor_id = str(context["vendor"].id)
     projects = vendor_service.installation_projects.list_for_vendor(db, vendor_id, limit=50, offset=0)
+    as_built_project_ids = _as_built_eligible_project_ids(db, projects, vendor_id)
     return templates.TemplateResponse(
         "vendor/projects/my-projects.html",
         {
@@ -107,6 +163,7 @@ def vendor_projects_mine(request: Request, db: Session):
             "vendor": context["vendor"],
             "current_user": context["current_user"],
             "projects": projects,
+            "as_built_project_ids": as_built_project_ids,
         },
     )
 
@@ -116,7 +173,7 @@ def quote_builder(request: Request, project_id: str, db: Session):
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     vendor_id = str(context["vendor"].id)
-    project = vendor_service.installation_projects.get(db, project_id)
+    project = _resolve_installation_project(db, project_id)
     existing_quote = vendor_service.project_quotes.get_latest_for_vendor_project(
         db,
         installation_project_id=str(project.id),
@@ -183,7 +240,7 @@ def as_built_submit(request: Request, project_id: str, db: Session):
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     vendor_id = str(context["vendor"].id)
-    project = vendor_service.installation_projects.get(db, project_id)
+    project = _resolve_installation_project(db, project_id)
     existing_quote = vendor_service.project_quotes.get_latest_for_vendor_project(
         db,
         installation_project_id=str(project.id),
@@ -204,6 +261,8 @@ def as_built_submit(request: Request, project_id: str, db: Session):
     is_assigned_vendor = str(project.assigned_vendor_id or "") == vendor_id
     if not (is_assigned_vendor or approved_quote_vendor_match or existing_quote):
         return HTMLResponse(content="Forbidden", status_code=403)
+    if not vendor_service.project_quotes.has_submitted_for_vendor_project(db, str(project.id), vendor_id):
+        return HTMLResponse(content="Quote must be submitted before as-built can be provided.", status_code=403)
     return templates.TemplateResponse(
         "vendor/as-built/submit.html",
         {
