@@ -96,7 +96,9 @@
     </div>
 
     <!-- Left Sidebar - Channel Filters & Conversation List -->
-    <aside class="w-80 flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60">
+    <aside class="w-full flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60"
+           :class="selectedConversation && isNarrowViewport ? 'hidden' : 'flex'"
+           :style="isNarrowViewport ? '' : 'width: 20rem;'">
         <!-- Header -->
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-slate-700/60">
             <div class="flex items-center gap-3">
@@ -115,6 +117,12 @@
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                             <span class="text-[10px] uppercase tracking-wide font-medium">Live</span>
                         </span>
+                        <span x-show="wsDisconnectedPermanently" x-cloak
+                              class="ml-2 inline-flex items-center gap-1 text-red-500 dark:text-red-400"
+                              title="Real-time updates offline — refresh to reconnect">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                            <span class="text-[10px] uppercase tracking-wide font-medium">Offline</span>
+                        </span>
                     </p>
                 </div>
             </div>
@@ -130,6 +138,7 @@
                         @click="toggleNotificationSound()"
                         :class="notificationSoundEnabled ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:text-emerald-300 dark:hover:bg-emerald-500/10' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800'"
                         class="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+                        :aria-label="notificationSoundEnabled ? 'Mute notification sound' : 'Enable notification sound'"
                         title="Toggle notification sound">
                     <svg x-show="notificationSoundEnabled" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H3v6h3l5 4V5z"/>
@@ -161,9 +170,20 @@
                     </svg>
                 </div>
                 <input type="text"
+                       name="search"
+                       data-search-input="true"
                        placeholder="Search conversations..."
                        x-model="searchQuery"
-                       @input.debounce.300ms="filterConversations()"
+                       @keydown="markSearchInteracted($event)"
+                       @paste="markSearchInteracted()"
+                       @drop="markSearchInteracted()"
+                       @input.debounce.300ms="filterConversations({ fromInput: true })"
+                       autocomplete="new-password"
+                       data-lpignore="true"
+                       data-1p-ignore="true"
+                       autocapitalize="off"
+                       autocorrect="off"
+                       spellcheck="false"
                        class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 transition-all focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 dark:bg-slate-800/50 dark:border-slate-600 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
             </div>
         </div>
@@ -322,7 +342,8 @@
     </aside>
 
     <!-- Center - Message Thread -->
-    <main class="flex-1 flex flex-col min-w-0 min-h-0 bg-white dark:bg-slate-950 inbox-mesh">
+    <main class="flex-1 flex flex-col min-w-0 min-h-0 bg-white dark:bg-slate-950 inbox-mesh"
+          :class="!selectedConversation && !selectedCommentId && isNarrowViewport ? 'hidden' : 'flex'">
         <div class="px-6 pt-4"
              x-show="threadStale && selectedConversation"
              x-transition
@@ -371,7 +392,7 @@
     </main>
 
     <!-- Right Sidebar - Contact Details -->
-    <aside class="w-80 flex-shrink-0 border-l border-slate-200/60 bg-slate-50/50 overflow-y-auto inbox-scroll dark:border-slate-700/60 dark:bg-slate-900/40"
+    <aside class="hidden lg:block w-80 flex-shrink-0 border-l border-slate-200/60 bg-slate-50/50 overflow-y-auto inbox-scroll dark:border-slate-700/60 dark:bg-slate-900/40"
            x-show="showContactPanel"
            x-transition:enter="transition ease-out duration-200"
            x-transition:enter-start="opacity-0 translate-x-4"
@@ -435,6 +456,7 @@
             {% endif %}
 
             <form method="POST" action="/admin/crm/inbox/conversation/new" class="mt-6 space-y-4">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                 <div class="grid gap-4 sm:grid-cols-2">
                     <div>
                         <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
@@ -630,7 +652,7 @@
     </div>
 
     <!-- Right panel (split view) -->
-    <aside class="w-[30rem] flex-shrink-0 border-l border-slate-200/60 bg-white overflow-y-auto inbox-scroll dark:border-slate-700/60 dark:bg-slate-950"
+    <aside class="hidden lg:block w-[30rem] flex-shrink-0 border-l border-slate-200/60 bg-white overflow-y-auto inbox-scroll dark:border-slate-700/60 dark:bg-slate-950"
            x-cloak
            x-show="sidePanel"
            x-transition:enter="transition ease-out duration-200"
@@ -729,6 +751,7 @@ function inboxController() {
         typingTimer: null,
         typingSendTimer: null,
         wsConnected: false,
+        wsDisconnectedPermanently: false,
         inboxWs: null,
         refreshTimer: null,
         refreshDelayMs: 800,
@@ -741,13 +764,18 @@ function inboxController() {
         maxSummaryFlushPerTick: 10,
         lastSummaryFlushAt: 0,
         minSummaryFlushIntervalMs: 200,
-        pendingAttachments: [],
+        pendingMessageAttachments: [],
+        pendingPrivateAttachments: [],
         notifications: [],
         notificationAutoDismissSeconds: {{ (notification_auto_dismiss_seconds or 12) | tojson }},
         notificationSoundEnabled: true,
         notificationAudioContext: null,
         replyTo: null,
+        searchInteracted: false,
+        isNarrowViewport: false,
         _initialized: false,
+        viewportMediaQuery: null,
+        viewportListener: null,
         init() {
             // Guard against double initialization (Alpine Devtools can trigger this)
             if (this._initialized) {
@@ -755,6 +783,9 @@ function inboxController() {
                 return;
             }
             this._initialized = true;
+            this.initializeSearchState();
+            this.scheduleSearchAutofillGuard();
+            this.initViewportMode();
 
             // Setup HTMX event listeners
             document.body.addEventListener('htmx:afterSwap', (e) => {
@@ -763,6 +794,7 @@ function inboxController() {
                     this.resizeEmailFrames();
                     this.initQuoteHandlers();
                     this.renderQuotePreview();
+                    this.syncMessageAttachmentField();
                     this.isTyping = false;
                     this.typingConversationId = null;
                     this.threadStale = false;
@@ -826,6 +858,7 @@ function inboxController() {
             });
             window.addEventListener('inbox-ws-connected', () => {
                 this.wsConnected = true;
+                this.wsDisconnectedPermanently = false;
                 if (this.selectedConversation && this.inboxWs) {
                     this.inboxWs.subscribe(this.selectedConversation);
                 }
@@ -836,6 +869,9 @@ function inboxController() {
             });
             window.addEventListener('inbox-ws-disconnected', () => {
                 this.wsConnected = false;
+            });
+            window.addEventListener('inbox-ws-max-retries', () => {
+                this.wsDisconnectedPermanently = true;
             });
             window.addEventListener('inbox-agent-notification', (e) => {
                 this.handleAgentNotification(e.detail);
@@ -863,7 +899,7 @@ function inboxController() {
                 this.listStale = true;
             });
 
-            // Fallback polling - always keep comments refreshed
+            // Fallback polling when websocket is unavailable.
             setInterval(() => {
                 if (!document.hidden) {
                     // Only poll when websocket is down to avoid redundant refreshes.
@@ -871,7 +907,7 @@ function inboxController() {
                         this.autoRefresh();
                     }
                 }
-            }, 30000);
+            }, 5000);
 
             this.restoreConversationCache();
             this.subscribeVisibleConversations();
@@ -879,6 +915,19 @@ function inboxController() {
                 requestAnimationFrame(() => {
                     this.refreshThread(true);
                 });
+            }
+        },
+        initViewportMode() {
+            this.viewportMediaQuery = window.matchMedia('(max-width: 639px)');
+            const syncViewport = () => {
+                this.isNarrowViewport = !!this.viewportMediaQuery && this.viewportMediaQuery.matches;
+            };
+            syncViewport();
+            this.viewportListener = syncViewport;
+            if (this.viewportMediaQuery.addEventListener) {
+                this.viewportMediaQuery.addEventListener('change', syncViewport);
+            } else if (this.viewportMediaQuery.addListener) {
+                this.viewportMediaQuery.addListener(syncViewport);
             }
         },
         draftKey(conversationId) {
@@ -1545,7 +1594,7 @@ function inboxController() {
                     'Accept': 'text/html',
                     'X-CSRF-Token': token || ''
                 },
-                body: JSON.stringify({ body, visibility, attachments: this.pendingAttachments, mentions })
+                body: JSON.stringify({ body, visibility, attachments: this.pendingPrivateAttachments, mentions })
             })
             .then(async (response) => {
                 if (!response.ok) {
@@ -1567,9 +1616,7 @@ function inboxController() {
                     }
                 }
                 if (bodyField) bodyField.value = '';
-                this.pendingAttachments = [];
-                const hidden = document.querySelector('input[name="attachments"]');
-                if (hidden) hidden.value = '';
+                this.pendingPrivateAttachments = [];
                 if (conversationId) {
                     sessionStorage.removeItem(`privateNoteDraft:${conversationId}`);
                     sessionStorage.setItem(`privateNoteOpen:${conversationId}`, '0');
@@ -1628,7 +1675,14 @@ function inboxController() {
             });
         },
 
-        uploadAttachments(event) {
+        syncMessageAttachmentField() {
+            const hidden = document.querySelector('input[name="attachments"]');
+            if (hidden) {
+                hidden.value = JSON.stringify(this.pendingMessageAttachments);
+            }
+        },
+
+        uploadAttachments(event, kind = 'message') {
             if (!this.selectedConversation) {
                 console.warn('[Inbox] No conversation selected for attachments');
                 return;
@@ -1657,9 +1711,12 @@ function inboxController() {
             })
             .then((data) => {
                 const attachments = data.attachments || [];
-                this.pendingAttachments = [...this.pendingAttachments, ...attachments];
-                const hidden = document.querySelector('input[name="attachments"]');
-                if (hidden) hidden.value = JSON.stringify(this.pendingAttachments);
+                if (kind === 'private') {
+                    this.pendingPrivateAttachments = [...this.pendingPrivateAttachments, ...attachments];
+                    return;
+                }
+                this.pendingMessageAttachments = [...this.pendingMessageAttachments, ...attachments];
+                this.syncMessageAttachmentField();
             })
             .catch((err) => {
                 console.error('[Inbox] attachment upload failed', err);
@@ -1669,10 +1726,13 @@ function inboxController() {
             });
         },
 
-        removeAttachment(index) {
-            this.pendingAttachments = this.pendingAttachments.filter((_, idx) => idx !== index);
-            const hidden = document.querySelector('input[name="attachments"]');
-            if (hidden) hidden.value = JSON.stringify(this.pendingAttachments);
+        removeAttachment(index, kind = 'message') {
+            if (kind === 'private') {
+                this.pendingPrivateAttachments = this.pendingPrivateAttachments.filter((_, idx) => idx !== index);
+                return;
+            }
+            this.pendingMessageAttachments = this.pendingMessageAttachments.filter((_, idx) => idx !== index);
+            this.syncMessageAttachmentField();
         },
 
         setChannel(channel) {
@@ -1701,12 +1761,105 @@ function inboxController() {
             this.filterConversations();
         },
 
+        markSearchInteracted(event) {
+            if (!event) {
+                this.searchInteracted = true;
+                return;
+            }
+
+            // Treat only real text-edit actions as intent. Ignore navigation keys.
+            const key = String(event.key || '').toLowerCase();
+            if (
+                key === 'tab' ||
+                key === 'shift' ||
+                key === 'control' ||
+                key === 'alt' ||
+                key === 'meta' ||
+                key === 'capslock' ||
+                key === 'escape' ||
+                key === 'arrowup' ||
+                key === 'arrowdown' ||
+                key === 'arrowleft' ||
+                key === 'arrowright' ||
+                key === 'home' ||
+                key === 'end' ||
+                key === 'pageup' ||
+                key === 'pagedown'
+            ) {
+                return;
+            }
+            this.searchInteracted = true;
+        },
+
+        scheduleSearchAutofillGuard() {
+            const runGuard = () => {
+                if (this.searchInteracted || this.hasExplicitSearchParam()) {
+                    return;
+                }
+                const value = (this.searchQuery || '').trim();
+                if (!value) {
+                    return;
+                }
+                this.searchQuery = '';
+                const searchInput = document.querySelector("input[data-search-input='true'][name='search']");
+                if (searchInput && searchInput.value) {
+                    searchInput.value = '';
+                }
+            };
+
+            window.setTimeout(runGuard, 150);
+            window.setTimeout(runGuard, 500);
+            window.setTimeout(runGuard, 1200);
+            window.setTimeout(runGuard, 2500);
+        },
+
+        initializeSearchState() {
+            if (this.hasExplicitSearchParam()) {
+                this.searchInteracted = true;
+                return;
+            }
+            if ((this.searchQuery || '').trim()) {
+                this.searchQuery = '';
+            }
+            this.searchInteracted = false;
+        },
+
+        hasExplicitSearchParam() {
+            const params = new URLSearchParams(window.location.search || '');
+            return (params.get('search') || '').trim().length > 0;
+        },
+
+        effectiveSearchQuery() {
+            const value = (this.searchQuery || '').trim();
+            if (!value) {
+                return '';
+            }
+            if (this.searchInteracted || this.hasExplicitSearchParam()) {
+                return value;
+            }
+            return '';
+        },
+
+        guardAutofilledSearch() {
+            if (this.searchInteracted || this.hasExplicitSearchParam()) {
+                return;
+            }
+            if (!(this.searchQuery || '').trim()) {
+                return;
+            }
+            const searchInput = document.querySelector("input[data-search-input='true'][name='search']");
+            if (searchInput && document.activeElement === searchInput) {
+                return;
+            }
+            this.searchQuery = '';
+        },
+
         cacheKey() {
             const channel = this.currentChannel || 'all';
             const status = this.currentStatus || 'all';
             const assignment = this.currentAssignment || 'all';
             const targetId = this.currentInboxTargetId || 'all';
-            const search = this.searchQuery || '';
+            const search = this.effectiveSearchQuery();
             return `crm:conversations:${channel}:${status}:${assignment}:${targetId}:${search}`;
         },
 
@@ -1742,13 +1895,19 @@ function inboxController() {
             }
         },
 
-        filterConversations() {
+        filterConversations(options = {}) {
+            this.guardAutofilledSearch();
+            if (options.fromInput && !this.searchInteracted && !this.hasExplicitSearchParam()) {
+                return;
+            }
+
             const params = new URLSearchParams();
             if (this.currentChannel) params.set('channel', this.currentChannel);
             if (this.currentStatus) params.set('status', this.currentStatus);
             if (this.currentAssignment) params.set('assignment', this.currentAssignment);
             if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
-            if (this.searchQuery) params.set('search', this.searchQuery);
+            const effectiveSearch = this.effectiveSearchQuery();
+            if (effectiveSearch) params.set('search', effectiveSearch);
             params.set('page', '1');
             params.set('limit', String(this.paginationLimit));
 
@@ -1797,6 +1956,9 @@ function inboxController() {
             this.sidePanel = null;
             this.clearQuote();
             this.threadStale = false;
+            this.pendingMessageAttachments = [];
+            this.pendingPrivateAttachments = [];
+            this.syncMessageAttachmentField();
 
             // Subscribe to new conversation
             if (this.inboxWs && convId) {
@@ -1818,6 +1980,12 @@ function inboxController() {
             const params = new URLSearchParams(window.location.search);
             params.set('conversation_id', convId);
             params.delete('comment_id');
+            const effectiveSearch = this.effectiveSearchQuery();
+            if (effectiveSearch) {
+                params.set('search', effectiveSearch);
+            } else {
+                params.delete('search');
+            }
             if (params.get('channel') === 'comments') {
                 params.delete('channel');
             }
@@ -1839,7 +2007,8 @@ function inboxController() {
 
             const params = new URLSearchParams();
             params.set('comment_id', commentId);
-            if (this.searchQuery) params.set('search', this.searchQuery);
+            const effectiveSearch = this.effectiveSearchQuery();
+            if (effectiveSearch) params.set('search', effectiveSearch);
             if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
 
             htmx.ajax('GET', `/admin/crm/inbox/comments/thread?${params.toString()}`, {
@@ -1855,8 +2024,8 @@ function inboxController() {
             const urlParams = new URLSearchParams(window.location.search);
             urlParams.delete('conversation_id');
             urlParams.set('comment_id', commentId);
-            if (this.searchQuery) {
-                urlParams.set('search', this.searchQuery);
+            if (effectiveSearch) {
+                urlParams.set('search', effectiveSearch);
             } else {
                 urlParams.delete('search');
             }
@@ -1884,12 +2053,12 @@ function inboxController() {
             this.closeSidePanel();
         },
 
-        refreshConversations() {
+        refreshConversations(force = false) {
             if (this.currentChannel === 'comments') {
                 return;
             }
             // Avoid re-rendering the list while a thread is open.
-            if (this.selectedConversation) {
+            if (this.selectedConversation && !force) {
                 this.listStale = true;
                 return;
             }
@@ -1899,7 +2068,8 @@ function inboxController() {
 
         refreshComments() {
             const params = new URLSearchParams();
-            if (this.searchQuery) params.set('search', this.searchQuery);
+            const effectiveSearch = this.effectiveSearchQuery();
+            if (effectiveSearch) params.set('search', effectiveSearch);
             if (this.selectedCommentId) params.set('comment_id', this.selectedCommentId);
             if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
             params.set('page', '1');
@@ -1920,8 +2090,10 @@ function inboxController() {
                 this.refreshComments();
                 return;
             }
-            this.listStale = true;
-            // Avoid polling the thread to reduce interruptions while typing.
+            this.refreshConversations(true);
+            if (this.selectedConversation) {
+                this.refreshThread(false);
+            }
         },
 
         refreshThread(force = false) {
@@ -1970,13 +2142,21 @@ function inboxController() {
             if (!this.inboxWs || !this.inboxWs.isConnected()) {
                 return;
             }
+            const visibleIds = new Set();
             const rows = document.querySelectorAll('[data-conversation-id]');
             rows.forEach((row) => {
                 const convId = row.getAttribute('data-conversation-id');
                 if (convId) {
+                    visibleIds.add(convId);
                     this.inboxWs.subscribe(convId);
                 }
             });
+            // Unsubscribe from conversations no longer visible (except selected)
+            for (const subId of this.inboxWs.subscriptions) {
+                if (!visibleIds.has(subId) && subId !== this.selectedConversation) {
+                    this.inboxWs.unsubscribe(subId);
+                }
+            }
         },
 
         updateConversationRow(summary) {
@@ -1990,7 +2170,7 @@ function inboxController() {
                 return false;
             }
             if (summary.channel) {
-                row.className = row.className.replace(/channel-[^\\s]+/g, '').trim();
+                row.className = row.className.replace(/channel-[^\s]+/g, '').trim();
                 row.classList.add(`channel-${summary.channel}`);
             }
             if (typeof summary.unread_count === 'number') {

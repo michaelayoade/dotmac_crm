@@ -1,5 +1,15 @@
 {% if comments %}
     {% include "admin/crm/_comment_list_items.html" %}
+{% else %}
+<div class="flex flex-col items-center justify-center py-16 px-8 text-center">
+    <div class="w-16 h-16 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center mb-4 dark:bg-slate-800/50 dark:border-slate-700/50">
+        <svg class="w-8 h-8 text-slate-500 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 8h10M7 12h6m-6 4h4m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+    </div>
+    <h3 class="text-sm font-semibold text-slate-700 mb-1 dark:text-slate-400">No comments</h3>
+    <p class="text-xs text-slate-500 dark:text-slate-500">{% if search %}No results for "{{ search }}"{% else %}No social comments found.{% endif %}</p>
+</div>
 {% endif %}
 
 <div class="px-4 py-4 text-center flex items-center justify-center gap-3 text-xs text-slate-500 dark:text-slate-400">

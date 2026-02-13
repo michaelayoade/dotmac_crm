@@ -157,6 +157,7 @@ class InboxWebSocket {
     _scheduleReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             console.warn('[InboxWS] Max reconnect attempts reached');
+            this._emitEvent('inbox-ws-max-retries', {});
             return;
         }
 
