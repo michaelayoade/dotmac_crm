@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, table_shell, table_row, empty_state %}
+{% from "components/ui/macros.html" import danger_button, table_shell, table_row, empty_state, filter_bar, filter_select %}
 {% block title %}Projects - Admin{% endblock %}
 
 {% block content %}
@@ -90,50 +90,41 @@
         </a>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    {% call filter_bar() %}
         <form id="projects-filter-form" method="get" action="/admin/projects" class="flex flex-col gap-4 sm:flex-row sm:items-end">
             {# Preserve pagination size when applying filters; always reset to page 1. #}
             <input type="hidden" name="per_page" value="{{ per_page }}">
             <input type="hidden" name="page" value="1">
             <div class="flex-1">
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Status</label>
-                <select name="status" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="">All Status</option>
-                    <option value="planned" {% if status == 'planned' %}selected{% endif %}>Planned</option>
-                    <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
-                    <option value="on_hold" {% if status == 'on_hold' %}selected{% endif %}>On Hold</option>
-                    <option value="completed" {% if status == 'completed' %}selected{% endif %}>Completed</option>
-                    <option value="canceled" {% if status == 'canceled' %}selected{% endif %}>Canceled</option>
-                </select>
+                {{ filter_select("status", [
+                    {"value": "", "label": "All Status"},
+                    {"value": "planned", "label": "Planned"},
+                    {"value": "active", "label": "Active"},
+                    {"value": "on_hold", "label": "On Hold"},
+                    {"value": "completed", "label": "Completed"},
+                    {"value": "canceled", "label": "Canceled"}
+                ], status or '', "Status", "primary") }}
             </div>
             <div class="flex-1">
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Project Type</label>
-                <select name="project_type" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="">All Project Types</option>
-                    {% for item in project_types %}
-                    <option value="{{ item }}" {% if project_type == item %}selected{% endif %}>{{ item.replace('_', ' ').title() }}</option>
-                    {% endfor %}
-                </select>
+                {% set project_type_options = [{"value": "", "label": "All Project Types"}] %}
+                {% for item in project_types %}
+                    {% set _ = project_type_options.append({"value": item, "label": item.replace('_', ' ').title()}) %}
+                {% endfor %}
+                {{ filter_select("project_type", project_type_options, project_type or '', "Project Type", "primary") }}
             </div>
             <div class="flex-1">
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">PM</label>
-                <select name="pm" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="">All Project Managers</option>
-                    <option value="me" {% if pm == 'me' %}selected{% endif %}>Me</option>
-                    {% for option in pm_options or [] %}
-                    <option value="{{ option.value }}" {% if pm == option.value %}selected{% endif %}>{{ option.label }}</option>
-                    {% endfor %}
-                </select>
+                {% set pm_filter_options = [{"value": "", "label": "All Project Managers"}, {"value": "me", "label": "Me"}] %}
+                {% for option in pm_options or [] %}
+                    {% set _ = pm_filter_options.append(option) %}
+                {% endfor %}
+                {{ filter_select("pm", pm_filter_options, pm or '', "PM", "primary") }}
             </div>
             <div class="flex-1">
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">SPC</label>
-                <select name="spc" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="">All Site Coordinators</option>
-                    <option value="me" {% if spc == 'me' %}selected{% endif %}>Me</option>
-                    {% for option in spc_options or [] %}
-                    <option value="{{ option.value }}" {% if spc == option.value %}selected{% endif %}>{{ option.label }}</option>
-                    {% endfor %}
-                </select>
+                {% set spc_filter_options = [{"value": "", "label": "All Site Coordinators"}, {"value": "me", "label": "Me"}] %}
+                {% for option in spc_options or [] %}
+                    {% set _ = spc_filter_options.append(option) %}
+                {% endfor %}
+                {{ filter_select("spc", spc_filter_options, spc or '', "SPC", "primary") }}
             </div>
             <div>
                 <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -215,7 +206,7 @@
                 </div>
             </details>
         </div>
-    </div>
+    {% endcall %}
 
     <div x-data="{ activeView: 'table' }">
         <!-- View Tabs -->
@@ -403,12 +394,21 @@
                 <span>Page {{ page }} of {{ total_pages }}</span>
                 <label class="inline-flex items-center gap-2">
                     <span>Rows</span>
-                    <select class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
-                            onchange="const u=new URL(window.location.href);u.searchParams.set('per_page', this.value);u.searchParams.set('page','1');window.location.assign(u.toString());">
-                        {% for size in [10, 25, 50, 100] %}
-                        <option value="{{ size }}" {% if per_page|int == size %}selected{% endif %}>{{ size }}</option>
-                        {% endfor %}
-                    </select>
+                    {# Avoid `new URL(...)` because SES lockdown can remove URL constructor. #}
+                    <form method="get" action="/admin/projects" class="inline">
+                        <input type="hidden" name="status" value="{{ status or '' }}">
+                        <input type="hidden" name="project_type" value="{{ project_type or '' }}">
+                        <input type="hidden" name="pm" value="{{ pm or '' }}">
+                        <input type="hidden" name="spc" value="{{ spc or '' }}">
+                        <input type="hidden" name="page" value="1">
+                        <select name="per_page"
+                                class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                                onchange="this.form.submit()">
+                            {% for size in [10, 25, 50, 100] %}
+                            <option value="{{ size }}" {% if per_page|int == size %}selected{% endif %}>{{ size }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
                 </label>
             </div>
             <div class="flex items-center gap-2">
@@ -542,14 +542,11 @@ document.addEventListener("DOMContentLoaded", () => {
     })();
 });
 </script>
+<script src="/static/js/ui-filter-state.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-    const form = document.getElementById("projects-filter-form");
-    if (!form) return;
     const userId = "{{ (current_user.get('person_id') if current_user and current_user.get('person_id') else 'anon') }}";
-    const filterStorageKey = `admin:projects:filters:${userId}`;
-    const columnStorageKey = `admin:projects:columns:${userId}`;
-    const fields = ["status", "project_type", "pm", "spc"];
+    if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
     const columnDefinitions = [
         "project",
         "customer",
@@ -566,119 +563,18 @@ document.addEventListener("DOMContentLoaded", () => {
         "start_at",
         "due_at"
     ];
-    const defaultVisibleColumns = ["project", "customer", "status", "priority", "created"];
-    const columnOptionInputs = Array.from(document.querySelectorAll("[data-project-column-option]"));
-    const url = new URL(window.location.href);
-
-    const readForm = () => {
-        const values = {};
-        fields.forEach((field) => {
-            const input = form.querySelector(`[name="${field}"]`);
-            values[field] = (input && input.value) ? input.value : "";
-        });
-        return values;
-    };
-
-    const saveFilters = () => {
-        window.localStorage.setItem(filterStorageKey, JSON.stringify(readForm()));
-    };
-
-    const getDefaultVisibleColumns = () => defaultVisibleColumns.slice();
-
-    const getVisibleColumns = () => {
-        const raw = window.localStorage.getItem(columnStorageKey);
-        if (!raw) return getDefaultVisibleColumns();
-        try {
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) return getDefaultVisibleColumns();
-            const cleaned = parsed.filter((key) => typeof key === "string" && columnDefinitions.includes(key));
-            return cleaned.length ? cleaned : getDefaultVisibleColumns();
-        } catch (_error) {
-            return getDefaultVisibleColumns();
-        }
-    };
-
-    const saveVisibleColumns = (columns) => {
-        window.localStorage.setItem(columnStorageKey, JSON.stringify(columns));
-    };
-
-    const applyVisibleColumns = () => {
-        const visible = new Set(getVisibleColumns());
-        columnDefinitions.forEach((column) => {
-            const cells = document.querySelectorAll(`[data-project-column="${column}"]`);
-            cells.forEach((cell) => {
-                cell.classList.toggle("hidden", !visible.has(column));
-            });
-        });
-    };
-
-    const syncColumnOptionInputs = () => {
-        const visible = new Set(getVisibleColumns());
-        columnOptionInputs.forEach((input) => {
-            input.checked = visible.has(input.value);
-        });
-    };
-
-    let hasQueryFilters = false;
-    fields.forEach((field) => {
-        if ((url.searchParams.get(field) || "").trim()) {
-            hasQueryFilters = true;
-        }
+    window.DotmacUiFilterState.init({
+        formId: "projects-filter-form",
+        fields: ["status", "project_type", "pm", "spc"],
+        filterStorageKey: `admin:projects:filters:${userId}`,
+        columns: {
+            optionSelector: "[data-project-column-option]",
+            storageKey: `admin:projects:columns:${userId}`,
+            cellAttr: "data-project-column",
+            validKeys: columnDefinitions,
+            defaultVisible: ["project", "customer", "status", "priority", "created"],
+        },
     });
-
-    if (!hasQueryFilters) {
-        const raw = window.localStorage.getItem(filterStorageKey);
-        if (raw) {
-            try {
-                const saved = JSON.parse(raw);
-                const restoredUrl = new URL(window.location.href);
-                let shouldRestore = false;
-                fields.forEach((field) => {
-                    const value = (saved[field] || "").trim();
-                    if (value) {
-                        restoredUrl.searchParams.set(field, value);
-                        shouldRestore = true;
-                    }
-                });
-                if (shouldRestore) {
-                    window.location.replace(restoredUrl.toString());
-                    return;
-                }
-            } catch (_error) {
-            }
-        }
-    } else {
-        saveFilters();
-    }
-
-    columnOptionInputs.forEach((input) => {
-        input.addEventListener("change", () => {
-            const current = new Set(getVisibleColumns());
-            if (input.checked) {
-                current.add(input.value);
-            } else {
-                current.delete(input.value);
-                if (current.size === 0) {
-                    input.checked = true;
-                    current.add(input.value);
-                }
-            }
-            saveVisibleColumns(Array.from(current));
-            syncColumnOptionInputs();
-            applyVisibleColumns();
-        });
-    });
-
-    form.addEventListener("submit", saveFilters);
-    fields.forEach((field) => {
-        const input = form.querySelector(`[name="${field}"]`);
-        if (input) {
-            input.addEventListener("change", saveFilters);
-        }
-    });
-
-    syncColumnOptionInputs();
-    applyVisibleColumns();
 });
 </script>
 {% endblock %}

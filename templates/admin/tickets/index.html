@@ -135,7 +135,7 @@
                     <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Show Columns</p>
                     <div id="tickets-column-options" class="max-h-72 space-y-2 overflow-y-auto pr-1">
                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                            <input type="checkbox" value="ticket" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500" checked>
+                            <input type="checkbox" value="ticket" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500" checked disabled>
                             <span>Ticket ID</span>
                         </label>
                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
@@ -151,8 +151,12 @@
                             <span>Status</span>
                         </label>
                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                            <input type="checkbox" value="customer" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
-                            <span>Customer</span>
+                            <input type="checkbox" value="customer" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500" checked>
+                            <span>Customer Name</span>
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input type="checkbox" value="customer_id" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
+                            <span>Customer ID</span>
                         </label>
                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                             <input type="checkbox" value="subscriber" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
@@ -183,8 +187,8 @@
                             <span>Due Date</span>
                         </label>
                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                            <input type="checkbox" value="created" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500">
-                            <span>Created</span>
+                            <input type="checkbox" value="created" data-ticket-column-option class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-amber-500" checked disabled>
+                            <span>Opening Date</span>
                         </label>
                     </div>
                 </div>
@@ -200,173 +204,46 @@
 </div>
 
 {{ animation_styles() }}
+<script src="/static/js/ui-filter-state.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-    const form = document.getElementById("tickets-filter-form");
-    if (!form) return;
     const userId = "{{ (current_user.get('person_id') if current_user and current_user.get('person_id') else 'anon') }}";
-    const filterStorageKey = `admin:tickets:filters:${userId}`;
-    const columnStorageKey = `admin:tickets:columns:${userId}`;
-    const columnOptionInputs = Array.from(document.querySelectorAll("[data-ticket-column-option]"));
-    const columnPicker = document.getElementById("tickets-column-picker");
-    const columnPickerToggle = document.getElementById("tickets-column-picker-toggle");
-    const columnPickerPanel = document.getElementById("tickets-column-picker-panel");
-    const fields = ["status", "ticket_type", "assigned", "pm", "spc"];
     const columnDefinitions = [
-        { key: "ticket", label: "Ticket ID", defaultVisible: true },
-        { key: "type", label: "Ticket Type", defaultVisible: true },
-        { key: "priority", label: "Priority", defaultVisible: true },
-        { key: "status", label: "Status", defaultVisible: true },
-        { key: "customer", label: "Customer", defaultVisible: false },
-        { key: "subscriber", label: "Subscriber", defaultVisible: false },
-        { key: "region", label: "Region", defaultVisible: false },
-        { key: "assigned", label: "Assigned", defaultVisible: false },
-        { key: "project_manager", label: "Project Manager", defaultVisible: false },
-        { key: "site_coordinator", label: "Site Coordinator", defaultVisible: false },
-        { key: "channel", label: "Channel", defaultVisible: false },
-        { key: "due_at", label: "Due Date", defaultVisible: false },
-        { key: "created", label: "Created", defaultVisible: false }
+        { key: "ticket", defaultVisible: true },
+        { key: "type", defaultVisible: true },
+        { key: "priority", defaultVisible: true },
+        { key: "status", defaultVisible: true },
+        { key: "customer", defaultVisible: true },
+        { key: "customer_id", defaultVisible: false },
+        { key: "subscriber", defaultVisible: false },
+        { key: "region", defaultVisible: false },
+        { key: "assigned", defaultVisible: false },
+        { key: "project_manager", defaultVisible: false },
+        { key: "site_coordinator", defaultVisible: false },
+        { key: "channel", defaultVisible: false },
+        { key: "due_at", defaultVisible: false },
+        { key: "created", defaultVisible: true }
     ];
-    const validColumnKeys = new Set(columnDefinitions.map((column) => column.key));
-    const url = new URL(window.location.href);
-
-    const readForm = () => {
-        const values = {};
-        fields.forEach((field) => {
-            const input = form.querySelector(`[name="${field}"]`);
-            values[field] = (input && input.value) ? input.value : "";
-        });
-        return values;
-    };
-
-    const saveFilters = () => {
-        window.localStorage.setItem(filterStorageKey, JSON.stringify(readForm()));
-    };
-
-    const getDefaultVisibleColumns = () => {
-        return columnDefinitions
-            .filter((column) => column.defaultVisible)
-            .map((column) => column.key);
-    };
-
-    const getVisibleColumns = () => {
-        const raw = window.localStorage.getItem(columnStorageKey);
-        if (!raw) return getDefaultVisibleColumns();
-        try {
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) return getDefaultVisibleColumns();
-            const cleaned = parsed.filter((key) => typeof key === "string" && validColumnKeys.has(key));
-            return cleaned.length ? cleaned : getDefaultVisibleColumns();
-        } catch (_error) {
-            return getDefaultVisibleColumns();
-        }
-    };
-
-    const saveVisibleColumns = (columns) => {
-        window.localStorage.setItem(columnStorageKey, JSON.stringify(columns));
-    };
-
-    const applyVisibleColumns = () => {
-        const visible = new Set(getVisibleColumns());
-        columnDefinitions.forEach((column) => {
-            const cells = document.querySelectorAll(`[data-ticket-column="${column.key}"]`);
-            cells.forEach((cell) => {
-                cell.classList.toggle("hidden", !visible.has(column.key));
-            });
-        });
-    };
-
-    const syncColumnOptionInputs = () => {
-        const visible = new Set(getVisibleColumns());
-        columnOptionInputs.forEach((input) => {
-            input.checked = visible.has(input.value);
-        });
-    };
-
-    const clearButton = document.querySelector('[data-clear-filters="tickets"]');
-    if (clearButton) {
-        clearButton.addEventListener("click", () => window.localStorage.removeItem(filterStorageKey));
-    }
-
-    let hasQueryFilters = false;
-    fields.forEach((field) => {
-        if ((url.searchParams.get(field) || "").trim()) {
-            hasQueryFilters = true;
-        }
-    });
-
-    if (!hasQueryFilters) {
-        const raw = window.localStorage.getItem(filterStorageKey);
-        if (raw) {
-            try {
-                const saved = JSON.parse(raw);
-                const restoredUrl = new URL(window.location.href);
-                let shouldRestore = false;
-                fields.forEach((field) => {
-                    const value = (saved[field] || "").trim();
-                    if (value) {
-                        restoredUrl.searchParams.set(field, value);
-                        shouldRestore = true;
-                    }
-                });
-                if (shouldRestore) {
-                    window.location.replace(restoredUrl.toString());
-                    return;
-                }
-            } catch (_error) {
-            }
-        }
-    } else {
-        saveFilters();
-    }
-
-    fields.forEach((field) => {
-        const input = form.querySelector(`[name="${field}"]`);
-        if (input) {
-            input.addEventListener("change", saveFilters);
-        }
-    });
-
-    columnOptionInputs.forEach((input) => {
-        input.addEventListener("change", () => {
-            const current = new Set(getVisibleColumns());
-            if (input.checked) {
-                current.add(input.value);
-            } else {
-                current.delete(input.value);
-                if (current.size === 0) {
-                    input.checked = true;
-                    current.add(input.value);
-                }
-            }
-            saveVisibleColumns(Array.from(current));
-            syncColumnOptionInputs();
-            applyVisibleColumns();
-        });
-    });
-
-    if (columnPickerToggle && columnPickerPanel) {
-        columnPickerToggle.addEventListener("click", () => {
-            columnPickerPanel.classList.toggle("hidden");
-        });
-
-        document.addEventListener("click", (event) => {
-            if (!columnPicker || !columnPickerPanel || columnPickerPanel.classList.contains("hidden")) {
-                return;
-            }
-            if (!columnPicker.contains(event.target)) {
-                columnPickerPanel.classList.add("hidden");
-            }
-        });
-    }
-
-    syncColumnOptionInputs();
-    applyVisibleColumns();
-
-    document.body.addEventListener("htmx:afterSwap", (event) => {
-        if (event.target && event.target.id === "tickets-table") {
-            applyVisibleColumns();
-        }
+    if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
+    window.DotmacUiFilterState.init({
+        formId: "tickets-filter-form",
+        fields: ["status", "ticket_type", "assigned", "pm", "spc"],
+        filterStorageKey: `admin:tickets:filters:${userId}`,
+        clearButtonSelector: '[data-clear-filters="tickets"]',
+        columns: {
+            optionSelector: "[data-ticket-column-option]",
+            storageKey: `admin:tickets:columns:${userId}`,
+            cellAttr: "data-ticket-column",
+            validKeys: columnDefinitions.map((column) => column.key),
+            defaultVisible: columnDefinitions
+                .filter((column) => column.defaultVisible)
+                .map((column) => column.key),
+            requiredKeys: ["ticket", "created"],
+            containerId: "tickets-column-picker",
+            toggleButtonId: "tickets-column-picker-toggle",
+            panelId: "tickets-column-picker-panel",
+            afterSwapTargetId: "tickets-table",
+        },
     });
 });
 </script>
