@@ -1,12 +1,14 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import String, cast, func, nullslast, or_
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.crm.conversation import Conversation, ConversationAssignment
+from app.models.crm.conversation import Conversation, ConversationAssignment, Message
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.models.crm.sales import CrmQuoteLineItem, Lead, Pipeline, PipelineStage, Quote
+from app.models.crm.team import CrmAgent
 from app.models.domain_settings import SettingDomain
 from app.models.inventory import InventoryItem
 from app.models.person import PartyStatus, Person
@@ -35,6 +37,27 @@ def _resolve_owner_agent_id_for_person(db: Session, person_id):
     return None
 
 
+def _resolve_owner_agent_id_from_last_agent_message(db: Session, person_id):
+    row = (
+        db.query(CrmAgent.id)
+        .join(Message, Message.author_id == CrmAgent.person_id)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(Conversation.person_id == person_id)
+        .filter(Message.author_id.isnot(None))
+        .order_by(Message.created_at.desc())
+        .first()
+    )
+    return row[0] if row else None
+
+
+def _resolve_owner_agent_id(db: Session, person_id):
+    # Prefer explicit inbox assignment; fall back to last agent-authored message.
+    owner = _resolve_owner_agent_id_for_person(db, person_id)
+    if owner:
+        return owner
+    return _resolve_owner_agent_id_from_last_agent_message(db, person_id)
+
+
 def _lead_title_from_person(person: Person) -> str | None:
     if not person:
         return None
@@ -50,18 +73,40 @@ def _lead_title_from_person(person: Person) -> str | None:
     return None
 
 
+def _apply_lead_closed_at(
+    lead: Lead,
+    status: LeadStatus | None,
+    *,
+    previous_status: LeadStatus | None = None,
+) -> None:
+    closed_statuses = (LeadStatus.won, LeadStatus.lost)
+    if status in closed_statuses:
+        # Stamp close time when transitioning from open -> closed, or backfill if missing.
+        if previous_status not in closed_statuses or lead.closed_at is None:
+            lead.closed_at = datetime.now(UTC)
+        return
+
+    # Clear close timestamp if a previously closed lead is reopened.
+    if previous_status in closed_statuses:
+        lead.closed_at = None
+
+
 def _apply_lead_status_from_quote(db: Session, quote: Quote, status: QuoteStatus | None):
     if not quote or not status or not quote.lead_id:
         return
     lead = db.get(Lead, quote.lead_id)
     if not lead:
         return
+    previous_status = lead.status
     if status == QuoteStatus.accepted:
         lead.status = LeadStatus.won
     elif status == QuoteStatus.rejected:
         lead.status = LeadStatus.lost
     else:
         return
+    if lead.owner_agent_id is None:
+        lead.owner_agent_id = _resolve_owner_agent_id(db, lead.person_id)
+    _apply_lead_closed_at(lead, lead.status, previous_status=previous_status)
     db.commit()
 
 
@@ -280,12 +325,13 @@ class Leads(ListResponseMixin):
             data["title"] = _lead_title_from_person(person)
 
         if not data.get("owner_agent_id"):
-            data["owner_agent_id"] = _resolve_owner_agent_id_for_person(db, person_id)
+            data["owner_agent_id"] = _resolve_owner_agent_id(db, person_id)
         if not data.get("currency"):
             default_currency = settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
             if default_currency:
                 data["currency"] = default_currency
         lead = Lead(**data)
+        _apply_lead_closed_at(lead, lead.status)
         db.add(lead)
         db.commit()
         db.refresh(lead)
@@ -338,6 +384,7 @@ class Leads(ListResponseMixin):
         lead = db.get(Lead, coerce_uuid(lead_id))
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
+        previous_status = lead.status
         data = payload.model_dump(exclude_unset=True)
         if "status" in data:
             data["status"] = validate_enum(data["status"], LeadStatus, "status")
@@ -366,6 +413,10 @@ class Leads(ListResponseMixin):
             and lead.person.party_status in (PartyStatus.lead, PartyStatus.contact)
         ):
             lead.person.party_status = PartyStatus.customer
+        if "status" in data:
+            if lead.owner_agent_id is None and lead.status in (LeadStatus.won, LeadStatus.lost):
+                lead.owner_agent_id = _resolve_owner_agent_id(db, lead.person_id)
+            _apply_lead_closed_at(lead, lead.status, previous_status=previous_status)
 
         db.commit()
         db.refresh(lead)

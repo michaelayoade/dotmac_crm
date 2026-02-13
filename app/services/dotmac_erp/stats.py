@@ -218,16 +218,34 @@ def clear_stats() -> None:
         return
 
     try:
-        # Find and delete all stats keys
-        keys = cast(list[str], redis.keys(f"{_STATS_KEY_PREFIX}*"))
-        if keys:
-            redis.delete(*keys)
-        redis.delete(_LAST_SYNC_KEY, _HISTORY_KEY)
-        # Also clear inventory stats
-        inv_keys = cast(list[str], redis.keys(f"{_INV_STATS_KEY_PREFIX}*"))
-        if inv_keys:
-            redis.delete(*inv_keys)
-        redis.delete(_INV_LAST_SYNC_KEY, _INV_HISTORY_KEY)
+        # Find and delete all daily stats keys across all sync types
+        for prefix in (
+            _STATS_KEY_PREFIX,
+            _INV_STATS_KEY_PREFIX,
+            _SHIFT_STATS_KEY_PREFIX,
+            _MR_STATS_KEY_PREFIX,
+        ):
+            keys = cast(list[str], redis.keys(f"{prefix}*"))
+            if keys:
+                redis.delete(*keys)
+
+        # Delete all last-sync and history keys
+        redis.delete(
+            _LAST_SYNC_KEY,
+            _HISTORY_KEY,
+            _INV_LAST_SYNC_KEY,
+            _INV_HISTORY_KEY,
+            _SHIFT_LAST_SYNC_KEY,
+            _SHIFT_HISTORY_KEY,
+            _MR_LAST_SYNC_KEY,
+            _MR_HISTORY_KEY,
+            _CONTACT_LAST_SYNC_KEY,
+            _CONTACT_HISTORY_KEY,
+            _TEAM_LAST_SYNC_KEY,
+            _TEAM_HISTORY_KEY,
+            _AGENT_LAST_SYNC_KEY,
+            _AGENT_HISTORY_KEY,
+        )
         logger.info("Cleared all ERP sync stats")
     except Exception as e:
         logger.warning("erp_stats_clear_failed error=%s", e)
@@ -743,3 +761,102 @@ def get_last_team_sync() -> dict | None:
     except Exception as e:
         logger.warning("team_last_sync_fetch_failed error=%s", e)
         return None
+
+
+def get_team_sync_history(limit: int = 10) -> list[dict]:
+    """Get recent team sync history."""
+    redis = _get_redis()
+    if not redis:
+        return []
+
+    try:
+        entries = cast(list[str], redis.lrange(_TEAM_HISTORY_KEY, 0, limit - 1))
+        return [json.loads(entry) for entry in entries]
+    except Exception as e:
+        logger.warning("team_sync_history_fetch_failed error=%s", e)
+        return []
+
+
+# ============ CRM Agent Sync Stats ============
+
+_AGENT_LAST_SYNC_KEY = "erp_sync:agent_last_sync"
+_AGENT_HISTORY_KEY = "erp_sync:agent_history"
+
+
+def record_agent_sync_result(
+    persons_created: int,
+    persons_updated: int,
+    agents_created: int,
+    agents_updated: int,
+    agents_reactivated: int,
+    agents_deactivated: int,
+    employees_seen: int,
+    employees_eligible: int,
+    errors: list[dict],
+    duration_seconds: float,
+) -> None:
+    """Record CRM agent sync result to Redis."""
+    redis = _get_redis()
+    if not redis:
+        return
+
+    try:
+        now = datetime.now(UTC)
+        total = persons_created + persons_updated + agents_created + agents_updated
+        success = len(errors) == 0
+
+        last_sync = {
+            "timestamp": now.isoformat(),
+            "persons_created": persons_created,
+            "persons_updated": persons_updated,
+            "agents_created": agents_created,
+            "agents_updated": agents_updated,
+            "agents_reactivated": agents_reactivated,
+            "agents_deactivated": agents_deactivated,
+            "employees_seen": employees_seen,
+            "employees_eligible": employees_eligible,
+            "total": total,
+            "errors": len(errors),
+            "duration_seconds": duration_seconds,
+            "success": success,
+        }
+
+        pipe = redis.pipeline()
+        pipe.set(_AGENT_LAST_SYNC_KEY, json.dumps(last_sync))
+        pipe.lpush(_AGENT_HISTORY_KEY, json.dumps(last_sync))
+        pipe.ltrim(_AGENT_HISTORY_KEY, 0, _HISTORY_MAX_SIZE - 1)
+        pipe.execute()
+
+        logger.debug("agent_sync_stats_recorded total=%s", total)
+    except Exception as e:
+        logger.warning("agent_sync_stats_record_failed error=%s", e)
+
+
+def get_last_agent_sync() -> dict | None:
+    """Get last CRM agent sync timestamp and status."""
+    redis = _get_redis()
+    if not redis:
+        return None
+
+    try:
+        data = cast(str | None, redis.get(_AGENT_LAST_SYNC_KEY))
+        if not data:
+            return None
+        return json.loads(data)
+    except Exception as e:
+        logger.warning("agent_last_sync_fetch_failed error=%s", e)
+        return None
+
+
+def get_agent_sync_history(limit: int = 10) -> list[dict]:
+    """Get recent CRM agent sync history."""
+    redis = _get_redis()
+    if not redis:
+        return []
+
+    try:
+        entries = cast(list[str], redis.lrange(_AGENT_HISTORY_KEY, 0, limit - 1))
+        return [json.loads(entry) for entry in entries]
+    except Exception as e:
+        logger.warning("agent_sync_history_fetch_failed error=%s", e)
+        return []
