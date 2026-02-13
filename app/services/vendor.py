@@ -45,6 +45,12 @@ from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, round_money
 from app.services.response import ListResponseMixin
 
+_AS_BUILT_ELIGIBLE_QUOTE_STATUSES = {
+    ProjectQuoteStatus.submitted,
+    ProjectQuoteStatus.under_review,
+    ProjectQuoteStatus.approved,
+}
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -79,7 +85,11 @@ def _ensure_buildout_project(db: Session, project_id: str) -> BuildoutProject:
 
 
 def _ensure_installation_project(db: Session, project_id: str) -> InstallationProject:
-    project = db.get(InstallationProject, coerce_uuid(project_id))
+    try:
+        project_uuid = coerce_uuid(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Installation project not found") from exc
+    project = db.get(InstallationProject, project_uuid)
     if not project:
         raise HTTPException(status_code=404, detail="Installation project not found")
     return project
@@ -412,6 +422,18 @@ class ProjectQuotes(ListResponseMixin):
         )
 
     @staticmethod
+    def has_submitted_for_vendor_project(db: Session, installation_project_id: str, vendor_id: str) -> bool:
+        return (
+            db.query(ProjectQuote.id)
+            .filter(ProjectQuote.project_id == coerce_uuid(installation_project_id))
+            .filter(ProjectQuote.vendor_id == coerce_uuid(vendor_id))
+            .filter(ProjectQuote.is_active.is_(True))
+            .filter(ProjectQuote.status.in_(tuple(_AS_BUILT_ELIGIBLE_QUOTE_STATUSES)))
+            .first()
+            is not None
+        )
+
+    @staticmethod
     def create(db: Session, payload: ProjectQuoteCreate, vendor_id: str, created_by_person_id: str | None):
         project = _ensure_installation_project(db, str(payload.project_id))
         _ensure_vendor(db, vendor_id)
@@ -494,6 +516,7 @@ class ProjectQuotes(ListResponseMixin):
             raise HTTPException(status_code=403, detail="Quote ownership required")
         if quote.status not in {ProjectQuoteStatus.draft, ProjectQuoteStatus.revision_requested}:
             raise HTTPException(status_code=400, detail="Quote is not in a submittable state")
+        previous_status = quote.status
         quote.status = ProjectQuoteStatus.submitted
         quote.submitted_at = _now()
         _apply_validity_defaults(db, quote)
@@ -503,12 +526,36 @@ class ProjectQuotes(ListResponseMixin):
             quote.project.status = InstallationProjectStatus.quoted
         db.commit()
         db.refresh(quote)
+        from app.services.events.dispatcher import emit_event
+        from app.services.events.types import EventType
+
+        emit_event(
+            db,
+            EventType.vendor_quote_submitted,
+            {
+                "quote_id": str(quote.id),
+                "installation_project_id": str(quote.project_id),
+                "project_id": str(quote.project.project_id),
+                "project_name": quote.project.project.name if quote.project and quote.project.project else None,
+                "project_code": quote.project.project.code if quote.project and quote.project.project else None,
+                "vendor_id": str(quote.vendor_id),
+                "vendor_name": quote.vendor.name if quote.vendor else None,
+                "status": quote.status.value,
+                "previous_status": previous_status.value,
+                "currency": quote.currency,
+                "total": str(quote.total),
+                "submitted_at": quote.submitted_at.isoformat() if quote.submitted_at else None,
+            },
+            actor=f"vendor:{vendor_id}",
+            project_id=quote.project.project_id,
+        )
         return quote
 
     @staticmethod
     def approve(db: Session, quote_id: str, reviewer_person_id: str, review_notes: str | None, override: bool):
         quote = _ensure_quote(db, quote_id)
         _ensure_person(db, reviewer_person_id)
+        previous_status = quote.status
         quote.subtotal = _quote_total_from_items(db, quote_id)
         quote.total = round_money(quote.subtotal + Decimal(quote.tax_total or Decimal("0.00")))
         if check_approval_required(db, quote) and not override:
@@ -524,6 +571,29 @@ class ProjectQuotes(ListResponseMixin):
         quote.project.status = InstallationProjectStatus.approved
         db.commit()
         db.refresh(quote)
+        from app.services.events.dispatcher import emit_event
+        from app.services.events.types import EventType
+
+        emit_event(
+            db,
+            EventType.vendor_quote_approved,
+            {
+                "quote_id": str(quote.id),
+                "installation_project_id": str(quote.project_id),
+                "project_id": str(quote.project.project_id),
+                "project_name": quote.project.project.name if quote.project and quote.project.project else None,
+                "project_code": quote.project.project.code if quote.project and quote.project.project else None,
+                "vendor_id": str(quote.vendor_id),
+                "vendor_name": quote.vendor.name if quote.vendor else None,
+                "status": quote.status.value,
+                "previous_status": previous_status.value if previous_status else None,
+                "currency": quote.currency,
+                "total": str(quote.total),
+                "approved_at": quote.reviewed_at.isoformat() if quote.reviewed_at else None,
+            },
+            actor=f"person:{reviewer_person_id}",
+            project_id=quote.project.project_id,
+        )
         return quote
 
     @staticmethod
@@ -791,6 +861,11 @@ class AsBuiltRoutes(ListResponseMixin):
     def create(db: Session, payload: AsBuiltRouteCreate, vendor_id: str, submitted_by_person_id: str | None):
         project = _ensure_installation_project(db, str(payload.project_id))
         vendor = _ensure_vendor(db, vendor_id)
+        if not ProjectQuotes.has_submitted_for_vendor_project(db, str(project.id), vendor_id):
+            raise HTTPException(
+                status_code=403,
+                detail="As-built submission is allowed only after a quote has been submitted",
+            )
         approved_vendor_id = None
         if project.approved_quote_id:
             approved_quote = db.get(ProjectQuote, project.approved_quote_id)
