@@ -9,6 +9,22 @@
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Review submitted vendor quotes.</p>
     </div>
 
+    {% if quote_action == "approved" %}
+    <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Quote approved successfully.
+    </div>
+    {% elif quote_action == "rejected" %}
+    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+        Quote rejected.
+    </div>
+    {% endif %}
+
+    {% if quote_error_detail %}
+    <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        {{ quote_error_detail }}
+    </div>
+    {% endif %}
+
     <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <table class="w-full text-sm">
             <thead class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
@@ -18,6 +34,7 @@
                     <th class="px-4 py-3">Vendor</th>
                     <th class="px-4 py-3">Status</th>
                     <th class="px-4 py-3">Total</th>
+                    <th class="px-4 py-3">Review</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -28,10 +45,41 @@
                     <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ quote.vendor_id }}</td>
                     <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ quote.status.value }}</td>
                     <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ quote.total }}</td>
+                    <td class="px-4 py-3">
+                        {% set status = quote.status.value if quote.status else '' %}
+                        {% if status in ['submitted', 'under_review'] %}
+                        <form method="post" class="space-y-2">
+                            <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token | default('') }}" />
+                            <textarea
+                                name="review_notes"
+                                rows="2"
+                                placeholder="Review notes (optional)"
+                                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+                            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                <input type="checkbox" name="override_threshold" value="1" class="rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600">
+                                Override threshold check
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <button type="submit"
+                                        formaction="/admin/vendors/quotes/{{ quote.id }}/approve"
+                                        class="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
+                                    Approve
+                                </button>
+                                <button type="submit"
+                                        formaction="/admin/vendors/quotes/{{ quote.id }}/reject"
+                                        class="inline-flex items-center rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">
+                                    Reject
+                                </button>
+                            </div>
+                        </form>
+                        {% else %}
+                        <span class="text-xs text-slate-500 dark:text-slate-400">No actions</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="5">No quotes yet.</td>
+                    <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="6">No quotes yet.</td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -4,12 +4,27 @@
 
 {% block content %}
 <div class="space-y-6">
-    <div>
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Quote builder</h1>
         {% set proj = project.project %}
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Project {{ (proj.code or proj.number or proj.name) if proj else (project.project_id|string|truncate(8, True, '')) }}
-        </p>
+        <div>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Project {{ (proj.code or proj.number or proj.name) if proj else (project.project_id|string|truncate(8, True, '')) }}
+            </p>
+            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Quote status:
+                <span id="quote-status-label" class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                    {{ quote.status.value if quote.status else "draft" }}
+                </span>
+            </p>
+        </div>
+        <div class="flex flex-col items-start gap-2 sm:items-end">
+            <button id="quote-submit"
+                    class="inline-flex items-center rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-violet-500/30 disabled:cursor-not-allowed disabled:opacity-60">
+                Submit quote
+            </button>
+            <div id="quote-submit-message" class="text-xs text-slate-500 dark:text-slate-400"></div>
+        </div>
     </div>
 
     <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -252,6 +267,7 @@
 <script>
 (() => {
     const quoteId = {{ (quote.id|string) | tojson }};
+    let quoteStatus = {{ ((quote.status.value if quote.status else 'draft')) | tojson }};
 
     function escapeHtml(value) {
         return String(value ?? '')
@@ -266,6 +282,9 @@
     const msg = document.getElementById('li-message');
     const tbody = document.getElementById('lineitems-body');
     const subtotalEl = document.getElementById('lineitems-subtotal');
+    const submitBtn = document.getElementById('quote-submit');
+    const submitMsg = document.getElementById('quote-submit-message');
+    const quoteStatusLabel = document.getElementById('quote-status-label');
 
     const modal = document.getElementById('lineitem-modal');
     const modalClose = document.getElementById('li-modal-close');
@@ -286,10 +305,23 @@
     const eNotes = document.getElementById('li-edit-notes');
 
     let editingRow = null;
+    const submittableStatuses = new Set(['draft', 'revision_requested']);
 
     function setText(el, text) {
         if (!el) return;
         el.textContent = text || '';
+    }
+
+    function setQuoteStatus(value) {
+        quoteStatus = String(value || '').toLowerCase();
+        if (quoteStatusLabel) {
+            quoteStatusLabel.textContent = quoteStatus || 'unknown';
+        }
+        const canSubmit = submittableStatuses.has(quoteStatus);
+        if (submitBtn) {
+            submitBtn.disabled = !canSubmit;
+            submitBtn.textContent = canSubmit ? 'Submit quote' : 'Quote submitted';
+        }
     }
 
     function moneyToNumber(value) {
@@ -479,7 +511,27 @@
         }
     });
 
+    submitBtn?.addEventListener('click', async () => {
+        setText(submitMsg, '');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitting...';
+        try {
+            const res = await fetch(`/api/vendor/quotes/${quoteId}/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || data.error || `Request failed (${res.status})`);
+            setQuoteStatus(data?.status || 'submitted');
+            setText(submitMsg, 'Quote submitted successfully.');
+        } catch (err) {
+            setText(submitMsg, err.message || 'Failed to submit quote.');
+            setQuoteStatus(quoteStatus);
+        }
+    });
+
     updateSubtotal();
+    setQuoteStatus(quoteStatus);
 })();
 </script>
 {% endblock %}

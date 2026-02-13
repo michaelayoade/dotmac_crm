@@ -4,31 +4,48 @@
 
 {% block content %}
 <div class="space-y-6">
-    <div>
-        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Submit as-built route</h1>
-        {% set proj = project.project %}
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Project {{ (proj.code or proj.number or proj.name) if proj else (project.project_id|string|truncate(8, True, '')) }}
-        </p>
+    {% set proj = project.project %}
+    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Submit As-Built Route</h1>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Provide the final installed route after field completion. This will be sent for review.
+                </p>
+            </div>
+            <div class="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Project</div>
+                    <div class="font-semibold text-slate-900 dark:text-slate-100">
+                        {{ (proj.code or proj.number or proj.name) if proj else (project.project_id|string|truncate(8, True, '')) }}
+                    </div>
+                </div>
+                <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Project Status</div>
+                    <div class="font-semibold text-slate-900 dark:text-slate-100">{{ project.status.value if project.status else 'Unknown' }}</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div class="grid gap-6 lg:grid-cols-2">
             <div class="space-y-4">
                 <div>
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Upload GeoJSON</h2>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">1. Provide Route Geometry</h2>
                     <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Upload a GeoJSON file containing a LineString (or a Feature/FeatureCollection with a LineString).
+                        Upload a GeoJSON file or paste GeoJSON containing a <code class="text-emerald-600 dark:text-emerald-400">LineString</code>.
                     </p>
                 </div>
 
                 <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
-                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">GeoJSON file</label>
+                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Upload GeoJSON File</label>
                     <input id="asbuilt-file" type="file" accept=".json,.geojson,application/json"
                            class="mt-2 block w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:file:bg-slate-700 dark:file:text-slate-100">
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Accepted: <code>.geojson</code>, <code>.json</code></p>
 
                     <div class="mt-4">
-                        <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Or paste GeoJSON</label>
+                        <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Or Paste GeoJSON</label>
                         <textarea id="asbuilt-geojson" rows="10"
                                   class="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 font-mono text-xs text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
                                   placeholder='{"type":"LineString","coordinates":[[lng,lat],[lng,lat]]}'></textarea>
@@ -36,28 +53,33 @@
 
                     <div class="mt-4 grid gap-3 sm:grid-cols-2">
                         <div>
-                            <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Proposed revision ID (optional)</label>
+                            <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Related Proposed Revision (Optional)</label>
                             <input id="asbuilt-proposed-revision" type="text"
                                    class="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
                                    placeholder="UUID">
                         </div>
                         <div>
-                            <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Length (meters)</label>
+                            <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Actual Length (Meters)</label>
                             <input id="asbuilt-length" type="number" step="0.01" min="0"
                                    class="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
                                    placeholder="Auto-computed if blank">
-                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">If blank, we’ll compute from coordinates.</p>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Leave blank to auto-compute from the route coordinates.</p>
                         </div>
                     </div>
 
-                    <div class="mt-4 flex items-center gap-3">
+                    <div class="mt-4 flex flex-wrap items-center gap-3">
                         <button id="asbuilt-submit"
+                                disabled
                                 class="inline-flex items-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30 hover:-translate-y-0.5">
-                            Submit as-built
+                            Submit As-Built
                         </button>
+                        <a href="/vendor/projects/mine"
+                           class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                            Back to My Projects
+                        </a>
                         <a href="/vendor/fiber-map" target="_blank"
                            class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
-                            Open fiber map
+                            Open Fiber Map
                         </a>
                     </div>
 
@@ -68,17 +90,30 @@
 
             <div class="space-y-4">
                 <div>
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">API Endpoint</h2>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">2. Review Before Submit</h2>
                     <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        This UI submits to <code class="text-emerald-600">POST /api/vendor/as-built</code> using your vendor session.
+                        Checklist before sending:
                     </p>
                 </div>
 
-                <div class="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                    <div class="font-mono text-xs">
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+                    <ul class="space-y-2">
+                        <li>Route is final installed path, not planned route.</li>
+                        <li>GeoJSON contains a valid LineString.</li>
+                        <li>Length looks correct (auto-computed or manual override).</li>
+                        <li>Optional: linked proposed revision ID is correct.</li>
+                    </ul>
+                </div>
+
+                <details class="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                    <summary class="cursor-pointer select-none font-semibold text-slate-700 dark:text-slate-200">Advanced Technical Details</summary>
+                    <p class="mt-3">
+                        This page submits to <code class="text-emerald-600 dark:text-emerald-400">POST /api/vendor/as-built</code> using your vendor session.
+                    </p>
+                    <div class="mt-2 font-mono text-xs">
                         { "project_id": "{{ project_id }}", "geojson": { ... }, "actual_length_meters": 123.45 }
                     </div>
-                </div>
+                </details>
             </div>
         </div>
     </div>
@@ -144,14 +179,31 @@
         const line = extractLineStringGeojson(parsed);
         if (!line) {
             preview.classList.add('hidden');
+            refreshSubmitState();
             return;
         }
         const length = computeLengthMeters(line);
         const pts = Array.isArray(line.coordinates) ? line.coordinates.length : 0;
-        preview.textContent = `Detected LineString with ${pts} points. Computed length: ${length.toFixed(2)} m.`;
+        preview.textContent = `Valid LineString detected with ${pts} points. Computed length: ${length.toFixed(2)} m.`;
         preview.classList.remove('hidden');
         if (!lengthInput.value) {
             lengthInput.value = String(Number.isFinite(length) ? length.toFixed(2) : '');
+        }
+        refreshSubmitState();
+    }
+
+    function refreshSubmitState() {
+        const raw = (geojsonTextarea?.value || '').trim();
+        if (!raw) {
+            submitBtn.disabled = true;
+            return;
+        }
+        try {
+            const parsed = JSON.parse(raw);
+            const line = extractLineStringGeojson(parsed);
+            submitBtn.disabled = !line;
+        } catch {
+            submitBtn.disabled = true;
         }
     }
 
@@ -184,7 +236,7 @@
             const parsed = JSON.parse(raw);
             updatePreview(parsed);
         } catch {
-            // ignore while typing
+            refreshSubmitState();
         }
     });
 
@@ -238,14 +290,16 @@
             if (!res.ok) {
                 throw new Error(data.detail || data.error || `Request failed (${res.status})`);
             }
-            setMessage(`Submitted as-built successfully (id: ${data.id}).`, 'ok');
+            setMessage(`As-built submitted successfully. Submission ID: ${data.id}`, 'ok');
         } catch (e) {
-            setMessage(e?.message || 'Failed to submit as-built.', 'error');
+            setMessage(e?.message || 'Could not submit as-built. Please fix any issues and try again.', 'error');
         } finally {
             submitBtn.disabled = false;
-            submitBtn.textContent = 'Submit as-built';
+            submitBtn.textContent = 'Submit As-Built';
+            refreshSubmitState();
         }
     });
+    refreshSubmitState();
 })();
 </script>
 {% endblock %}
