@@ -63,6 +63,8 @@ class APIRateLimitMiddleware:
         "/docs",
         "/openapi",
         "/redoc",
+        # Public inbound webhooks must not be throttled by generic API limits.
+        "/webhooks/",
     )
 
     def __init__(

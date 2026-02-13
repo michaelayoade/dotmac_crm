@@ -218,6 +218,7 @@ class DotMacERPSync:
     def _map_work_order(self, work_order: WorkOrder) -> dict:
         """Map a WorkOrder model to ERP sync payload."""
         payload: dict[str, object] = {
+            "crm_id": str(work_order.id),
             "omni_id": str(work_order.id),
             "title": work_order.title,
             "work_type": work_order.work_type.value if work_order.work_type else None,
