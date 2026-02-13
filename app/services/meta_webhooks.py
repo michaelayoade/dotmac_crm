@@ -46,6 +46,7 @@ from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm.conversations import comments as comments_service
 from app.services.crm.inbox.contacts import _ensure_person_channel
+from app.services.crm.inbox.handlers.utils import post_process_inbound_message
 from app.services.crm.inbox_dedup import (
     _build_inbound_dedupe_id,
     _find_duplicate_inbound_message,
@@ -1081,6 +1082,13 @@ def receive_facebook_message(
         message.id,
         payload.page_id,
     )
+    # Ensure inbox websocket updates/notifications fire for Meta inbound messages.
+    post_process_inbound_message(
+        db,
+        conversation_id=str(conversation.id),
+        message_id=str(message.id),
+        channel_target_id=str(target.id) if target else None,
+    )
 
     return message
 
@@ -1192,6 +1200,13 @@ def receive_instagram_message(
         contact.id,
         message.id,
         payload.instagram_account_id,
+    )
+    # Ensure inbox websocket updates/notifications fire for Meta inbound messages.
+    post_process_inbound_message(
+        db,
+        conversation_id=str(conversation.id),
+        message_id=str(message.id),
+        channel_target_id=str(target.id) if target else None,
     )
 
     return message

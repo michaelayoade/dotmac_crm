@@ -323,6 +323,8 @@ def process_meta_webhook(self, payload: dict, trace_id: str | None = None):
                 ok_count,
                 fail_count,
             )
+            if fail_count > 0:
+                raise RuntimeError(f"meta_webhook_partial_failure failed={fail_count} total={len(results)}")
     except Exception as exc:
         logger.exception(
             "meta_webhook_processing_failed trace_id=%s attempt=%s/%s error=%s",
