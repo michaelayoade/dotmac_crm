@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.schemas.common import ListResponse
 from app.schemas.crm.inbox import (
     EmailConnectorCreate,
@@ -34,7 +34,7 @@ class InboxSendAsyncResponse(BaseModel):
 
 
 @router.post("/send", response_model=InboxSendResponse, status_code=status.HTTP_201_CREATED)
-def send_message(payload: InboxSendRequest, db: Session = Depends(get_db)):
+def send_message(payload: InboxSendRequest, db: Session = Depends(get_db), _user=Depends(get_current_user)):
     try:
         if payload.scheduled_at and payload.scheduled_at > datetime.now(UTC):
             raise HTTPException(status_code=400, detail="Use send-async for scheduled messages")
@@ -53,6 +53,7 @@ def send_message_async(
     payload: InboxSendRequest,
     db: Session = Depends(get_db),
     idempotency_key: str | None = None,
+    _user=Depends(get_current_user),
 ):
     outbox = enqueue_outbound_message(
         db,
@@ -72,6 +73,7 @@ def list_templates(
     is_active: bool | None = None,
     limit: int = 100,
     offset: int = 0,
+    _user=Depends(get_current_user),
 ):
     return message_templates.list_response(
         db,
@@ -83,22 +85,24 @@ def list_templates(
 
 
 @router.post("/templates", response_model=MessageTemplateRead, status_code=status.HTTP_201_CREATED)
-def create_template(payload: MessageTemplateCreate, db: Session = Depends(get_db)):
+def create_template(payload: MessageTemplateCreate, db: Session = Depends(get_db), _user=Depends(get_current_user)):
     return message_templates.create(db, payload)
 
 
 @router.get("/templates/{template_id}", response_model=MessageTemplateRead)
-def get_template(template_id: str, db: Session = Depends(get_db)):
+def get_template(template_id: str, db: Session = Depends(get_db), _user=Depends(get_current_user)):
     return message_templates.get(db, template_id)
 
 
 @router.patch("/templates/{template_id}", response_model=MessageTemplateRead)
-def update_template(template_id: str, payload: MessageTemplateUpdate, db: Session = Depends(get_db)):
+def update_template(
+    template_id: str, payload: MessageTemplateUpdate, db: Session = Depends(get_db), _user=Depends(get_current_user)
+):
     return message_templates.update(db, template_id, payload)
 
 
 @router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_template(template_id: str, db: Session = Depends(get_db)):
+def delete_template(template_id: str, db: Session = Depends(get_db), _user=Depends(get_current_user)):
     message_templates.delete(db, template_id)
 
 
@@ -107,7 +111,9 @@ def delete_template(template_id: str, db: Session = Depends(get_db)):
     response_model=IntegrationTargetRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_email_connector(payload: EmailConnectorCreate, db: Session = Depends(get_db)):
+def create_email_connector(
+    payload: EmailConnectorCreate, db: Session = Depends(get_db), _user=Depends(get_current_user)
+):
     return crm_service.inbox.create_email_connector_target(
         db,
         name=payload.name,
@@ -123,7 +129,9 @@ def create_email_connector(payload: EmailConnectorCreate, db: Session = Depends(
     response_model=IntegrationJobRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_email_polling_job(payload: EmailPollingJobRequest, db: Session = Depends(get_db)):
+def create_email_polling_job(
+    payload: EmailPollingJobRequest, db: Session = Depends(get_db), _user=Depends(get_current_user)
+):
     interval_seconds = payload.interval_seconds
     if payload.interval_minutes is not None:
         interval_seconds = max(payload.interval_minutes, 1) * 60

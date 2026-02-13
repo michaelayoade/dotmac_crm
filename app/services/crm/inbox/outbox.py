@@ -25,6 +25,8 @@ STATUS_RETRYING = "retrying"
 STATUS_SENT = "sent"
 STATUS_FAILED = "failed"
 
+MAX_OUTBOX_ATTEMPTS = 10
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -102,7 +104,12 @@ def enqueue_outbound_message(
 
 
 def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
-    outbox = db.get(OutboxMessage, coerce_uuid(outbox_id))
+    outbox = (
+        db.query(OutboxMessage)
+        .filter(OutboxMessage.id == coerce_uuid(outbox_id))
+        .with_for_update(skip_locked=True)
+        .first()
+    )
     if not outbox:
         raise ValueError("Outbox item not found")
 
@@ -112,8 +119,17 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
     if outbox.next_attempt_at and outbox.next_attempt_at > _now():
         return outbox
 
+    attempts = (outbox.attempts or 0) + 1
+    if attempts > MAX_OUTBOX_ATTEMPTS:
+        outbox.status = STATUS_FAILED
+        outbox.last_error = f"Max attempts ({MAX_OUTBOX_ATTEMPTS}) exceeded"
+        outbox.next_attempt_at = None
+        db.commit()
+        db.refresh(outbox)
+        return outbox
+
     outbox.status = STATUS_SENDING
-    outbox.attempts = (outbox.attempts or 0) + 1
+    outbox.attempts = attempts
     outbox.last_attempt_at = _now()
     db.commit()
     db.refresh(outbox)
@@ -183,8 +199,10 @@ def list_due_outbox_ids(db: Session, *, limit: int = 50) -> list[str]:
         db.query(OutboxMessage)
         .filter(OutboxMessage.status.in_([STATUS_QUEUED, STATUS_RETRYING]))
         .filter((OutboxMessage.next_attempt_at.is_(None)) | (OutboxMessage.next_attempt_at <= now))
+        .filter((OutboxMessage.attempts.is_(None)) | (OutboxMessage.attempts < MAX_OUTBOX_ATTEMPTS))
         .order_by(OutboxMessage.priority.desc(), OutboxMessage.created_at.asc())
         .limit(limit)
+        .with_for_update(skip_locked=True)
         .all()
     )
     return [str(item.id) for item in items]

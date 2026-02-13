@@ -120,6 +120,8 @@ def _is_safe_url(url: str) -> bool:
         return False
     if parsed.scheme in {"http", "https", "mailto", "tel"}:
         return True
+    if parsed.scheme in {"javascript", "data", "vbscript"}:
+        return False
     return parsed.scheme == ""
 
 
@@ -615,10 +617,12 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
 
     visibility = metadata.get("visibility") if isinstance(metadata, dict) else None
     note_type = metadata.get("type") if isinstance(metadata, dict) else None
+    # Internal/system messages are not always private notes (e.g. imported activity events).
+    # Treat a message as private only when explicit note/private markers are present.
     is_private_note = (
-        msg.direction == MessageDirection.internal
-        or msg.channel_type == ChannelType.note
+        msg.channel_type == ChannelType.note
         or note_type == "private_note"
+        or bool(metadata.get("private") or metadata.get("chatwoot_private"))
     )
 
     html_body = metadata.get("html_body") if isinstance(metadata, dict) else None

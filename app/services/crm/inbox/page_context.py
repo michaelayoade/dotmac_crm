@@ -141,18 +141,9 @@ async def build_inbox_page_context(
             selected_comment = comment_context.selected_comment
             comment_replies = comment_context.comment_replies
 
-        target_conv_id = conversation_id
-        if not target_conv_id and not comment_id and conversations:
-            first_conv = next(
-                (entry for entry in conversations if entry.get("kind") != "comment"),
-                None,
-            )
-            if first_conv:
-                target_conv_id = first_conv["id"]
-
-        if target_conv_id:
+        if conversation_id:
             try:
-                conv = conversation_service.Conversations.get(db, target_conv_id)
+                conv = conversation_service.Conversations.get(db, conversation_id)
                 selected_conversation = format_conversation_for_template(conv, db, include_inbox_label=True)
             except Exception:
                 logger.debug("Failed to format contact sidebar details for inbox context.", exc_info=True)

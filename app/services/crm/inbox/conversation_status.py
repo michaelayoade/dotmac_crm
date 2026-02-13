@@ -64,4 +64,4 @@ def update_conversation_status(
     except Exception as exc:
         if getattr(exc, "status_code", None) == 404:
             return UpdateStatusResult(kind="not_found")
-        return UpdateStatusResult(kind="invalid_status")
+        raise

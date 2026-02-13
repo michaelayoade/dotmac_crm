@@ -44,11 +44,13 @@ def check_rate_limit(key: str, limit: int) -> None:
             pipe = redis.pipeline()
             pipe.zremrangebyscore(full_key, 0, window_start)
             pipe.zadd(full_key, {str(now): now})
+            pipe.zrange(full_key, 0, 0, withscores=True)
             pipe.zcard(full_key)
             pipe.expire(full_key, WINDOW_SECONDS + 5)
-            _, _, count, _ = pipe.execute()
+            _, _, oldest_entries, count, _ = pipe.execute()
             if count and int(count) > limit:
-                retry_after = int(WINDOW_SECONDS - (now - window_start))
+                oldest_ts = oldest_entries[0][1] if oldest_entries else now
+                retry_after = int(oldest_ts + WINDOW_SECONDS - now)
                 raise RateLimitExceeded(max(retry_after, 1))
             return
         except RateLimitExceeded:
@@ -62,7 +64,8 @@ def check_rate_limit(key: str, limit: int) -> None:
     bucket.append(now)
     store[full_key] = bucket
     if len(bucket) > limit:
-        retry_after = int(WINDOW_SECONDS - (now - window_start))
+        oldest_ts = bucket[0] if bucket else now
+        retry_after = int(oldest_ts + WINDOW_SECONDS - now)
         raise RateLimitExceeded(max(retry_after, 1))
 
 

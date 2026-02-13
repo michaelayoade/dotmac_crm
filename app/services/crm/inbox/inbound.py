@@ -22,11 +22,6 @@ def receive_email_message(db: Session, payload: EmailWebhookPayload):
     return EmailHandler().receive(db, payload)
 
 
-def receive_sms_message(db: Session, payload):
-    # Placeholder for SMS inbound support.
-    return None
-
-
 def receive_chat_message(db: Session, payload):
     # Placeholder for chat inbound support.
     return None

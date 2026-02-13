@@ -39,7 +39,6 @@ from app.services.crm.inbox.email_polling import EmailPoller, poll_email_inbox
 from app.services.crm.inbox.inbound import (
     receive_chat_message,
     receive_email_message,
-    receive_sms_message,
     receive_whatsapp_message,
 )
 from app.services.crm.inbox.orchestrator import InboxOperations, inbox_operations
@@ -96,7 +95,6 @@ __all__ = [
     "receive_chat_message",
     # Inbound
     "receive_email_message",
-    "receive_sms_message",
     "receive_whatsapp_message",
     # Outbound
     "send_message",
