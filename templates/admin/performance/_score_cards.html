@@ -1,12 +1,79 @@
 {% if latest %}
+{# Domain label mapping #}
+{% set domain_labels = {
+    "support": "Support",
+    "operations": "Operations",
+    "field_service": "Field Service",
+    "communication": "Communication",
+    "sales": "Sales",
+    "data_quality": "Data Quality"
+} %}
+
+{# Domain color mapping #}
+{% set domain_colors = {
+    "support": "cyan",
+    "operations": "indigo",
+    "field_service": "violet",
+    "communication": "blue",
+    "sales": "amber",
+    "data_quality": "teal"
+} %}
+
+{# Composite Score Hero #}
+{% set comp = latest.composite_score | float %}
+{% set comp_color = "emerald" if comp >= 70 else ("amber" if comp >= 40 else "rose") %}
+<div class="mb-4 rounded-2xl border border-{{ comp_color }}-200/60 bg-gradient-to-br from-{{ comp_color }}-50 to-white p-5 dark:border-{{ comp_color }}-800/40 dark:from-{{ comp_color }}-900/20 dark:to-slate-800">
+    <div class="flex items-center justify-between">
+        <div>
+            <p class="text-xs font-semibold uppercase tracking-wide text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400">Composite Score</p>
+            <p class="mt-1 font-display text-4xl font-bold text-{{ comp_color }}-700 dark:text-{{ comp_color }}-300">{{ "%.1f"|format(comp) }}</p>
+        </div>
+        <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-{{ comp_color }}-100 dark:bg-{{ comp_color }}-500/20">
+            {% if comp >= 70 %}
+            <svg class="h-7 w-7 text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            {% elif comp >= 40 %}
+            <svg class="h-7 w-7 text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14"/></svg>
+            {% else %}
+            <svg class="h-7 w-7 text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+            {% endif %}
+        </div>
+    </div>
+    {% if latest.score_period_start and latest.score_period_end %}
+    <p class="mt-2 text-xs text-{{ comp_color }}-600/70 dark:text-{{ comp_color }}-400/70">
+        Period: {{ latest.score_period_start.strftime('%b %d') }} &ndash; {{ latest.score_period_end.strftime('%b %d, %Y') }}
+    </p>
+    {% endif %}
+</div>
+
+{# Domain Score Cards Grid #}
 <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
     {% for domain, score in latest.domain_scores_json.items() %}
-    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-        <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ domain|replace('_', ' ') }}</div>
-        <div class="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ "%.2f"|format(score) }}</div>
+    {% set s = score | float %}
+    {% set color = domain_colors.get(domain, "slate") %}
+    {% set bar_color = "bg-emerald-500" if s >= 70 else ("bg-amber-500" if s >= 40 else "bg-rose-500") %}
+    {% set text_color = "emerald" if s >= 70 else ("amber" if s >= 40 else "rose") %}
+    <div class="group rounded-xl border border-slate-200/60 bg-white p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-{{ color }}-100 dark:bg-{{ color }}-500/20">
+                    <svg class="h-4 w-4 text-{{ color }}-600 dark:text-{{ color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                </div>
+                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ domain_labels.get(domain, domain | replace('_', ' ') | title) }}</span>
+            </div>
+            <span class="font-display text-xl font-bold text-{{ text_color }}-600 dark:text-{{ text_color }}-400">{{ "%.1f"|format(s) }}</span>
+        </div>
+        <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+            <div class="{{ bar_color }} h-full rounded-full transition-all duration-500" style="width: {{ [s, 100] | min }}%"></div>
+        </div>
     </div>
     {% endfor %}
 </div>
 {% else %}
-<p class="text-sm text-slate-600 dark:text-slate-300">No score data available.</p>
+<div class="rounded-xl p-8 text-center">
+    <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-700">
+        <svg class="h-6 w-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/></svg>
+    </div>
+    <p class="mt-3 text-sm font-medium text-slate-900 dark:text-white">No score data available</p>
+    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Performance scores will appear after the weekly scoring cycle runs.</p>
+</div>
 {% endif %}

@@ -1,17 +1,84 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, stats_card %}
 
-{% block title %}Team Performance{% endblock %}
+{% block title %}Team Performance - Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/reports" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Reports</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">Team Performance</span>
+{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-    <div class="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-        <h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">Team Performance</h1>
-        <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Weekly composite scores and domain breakdowns.</p>
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+
+    {{ page_header(
+        title="Team Performance",
+        subtitle="Weekly composite scores, domain breakdowns, and agent leaderboard.",
+        icon='<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>',
+        color="indigo",
+        color2="violet"
+    ) }}
+
+    {# Summary Stats #}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in-up">
+        {{ stats_card(
+            label="Total Agents",
+            value=agent_count | string,
+            color="indigo",
+            color2="violet",
+            icon='<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'
+        ) }}
+        {{ stats_card(
+            label="Avg Composite",
+            value=("%.1f"|format(avg_score)) + "%",
+            color="cyan" if avg_score >= 70 else ("amber" if avg_score >= 40 else "rose"),
+            color2="blue" if avg_score >= 70 else ("orange" if avg_score >= 40 else "pink"),
+            icon='<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/></svg>'
+        ) }}
+        {{ stats_card(
+            label="Top Performer",
+            value=top_performer.name[:16] if top_performer else "N/A",
+            color="emerald",
+            color2="green",
+            icon='<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>'
+        ) }}
+        {{ stats_card(
+            label="Top Score",
+            value=("%.1f"|format(top_performer.composite_score)) + "%" if top_performer else "N/A",
+            color="teal",
+            color2="emerald",
+            icon='<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>'
+        ) }}
     </div>
 
-    <div id="performance-team-table" class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
-         hx-get="/admin/performance/team/_table" hx-trigger="load">
-        <p class="text-sm text-slate-600 dark:text-slate-300">Loading leaderboard...</p>
+    {# Leaderboard Table #}
+    <div class="animate-fade-in-up">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center justify-between border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-sm">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-semibold text-slate-900 dark:text-white">Agent Leaderboard</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ agent_count }} agent{{ 's' if agent_count != 1 }} ranked by composite score</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="performance-team-table"
+                 hx-get="/admin/performance/team/_table" hx-trigger="load"
+                 class="p-4">
+                <div class="flex items-center gap-2 px-3 py-6 text-sm text-slate-500 dark:text-slate-400">
+                    <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    Loading leaderboard...
+                </div>
+            </div>
+        </div>
     </div>
+
 </div>
 {% endblock %}

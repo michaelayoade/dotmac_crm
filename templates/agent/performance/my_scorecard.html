@@ -1,30 +1,112 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header %}
 
 {% block title %}My Performance{% endblock %}
 
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">My Performance</span>
+{% endblock %}
+
 {% block content %}
-<div class="space-y-6">
-    <div class="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-        <h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">My Performance</h1>
-        <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Your weekly score history and coaching reviews.</p>
-    </div>
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
 
-    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
+    {{ page_header(
+        title="My Performance",
+        subtitle="Your weekly score history and AI coaching reviews.",
+        icon='<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>',
+        color="indigo",
+        color2="violet"
+    ) }}
+
+    {# Composite Score Summary #}
+    {% if latest %}
+    {% set comp = latest.composite_score | float %}
+    {% set comp_color = "emerald" if comp >= 70 else ("amber" if comp >= 40 else "rose") %}
+    <div class="animate-fade-in-up rounded-2xl border border-{{ comp_color }}-200/60 bg-gradient-to-br from-{{ comp_color }}-50 to-white p-6 shadow-sm dark:border-{{ comp_color }}-800/40 dark:from-{{ comp_color }}-900/20 dark:to-slate-800">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400">Current Composite Score</p>
+                <p class="mt-1 font-display text-4xl font-bold text-{{ comp_color }}-700 dark:text-{{ comp_color }}-300">{{ "%.1f"|format(comp) }}</p>
+                {% if latest.score_period_start and latest.score_period_end %}
+                <p class="mt-1 text-xs text-{{ comp_color }}-600/70 dark:text-{{ comp_color }}-400/70">
+                    {{ latest.score_period_start.strftime('%b %d') }} &ndash; {{ latest.score_period_end.strftime('%b %d, %Y') }}
+                </p>
+                {% endif %}
+            </div>
+            <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-{{ comp_color }}-100 dark:bg-{{ comp_color }}-500/20">
+                {% if comp >= 70 %}
+                <svg class="h-8 w-8 text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                {% elif comp >= 40 %}
+                <svg class="h-8 w-8 text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14"/></svg>
+                {% else %}
+                <svg class="h-8 w-8 text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Score Cards (HTMX loaded) #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800"
          hx-get="/agent/my-performance/_scores" hx-trigger="load">
-        <p class="text-sm text-slate-600 dark:text-slate-300">Loading score cards...</p>
+        <div class="flex items-center gap-2 px-3 py-6 text-sm text-slate-500 dark:text-slate-400">
+            <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            Loading domain scores...
+        </div>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-        <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100">My Reviews</h2>
-        <div class="mt-3 space-y-2">
+    {# Reviews Section #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-sm">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+            <div>
+                <h2 class="text-base font-semibold text-slate-900 dark:text-white">My Reviews</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">{{ reviews | length }} review{{ 's' if reviews | length != 1 }}</p>
+            </div>
+        </div>
+
+        <div class="divide-y divide-slate-100 dark:divide-slate-700/50">
             {% for review in reviews %}
-            <a href="/agent/my-performance/reviews/{{ review.id }}" class="block rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-                {{ review.created_at.strftime('%Y-%m-%d') }} - {{ review.summary_text[:120] }}
+            <a href="/agent/my-performance/reviews/{{ review.id }}"
+               class="group flex items-center gap-4 px-6 py-4 transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-700/30">
+                <div class="flex-shrink-0">
+                    {% set rscore = review.composite_score | float %}
+                    {% set rcolor = "emerald" if rscore >= 70 else ("amber" if rscore >= 40 else "rose") %}
+                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-{{ rcolor }}-50 text-sm font-bold text-{{ rcolor }}-600 dark:bg-{{ rcolor }}-500/15 dark:text-{{ rcolor }}-400">
+                        {{ "%.0f"|format(rscore) }}
+                    </div>
+                </div>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium text-slate-900 dark:text-white">{{ review.review_period_start.strftime('%b %d') }} &ndash; {{ review.review_period_end.strftime('%b %d, %Y') }}</span>
+                        {% if review.is_acknowledged %}
+                        <span class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                            <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            Acknowledged
+                        </span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-lg bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600 dark:bg-amber-500/15 dark:text-amber-400">Needs acknowledgment</span>
+                        {% endif %}
+                    </div>
+                    <p class="mt-0.5 truncate text-sm text-slate-500 dark:text-slate-400">{{ review.summary_text[:120] }}</p>
+                </div>
+                <svg class="h-4 w-4 flex-shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </a>
             {% else %}
-            <p class="text-sm text-slate-600 dark:text-slate-300">No reviews yet.</p>
+            <div class="px-6 py-12 text-center">
+                <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-700">
+                    <svg class="h-6 w-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                </div>
+                <p class="mt-3 text-sm font-medium text-slate-900 dark:text-white">No reviews yet</p>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Your manager will generate coaching reviews based on your performance scores.</p>
+            </div>
             {% endfor %}
         </div>
     </div>
+
 </div>
 {% endblock %}

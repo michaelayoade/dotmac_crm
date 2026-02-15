@@ -1,35 +1,121 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, loading_button %}
 
-{% block title %}Agent Performance{% endblock %}
+{% block title %}{{ person.display_name or (person.first_name ~ ' ' ~ (person.last_name or '')) | trim if person else 'Agent' }} - Performance{% endblock %}
+
+{% set agent_name = person.display_name or ((person.first_name or '') ~ ' ' ~ (person.last_name or '')) | trim if person else 'Unknown Agent' %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/reports" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Reports</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/performance/team" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Team Performance</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">{{ agent_name }}</span>
+{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-    <div class="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-        <h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">Agent Detail</h1>
-        <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Person ID: {{ person_id }}</p>
-        <form method="post" action="/admin/performance/agents/{{ person_id }}/generate-review" class="mt-4">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-            <button class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"
-                    type="submit">Generate Review</button>
-        </form>
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+
+    {# Page Header #}
+    {% set comp_score = latest.composite_score | float if latest else 0 %}
+    {% set comp_color = "emerald" if comp_score >= 70 else ("amber" if comp_score >= 40 else "rose") %}
+
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-4">
+                <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-lg font-bold text-white shadow-lg shadow-indigo-500/25">
+                    {{ agent_name[:2] | upper }}
+                </div>
+                <div>
+                    <h1 class="text-xl font-semibold text-slate-900 dark:text-white">{{ agent_name }}</h1>
+                    {% if person and person.email %}
+                    <p class="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{{ person.email }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                {% if latest %}
+                <div class="rounded-xl border border-{{ comp_color }}-200/60 bg-{{ comp_color }}-50 px-4 py-2 dark:border-{{ comp_color }}-800/40 dark:bg-{{ comp_color }}-900/20">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400">Composite</p>
+                    <p class="font-display text-2xl font-bold text-{{ comp_color }}-700 dark:text-{{ comp_color }}-300">{{ "%.1f"|format(comp_score) }}</p>
+                </div>
+                {% endif %}
+                <form method="post" action="/admin/performance/agents/{{ person_id }}/generate-review">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    {{ loading_button(
+                        label="Generate Review",
+                        loading_label="Generating...",
+                        color="primary",
+                        icon="sparkles",
+                        size="md"
+                    ) }}
+                </form>
+            </div>
+        </div>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
+    {# Score Cards (HTMX loaded) #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800"
+         id="agent-score-cards"
          hx-get="/admin/performance/agents/{{ person_id }}/_scores" hx-trigger="load">
-        <p class="text-sm text-slate-600 dark:text-slate-300">Loading score cards...</p>
+        <div class="flex items-center gap-2 px-3 py-6 text-sm text-slate-500 dark:text-slate-400">
+            <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            Loading score breakdown...
+        </div>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-        <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Recent Reviews</h2>
-        <div class="mt-3 space-y-2">
+    {# Reviews Section #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-sm">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+            <div>
+                <h2 class="text-base font-semibold text-slate-900 dark:text-white">AI Coaching Reviews</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">{{ reviews | length }} review{{ 's' if reviews | length != 1 }}</p>
+            </div>
+        </div>
+
+        <div class="divide-y divide-slate-100 dark:divide-slate-700/50">
             {% for review in reviews %}
-            <a href="/admin/performance/reviews/{{ review.id }}" class="block rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-                {{ review.created_at.strftime('%Y-%m-%d') }} - {{ review.summary_text[:120] }}
+            <a href="/admin/performance/reviews/{{ review.id }}"
+               class="group flex items-center gap-4 px-6 py-4 transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-700/30">
+                <div class="flex-shrink-0">
+                    {% set rscore = review.composite_score | float %}
+                    {% set rcolor = "emerald" if rscore >= 70 else ("amber" if rscore >= 40 else "rose") %}
+                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-{{ rcolor }}-50 text-sm font-bold text-{{ rcolor }}-600 dark:bg-{{ rcolor }}-500/15 dark:text-{{ rcolor }}-400">
+                        {{ "%.0f"|format(rscore) }}
+                    </div>
+                </div>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium text-slate-900 dark:text-white">{{ review.review_period_start.strftime('%b %d') }} &ndash; {{ review.review_period_end.strftime('%b %d, %Y') }}</span>
+                        {% if review.is_acknowledged %}
+                        <span class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                            <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            Acknowledged
+                        </span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-400">Pending</span>
+                        {% endif %}
+                    </div>
+                    <p class="mt-0.5 truncate text-sm text-slate-500 dark:text-slate-400">{{ review.summary_text[:120] }}</p>
+                </div>
+                <svg class="h-4 w-4 flex-shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </a>
             {% else %}
-            <p class="text-sm text-slate-600 dark:text-slate-300">No reviews generated.</p>
+            <div class="px-6 py-12 text-center">
+                <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-700">
+                    <svg class="h-6 w-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                </div>
+                <p class="mt-3 text-sm font-medium text-slate-900 dark:text-white">No reviews generated</p>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Click "Generate Review" to create an AI coaching review for this agent.</p>
+            </div>
             {% endfor %}
         </div>
     </div>
+
 </div>
 {% endblock %}

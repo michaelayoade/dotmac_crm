@@ -30,6 +30,7 @@ def my_scorecard(request: Request, db: Session = Depends(_get_db)):
     if not can_view_inbox(user.get("roles", []), user.get("permissions", [])):
         raise HTTPException(status_code=403, detail="Forbidden")
     history = performance_reports.score_history(db, user["person_id"])
+    latest = history[-1] if history else None
     reviews = performance_reports.reviews(db, user["person_id"], limit=10)
     return templates.TemplateResponse(
         "agent/performance/my_scorecard.html",
@@ -41,6 +42,7 @@ def my_scorecard(request: Request, db: Session = Depends(_get_db)):
             "active_page": "my-performance",
             "active_menu": "reports",
             "history": history,
+            "latest": latest,
             "reviews": reviews,
         },
     )
@@ -81,6 +83,9 @@ def my_review_detail(request: Request, review_id: str, db: Session = Depends(_ge
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     if str(review.person_id) != user["person_id"]:
         raise HTTPException(status_code=403, detail="Forbidden")
+    from app.models.person import Person
+
+    person = db.get(Person, review.person_id)
     return templates.TemplateResponse(
         "admin/performance/review_detail.html",
         {
@@ -88,6 +93,7 @@ def my_review_detail(request: Request, review_id: str, db: Session = Depends(_ge
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
             "review": review,
+            "person": person,
             "active_page": "my-performance",
             "active_menu": "reports",
             "is_self_view": True,
