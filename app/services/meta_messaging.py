@@ -280,6 +280,7 @@ async def send_instagram_message(
     message_text: str,
     target: IntegrationTarget | None = None,
     account_id: str | None = None,
+    image_url: str | None = None,
 ) -> dict:
     """Send a message via Instagram DM.
 
@@ -289,6 +290,7 @@ async def send_instagram_message(
         message_text: Message text to send
         target: Optional IntegrationTarget (auto-resolved if not provided)
         account_id: Optional Instagram Business Account ID to send from
+        image_url: Optional public image URL to send as media attachment
 
     Returns:
         Dict with 'message_id' and 'recipient_id' from Meta API
@@ -320,6 +322,17 @@ async def send_instagram_message(
     use_instagram_login_api = _is_instagram_login_token(override_token)
 
     payload: dict[str, Any]
+    message_payload: dict[str, Any]
+    if image_url:
+        message_payload = {
+            "attachment": {
+                "type": "image",
+                "payload": {"url": image_url},
+            }
+        }
+    else:
+        message_payload = {"text": message_text}
+
     if use_instagram_login_api:
         endpoint = f"{_get_instagram_graph_base_url(db).rstrip('/')}/me/messages"
         params = None
@@ -327,7 +340,7 @@ async def send_instagram_message(
         # Instagram Login API expects recipient/message as JSON-encoded strings.
         payload = {
             "recipient": json.dumps({"id": recipient_igsid}, separators=(",", ":")),
-            "message": json.dumps({"text": message_text}, separators=(",", ":")),
+            "message": json.dumps(message_payload, separators=(",", ":")),
         }
         log_account_id = "me"
     else:
@@ -341,7 +354,7 @@ async def send_instagram_message(
         headers = None
         payload = {
             "recipient": {"id": recipient_igsid},
-            "message": {"text": message_text},
+            "message": message_payload,
         }
         log_account_id = ig_account_id
 
@@ -426,6 +439,7 @@ def send_instagram_message_sync(
     message_text: str,
     target: IntegrationTarget | None = None,
     account_id: str | None = None,
+    image_url: str | None = None,
 ) -> dict:
     """Synchronous wrapper for send_instagram_message.
 
@@ -437,6 +451,7 @@ def send_instagram_message_sync(
         message_text: Message text to send
         target: Optional IntegrationTarget
         account_id: Optional Instagram Business Account ID to send from
+        image_url: Optional public image URL to send as media attachment
 
     Returns:
         Dict with 'message_id' and 'recipient_id'
@@ -450,6 +465,7 @@ def send_instagram_message_sync(
         message_text,
         target,
         account_id=account_id,
+        image_url=image_url,
     )
     try:
         asyncio.get_running_loop()

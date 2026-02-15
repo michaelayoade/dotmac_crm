@@ -89,6 +89,7 @@ class Person(Base):
 
     # External integrations
     erp_customer_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)
+    erp_person_id: Mapped[str | None] = mapped_column(String(100), index=True)
     erpnext_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)
 
     status: Mapped[PersonStatus] = mapped_column(Enum(PersonStatus), default=PersonStatus.active)

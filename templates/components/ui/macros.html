@@ -349,7 +349,7 @@
    bulk actions, and consistent padding.
    ============================================ #}
 {% macro table_shell(table_id="", title="", icon="", color="slate", count=None, actions=None,
-                     search=True, search_name="search", search_value="", search_placeholder="Search...",
+                     search=False, search_name="search", search_value="", search_placeholder="Search...",
                      search_hx_url="", search_hx_target="", search_hx_include="",
                      search_typeahead_url="", filters=None,
                      bulk_actions=None, bulk_label="Selected", bulk_selectable=True, density="comfortable") %}
@@ -707,6 +707,7 @@
     </div>
     <input type="text"
            name="{{ name }}"
+           data-live-search="true"
            value="{{ value }}"
            placeholder="{{ placeholder }}"
            data-search-input="true"
@@ -731,6 +732,7 @@
 <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ label }}</label>
 {% endif %}
 <select name="{{ name }}"
+        data-live-filter="true"
         class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-{{ color }}-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-{{ color }}-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-{{ color }}-500 dark:focus:bg-slate-800"
         {% if attrs %}{% for key, val in attrs.items() %}{{ key }}="{{ val }}"{% endfor %}{% endif %}>
     {% for opt in options %}
@@ -756,7 +758,8 @@
    Container for search and filters
    ============================================ #}
 {% macro filter_bar() %}
-<div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+{# Ensure dropdowns/popovers inside the filter bar can overlay tables rendered below. #}
+<div class="relative z-30 animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
     {{ caller() }}
 </div>
 {% endmacro %}

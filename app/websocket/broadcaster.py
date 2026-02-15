@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from app.db import SessionLocal
 from app.logging import get_logger
+from app.services import nextcloud_talk_notifications as talk_notifications_service
 from app.websocket.events import EventType, WebSocketEvent
 from app.websocket.manager import get_connection_manager
 
@@ -223,6 +225,8 @@ def broadcast_agent_notification(user_id: str, payload: dict):
             payload.get("kind"),
         )
         _run_async(manager.broadcast_to_user(str(user_id), event))
+        # Best-effort mirror to Nextcloud Talk for users with Talk notification enabled.
+        _run_async(asyncio.to_thread(_forward_agent_notification_to_talk, str(user_id), dict(payload)))
         logger.debug("broadcast_agent_notification user_id=%s", user_id)
     except Exception as exc:
         logger.warning("broadcast_agent_notification_error error=%s", exc)
@@ -241,3 +245,15 @@ def broadcast_inbox_updated(user_id: str, payload: dict):
         logger.info("broadcast_inbox_updated user_id=%s", user_id)
     except Exception as exc:
         logger.warning("broadcast_inbox_updated_error error=%s", exc)
+
+
+def _forward_agent_notification_to_talk(user_id: str, payload: dict) -> None:
+    session = SessionLocal()
+    try:
+        talk_notifications_service.forward_agent_notification(
+            session,
+            person_id=str(user_id),
+            payload=payload,
+        )
+    finally:
+        session.close()

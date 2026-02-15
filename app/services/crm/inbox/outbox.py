@@ -6,6 +6,7 @@ import json
 import secrets
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -206,3 +207,19 @@ def list_due_outbox_ids(db: Session, *, limit: int = 50) -> list[str]:
         .all()
     )
     return [str(item.id) for item in items]
+
+
+def cleanup_old_outbox(db: Session, *, retention_days: int = 7) -> int:
+    """Delete failed outbox records older than the retention window."""
+    retention_days = max(int(retention_days or 0), 0)
+    cutoff = _now() - timedelta(days=retention_days)
+    sort_ts = func.coalesce(OutboxMessage.last_attempt_at, OutboxMessage.updated_at, OutboxMessage.created_at)
+    q = (
+        db.query(OutboxMessage)
+        .filter(OutboxMessage.status == STATUS_FAILED)
+        .filter(sort_ts.isnot(None))
+        .filter(sort_ts < cutoff)
+    )
+    deleted = q.delete(synchronize_session=False)
+    db.commit()
+    return int(deleted or 0)

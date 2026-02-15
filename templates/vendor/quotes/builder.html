@@ -414,6 +414,7 @@
             };
             const res = await fetch(`/api/vendor/quotes/${quoteId}/line-items`, {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
@@ -454,7 +455,10 @@
             if (!confirm('Delete this line item?')) return;
             target.disabled = true;
             try {
-                const res = await fetch(`/api/vendor/quotes/${quoteId}/line-items/${id}`, { method: 'DELETE' });
+                const res = await fetch(`/api/vendor/quotes/${quoteId}/line-items/${id}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(data.detail || data.error || `Request failed (${res.status})`);
                 row.remove();
@@ -490,6 +494,7 @@
             };
             const res = await fetch(`/api/vendor/quotes/${quoteId}/line-items/${id}`, {
                 method: 'PATCH',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
@@ -518,6 +523,7 @@
         try {
             const res = await fetch(`/api/vendor/quotes/${quoteId}/submit`, {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' }
             });
             const data = await res.json().catch(() => ({}));

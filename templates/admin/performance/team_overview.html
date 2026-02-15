@@ -1,0 +1,17 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Team Performance{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+        <h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">Team Performance</h1>
+        <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Weekly composite scores and domain breakdowns.</p>
+    </div>
+
+    <div id="performance-team-table" class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
+         hx-get="/admin/performance/team/_table" hx-trigger="load">
+        <p class="text-sm text-slate-600 dark:text-slate-300">Loading leaderboard...</p>
+    </div>
+</div>
+{% endblock %}

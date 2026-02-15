@@ -16,6 +16,7 @@ from app.tasks.campaigns import (
     process_scheduled_campaigns,
 )
 from app.tasks.crm_inbox import (
+    cleanup_old_outbox_task,
     process_outbox_queue_task,
     send_outbound_message_task,
     send_outbox_item_task,
@@ -35,8 +36,10 @@ from app.tasks.integrations import (
     sync_dotmac_erp_technicians,
     sync_material_request_to_erp,
 )
+from app.tasks.intelligence import expire_stale_insights, invoke_persona_async, run_scheduled_analysis
 from app.tasks.notifications import deliver_notification_queue
 from app.tasks.oauth import check_token_health, refresh_expiring_tokens
+from app.tasks.performance import compute_weekly_scores, generate_flagged_reviews, update_goal_progress
 from app.tasks.subscribers import (
     reconcile_subscriber_identity,
     sync_subscribers_from_splynx,
@@ -57,11 +60,16 @@ __all__ = [
     "aggregate_bandwidth_to_metrics",
     "check_token_health",
     "cleanup_bandwidth_hot_data",
+    "cleanup_old_outbox_task",
+    "compute_weekly_scores",
     "deliver_notification_queue",
     "deliver_webhook",
     "detect_sla_breaches",
     "distribute_survey",
     "execute_campaign",
+    "expire_stale_insights",
+    "generate_flagged_reviews",
+    "invoke_persona_async",
     "process_bandwidth_stream",
     "process_email_webhook",
     "process_meta_webhook",
@@ -74,6 +82,7 @@ __all__ = [
     "refresh_expiring_tokens",
     "retry_failed_deliveries",
     "run_integration_job",
+    "run_scheduled_analysis",
     "send_outbound_message_task",
     "send_outbox_item_task",
     "send_reply_reminders_task",
@@ -92,4 +101,5 @@ __all__ = [
     "sync_subscribers_from_ucrm",
     "sync_subscribers_generic",
     "trim_bandwidth_stream",
+    "update_goal_progress",
 ]

@@ -22,7 +22,8 @@ class TicketBase(BaseModel):
     region: str | None = Field(default=None, max_length=80)
     title: str = Field(min_length=1, max_length=200)
     description: str | None = None
-    status: TicketStatus = TicketStatus.new
+    # Default to open so API-created tickets match the UI default.
+    status: TicketStatus = TicketStatus.open
     priority: TicketPriority = TicketPriority.normal
     ticket_type: str | None = Field(default=None, max_length=120)
     channel: TicketChannel = TicketChannel.web

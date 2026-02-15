@@ -1,0 +1,123 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}AI Insights - Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">AI Insights</span>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">AI Insights</h1>
+            <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">Central feed for Intelligence Engine outputs.</p>
+        </div>
+        <div class="text-xs text-slate-500 dark:text-slate-400">
+            Showing {{ items | length }} item{{ '' if (items | length) == 1 else 's' }}
+        </div>
+    </div>
+
+    <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Domain</label>
+                <input name="domain" value="{{ filters.domain }}" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="tickets, projects, ..." />
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Persona</label>
+                <input name="persona_key" value="{{ filters.persona_key }}" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="ticket_analyst" />
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Entity Type</label>
+                <input name="entity_type" value="{{ filters.entity_type }}" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="ticket" />
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Entity ID</label>
+                <input name="entity_id" value="{{ filters.entity_id }}" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="uuid" />
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Status</label>
+                <input name="status" value="{{ filters.status }}" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="completed" />
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Severity</label>
+                <input name="severity" value="{{ filters.severity }}" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="warning" />
+            </div>
+        </div>
+        <div class="mt-4 flex items-center gap-2">
+            <button class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                Filter
+            </button>
+            <a href="/admin/intelligence/insights" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Reset</a>
+        </div>
+    </form>
+
+    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead class="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">When</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Domain</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Severity</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Persona</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Entity</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ack</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    {% for it in items %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                            {{ it.created_at.isoformat() if it.created_at else '' }}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200 whitespace-nowrap">{{ it.domain.value }}</td>
+                        <td class="px-4 py-3 text-sm whitespace-nowrap">
+                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold
+                                {% if it.severity.value == 'critical' %} bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300
+                                {% elif it.severity.value == 'warning' %} bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300
+                                {% elif it.severity.value == 'suggestion' %} bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300
+                                {% else %} bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200{% endif %}">
+                                {{ it.severity.value }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">{{ it.persona_key }}</td>
+                        <td class="px-4 py-3 text-sm">
+                            <a href="/admin/intelligence/insights/{{ it.id }}" class="font-semibold text-slate-900 hover:underline dark:text-white">{{ it.title }}</a>
+                            <div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{{ it.summary }}</div>
+                        </td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                            {{ it.entity_type }}{% if it.entity_id %}:{{ it.entity_id[:8] }}{% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-sm whitespace-nowrap">
+                            {% if it.status and it.status.value == 'acknowledged' %}
+                                <span class="text-xs text-slate-500 dark:text-slate-400">Acknowledged</span>
+                            {% else %}
+                                <form method="post" action="/admin/intelligence/insights/{{ it.id }}/acknowledge?next=/admin/intelligence/insights" class="inline">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                    <button class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                        Ack
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if items | length == 0 %}
+                    <tr>
+                        <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No insights found for these filters.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+from fastapi import HTTPException
+
 from app.models.workforce import WorkOrder
-from app.schemas.vendor import InstallationProjectCreate, ProjectQuoteCreate, VendorCreate
+from app.schemas.vendor import InstallationProjectCreate, ProjectQuoteCreate, QuoteLineItemCreate, VendorCreate
 from app.services import vendor as vendor_service
 from app.services.automation_actions import execute_actions
 from app.services.events.types import Event, EventType
@@ -23,6 +26,15 @@ def test_vendor_quote_submit_emits_event(db_session, project):
         ProjectQuoteCreate(project_id=installation_project.id),
         vendor_id=str(vendor.id),
         created_by_person_id=None,
+    )
+    vendor_service.quote_line_items.create(
+        db_session,
+        QuoteLineItemCreate(
+            quote_id=quote.id,
+            item_type="labor",
+            description="Fiber installation labor",
+        ),
+        vendor_id=str(vendor.id),
     )
 
     captured: dict = {}
@@ -67,6 +79,15 @@ def test_vendor_quote_approve_emits_event(db_session, project, person):
         ProjectQuoteCreate(project_id=installation_project.id),
         vendor_id=str(vendor.id),
         created_by_person_id=None,
+    )
+    vendor_service.quote_line_items.create(
+        db_session,
+        QuoteLineItemCreate(
+            quote_id=quote.id,
+            item_type="labor",
+            description="Fiber installation labor",
+        ),
+        vendor_id=str(vendor.id),
     )
     vendor_service.project_quotes.submit(db_session, str(quote.id), vendor_id=str(vendor.id))
 
@@ -166,3 +187,35 @@ def test_create_work_order_title_template_fallback_when_project_code_missing(db_
     wo = db_session.query(WorkOrder).filter(WorkOrder.project_id == project.id).one()
     assert "{project_code}" not in wo.title
     assert "Miracle Racheal David" in wo.title
+
+
+def test_quote_submit_requires_non_empty_line_item_description(db_session, project):
+    vendor = vendor_service.vendors.create(db_session, VendorCreate(name="Acme Vendor"))
+    installation_project = vendor_service.installation_projects.create(
+        db_session,
+        InstallationProjectCreate(
+            project_id=project.id,
+            assigned_vendor_id=vendor.id,
+        ),
+    )
+    quote = vendor_service.project_quotes.create(
+        db_session,
+        ProjectQuoteCreate(project_id=installation_project.id),
+        vendor_id=str(vendor.id),
+        created_by_person_id=None,
+    )
+    vendor_service.quote_line_items.create(
+        db_session,
+        QuoteLineItemCreate(
+            quote_id=quote.id,
+            item_type="labor",
+            description=None,
+        ),
+        vendor_id=str(vendor.id),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        vendor_service.project_quotes.submit(db_session, str(quote.id), vendor_id=str(vendor.id))
+
+    assert exc.value.status_code == 400
+    assert "missing description" in str(exc.value.detail).lower()

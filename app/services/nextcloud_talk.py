@@ -80,9 +80,7 @@ class NextcloudTalkClient:
         # - Many OCS APIs return statuscode=100 for success
         # - Some Talk endpoints mirror HTTP status codes (200/201/etc)
         ok = False
-        if statuscode in (100, "100"):
-            ok = True
-        elif isinstance(statuscode, int) and 200 <= statuscode < 300:
+        if statuscode in (100, "100") or (isinstance(statuscode, int) and 200 <= statuscode < 300):
             ok = True
         elif isinstance(statuscode, str) and statuscode.isdigit():
             try:
@@ -155,6 +153,26 @@ class NextcloudTalkClient:
         if options:
             payload.update(options)
         # v4 room endpoints commonly expect JSON (matches curl examples).
+        data = self._request(
+            "POST",
+            "/room",
+            data=payload,
+            base_path=self.ocs_conversations_base_path,
+            send_json=True,
+        )
+        if isinstance(data, dict):
+            return data
+        return {"data": data}
+
+    def create_room_with_invite(
+        self,
+        invite: str,
+        room_type: int = 1,
+        options: dict | None = None,
+    ) -> dict:
+        payload = {"roomType": int(room_type), "invite": invite}
+        if options:
+            payload.update(options)
         data = self._request(
             "POST",
             "/room",

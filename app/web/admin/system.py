@@ -1,7 +1,9 @@
 """Admin system management web routes."""
 
 import contextlib
+import html
 import json
+import logging
 import secrets
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -57,10 +59,11 @@ from app.services import (
 from app.services import (
     auth_flow as auth_flow_service,
 )
-from app.services import branding_assets, settings_spec
+from app.services import branding_assets, branding_state, settings_spec
 from app.services import (
     email as email_service,
 )
+from app.services import nextcloud_talk_notifications as talk_notifications_service
 from app.services import (
     person as person_service,
 )
@@ -81,6 +84,7 @@ from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/system", tags=["web-admin-system"])
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -3077,6 +3081,9 @@ async def settings_update(
         settings_context = _build_settings_context(db, ENFORCEMENT_DOMAIN)
     else:
         selected_domain = _resolve_settings_domain(domain_value)
+        talk_settings_before: tuple[bool, str, str, str] | None = None
+        if selected_domain == SettingDomain.notification:
+            talk_settings_before = talk_notifications_service.notification_settings_fingerprint(db)
         if selected_domain == SettingDomain.campaigns:
             settings_context = _build_settings_context(db, selected_domain.value)
             base_url = str(request.base_url).rstrip("/")
@@ -3176,6 +3183,22 @@ async def settings_update(
                     is_active=True,
                 )
                 service.upsert_by_key(db, spec.key, payload)
+            if selected_domain == SettingDomain.notification and talk_settings_before is not None:
+                talk_settings_after = talk_notifications_service.notification_settings_fingerprint(db)
+                if talk_settings_after != talk_settings_before:
+                    old_enabled, old_base_url, old_username, _ = talk_settings_before
+                    if old_enabled and old_base_url and old_username:
+                        cleared = talk_notifications_service.clear_cached_rooms(
+                            db,
+                            base_url=old_base_url,
+                            notifier_username=old_username,
+                        )
+                    else:
+                        cleared = talk_notifications_service.clear_cached_rooms(db)
+                    logger.info(
+                        "talk_notification_cache_invalidated_on_settings_change cleared=%s",
+                        cleared,
+                    )
 
         settings_context = _build_settings_context(db, selected_domain.value)
         if not errors and selected_domain == SettingDomain.numbering:
@@ -3520,6 +3543,7 @@ async def settings_branding_update(
 ):
     """Upload branding assets (logo/favicon) and store their URLs in settings."""
     errors: list[str] = []
+    did_write = False
     if logo and not logo.filename:
         logo = None
     if favicon and not favicon.filename:
@@ -3546,6 +3570,7 @@ async def settings_branding_update(
                 is_active=True,
             )
             service.upsert_by_key(db, "brand_logo_url", payload)
+            did_write = True
         elif service and logo_url_value:
             payload = DomainSettingUpdate(
                 value_type=settings_spec.SettingValueType.string,
@@ -3555,6 +3580,7 @@ async def settings_branding_update(
                 is_active=True,
             )
             service.upsert_by_key(db, "brand_logo_url", payload)
+            did_write = True
 
         if service and favicon:
             previous_favicon = settings_spec.resolve_value(db, SettingDomain.comms, "brand_favicon_url")
@@ -3569,6 +3595,7 @@ async def settings_branding_update(
                 is_active=True,
             )
             service.upsert_by_key(db, "brand_favicon_url", payload)
+            did_write = True
         elif service and favicon_url_value:
             payload = DomainSettingUpdate(
                 value_type=settings_spec.SettingValueType.string,
@@ -3578,10 +3605,16 @@ async def settings_branding_update(
                 is_active=True,
             )
             service.upsert_by_key(db, "brand_favicon_url", payload)
+            did_write = True
     except HTTPException as exc:
         errors.append(str(exc.detail))
     except Exception as exc:
         errors.append(str(exc) or "Failed to upload branding assets.")
+
+    if did_write:
+        # Refresh the request-scoped branding so the settings page shows what was just saved.
+        branding_state.invalidate_branding_cache()
+        request.state.branding = branding_state.load_branding_settings(db, force=True)
 
     settings_context = _build_settings_context(db, SettingDomain.comms.value)
     base_url = str(request.base_url).rstrip("/")
@@ -3640,6 +3673,44 @@ def test_smtp_connection(request: Request, db: Session = Depends(get_db)):
             f"</div>",
             status_code=200,
         )
+
+
+@router.post(
+    "/settings/test-talk",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:read"))],
+)
+async def test_talk_connection(request: Request, db: Session = Depends(get_db)):
+    """Test Nextcloud Talk notifications using saved system settings (HTMX endpoint)."""
+    form = await request.form()
+    invite_target = _form_str_opt(form.get("invite_target")) or ""
+    message = _form_str_opt(form.get("message"))
+    success, result = talk_notifications_service.send_test_message(
+        db,
+        invite_target=invite_target,
+        message=message,
+    )
+
+    if success:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
+            '<div class="flex items-center gap-2">'
+            '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
+            f"<span>{html.escape(str(result))}</span>"
+            "</div>"
+            "</div>",
+            status_code=200,
+        )
+
+    return HTMLResponse(
+        '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+        '<div class="flex items-center gap-2">'
+        '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+        f"<span>Talk test failed: {html.escape(str(result)) if result else 'Unknown error'}</span>"
+        "</div>"
+        "</div>",
+        status_code=200,
+    )
 
 
 @router.post(

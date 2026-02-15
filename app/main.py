@@ -9,6 +9,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.orm import Session
 from starlette.responses import Response
 
+from app.api.ai import router as ai_router
 from app.api.analytics import router as analytics_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
@@ -31,6 +32,7 @@ from app.api.inventory import router as inventory_router
 from app.api.material_requests import router as material_requests_router
 from app.api.nextcloud_talk import router as nextcloud_talk_router
 from app.api.notifications import router as notifications_router
+from app.api.performance import router as performance_router
 from app.api.persons import router as people_router
 from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
@@ -74,16 +76,19 @@ from app.services.settings_seed import (
     seed_comms_settings,
     seed_geocoding_settings,
     seed_gis_settings,
+    seed_integration_settings,
     seed_inventory_settings,
     seed_network_policy_settings,
     seed_network_settings,
     seed_notification_settings,
+    seed_performance_settings,
     seed_projects_settings,
     seed_provisioning_settings,
     seed_scheduler_settings,
     seed_workflow_settings,
 )
 from app.telemetry import setup_otel
+from app.services import branding_state
 from app.web import router as web_router
 from app.web_home import router as web_home_router
 from app.websocket.router import router as ws_router
@@ -96,11 +101,6 @@ _AUDIT_SETTINGS_CACHE_AT: float | None = None
 _AUDIT_SETTINGS_CACHE_TTL_SECONDS = 30.0
 _AUDIT_SETTINGS_LOCK = Lock()
 
-# Branding cache - 5 minute TTL since branding rarely changes
-_BRANDING_CACHE: dict | None = None
-_BRANDING_CACHE_AT: float | None = None
-_BRANDING_CACHE_TTL_SECONDS = 300.0  # 5 minutes
-_BRANDING_LOCK = Lock()
 configure_logging()
 setup_otel(app)
 app.add_middleware(ObservabilityMiddleware)
@@ -156,65 +156,6 @@ async def audit_middleware(request: Request, call_next):
             db.close()
 
 
-def _load_branding_settings(db: Session) -> dict:
-    """Load branding settings with double-checked locking pattern.
-
-    Uses 5-minute cache since branding rarely changes, avoiding DB query on every request.
-    """
-    global _BRANDING_CACHE, _BRANDING_CACHE_AT
-    now = monotonic()
-
-    # Fast path: check cache validity without lock
-    cache = _BRANDING_CACHE
-    cache_at = _BRANDING_CACHE_AT
-    if cache is not None and cache_at is not None and now - cache_at < _BRANDING_CACHE_TTL_SECONDS:
-        return cache
-
-    # Slow path: acquire lock and recheck
-    with _BRANDING_LOCK:
-        if (
-            _BRANDING_CACHE is not None
-            and _BRANDING_CACHE_AT is not None
-            and now - _BRANDING_CACHE_AT < _BRANDING_CACHE_TTL_SECONDS
-        ):
-            return _BRANDING_CACHE
-
-        # Cache miss - query database
-        try:
-            branding_keys = [
-                "company_name",
-                "brand_logo_url",
-                "brand_favicon_url",
-                "brand_color",
-                "support_email",
-                "support_phone",
-            ]
-            values = settings_spec.resolve_values_atomic(db, SettingDomain.comms, branding_keys)
-            result = {
-                "company_name": values.get("company_name") or "Dotmac",
-                "logo_url": values.get("brand_logo_url"),
-                "favicon_url": values.get("brand_favicon_url"),
-                "brand_color": values.get("brand_color") or "#0f172a",
-                "support_email": values.get("support_email"),
-                "support_phone": values.get("support_phone"),
-                "current_year": datetime.now(UTC).year,
-            }
-        except Exception:
-            result = {
-                "company_name": "Dotmac",
-                "logo_url": None,
-                "favicon_url": None,
-                "brand_color": "#0f172a",
-                "support_email": None,
-                "support_phone": None,
-                "current_year": datetime.now(UTC).year,
-            }
-
-        _BRANDING_CACHE = result
-        _BRANDING_CACHE_AT = now
-        return result
-
-
 @app.middleware("http")
 async def branding_middleware(request: Request, call_next):
     """Attach branding settings to request state for templates.
@@ -227,7 +168,7 @@ async def branding_middleware(request: Request, call_next):
     db: Session = getattr(request.state, "middleware_db", None) or SessionLocal()
     owns_db = not hasattr(request.state, "middleware_db")
     try:
-        branding = _load_branding_settings(db)
+        branding = branding_state.load_branding_settings(db)
     finally:
         if owns_db:
             db.close()
@@ -497,6 +438,8 @@ _include_api_router(bandwidth_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(validation_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(defaults_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(performance_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(ai_router, dependencies=[Depends(require_user_auth)])
 # Chat widget public endpoints - no auth required (visitor token-based)
 _include_api_router(widget_public_router)
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])
@@ -582,6 +525,8 @@ def _start_jobs():
         seed_network_settings(db)
         seed_inventory_settings(db)
         seed_comms_settings(db)
+        seed_integration_settings(db)
+        seed_performance_settings(db)
     finally:
         db.close()
     smtp_inbound_service.start_smtp_inbound_server()

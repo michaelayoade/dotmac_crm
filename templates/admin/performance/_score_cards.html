@@ -1,0 +1,12 @@
+{% if latest %}
+<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    {% for domain, score in latest.domain_scores_json.items() %}
+    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+        <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ domain|replace('_', ' ') }}</div>
+        <div class="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ "%.2f"|format(score) }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-sm text-slate-600 dark:text-slate-300">No score data available.</p>
+{% endif %}

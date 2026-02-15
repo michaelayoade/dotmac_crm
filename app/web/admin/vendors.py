@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.db import SessionLocal
 from app.models.auth import AuthProvider, UserCredential
 from app.models.person import Person, PersonStatus
+from app.models.projects import Project
 from app.models.rbac import PersonRole, Role
-from app.models.vendor import ProjectQuoteStatus, Vendor, VendorUser
+from app.models.vendor import InstallationProject, ProjectQuoteStatus, Vendor, VendorUser
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.person import PersonCreate
 from app.schemas.rbac import PersonRoleCreate
@@ -75,6 +76,17 @@ def _current_person_id(request: Request) -> str | None:
     if not person_id:
         return None
     return str(person_id)
+
+
+def _is_admin_user(request: Request) -> bool:
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request) or {}
+    roles = current_user.get("roles") if isinstance(current_user, dict) else []
+    if not isinstance(roles, list):
+        return False
+    role_names = {str(role).strip().lower() for role in roles if role}
+    return "admin" in role_names or "superadmin" in role_names
 
 
 def _create_person_credential(
@@ -521,10 +533,30 @@ def vendor_quotes_list(
         limit=200,
         offset=0,
     )
+    vendor_ids = {quote.vendor_id for quote in quotes if quote.vendor_id}
+    installation_project_ids = {quote.project_id for quote in quotes if quote.project_id}
+    vendor_labels: dict[object, str] = {}
+    project_labels: dict[object, str] = {}
+    if vendor_ids:
+        vendor_rows = db.query(Vendor.id, Vendor.name).filter(Vendor.id.in_(vendor_ids)).all()
+        vendor_labels = {vendor_id: name for vendor_id, name in vendor_rows}
+    if installation_project_ids:
+        project_rows = (
+            db.query(InstallationProject.id, Project.name, Project.code)
+            .join(Project, InstallationProject.project_id == Project.id)
+            .filter(InstallationProject.id.in_(installation_project_ids))
+            .all()
+        )
+        project_labels = {
+            installation_project_id: f"{project_name} ({project_code})" if project_code else project_name
+            for installation_project_id, project_name, project_code in project_rows
+        }
     context = _base_context(request, db, active_page="vendor-quotes")
     context.update(
         {
             "quotes": quotes,
+            "project_labels": project_labels,
+            "vendor_labels": vendor_labels,
             "quote_action": quote_action,
             "quote_error_detail": quote_error_detail,
         }
@@ -551,12 +583,13 @@ def vendor_quote_approve(
         return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
 
     try:
+        override_approval_threshold = bool(override_threshold) or _is_admin_user(request)
         vendor_service.project_quotes.approve(
             db,
             quote_id=quote_id,
             reviewer_person_id=reviewer_person_id,
             review_notes=(review_notes or "").strip() or None,
-            override=bool(override_threshold),
+            override=override_approval_threshold,
         )
     except HTTPException as exc:
         detail = urlquote(str(exc.detail or "Failed to approve quote."), safe="")

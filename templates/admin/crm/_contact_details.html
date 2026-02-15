@@ -64,7 +64,7 @@
 
             <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
                 <div>
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Email</p>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Email</p>
                     <p class="truncate">
                         {% if contact.email and not contact.email.endswith('@example.invalid') %}
                             {{ contact.email }}
@@ -74,23 +74,23 @@
                     </p>
                 </div>
                 <div>
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Phone</p>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Phone</p>
                     <p class="truncate">{{ contact.phone or '—' }}</p>
                 </div>
                 <div>
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Customer ID</p>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Customer ID</p>
                     <p class="truncate">{{ contact.splynx_id or '—' }}</p>
                 </div>
                 <div class="col-span-2">
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Address</p>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Address</p>
                     <p class="truncate">{{ contact.address.text or '—' }}</p>
                 </div>
                 <div>
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Linked</p>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Linked</p>
                     <p class="truncate">{{ contact.company or contact.name or '—' }}</p>
                 </div>
                 <div>
-                    <p class="text-[10px] uppercase tracking-wide text-slate-500">Status</p>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Status</p>
                     <p class="truncate">{{ 'Active' if contact.is_active else 'Inactive' }}</p>
                 </div>
             </div>
@@ -112,7 +112,7 @@
                     </div>
                     <div class="flex-1 min-w-0">
                         <p class="text-xs text-white truncate font-mono-tight">{{ channel.address }}</p>
-                        <p class="text-[10px] text-slate-500 capitalize">{{ channel.type }}</p>
+                        <p class="text-[10px] text-slate-400 capitalize">{{ channel.type }}</p>
                     </div>
                     {% if channel.verified %}
                     <svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 24 24">
@@ -137,16 +137,16 @@
           hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'}); htmx.ajax('GET', '/admin/crm/inbox/conversation/{{ conversation_id }}', {target:'#message-thread', swap:'innerHTML'})"
           class="space-y-2.5 rounded-xl bg-slate-800/30 border border-slate-700/30 p-2.5">
         <div>
-            <label class="block text-[10px] text-slate-500 mb-1">Person</label>
+            <label class="block text-[10px] text-slate-400 mb-1">Person</label>
             {{ typeahead_input("person_id", "/api/v1/search/people", placeholder="Search name, email, phone", required=true, variant="compact") }}
         </div>
         <div>
-            <label class="block text-[10px] text-slate-500 mb-1">Subscriber (optional)</label>
+            <label class="block text-[10px] text-slate-400 mb-1">Subscriber (optional)</label>
             {{ typeahead_input("subscriber_id", "/api/v1/search/subscribers", placeholder="Search subscriber number or name", variant="compact") }}
         </div>
         <div class="grid grid-cols-2 gap-1.5">
             <div>
-                <label class="block text-[10px] text-slate-500 mb-1">Channel Type</label>
+                <label class="block text-[10px] text-slate-400 mb-1">Channel Type</label>
                 <select name="channel_type"
                         class="w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200">
                     <option value="">Auto (latest inbound)</option>
@@ -157,13 +157,13 @@
                 </select>
             </div>
             <div>
-                <label class="block text-[10px] text-slate-500 mb-1">Channel Address</label>
+                <label class="block text-[10px] text-slate-400 mb-1">Channel Address</label>
                 <input name="channel_address"
                        placeholder="address or handle"
                        class="w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200" />
             </div>
         </div>
-        <p class="text-[10px] text-slate-500">Leave channel fields blank to reuse the latest inbound channel.</p>
+        <p class="text-[10px] text-slate-400">Leave channel fields blank to reuse the latest inbound channel.</p>
         <div class="flex justify-end pt-0.5">
             <button type="submit" class="text-[10px] font-semibold text-primary-400 hover:text-primary-300">Link contact</button>
         </div>
@@ -184,7 +184,7 @@
             {{ tag }}
         </span>
         {% endfor %}
-        <button class="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-slate-800/40 border border-slate-700/30 text-slate-500 hover:text-white hover:bg-slate-700/60 transition-colors">
+        <button class="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-slate-800/40 border border-slate-700/30 text-slate-400 hover:text-white hover:bg-slate-700/60 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
             </svg>
@@ -209,7 +209,7 @@
             </span>
         </div>
         <p class="text-sm font-medium text-white mb-0.5">{{ contact.subscriber.plan }}</p>
-        <p class="text-[10px] text-slate-500">Customer since {{ contact.subscriber.since }}</p>
+        <p class="text-[10px] text-slate-400">Customer since {{ contact.subscriber.since }}</p>
         <div class="mt-1.5 flex items-center gap-1 text-xs text-primary-400 opacity-0 group-hover:opacity-100 transition-opacity">
             View profile
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -226,11 +226,11 @@
     <div class="grid grid-cols-2 gap-2">
         <div class="rounded-xl bg-slate-800/30 border border-slate-700/30 p-2.5 text-center">
             <p class="text-2xl font-bold text-white font-display">{{ contact.total_conversations }}</p>
-            <p class="text-[10px] text-slate-500 mt-0.5">Conversations</p>
+            <p class="text-[10px] text-slate-400 mt-0.5">Conversations</p>
         </div>
         <div class="rounded-xl bg-slate-800/30 border border-slate-700/30 p-2.5 text-center">
             <p class="text-2xl font-bold text-white font-display">{{ contact.avg_response_time }}</p>
-            <p class="text-[10px] text-slate-500 mt-0.5">Avg Response</p>
+            <p class="text-[10px] text-slate-400 mt-0.5">Avg Response</p>
         </div>
     </div>
 </div>
@@ -282,13 +282,13 @@
                     </span>
                     {% endif %}
                 </div>
-                <span class="text-[10px] text-slate-500">{{ conv.updated_at }}</span>
+                <span class="text-[10px] text-slate-400">{{ conv.updated_at }}</span>
             </div>
             <p class="text-[10px] text-slate-400 mt-1 line-clamp-2">{{ conv.preview }}</p>
-            <p class="text-[10px] text-slate-500 mt-1">{{ conv.status | replace('_', ' ') | title }}</p>
+            <p class="text-[10px] text-slate-400 mt-1">{{ conv.status | replace('_', ' ') | title }}</p>
             {% if conv.channel == 'comments' and conv.older_comments %}
-            <div class="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-500">
-                <span class="uppercase tracking-wide text-slate-500">Older</span>
+            <div class="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-400">
+                <span class="uppercase tracking-wide text-slate-400">Older</span>
                 {% for older in conv.older_comments %}
                 <a class="rounded-full border border-slate-700/60 px-2 py-0.5 text-slate-400 hover:text-white"
                    href="{{ older.href }}">
@@ -296,14 +296,14 @@
                 </a>
                 {% endfor %}
                 {% if conv.older_more and conv.older_more > 0 %}
-                <span class="text-slate-500">+{{ conv.older_more }} more</span>
+                <span class="text-slate-400">+{{ conv.older_more }} more</span>
                 {% endif %}
             </div>
             {% endif %}
         </a>
         {% endfor %}
         {% else %}
-        <p class="text-[10px] text-slate-500">No conversations yet.</p>
+        <p class="text-[10px] text-slate-400">No conversations yet.</p>
         {% endif %}
         </div>
 
@@ -326,14 +326,14 @@
                     </span>
                     {% endif %}
                 </div>
-                <span class="text-[10px] text-slate-500">{{ conv.updated_at }}</span>
+                <span class="text-[10px] text-slate-400">{{ conv.updated_at }}</span>
             </div>
             <p class="text-[10px] text-slate-400 mt-1 line-clamp-2">{{ conv.preview }}</p>
-            <p class="text-[10px] text-slate-500 mt-1">{{ conv.status | replace('_', ' ') | title }}</p>
+            <p class="text-[10px] text-slate-400 mt-1">{{ conv.status | replace('_', ' ') | title }}</p>
         </a>
         {% endfor %}
         {% else %}
-        <p class="text-[10px] text-slate-500">No resolved conversations.</p>
+        <p class="text-[10px] text-slate-400">No resolved conversations.</p>
         {% endif %}
         </div>
     </div>
@@ -362,13 +362,13 @@
             <div class="flex items-center justify-between gap-2">
                 <div class="min-w-0">
                     <p class="text-xs font-semibold text-white truncate">{{ conv.subject }}</p>
-                    <p class="text-[10px] text-slate-500">{{ conv.status | replace('_', ' ') | title }}</p>
+                    <p class="text-[10px] text-slate-400">{{ conv.status | replace('_', ' ') | title }}</p>
                 </div>
                 <button type="submit" class="text-[10px] font-semibold text-primary-400 hover:text-primary-300">Save</button>
             </div>
             <div class="grid grid-cols-2 gap-2">
                 <div>
-                    <label class="block text-[10px] text-slate-500 mb-1">Agent</label>
+                    <label class="block text-[10px] text-slate-400 mb-1">Agent</label>
                     <select name="agent_id"
                             class="w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200">
                         <option value="">Unassigned</option>
@@ -379,7 +379,7 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-[10px] text-slate-500 mb-1">Team</label>
+                    <label class="block text-[10px] text-slate-400 mb-1">Team</label>
                     <select name="team_id"
                             class="w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200">
                         <option value="">Unassigned</option>
@@ -482,7 +482,7 @@
                     aria-label="Toggle notes">
                 <span x-text="open ? '–' : '+'"></span>
             </button>
-            <button class="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-slate-800/60 transition-colors">
+	            <button class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
                 </svg>
@@ -493,13 +493,13 @@
         {% if contact.notes %}
         <p class="text-xs text-slate-400 leading-relaxed">{{ contact.notes }}</p>
         {% else %}
-        <p class="text-xs text-slate-500 italic">No notes added yet</p>
+	        <p class="text-xs text-slate-400 italic">No notes added yet</p>
         {% endif %}
         {% if private_notes %}
         <div class="mt-3 space-y-2">
             {% for note in private_notes %}
             <div class="rounded-lg border border-slate-700/50 bg-slate-900/40 px-3 py-2">
-                <div class="text-[10px] uppercase tracking-wider text-slate-500">
+	                <div class="text-[10px] uppercase tracking-wider text-slate-400">
                     {{ note.sender.name }} · {{ note.timestamp.strftime('%b %d, %H:%M') if note.timestamp else '' }}
                 </div>
                 <div class="mt-1 text-xs text-slate-200 whitespace-pre-wrap">

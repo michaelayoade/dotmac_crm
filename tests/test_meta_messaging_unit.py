@@ -74,3 +74,82 @@ def test_get_token_for_channel(db_session):
     found = meta_messaging._get_token_for_channel(db_session, ChannelType.facebook_messenger, target)
     assert found is not None
     assert found.access_token == "token"
+
+
+@pytest.mark.asyncio
+async def test_send_instagram_message_text_payload(db_session):
+    config, target = _create_target(db_session)
+    token = OAuthToken(
+        connector_config_id=config.id,
+        provider="meta",
+        account_type="instagram_business",
+        external_account_id="ig_123",
+        access_token="token",
+        scopes=["instagram_manage_messages"],
+        token_expires_at=datetime.now(UTC) + timedelta(days=30),
+        is_active=True,
+    )
+    db_session.add(token)
+    db_session.commit()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"message_id": "ig_m1", "recipient_id": "ig_u1"}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("app.services.meta_messaging.httpx.AsyncClient") as mock_client:
+        mock_instance = AsyncMock()
+        mock_instance.post = AsyncMock(return_value=mock_response)
+        mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = await meta_messaging.send_instagram_message(db_session, "ig_u1", "Hello", target=target)
+
+    assert result["message_id"] == "ig_m1"
+    call_kwargs = mock_instance.post.await_args.kwargs
+    assert call_kwargs["json"]["message"] == {"text": "Hello"}
+
+
+@pytest.mark.asyncio
+async def test_send_instagram_message_image_payload(db_session):
+    config, target = _create_target(db_session)
+    token = OAuthToken(
+        connector_config_id=config.id,
+        provider="meta",
+        account_type="instagram_business",
+        external_account_id="ig_123",
+        access_token="token",
+        scopes=["instagram_manage_messages"],
+        token_expires_at=datetime.now(UTC) + timedelta(days=30),
+        is_active=True,
+    )
+    db_session.add(token)
+    db_session.commit()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"message_id": "ig_m2", "recipient_id": "ig_u1"}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("app.services.meta_messaging.httpx.AsyncClient") as mock_client:
+        mock_instance = AsyncMock()
+        mock_instance.post = AsyncMock(return_value=mock_response)
+        mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = await meta_messaging.send_instagram_message(
+            db_session,
+            "ig_u1",
+            "Hello",
+            target=target,
+            image_url="https://crm.dotmac.io/static/uploads/messages/test.jpg",
+        )
+
+    assert result["message_id"] == "ig_m2"
+    call_kwargs = mock_instance.post.await_args.kwargs
+    assert call_kwargs["json"]["message"] == {
+        "attachment": {
+            "type": "image",
+            "payload": {"url": "https://crm.dotmac.io/static/uploads/messages/test.jpg"},
+        }
+    }

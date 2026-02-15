@@ -21,8 +21,8 @@ def evaluate_conditions(conditions: list[dict], context: dict) -> bool:
         return True
 
     for condition in conditions:
-        field = condition.get("field", "")
-        op = condition.get("op", "")
+        field = str(condition.get("field", "")).strip()
+        op = str(condition.get("op", "")).strip()
         value = _normalize_condition_value(condition.get("value"))
 
         field_value = _resolve_field(context, field)

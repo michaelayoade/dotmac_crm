@@ -1,0 +1,50 @@
+<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">AI Triage Insight</div>
+      <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+        {{ insight.llm_provider }} · {{ insight.llm_model }}
+        {% if insight.llm_endpoint %} · {{ insight.llm_endpoint }}{% endif %}
+      </div>
+    </div>
+    <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300">
+      {{ insight.severity.value }}
+    </span>
+  </div>
+
+  <div class="mt-3">
+    <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ output.title or insight.title }}</div>
+    <div class="mt-1 whitespace-pre-wrap text-sm leading-snug text-slate-700 dark:text-slate-200">{{ output.summary or insight.summary }}</div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2">
+    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-200">
+      <div class="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Priority Score</div>
+      <div class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ output.priority_score or "—" }}</div>
+    </div>
+    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-200">
+      <div class="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Escalation Risk</div>
+      <div class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ output.escalation_risk or "—" }}</div>
+    </div>
+    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-200">
+      <div class="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Category</div>
+      <div class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ output.category or "—" }}</div>
+    </div>
+    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-200">
+      <div class="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Sentiment</div>
+      <div class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ output.sentiment or "—" }}</div>
+    </div>
+  </div>
+
+  {% if output.recommended_actions %}
+  <div class="mt-4">
+    <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Recommended Actions</div>
+    <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
+      {% for item in output.recommended_actions %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+

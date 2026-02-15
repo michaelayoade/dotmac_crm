@@ -9,6 +9,7 @@ from app.db import SessionLocal
 # Import auth helpers first to avoid circular imports
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.admin.admin_hub import router as admin_hub_router
+from app.web.admin.ai import router as ai_router
 from app.web.admin.automations import router as automations_router
 from app.web.admin.campaigns import router as campaigns_router
 from app.web.admin.crm import router as crm_router
@@ -17,6 +18,7 @@ from app.web.admin.crm import router as crm_router
 from app.web.admin.dashboard import router as dashboard_router
 from app.web.admin.gis import router as gis_router
 from app.web.admin.integrations import router as integrations_router
+from app.web.admin.intelligence import router as intelligence_router
 from app.web.admin.inventory import router as inventory_router
 from app.web.admin.legal import router as legal_router
 from app.web.admin.material_requests import router as material_requests_router
@@ -24,6 +26,7 @@ from app.web.admin.meta_oauth import router as meta_oauth_router
 from app.web.admin.network import router as network_router
 from app.web.admin.notifications import router as notifications_router
 from app.web.admin.operations import router as operations_router
+from app.web.admin.performance import router as performance_router
 from app.web.admin.projects import router as projects_router
 from app.web.admin.reports import router as reports_router
 from app.web.admin.service_teams import router as service_teams_router
@@ -98,6 +101,9 @@ router.include_router(operations_router)
 router.include_router(material_requests_router)
 router.include_router(service_teams_router)
 router.include_router(reports_router)
+router.include_router(performance_router)
 router.include_router(automations_router)
+router.include_router(ai_router)
+router.include_router(intelligence_router)
 
 __all__ = ["get_current_user", "get_sidebar_stats", "router"]

@@ -1,3 +1,9 @@
+from app.models.ai_insight import (  # noqa: F401
+    AIInsight,
+    AIInsightStatus,
+    InsightDomain,
+    InsightSeverity,
+)
 from app.models.analytics import (  # noqa: F401
     KPIAggregate,
     KPIConfig,
@@ -151,6 +157,8 @@ from app.models.network import (  # noqa: F401
     SplitterPort,
     SplitterPortType,
 )
+from app.models.nextcloud_talk import NextcloudTalkAccount  # noqa: F401
+from app.models.nextcloud_talk_notification import NextcloudTalkNotificationRoom  # noqa: F401
 from app.models.notification import (  # noqa: F401
     AlertNotificationLog,
     AlertNotificationPolicy,
@@ -164,8 +172,15 @@ from app.models.notification import (  # noqa: F401
     OnCallRotation,
     OnCallRotationMember,
 )
-from app.models.nextcloud_talk import NextcloudTalkAccount  # noqa: F401
 from app.models.oauth_token import OAuthToken  # noqa: F401
+from app.models.performance import (  # noqa: F401
+    AgentPerformanceGoal,
+    AgentPerformanceReview,
+    AgentPerformanceScore,
+    AgentPerformanceSnapshot,
+    GoalStatus,
+    PerformanceDomain,
+)
 from app.models.person import (  # noqa: F401
     ChannelType as PersonChannelType,
 )

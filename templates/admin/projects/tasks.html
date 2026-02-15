@@ -25,7 +25,7 @@
         <form class="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div class="flex-1">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Status</label>
-                <select name="status" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <select name="status" data-live-filter="true" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">All Status</option>
                     <option value="backlog" {% if status == 'backlog' %}selected{% endif %}>Backlog</option>
                     <option value="todo" {% if status == 'todo' %}selected{% endif %}>To Do</option>
@@ -37,7 +37,7 @@
             </div>
             <div class="flex-1">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Priority</label>
-                <select name="priority" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <select name="priority" data-live-filter="true" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">All Priorities</option>
                     <option value="lower" {% if priority == 'lower' %}selected{% endif %}>Lower</option>
                     <option value="low" {% if priority == 'low' %}selected{% endif %}>Low</option>
@@ -49,7 +49,7 @@
             </div>
             <div class="flex-1">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Project</label>
-                <select name="project_id" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <select name="project_id" data-live-filter="true" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">All Projects</option>
                     {% for project in projects %}
                     <option value="{{ project.id }}" {% if project_id == project.id|string %}selected{% endif %}>
@@ -60,7 +60,7 @@
             </div>
             <div class="flex-1">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Assignment</label>
-                <select name="assigned" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <select name="assigned" data-live-filter="true" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">All Tasks</option>
                     <option value="me" {% if assigned == 'me' %}selected{% endif %}>Assigned to Me</option>
                 </select>

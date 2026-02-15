@@ -606,7 +606,7 @@ def _send_whatsapp_message(
         if isinstance(first_attachment, dict):
             attachment_url = first_attachment.get("url") or ""
             if attachment_url and not attachment_url.startswith(("http://", "https://")):
-                app_url = email_service._get_app_url(db).rstrip("/")
+                app_url = email_service.get_app_url(db).rstrip("/")
                 if app_url:
                     attachment_url = f"{app_url}{attachment_url}"
             mime_type = (first_attachment.get("mime_type") or "").lower()
@@ -874,6 +874,25 @@ def _send_instagram_message(
         ),
     )
 
+    image_url = None
+    attachments = payload.attachments or []
+    if isinstance(attachments, list):
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            candidate_url = attachment.get("url") or ""
+            if not candidate_url:
+                continue
+            mime_type = (attachment.get("mime_type") or "").lower()
+            if mime_type and not mime_type.startswith("image/"):
+                continue
+            if not candidate_url.startswith(("http://", "https://")):
+                app_url = email_service.get_app_url(db).rstrip("/")
+                if app_url:
+                    candidate_url = f"{app_url}{candidate_url}"
+            image_url = candidate_url
+            break
+
     retry_error: OutboundSendError | None = None
     try:
         result = META_CIRCUIT.call(
@@ -883,6 +902,7 @@ def _send_instagram_message(
             rendered_body,
             target,
             account_id=account_id,
+            image_url=image_url,
         )
         message.status = MessageStatus.sent
         _store_external_message_id(message, result.get("message_id"))

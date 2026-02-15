@@ -420,6 +420,15 @@ def build_beat_schedule() -> dict:
             interval_seconds=outbox_interval_seconds,
         )
 
+        # CRM inbox outbox retention cleanup (terminal statuses only)
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_outbox_retention_cleanup",
+            task_name="app.tasks.crm_inbox.cleanup_old_outbox",
+            enabled=True,
+            interval_seconds=86400,  # daily
+        )
+
         # Event retry - retries failed event handlers
         event_retry_enabled = _effective_bool(
             session,
@@ -679,6 +688,69 @@ def build_beat_schedule() -> dict:
             task_name="app.tasks.subscribers.sync_subscribers_from_splynx",
             enabled=splynx_sync_enabled,
             interval_seconds=splynx_sync_interval_seconds,
+        )
+
+        # Performance scoring and review jobs
+        performance_scoring_enabled = _effective_bool(
+            session,
+            SettingDomain.performance,
+            "scoring_enabled",
+            "PERFORMANCE_SCORING_ENABLED",
+            True,
+        )
+        _sync_scheduled_task(
+            session,
+            name="performance_compute_weekly_scores",
+            task_name="app.tasks.performance.compute_weekly_scores",
+            enabled=performance_scoring_enabled,
+            interval_seconds=604800,
+        )
+
+        # Reviews are triggered by the scoring task per computed period.
+        _sync_scheduled_task(
+            session,
+            name="performance_generate_flagged_reviews",
+            task_name="app.tasks.performance.generate_flagged_reviews",
+            enabled=False,
+            interval_seconds=604800,
+        )
+
+        _sync_scheduled_task(
+            session,
+            name="performance_update_goal_progress",
+            task_name="app.tasks.performance.update_goal_progress",
+            enabled=True,
+            interval_seconds=86400,
+        )
+
+        # Intelligence Engine scheduled analysis
+        ai_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "ai_enabled",
+            "AI_ENABLED",
+            False,
+        )
+        intelligence_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "intelligence_enabled",
+            "INTELLIGENCE_ENABLED",
+            False,
+        )
+        _sync_scheduled_task(
+            session,
+            name="intelligence_scheduled_analysis",
+            task_name="app.tasks.intelligence.run_scheduled_analysis",
+            enabled=ai_enabled and intelligence_enabled,
+            interval_seconds=3600,
+        )
+        _sync_scheduled_task(
+            session,
+            name="intelligence_expire_stale",
+            task_name="app.tasks.intelligence.expire_stale_insights",
+            enabled=ai_enabled and intelligence_enabled,
+            interval_seconds=86400,
         )
 
         tasks = session.query(ScheduledTask).filter(ScheduledTask.enabled.is_(True)).all()

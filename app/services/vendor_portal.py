@@ -1,7 +1,7 @@
-import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 import app.services.auth_flow as auth_flow_service
@@ -76,23 +76,61 @@ def _create_session(
     vendor_id: str,
     role: str | None,
     remember: bool,
+    session_id: str | None,
     db: Session | None = None,
 ) -> str:
-    session_token = secrets.token_urlsafe(32)
     ttl_seconds = _session_ttl_seconds(remember, db)
-    _VENDOR_SESSIONS[session_token] = {
+    now = _now()
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    session_payload = {
+        "typ": "vendor_portal",
         "username": username,
         "person_id": person_id,
         "vendor_id": vendor_id,
         "role": role,
         "remember": remember,
-        "created_at": _now().isoformat(),
-        "expires_at": (_now() + timedelta(seconds=ttl_seconds)).isoformat(),
+        "session_id": session_id,
+        "created_at": now.isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
     }
+    session_token = jwt.encode(
+        session_payload,
+        auth_flow_service._jwt_secret(db),
+        algorithm=auth_flow_service._jwt_algorithm(db),
+    )
+    # Keep in-memory compatibility for any code paths still relying on local state.
+    _VENDOR_SESSIONS[session_token] = session_payload
     return session_token
 
 
-def _get_session(session_token: str) -> dict | None:
+def _get_session(session_token: str, db: Session | None = None) -> dict | None:
+    if not session_token:
+        return None
+
+    # Preferred path: stateless signed token, valid across workers.
+    try:
+        payload = jwt.decode(
+            session_token,
+            auth_flow_service._jwt_secret(db),
+            algorithms=[auth_flow_service._jwt_algorithm(db)],
+        )
+        if payload.get("typ") == "vendor_portal":
+            return {
+                "username": str(payload.get("username") or ""),
+                "person_id": str(payload.get("person_id") or ""),
+                "vendor_id": str(payload.get("vendor_id") or ""),
+                "role": payload.get("role"),
+                "remember": bool(payload.get("remember", False)),
+                "session_id": str(payload.get("session_id") or "") or None,
+                "created_at": str(payload.get("created_at") or ""),
+                "expires_at": str(payload.get("expires_at") or ""),
+            }
+    except JWTError:
+        pass
+
+    # Fallback path for legacy in-memory session tokens.
     session = _VENDOR_SESSIONS.get(session_token)
     if not session:
         return None
@@ -103,8 +141,28 @@ def _get_session(session_token: str) -> dict | None:
     return session
 
 
-def invalidate_session(session_token: str) -> None:
+def invalidate_session(session_token: str, db: Session | None = None) -> None:
+    """Invalidate a vendor session token.
+
+    Removes from in-memory cache and, if a db session is provided,
+    revokes the underlying AuthSession to prevent reuse across workers.
+    """
     _VENDOR_SESSIONS.pop(session_token, None)
+    if db and session_token:
+        try:
+            payload = jwt.decode(
+                session_token,
+                auth_flow_service._jwt_secret(db),
+                algorithms=[auth_flow_service._jwt_algorithm(db)],
+            )
+            sid = payload.get("session_id")
+            if sid:
+                auth_session = db.get(AuthSession, coerce_uuid(sid))
+                if auth_session and auth_session.status == SessionStatus.active:
+                    auth_session.status = SessionStatus.revoked
+                    db.commit()
+        except JWTError:
+            pass
 
 
 def login(db: Session, username: str, password: str, request: Request, remember: bool) -> dict:
@@ -164,26 +222,37 @@ def _session_from_access_token(
         vendor_id=str(vendor_user.vendor_id),
         role=vendor_user.role,
         remember=remember,
+        session_id=str(session_id),
         db=db,
     )
     return {"session_token": session_token, "vendor_id": str(vendor_user.vendor_id)}
 
 
 def get_context(db: Session, session_token: str | None) -> dict | None:
-    session = _get_session(session_token or "")
+    session = _get_session(session_token or "", db)
     if not session:
         return None
+
+    auth_session_id = session.get("session_id")
+    if auth_session_id:
+        auth_session = db.get(AuthSession, coerce_uuid(auth_session_id))
+        if not auth_session or auth_session.status != SessionStatus.active:
+            invalidate_session(session_token or "", db=db)
+            return None
+        if auth_session.expires_at and auth_session.expires_at <= _now():
+            invalidate_session(session_token or "", db=db)
+            return None
 
     person = db.get(Person, coerce_uuid(session["person_id"]))
     vendor = db.get(Vendor, coerce_uuid(session["vendor_id"]))
     if not _person_is_active(person) or not _vendor_is_active(vendor):
         # Session is no longer valid if either side is deactivated.
-        invalidate_session(session_token or "")
+        invalidate_session(session_token or "", db=db)
         return None
 
     vendor_user = _get_vendor_user(db, str(person.id))
     if not vendor_user:
-        invalidate_session(session_token or "")
+        invalidate_session(session_token or "", db=db)
         return None
 
     current_user = {
@@ -203,12 +272,21 @@ def get_context(db: Session, session_token: str | None) -> dict | None:
 def refresh_session(session_token: str | None, db: Session | None = None) -> dict | None:
     if not session_token:
         return None
-    session = _get_session(session_token)
+    session = _get_session(session_token, db)
     if not session:
         return None
-    ttl_seconds = _session_ttl_seconds(session.get("remember", False), db)
-    session["expires_at"] = (_now() + timedelta(seconds=ttl_seconds)).isoformat()
-    return session
+    renewed_token = _create_session(
+        username=str(session.get("username") or ""),
+        person_id=str(session.get("person_id") or ""),
+        vendor_id=str(session.get("vendor_id") or ""),
+        role=session.get("role"),
+        remember=bool(session.get("remember", False)),
+        session_id=str(session.get("session_id") or "") or None,
+        db=db,
+    )
+    refreshed = _get_session(renewed_token, db) or session
+    refreshed["session_token"] = renewed_token
+    return refreshed
 
 
 def _session_ttl_seconds(remember: bool, db: Session | None = None) -> int:

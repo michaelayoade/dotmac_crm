@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from sqlalchemy import String, cast, or_
+from sqlalchemy import String, cast, exists, or_
 from sqlalchemy.orm import selectinload
 
 from app.models.tickets import (
@@ -107,7 +107,16 @@ class TicketQuery(BaseQuery[Ticket]):
         if not person_id:
             return self
         clone = self._clone()
-        clone._query = clone._query.filter(Ticket.assigned_to_person_id == coerce_uuid(person_id))
+        person_uuid = coerce_uuid(person_id)
+        clone._query = clone._query.filter(
+            or_(
+                Ticket.assigned_to_person_id == person_uuid,
+                exists().where(
+                    TicketAssignee.ticket_id == Ticket.id,
+                    TicketAssignee.person_id == person_uuid,
+                ),
+            )
+        )
         return clone
 
     def by_ticket_manager(self, person_id: UUID | str | None) -> TicketQuery:
@@ -137,7 +146,10 @@ class TicketQuery(BaseQuery[Ticket]):
     def unassigned(self) -> TicketQuery:
         """Filter to only unassigned tickets."""
         clone = self._clone()
-        clone._query = clone._query.filter(Ticket.assigned_to_person_id.is_(None))
+        clone._query = clone._query.filter(
+            Ticket.assigned_to_person_id.is_(None),
+            ~exists().where(TicketAssignee.ticket_id == Ticket.id),
+        )
         return clone
 
     def search(self, term: str | None) -> TicketQuery:

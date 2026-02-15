@@ -29,11 +29,11 @@
                     {% endif %}
                 </div>
                 {% if conversation.channel == 'whatsapp' %}
-                <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-500">
+                <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-400">
                     {{ (conversation.contact.phone or conversation.contact.name or '—')|replace('+', '') }}
                 </p>
                 {% else %}
-                <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-500">{{ conversation.contact.email }}</p>
+                <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-400">{{ conversation.contact.email }}</p>
                 {% endif %}
             </div>
         </div>
@@ -200,7 +200,7 @@
                         {{ msg.sender.initials }}
                     </div>
                     <div class="min-w-0">
-                        <div class="{% if msg.html_body %}w-full max-w-full{% else %}message-inbound inline-flex w-fit max-w-[60%] flex-col gap-2 rounded-2xl rounded-tl-md px-3 py-1.5 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40{% endif %}">
+                        <div class="{% if msg.html_body %}message-inbound w-full max-w-full rounded-2xl rounded-tl-md overflow-hidden{% else %}message-inbound inline-flex w-fit max-w-[60%] flex-col gap-2 rounded-2xl rounded-tl-md px-3 py-1.5 bg-slate-100 border border-slate-200 dark:bg-transparent dark:border-slate-700/40{% endif %}">
                             {% if msg.reply_to %}
                             <div class="mb-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-[11px] text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/50 dark:text-slate-300">
                                 <div class="text-[10px] uppercase tracking-wide text-slate-400">Replying to {{ msg.reply_to.author or 'Unknown' }}</div>
@@ -209,11 +209,13 @@
                                 </div>
                             </div>
                             {% endif %}
-                            <div class="text-sm text-slate-800 whitespace-pre-wrap break-words max-w-full leading-tight dark:text-slate-200">{% if msg.html_body %}<iframe class="email-html-frame"
-                                        srcdoc="<style>html,body{margin:0;padding:0;overflow:hidden}img,table,td,th{max-width:100% !important;}table{width:100% !important;}body{box-sizing:border-box}</style>{{ msg.html_body | e }}"
+                            <div class="text-sm text-slate-800 whitespace-pre-wrap break-words max-w-full leading-tight dark:text-slate-200">{% if msg.html_body %}
+                                <iframe class="email-html-frame"
+                                        srcdoc="<style>html,body{margin:0;padding:0;overflow:hidden;background:transparent !important}img,table,td,th{max-width:100% !important;}table{width:100% !important;}body{box-sizing:border-box;background:transparent !important}</style>{{ msg.html_body | e }}"
                                         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                                         scrolling="no"
-                                        style="display: block; width: 100%; border: none; min-height: 140px; overflow: hidden;"></iframe>{% else %}{{- msg.content_html | safe if msg.content_html else msg.content | trim -}}{% endif %}</div>
+                                        style="display:block;width:100%;border:none;min-height:140px;overflow:hidden;background:transparent;"></iframe>
+                            {% else %}{{- msg.content_html | safe if msg.content_html else msg.content | trim -}}{% endif %}</div>
                             {% if msg.attachments %}
                             <div class="mt-3 space-y-2">
                                 {% for attachment in msg.attachments %}
@@ -249,14 +251,14 @@
                             {% endif %}
                         </div>
                         <div class="flex items-center gap-2 mt-1.5 px-1">
-                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
+                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
                             <button type="button"
                                     data-quote-button
                                     data-quote-id="{{ msg.id }}"
                                     data-quote-author="{{ msg.sender.name }}"
                                     data-quote-content="{{ msg.content }}"
                                     data-quote-sent-at="{{ msg.timestamp.isoformat() if msg.timestamp else '' }}"
-                                    class="text-[10px] font-semibold text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300">
+                                    class="text-[10px] font-semibold text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200">
                                 Quote
                             </button>
                         </div>
@@ -269,7 +271,7 @@
                         {{ msg.sender.initials }}
                     </div>
                     <div class="min-w-0">
-                        <div class="{% if msg.html_body %}w-full max-w-full{% else %}message-outbound inline-flex w-fit max-w-[55%] flex-col gap-2 rounded-2xl rounded-tr-md px-3 py-1.5 bg-primary-500/10 border border-primary-500/20 dark:bg-transparent dark:border-primary-500/20{% endif %}">
+                        <div class="{% if msg.html_body %}message-outbound w-full max-w-full rounded-2xl rounded-tr-md overflow-hidden{% else %}message-outbound inline-flex w-fit max-w-[55%] flex-col gap-2 rounded-2xl rounded-tr-md px-3 py-1.5 bg-primary-500/10 border border-primary-500/20 dark:bg-transparent dark:border-primary-500/20{% endif %}">
                             {% if msg.reply_to %}
                             <div class="mb-2 rounded-lg border border-primary-200/60 bg-white/70 px-3 py-2 text-[11px] text-slate-600 dark:border-primary-500/30 dark:bg-slate-900/50 dark:text-slate-300">
                                 <div class="text-[10px] uppercase tracking-wide text-slate-400">Replying to {{ msg.reply_to.author or 'Unknown' }}</div>
@@ -278,11 +280,13 @@
                                 </div>
                             </div>
                             {% endif %}
-                            <div class="text-sm text-slate-800 whitespace-pre-wrap break-words max-w-full leading-tight dark:text-slate-200">{% if msg.html_body %}<iframe class="email-html-frame"
-                                        srcdoc="<style>html,body{margin:0;padding:0;overflow:hidden}img,table,td,th{max-width:100% !important;}table{width:100% !important;}body{box-sizing:border-box}</style>{{ msg.html_body | e }}"
+                            <div class="text-sm text-slate-800 whitespace-pre-wrap break-words max-w-full leading-tight dark:text-slate-200">{% if msg.html_body %}
+                                <iframe class="email-html-frame"
+                                        srcdoc="<style>html,body{margin:0;padding:0;overflow:hidden;background:transparent !important}img,table,td,th{max-width:100% !important;}table{width:100% !important;}body{box-sizing:border-box;background:transparent !important}</style>{{ msg.html_body | e }}"
                                         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                                         scrolling="no"
-                                        style="display: block; width: 100%; border: none; min-height: 140px; overflow: hidden;"></iframe>{% else %}{{- msg.content_html | safe if msg.content_html else msg.content | trim -}}{% endif %}</div>
+                                        style="display:block;width:100%;border:none;min-height:140px;overflow:hidden;background:transparent;"></iframe>
+                            {% else %}{{- msg.content_html | safe if msg.content_html else msg.content | trim -}}{% endif %}</div>
                             {% if msg.attachments %}
                             <div class="mt-3 space-y-2">
                                 {% for attachment in msg.attachments %}
@@ -318,14 +322,14 @@
                             {% endif %}
                         </div>
                         <div class="flex items-center gap-2 mt-1.5 px-1 justify-end">
-                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-500">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
+                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
                             <button type="button"
                                     data-quote-button
                                     data-quote-id="{{ msg.id }}"
                                     data-quote-author="{{ msg.sender.name }}"
                                     data-quote-content="{{ msg.content }}"
                                     data-quote-sent-at="{{ msg.timestamp.isoformat() if msg.timestamp else '' }}"
-                                    class="text-[10px] font-semibold text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300">
+                                    class="text-[10px] font-semibold text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200">
                                 Quote
                             </button>
                             {% if msg.status in ['sent', 'delivered'] %}
@@ -490,12 +494,11 @@
 	             }
 	         }
 	     }"
-	     x-init="
-	         // Keep JSON out of the x-data attribute to avoid breaking HTML quoting.
-	         // (tojson contains double quotes which can terminate a double-quoted attribute)
-	         try { mentionAgents = JSON.parse($el.dataset.mentionAgents || '[]'); } catch (e) { mentionAgents = []; }
-	         if (privateNoteDraft && !showPrivateNote) { showPrivateNote = true; }
-	     ">
+	     x-init="(() => {
+	         // Alpine expects an expression; wrap init statements in an IIFE.
+	         try { this.mentionAgents = JSON.parse($el.dataset.mentionAgents || '[]'); } catch (e) { this.mentionAgents = []; }
+	         if (this.privateNoteDraft && !this.showPrivateNote) { this.showPrivateNote = true; }
+	     })()">
     {# reply_error is shown via the toast in inbox.html — no duplicate inline banner #}
     <div class="max-w-3xl mx-auto mb-3">
         <button type="button"
@@ -561,7 +564,7 @@
                 </div>
                 <button type="button"
                         data-clear-quote
-                        class="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                        class="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         aria-label="Clear quote">
                     <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -658,6 +661,7 @@
             <!-- Message input -->
             <div class="flex-1 relative">
                 <textarea x-ref="messageInput"
+                          id="conversation-message-input-{{ conversation.id }}"
                           name="message"
                           rows="1"
                           placeholder="Type your message..."
@@ -677,7 +681,7 @@
                               if ($refs.messageError) { $refs.messageError.textContent = ''; }
                               if ($root && $root.storeDraft) { $root.storeDraft('{{ conversation.id }}', $el.value); }
                               if ($root && $root.sendTypingIndicator) { $root.sendTypingIndicator('{{ conversation.id }}'); }
-                              onMentionInput('message', $event);
+                          onMentionInput('message', $event);
                           "></textarea>
                 <input type="hidden" name="mentions" x-ref="messageMentions" value="[]">
                 <div x-show="mentionOpen && mentionTarget === $refs.messageInput"
@@ -734,7 +738,14 @@
 
         <!-- Quick responses -->
         <div class="flex items-center gap-2 mt-3">
-            <span class="text-[10px] text-slate-500 uppercase tracking-wider dark:text-slate-500">Quick:</span>
+            <span class="text-[10px] text-slate-500 uppercase tracking-wider dark:text-slate-400">Quick:</span>
+            <button type="button"
+                    hx-post="/admin/ai/crm/conversations/{{ conversation.id }}/draft-reply"
+                    hx-target="#ai-draft-panel"
+                    hx-swap="innerHTML"
+                    class="px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-500/15 transition-colors dark:bg-indigo-500/15 dark:border-indigo-500/25 dark:text-indigo-300 dark:hover:bg-indigo-500/20">
+                AI Draft
+            </button>
             <button type="button"
                     @click="$refs.messageInput.value = 'Thank you for reaching out! Let me look into this for you.'; $refs.messageInput.dispatchEvent(new Event('input'))"
                     class="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors dark:bg-slate-800/40 dark:border-slate-700/40 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700/60">
@@ -751,5 +762,7 @@
                 Anything else?
             </button>
         </div>
+
+        <div id="ai-draft-panel" class="mt-3"></div>
     </form>
 </div>

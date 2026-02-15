@@ -46,3 +46,9 @@ def dashboard_activity_partial(request: Request, db: Session = Depends(get_db)):
 def dashboard_server_health_partial(request: Request, db: Session = Depends(get_db)):
     """HTMX partial for server health widget."""
     return web_admin_dashboard_service.dashboard_server_health_partial(request, db)
+
+
+@router.get("/dashboard/failed-outbox", response_class=HTMLResponse)
+def dashboard_failed_outbox_partial(request: Request, db: Session = Depends(get_db)):
+    """HTMX partial for listing failed outbox items on the dashboard."""
+    return web_admin_dashboard_service.dashboard_failed_outbox_partial(request, db)

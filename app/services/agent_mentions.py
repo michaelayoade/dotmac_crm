@@ -39,7 +39,7 @@ def _build_mention_email(db: Session, payload: dict) -> tuple[str, str]:
             ref = project_number or project_id
             target_url = f"/admin/projects/{ref}"
 
-    base_url = (email_service._get_app_url(db) or "").rstrip("/")
+    base_url = (email_service.get_app_url(db) or "").rstrip("/")
     link = target_url
     if link and link.startswith("/") and base_url:
         link = f"{base_url}{link}"

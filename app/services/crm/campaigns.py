@@ -14,9 +14,10 @@ from fastapi import HTTPException
 from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.campaign import Campaign, CampaignRecipient, CampaignStep
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
-from app.models.crm.enums import CampaignRecipientStatus, CampaignStatus, CampaignType
+from app.models.crm.enums import CampaignChannel, CampaignRecipientStatus, CampaignStatus, CampaignType
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import PartyStatus, Person
 from app.models.subscriber import Organization
@@ -54,12 +55,28 @@ def _substitute_variables(template: str | None, person: Person, org_map: dict | 
     return _VAR_PATTERN.sub(_replace, template)
 
 
-def _build_segment_query(db: Session, segment_filter: dict | None):
+def _normalize_whatsapp_address(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) < 7:  # E.164 minimum: country code + subscriber number
+        return None
+    return f"+{digits}"
+
+
+def _build_segment_query(db: Session, segment_filter: dict | None, channel: CampaignChannel):
     """Build a Person query filtered by segment_filter criteria."""
-    query = db.query(Person).filter(
-        Person.email.isnot(None),
-        Person.email != "",
-    )
+    query = db.query(Person)
+    if channel == CampaignChannel.whatsapp:
+        query = query.filter(
+            Person.phone.isnot(None),
+            Person.phone != "",
+        )
+    else:
+        query = query.filter(
+            Person.email.isnot(None),
+            Person.email != "",
+        )
 
     if not segment_filter:
         return query.filter(Person.is_active.is_(True))
@@ -220,11 +237,20 @@ class Campaigns(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Campaign not found")
         if campaign.status not in (CampaignStatus.draft, CampaignStatus.scheduled):
             raise HTTPException(status_code=400, detail="Campaign cannot be sent in its current state")
-        if not campaign.campaign_smtp_config_id:
-            raise HTTPException(status_code=400, detail="Campaign SMTP profile is required to send")
-        smtp_profile = db.get(CampaignSmtpConfig, campaign.campaign_smtp_config_id)
-        if not smtp_profile or not smtp_profile.is_active:
-            raise HTTPException(status_code=400, detail="Selected campaign SMTP profile is inactive")
+        if campaign.channel == CampaignChannel.email:
+            if not campaign.campaign_smtp_config_id:
+                raise HTTPException(status_code=400, detail="Campaign SMTP profile is required to send")
+            smtp_profile = db.get(CampaignSmtpConfig, campaign.campaign_smtp_config_id)
+            if not smtp_profile or not smtp_profile.is_active:
+                raise HTTPException(status_code=400, detail="Selected campaign SMTP profile is inactive")
+        elif campaign.channel == CampaignChannel.whatsapp:
+            if not campaign.connector_config_id:
+                raise HTTPException(status_code=400, detail="WhatsApp connector is required to send")
+            connector = db.get(ConnectorConfig, campaign.connector_config_id)
+            if not connector or not connector.is_active:
+                raise HTTPException(status_code=400, detail="Selected WhatsApp connector is inactive")
+            if connector.connector_type != ConnectorType.whatsapp:
+                raise HTTPException(status_code=400, detail="Selected connector is not a WhatsApp connector")
 
         # Build recipient list
         Campaigns.build_recipient_list(db, str(campaign.id))
@@ -259,7 +285,7 @@ class Campaigns(ListResponseMixin):
         if not campaign:
             raise HTTPException(status_code=404, detail="Campaign not found")
 
-        persons = _build_segment_query(db, campaign.segment_filter).all()
+        persons = _build_segment_query(db, campaign.segment_filter, campaign.channel).all()
 
         # Batch-check existing recipients to avoid N+1
         existing_person_ids = set(
@@ -274,14 +300,18 @@ class Campaigns(ListResponseMixin):
 
         count = 0
         for person in persons:
-            if not person.email:
+            address = person.email
+            if campaign.channel == CampaignChannel.whatsapp:
+                address = _normalize_whatsapp_address(person.phone)
+            if not address:
                 continue
             if person.id in existing_person_ids:
                 continue
             recipient = CampaignRecipient(
                 campaign_id=campaign.id,
                 person_id=person.id,
-                email=person.email,
+                address=address,
+                email=person.email if campaign.channel == CampaignChannel.email else None,
                 status=CampaignRecipientStatus.pending,
             )
             db.add(recipient)
@@ -293,8 +323,8 @@ class Campaigns(ListResponseMixin):
         return count
 
     @staticmethod
-    def preview_audience(db: Session, segment_filter: dict | None):
-        query = _build_segment_query(db, segment_filter)
+    def preview_audience(db: Session, segment_filter: dict | None, channel: CampaignChannel):
+        query = _build_segment_query(db, segment_filter, channel)
         total = query.count()
         sample = query.limit(10).all()
         return {
@@ -303,7 +333,7 @@ class Campaigns(ListResponseMixin):
                 {
                     "id": str(p.id),
                     "name": p.display_name or f"{p.first_name or ''} {p.last_name or ''}".strip(),
-                    "email": p.email,
+                    "address": _normalize_whatsapp_address(p.phone) if channel == CampaignChannel.whatsapp else p.email,
                 }
                 for p in sample
             ],
@@ -509,17 +539,28 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
         subject = _substitute_variables(subject, person, org_map)
         body = _substitute_variables(body_html or body_text, person, org_map)
 
-        notification = Notification(
-            channel=NotificationChannel.email,
-            recipient=recipient.email,
-            subject=subject,
-            body=body,
-            from_name=campaign.from_name,
-            from_email=campaign.from_email,
-            reply_to=campaign.reply_to,
-            smtp_config_id=campaign.campaign_smtp_config_id,
-            status=NotificationStatus.queued,
-        )
+        if campaign.channel == CampaignChannel.whatsapp:
+            # Store WhatsApp template name in subject for delivery lookup
+            notification = Notification(
+                channel=NotificationChannel.whatsapp,
+                recipient=recipient.address,
+                subject=campaign.whatsapp_template_name,
+                body=body,
+                connector_config_id=campaign.connector_config_id,
+                status=NotificationStatus.queued,
+            )
+        else:
+            notification = Notification(
+                channel=NotificationChannel.email,
+                recipient=recipient.address,
+                subject=subject,
+                body=body,
+                from_name=campaign.from_name,
+                from_email=campaign.from_email,
+                reply_to=campaign.reply_to,
+                smtp_config_id=campaign.campaign_smtp_config_id,
+                status=NotificationStatus.queued,
+            )
         db.add(notification)
         db.flush()
 

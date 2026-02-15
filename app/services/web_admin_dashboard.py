@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.audit import AuditActorType
 from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import LeadStatus, QuoteStatus
+from app.models.crm.outbox import OutboxMessage
 from app.models.crm.sales import Lead, Quote
 from app.models.domain_settings import SettingDomain
 from app.models.network import OLTDevice
@@ -39,7 +40,7 @@ from app.services.audit_helpers import (
     humanize_entity,
 )
 from app.services.crm.inbox.metrics import get_inbox_metrics
-from app.services.crm.inbox.queries import get_inbox_stats
+from app.services.crm.inbox.queries import get_inbox_stats, get_waiting_queue_counts_by_channel
 
 templates = Jinja2Templates(directory="templates")
 
@@ -268,6 +269,7 @@ def get_high_priority_stats(db: Session) -> dict:
     inbox_stats = get_inbox_stats(db)
     inbox_metrics = get_inbox_metrics(db)
     waiting_queue_count = int(inbox_stats.get("open", 0) or 0) + int(inbox_stats.get("snoozed", 0) or 0)
+    waiting_queue_by_channel = get_waiting_queue_counts_by_channel(db)
     failed_outbox_count = int((inbox_metrics.get("outbox") or {}).get("failed", 0) or 0)
 
     return {
@@ -280,6 +282,7 @@ def get_high_priority_stats(db: Session) -> dict:
         "total_leads": total_leads,
         "conversion_rate_pct": conversion_rate_pct,
         "waiting_queue_count": waiting_queue_count,
+        "waiting_queue_by_channel": waiting_queue_by_channel,
         "failed_outbox_count": failed_outbox_count,
     }
 
@@ -301,9 +304,7 @@ def _build_activity_context(db: Session) -> dict:
 
     # Batch-load Person records for user-type actors
     actor_ids = {
-        str(event.actor_id)
-        for event in recent_activity
-        if event.actor_id and _is_user_actor(event.actor_type)
+        str(event.actor_id) for event in recent_activity if event.actor_id and _is_user_actor(event.actor_type)
     }
     people: dict[str, Person] = {}
     if actor_ids:
@@ -426,5 +427,69 @@ def dashboard_server_health_partial(request: Request, db: Session):
     return templates.TemplateResponse(
         request,
         "admin/dashboard/_server_health.html",
+        context,
+    )
+
+
+def _build_failed_outbox_context(db: Session, *, limit: int = 25) -> dict:
+    """Build context for listing failed outbox items grouped by conversation."""
+    sort_ts = func.coalesce(OutboxMessage.last_attempt_at, OutboxMessage.updated_at, OutboxMessage.created_at)
+    ranked = (
+        db.query(
+            OutboxMessage.conversation_id.label("conversation_id"),
+            OutboxMessage.channel_type.label("channel_type"),
+            OutboxMessage.last_error.label("last_error"),
+            OutboxMessage.attempts.label("attempts"),
+            sort_ts.label("sort_ts"),
+            func.row_number().over(partition_by=OutboxMessage.conversation_id, order_by=sort_ts.desc()).label("rn"),
+        )
+        .filter(OutboxMessage.status == "failed")
+        .subquery()
+    )
+
+    rows = (
+        db.query(
+            Conversation,
+            Person,
+            ranked.c.channel_type,
+            ranked.c.last_error,
+            ranked.c.attempts,
+            ranked.c.sort_ts,
+        )
+        .join(ranked, ranked.c.conversation_id == Conversation.id)
+        .join(Person, Person.id == Conversation.person_id)
+        .filter(ranked.c.rn == 1)
+        .order_by(ranked.c.sort_ts.desc())
+        .limit(limit)
+        .all()
+    )
+
+    items: list[dict] = []
+    for conv, person, channel_type, last_error, attempts, sort_ts_value in rows:
+        display_name = (
+            person.display_name or " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+        )
+        items.append(
+            {
+                "conversation_id": str(conv.id),
+                "contact_name": display_name or person.email or "Unknown",
+                "contact_email": person.email,
+                "channel": channel_type.value if channel_type else None,
+                "last_error": last_error,
+                "attempts": int(attempts or 0),
+                "last_attempt_at": sort_ts_value,
+            }
+        )
+
+    return {"failed_outbox_items": items}
+
+
+def dashboard_failed_outbox_partial(request: Request, db: Session):
+    """HTMX partial for failed outbox list."""
+    context = web_admin_service.build_admin_context(request, db)
+    context.update(_build_failed_outbox_context(db))
+    return templates.TemplateResponse(
+        request,
+        "admin/dashboard/_failed_outbox_panel.html",
         context,
     )

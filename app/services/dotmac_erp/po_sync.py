@@ -84,9 +84,12 @@ class DotMacERPPurchaseOrderSync:
         for item in quote.line_items:
             if not item.is_active:
                 continue
+            description = (item.description or "").strip()
+            if not description:
+                description = f"{(item.item_type or 'item').replace('_', ' ').title()} item"
             entry: dict = {
                 "item_type": item.item_type,
-                "description": item.description,
+                "description": description,
                 "quantity": str(item.quantity),
                 "unit_price": str(item.unit_price),
                 "amount": str(item.amount),

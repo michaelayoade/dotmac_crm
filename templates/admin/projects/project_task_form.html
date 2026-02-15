@@ -302,6 +302,16 @@
             fetchResults(query);
         });
 
+        selectedWrap.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) return;
+            const removeBtn = target.closest("[data-remove]");
+            if (!removeBtn || !(removeBtn instanceof HTMLElement)) return;
+            const id = removeBtn.dataset.remove;
+            if (!id) return;
+            removeTech(id);
+        });
+
         document.addEventListener("click", (event) => {
             if (!root.contains(event.target)) {
                 results.innerHTML = "";

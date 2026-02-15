@@ -54,7 +54,8 @@ class Ticket(Base):
     region: Mapped[str | None] = mapped_column(String(80))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[TicketStatus] = mapped_column(Enum(TicketStatus), default=TicketStatus.new)
+    # Default to open so newly created tickets enter the active queue immediately.
+    status: Mapped[TicketStatus] = mapped_column(Enum(TicketStatus), default=TicketStatus.open)
     priority: Mapped[TicketPriority] = mapped_column(Enum(TicketPriority), default=TicketPriority.medium)
     ticket_type: Mapped[str | None] = mapped_column(String(120))
     number: Mapped[str | None] = mapped_column(String(40))

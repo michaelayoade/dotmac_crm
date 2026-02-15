@@ -31,6 +31,9 @@
                 <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {{ 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400' if campaign.campaign_type.value == 'one_time' else 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400' }}">
                     {{ campaign.campaign_type.value|replace('_', ' ')|title }}
                 </span>
+                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold {{ 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' if campaign.channel.value == 'whatsapp' else 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-400' }}">
+                    {{ campaign.channel.value|replace('_', ' ')|title }}
+                </span>
                 <span class="text-sm text-slate-500 dark:text-slate-400">Created {{ campaign.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
             </div>
         </div>
@@ -89,8 +92,13 @@
     <!-- Campaign Info -->
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Email Details</h2>
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">{{ 'WhatsApp Details' if campaign.channel.value == 'whatsapp' else 'Email Details' }}</h2>
             <dl class="space-y-3">
+                <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Channel</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ campaign.channel.value|replace('_', ' ')|title }}</dd>
+                </div>
+                {% if campaign.channel.value == 'email' %}
                 <div>
                     <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subject</dt>
                     <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ campaign.subject or '(not set)' }}</dd>
@@ -103,6 +111,16 @@
                 <div>
                     <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Reply-To</dt>
                     <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ campaign.reply_to }}</dd>
+                </div>
+                {% endif %}
+                {% else %}
+                <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connector</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ campaign.connector_config.name if campaign.connector_config else '(not set)' }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Message Content</dt>
+                    <dd class="mt-1 whitespace-pre-wrap text-sm text-slate-900 dark:text-white">{{ campaign.body_text or campaign.body_html or '(not set)' }}</dd>
                 </div>
                 {% endif %}
                 {% if campaign.scheduled_at %}

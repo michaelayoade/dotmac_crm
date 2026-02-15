@@ -68,8 +68,6 @@ def _notify_project_roles_created_in_app(db: Session, project: Project) -> None:
     filtered by recipient (email/person_id/user_id).
     """
     role_specs: list[tuple[str, str]] = [
-        ("owner_person_id", "Owner"),
-        ("manager_person_id", "Manager"),
         ("project_manager_person_id", "Project Manager"),
         ("assistant_manager_person_id", "Site Project Coordinator"),
     ]
@@ -95,7 +93,7 @@ def _notify_project_roles_created_in_app(db: Session, project: Project) -> None:
     # Use APP_URL (or DomainSetting notification/app_url) so links work across hosts.
     from app.services import email as email_service
 
-    base_url = (email_service._get_app_url(db) or "").rstrip("/")
+    base_url = (email_service.get_app_url(db) or "").rstrip("/")
     project_ref = project.number or str(project.id)
     project_url = f"{base_url}/admin/projects/{project_ref}" if base_url else f"/admin/projects/{project_ref}"
 
@@ -234,7 +232,7 @@ def _notify_project_task_assigned(
         due_label = _format_dt(task.due_at)
         start_label = _format_dt(task.start_at)
 
-        app_url = email_service._get_app_url(db).rstrip("/")
+        app_url = email_service.get_app_url(db).rstrip("/")
         task_url = f"{app_url}/admin/projects/tasks/{task.id}" if app_url else None
 
         branding = get_branding(db)
@@ -340,6 +338,16 @@ def _notify_project_task_assigned(
             body_text=None,
             track=True,
         )
+        db.add(
+            Notification(
+                channel=NotificationChannel.push,
+                recipient=assigned_to.email,
+                subject=subject,
+                body=f"You have been assigned a project task: {task.title or 'Task'}",
+                status=NotificationStatus.queued,
+            )
+        )
+        db.flush()
     except Exception as exc:
         logger.error("project_task_assigned_notify_failed task_id=%s error=%s", task.id, exc)
 
@@ -536,6 +544,7 @@ class Projects(ListResponseMixin):
         order_dir: str,
         limit: int,
         offset: int,
+        search: str | None = None,
     ):
         query = db.query(Project)
         if subscriber_id:
@@ -554,6 +563,17 @@ class Projects(ListResponseMixin):
             query = query.filter(Project.project_manager_person_id == coerce_uuid(project_manager_person_id))
         if assistant_manager_person_id:
             query = query.filter(Project.assistant_manager_person_id == coerce_uuid(assistant_manager_person_id))
+        if search and search.strip():
+            like_term = f"%{search.strip()}%"
+            query = query.filter(
+                or_(
+                    Project.name.ilike(like_term),
+                    Project.code.ilike(like_term),
+                    Project.number.ilike(like_term),
+                    Project.customer_address.ilike(like_term),
+                    Project.region.ilike(like_term),
+                )
+            )
         if is_active is None:
             query = query.filter(Project.is_active.is_(True))
         else:
@@ -1260,7 +1280,7 @@ class ProjectTaskComments(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(ProjectTaskComment)
+        query = db.query(ProjectTaskComment).options(selectinload(ProjectTaskComment.author))
         if task_id:
             query = query.filter(ProjectTaskComment.task_id == task_id)
         query = apply_ordering(
@@ -1311,7 +1331,7 @@ class ProjectComments(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(ProjectComment)
+        query = db.query(ProjectComment).options(selectinload(ProjectComment.author))
         if project_id:
             query = query.filter(ProjectComment.project_id == project_id)
         query = apply_ordering(

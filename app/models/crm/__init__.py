@@ -12,6 +12,7 @@ from app.models.crm.conversation import (
 )
 from app.models.crm.enums import (
     AgentPresenceStatus,
+    CampaignChannel,
     CampaignRecipientStatus,
     CampaignStatus,
     CampaignType,
@@ -32,6 +33,7 @@ __all__ = [
     "AgentPresence",
     "AgentPresenceStatus",
     "Campaign",
+    "CampaignChannel",
     "CampaignRecipient",
     "CampaignRecipientStatus",
     "CampaignSender",

@@ -10,8 +10,10 @@ from typing import ClassVar
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
+from app.models.event_store import EventStore
+from app.models.person import Person
 from app.models.projects import Project, ProjectStatus
-from app.models.tickets import Ticket, TicketStatus
+from app.models.tickets import Ticket, TicketComment, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import settings_spec
 from app.services.dotmac_erp.client import (
@@ -102,6 +104,8 @@ class DotMacERPSync:
     def __init__(self, db: Session):
         self.db = db
         self._client: DotMacERPClient | None = None
+        self._erp_person_cache_by_email: dict[str, str | None] = {}
+        self._author_mapping_dirty = False
 
     def _get_client(self) -> DotMacERPClient | None:
         """Get configured ERP client, or None if not configured."""
@@ -191,17 +195,241 @@ class DotMacERPSync:
 
         return payload
 
-    def _map_ticket(self, ticket: Ticket) -> dict:
+    @staticmethod
+    def _format_iso(value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.isoformat()
+
+    @staticmethod
+    def _safe_text(value: str | None, limit: int = 4000) -> str | None:
+        if value is None:
+            return None
+        if len(value) <= limit:
+            return value
+        return value[: limit - 3] + "..."
+
+    @staticmethod
+    def _normalize_email(value: str | None) -> str | None:
+        if not value:
+            return None
+        normalized = value.strip().lower()
+        return normalized or None
+
+    @staticmethod
+    def _redact_email(value: str | None) -> str:
+        if not value:
+            return "<empty>"
+        if "@" not in value:
+            return "***"
+        local, domain = value.split("@", 1)
+        if len(local) <= 2:
+            local_part = local[:1] + "***"
+        else:
+            local_part = local[:2] + "***"
+        return f"{local_part}@{domain}"
+
+    @staticmethod
+    def _extract_erp_person_id(employee: dict) -> str | None:
+        for key in ("employee_id", "person_id", "id"):
+            value = employee.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    def _resolve_erp_person_id_by_email(self, email: str) -> str | None:
+        normalized_email = self._normalize_email(email)
+        if not normalized_email:
+            return None
+
+        if normalized_email in self._erp_person_cache_by_email:
+            return self._erp_person_cache_by_email[normalized_email]
+
+        client = self._get_client()
+        if client is None:
+            self._erp_person_cache_by_email[normalized_email] = None
+            return None
+
+        offset = 0
+        limit = 500
+        found: str | None = None
+        try:
+            while True:
+                employees = client.get_employees(include_inactive=True, limit=limit, offset=offset)
+                if not employees:
+                    break
+                for employee in employees:
+                    employee_email = self._normalize_email(employee.get("email"))
+                    if employee_email != normalized_email:
+                        continue
+                    found = self._extract_erp_person_id(employee)
+                    if found:
+                        break
+                if found or len(employees) < limit:
+                    break
+                offset += limit
+        except DotMacERPError as exc:
+            logger.debug(
+                "ERP staff lookup unavailable for author mapping email=%s error=%s", self._redact_email(email), exc
+            )
+            self._erp_person_cache_by_email[normalized_email] = None
+            return None
+
+        self._erp_person_cache_by_email[normalized_email] = found
+        return found
+
+    def _resolve_comment_author_erp_person_id(
+        self,
+        comment: TicketComment,
+        ticket: Ticket,
+        stats: dict[str, int] | None = None,
+    ) -> str | None:
+        if not comment.author_person_id:
+            return None
+
+        person = self.db.get(Person, comment.author_person_id)
+        if not person:
+            if stats is not None:
+                stats["unresolved"] = stats.get("unresolved", 0) + 1
+            return None
+
+        if person.erp_person_id:
+            if stats is not None:
+                stats["resolved"] = stats.get("resolved", 0) + 1
+            return person.erp_person_id
+
+        normalized_email = self._normalize_email(person.email)
+        if not normalized_email:
+            if stats is not None:
+                stats["unresolved"] = stats.get("unresolved", 0) + 1
+            logger.debug(
+                "ERP author mapping unresolved: missing email ticket_id=%s email=%s",
+                ticket.id,
+                self._redact_email(normalized_email),
+            )
+            return None
+
+        erp_person_id = self._resolve_erp_person_id_by_email(normalized_email)
+        if not erp_person_id:
+            if stats is not None:
+                stats["unresolved"] = stats.get("unresolved", 0) + 1
+            logger.debug(
+                "ERP author mapping unresolved: no ERP staff match ticket_id=%s email=%s",
+                ticket.id,
+                self._redact_email(normalized_email),
+            )
+            return None
+
+        person.erp_person_id = erp_person_id
+        self._author_mapping_dirty = True
+        if stats is not None:
+            stats["resolved"] = stats.get("resolved", 0) + 1
+        return erp_person_id
+
+    def _flush_author_mappings(self) -> None:
+        if not self._author_mapping_dirty:
+            return
+        self.db.flush()
+        self.db.commit()
+        self._author_mapping_dirty = False
+
+    def _build_ticket_activity_log(
+        self,
+        ticket: Ticket,
+        max_entries: int = 25,
+        stats: dict[str, int] | None = None,
+    ) -> list[dict[str, object]]:
+        """Build a bounded ticket activity log from comments and event store rows."""
+        comments = self._get_ticket_comments(ticket_id=ticket.id, limit=max_entries)
+        events = (
+            self.db.query(EventStore)
+            .filter(EventStore.ticket_id == ticket.id)
+            .filter(EventStore.is_active.is_(True))
+            .order_by(EventStore.created_at.desc())
+            .limit(max_entries)
+            .all()
+        )
+
+        entries: list[dict[str, object]] = []
+        for comment in comments:
+            entries.append(
+                {
+                    "kind": "comment",
+                    "id": str(comment.id),
+                    "timestamp": self._format_iso(comment.created_at),
+                    "author_person_id": self._resolve_comment_author_erp_person_id(comment, ticket, stats=stats),
+                    "is_internal": bool(comment.is_internal),
+                    "body": self._safe_text(comment.body),
+                    "attachments_count": len(comment.attachments or []),
+                }
+            )
+
+        for event in events:
+            raw_payload = event.payload if isinstance(event.payload, dict) else {}
+            details: dict[str, object] = {}
+            for key in ("title", "subject", "from_status", "to_status", "status", "priority", "channel"):
+                value = raw_payload.get(key)
+                if value is not None:
+                    details[key] = value
+            changed_fields = raw_payload.get("changed_fields")
+            if isinstance(changed_fields, list):
+                details["changed_fields"] = changed_fields[:50]
+            entries.append(
+                {
+                    "kind": "event",
+                    "id": str(event.event_id),
+                    "timestamp": self._format_iso(event.created_at),
+                    "event_type": event.event_type,
+                    "status": event.status.value if event.status else None,
+                    "details": details,
+                }
+            )
+
+        entries.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+        return entries[:max_entries]
+
+    def _get_ticket_comments(self, ticket_id: object, limit: int = 50) -> list[TicketComment]:
+        return (
+            self.db.query(TicketComment)
+            .filter(TicketComment.ticket_id == ticket_id)
+            .order_by(TicketComment.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def _build_ticket_comments(
+        self,
+        ticket: Ticket,
+        max_entries: int = 50,
+        stats: dict[str, int] | None = None,
+    ) -> list[dict[str, object]]:
+        comments = self._get_ticket_comments(ticket_id=ticket.id, limit=max_entries)
+        return [
+            {
+                "id": str(comment.id),
+                "timestamp": self._format_iso(comment.created_at),
+                "author_person_id": self._resolve_comment_author_erp_person_id(comment, ticket, stats=stats),
+                "is_internal": bool(comment.is_internal),
+                "body": self._safe_text(comment.body),
+                "attachments_count": len(comment.attachments or []),
+            }
+            for comment in comments
+        ]
+
+    def _map_ticket(self, ticket: Ticket, stats: dict[str, int] | None = None) -> dict:
         """Map a Ticket model to ERP sync payload."""
         payload = {
             "crm_id": str(ticket.id),
             "omni_id": str(ticket.id),
             "erpnext_id": ticket.erpnext_id,
             "subject": ticket.title,
+            "description": ticket.description,
             "ticket_number": ticket.number or str(ticket.id),
             "ticket_type": ticket.ticket_type,
             "status": self.TICKET_STATUS_MAP.get(ticket.status, "active"),
             "priority": ticket.priority.value if ticket.priority else None,
+            "comments": self._build_ticket_comments(ticket, stats=stats),
+            "activity_log": self._build_ticket_activity_log(ticket, stats=stats),
             "metadata": {
                 "channel": ticket.channel.value if ticket.channel else None,
                 "tags": ticket.tags,
@@ -350,8 +578,16 @@ class DotMacERPSync:
             )
 
         try:
-            payload = self._map_ticket(ticket)
+            author_stats: dict[str, int] = {"resolved": 0, "unresolved": 0}
+            payload = self._map_ticket(ticket, stats=author_stats)
+            logger.info(
+                "ERP author mapping stats ticket_id=%s resolved=%d unresolved=%d",
+                ticket.id,
+                author_stats["resolved"],
+                author_stats["unresolved"],
+            )
             result = client.sync_ticket(payload)
+            self._flush_author_mappings()
             logger.info(
                 f"Synced ticket to ERP ticket_id={ticket.id} "
                 f"number={ticket.id} status={ticket.status.value if ticket.status else None}"
@@ -365,6 +601,7 @@ class DotMacERPSync:
                 response=result if isinstance(result, dict) else None,
             )
         except DotMacERPRateLimitError as e:
+            self._flush_author_mappings()
             logger.warning(
                 "ERP sync rate limited for ticket_id=%s retry_after=%s",
                 ticket.id,
@@ -372,6 +609,7 @@ class DotMacERPSync:
             )
             raise
         except DotMacERPAuthError as e:
+            self._flush_author_mappings()
             logger.error(
                 "ERP auth failed syncing ticket ticket_id=%s error=%s",
                 ticket.id,
@@ -386,6 +624,7 @@ class DotMacERPSync:
                 status_code=e.status_code,
             )
         except DotMacERPNotFoundError as e:
+            self._flush_author_mappings()
             logger.error(
                 "ERP resource not found syncing ticket ticket_id=%s error=%s",
                 ticket.id,
@@ -400,6 +639,7 @@ class DotMacERPSync:
                 status_code=e.status_code,
             )
         except DotMacERPError as e:
+            self._flush_author_mappings()
             status_code = e.status_code
             if status_code is not None and 400 <= status_code < 500 and status_code != 429:
                 logger.error(
@@ -418,6 +658,9 @@ class DotMacERPSync:
                     response=e.response if isinstance(e.response, dict) else None,
                 )
             raise DotMacERPTransientError(str(e), status_code=status_code, response=e.response)
+        except Exception:
+            self._flush_author_mappings()
+            raise
 
     def sync_work_order(self, work_order: WorkOrder) -> SyncEntityResult:
         """
@@ -534,8 +777,15 @@ class DotMacERPSync:
         try:
             # Map all entities
             project_payloads = [self._map_project(p) for p in (projects or [])]
-            ticket_payloads = [self._map_ticket(t) for t in (tickets or [])]
+            author_stats: dict[str, int] = {"resolved": 0, "unresolved": 0}
+            ticket_payloads = [self._map_ticket(t, stats=author_stats) for t in (tickets or [])]
             work_order_payloads = [self._map_work_order(wo) for wo in (work_orders or [])]
+            logger.info(
+                "ERP author mapping stats bulk resolved=%d unresolved=%d ticket_count=%d",
+                author_stats["resolved"],
+                author_stats["unresolved"],
+                len(ticket_payloads),
+            )
 
             # Send bulk request
             api_result = client.bulk_sync(
@@ -543,6 +793,7 @@ class DotMacERPSync:
                 tickets=ticket_payloads,
                 work_orders=work_order_payloads,
             )
+            self._flush_author_mappings()
 
             result.projects_synced = api_result.get("projects_synced", 0)
             result.tickets_synced = api_result.get("tickets_synced", 0)
@@ -550,8 +801,12 @@ class DotMacERPSync:
             result.errors = api_result.get("errors", [])
 
         except DotMacERPError as e:
+            self._flush_author_mappings()
             logger.error(f"Bulk sync failed: {e}")
             result.errors.append({"type": "api", "error": str(e)})
+        except Exception:
+            self._flush_author_mappings()
+            raise
 
         result.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
         return result

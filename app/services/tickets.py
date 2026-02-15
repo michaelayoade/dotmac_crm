@@ -9,7 +9,6 @@ from app.models.crm.sales import Lead
 from app.models.domain_settings import SettingDomain
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import Person
-from app.models.rbac import PersonRole, Role
 from app.models.tickets import (
     Ticket,
     TicketAssignee,
@@ -72,7 +71,7 @@ def _notify_ticket_role_assignment_in_app(
 
     from app.services import email as email_service
 
-    base_url = (email_service._get_app_url(db) or "").rstrip("/")
+    base_url = (email_service.get_app_url(db) or "").rstrip("/")
     ticket_ref = ticket.number or str(ticket.id)
     ticket_url = (
         f"{base_url}/admin/support/tickets/{ticket_ref}" if base_url else f"/admin/support/tickets/{ticket_ref}"
@@ -94,70 +93,6 @@ def _notify_ticket_role_assignment_in_app(
 
         roles_label = ", ".join(roles)
         body_lines = [f"You have been assigned as {roles_label} for this ticket."]
-        if site:
-            body_lines.append(f"Site: {site}.")
-        body_lines.append(f"Open: {ticket_url}")
-
-        db.add(
-            Notification(
-                channel=NotificationChannel.push,
-                recipient=recipient,
-                subject=subject,
-                body="\n".join(body_lines),
-                status=NotificationStatus.delivered,
-                sent_at=now,
-            )
-        )
-
-    db.commit()
-    return created_for
-
-
-def _notify_new_ticket_in_app_to_role(
-    db: Session,
-    *,
-    ticket: Ticket,
-    role_name: str,
-    skip_recipients: set[str] | None = None,
-) -> set[str]:
-    """Broadcast an in-app notification to all active people in a role."""
-    skip = skip_recipients or set()
-
-    role = db.query(Role).filter(Role.is_active.is_(True)).filter(Role.name.ilike(role_name)).first()
-    if not role:
-        return set()
-
-    people = (
-        db.query(Person)
-        .join(PersonRole, PersonRole.person_id == Person.id)
-        .filter(PersonRole.role_id == role.id)
-        .filter(Person.is_active.is_(True))
-        .all()
-    )
-    if not people:
-        return set()
-
-    from app.services import email as email_service
-
-    base_url = (email_service._get_app_url(db) or "").rstrip("/")
-    ticket_ref = ticket.number or str(ticket.id)
-    ticket_url = (
-        f"{base_url}/admin/support/tickets/{ticket_ref}" if base_url else f"/admin/support/tickets/{ticket_ref}"
-    )
-
-    subject = f"New Ticket Created: {ticket.title}"
-    site = (ticket.region or "").strip()
-    now = datetime.now(UTC)
-
-    created_for: set[str] = set()
-    for person in people:
-        if not isinstance(person.email, str) or not person.email.strip():
-            continue
-        recipient = person.email.strip()
-        if recipient in skip or recipient in created_for:
-            continue
-        created_for.add(recipient)
-        body_lines = ["A new ticket was created."]
         if site:
             body_lines.append(f"Site: {site}.")
         body_lines.append(f"Open: {ticket_url}")
@@ -419,7 +354,7 @@ class Tickets(ListResponseMixin):
         # In-app notifications for internal ticket roles.
         # Ticket has already been committed above, so failures here won't roll back creation.
         try:
-            already_notified = _notify_ticket_role_assignment_in_app(
+            _notify_ticket_role_assignment_in_app(
                 db,
                 ticket=ticket,
                 role_assignments={
@@ -427,12 +362,6 @@ class Tickets(ListResponseMixin):
                     "Ticket Manager": ticket.ticket_manager_person_id,
                     "Site Project Coordinator": ticket.assistant_manager_person_id,
                 },
-            )
-            _notify_new_ticket_in_app_to_role(
-                db,
-                ticket=ticket,
-                role_name="Operations",
-                skip_recipients=already_notified,
             )
         except Exception:
             db.rollback()

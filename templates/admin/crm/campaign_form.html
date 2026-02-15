@@ -27,6 +27,8 @@
     <form method="post" action="{{ '/admin/crm/campaigns/' ~ campaign.id if campaign else '/admin/crm/campaigns' }}"
           class="space-y-6">
 
+        {% set selected_channel = (campaign.channel.value if campaign and campaign.channel else 'email') %}
+
         <!-- Basic Info -->
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Campaign Details</h2>
@@ -44,13 +46,21 @@
                         <option value="nurture" {{ 'selected' if campaign and campaign.campaign_type.value == 'nurture' }}>Nurture Sequence</option>
                     </select>
                 </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Channel</label>
+                    <select id="campaign-channel" name="channel"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="email" {{ 'selected' if selected_channel == 'email' }}>Email</option>
+                        <option value="whatsapp" {{ 'selected' if selected_channel == 'whatsapp' }}>WhatsApp</option>
+                    </select>
+                </div>
             </div>
         </div>
 
         <!-- Audience Targeting -->
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-1">Audience</h2>
-            <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">Leave all filters empty to target all contacts with an email address.</p>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">Leave all filters empty to target all contacts with a valid email address or WhatsApp phone number.</p>
 
             {% set sf = (campaign.segment_filter or {}) if campaign else {} %}
 
@@ -118,42 +128,61 @@
             </div>
         </div>
 
-        <!-- Email Content -->
+        <!-- Message Content -->
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Email Content</h2>
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Message Content</h2>
             <div class="space-y-4">
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Subject Line</label>
-                    <input type="text" name="subject" value="{{ campaign.subject if campaign else '' }}"
+                <div id="campaign-subject-group">
+                    <label id="campaign-subject-label" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Subject Line</label>
+                    <input id="campaign-subject" type="text" name="subject" value="{{ campaign.subject if campaign else '' }}"
                            placeholder="e.g. {{first_name}}, check out our latest update"
                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <p class="mt-1 text-xs text-slate-400">Variables: <code>&#123;&#123;first_name&#125;&#125;</code>, <code>&#123;&#123;last_name&#125;&#125;</code>, <code>&#123;&#123;email&#125;&#125;</code>, <code>&#123;&#123;organization_name&#125;&#125;</code></p>
+                    <p id="campaign-message-help" class="mt-1 text-xs text-slate-400">
+                        Variables: <code>&#123;&#123;first_name&#125;&#125;</code>, <code>&#123;&#123;last_name&#125;&#125;</code>, <code>&#123;&#123;email&#125;&#125;</code>, <code>&#123;&#123;organization_name&#125;&#125;</code>.
+                        Subject is ignored for WhatsApp sends.
+                    </p>
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">HTML Body</label>
-                    <textarea name="body_html" rows="10"
+                <div id="campaign-html-group">
+                    <label id="campaign-html-label" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">HTML Body</label>
+                    <textarea id="campaign-body-html" name="body_html" rows="10"
                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ campaign.body_html if campaign else '' }}</textarea>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Plain Text Body (fallback)</label>
-                    <textarea name="body_text" rows="5"
+                    <label id="campaign-text-label" class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Plain Text Body (fallback)</label>
+                    <textarea id="campaign-body-text" name="body_text" rows="5"
                               class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ campaign.body_text if campaign else '' }}</textarea>
+                </div>
+                <div id="campaign-whatsapp-template-group" class="hidden">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">WhatsApp Template</label>
+                    <select id="campaign-whatsapp-template-select"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">Select template</option>
+                    </select>
+                    <p id="campaign-whatsapp-template-status" class="mt-1 text-xs text-slate-500 dark:text-slate-400"></p>
+                    <div id="campaign-whatsapp-template-header-fields" class="mt-3 space-y-2"></div>
+                    <div id="campaign-whatsapp-template-body-fields" class="mt-3 space-y-2"></div>
+                    <div id="campaign-whatsapp-template-button-fields" class="mt-3 space-y-2"></div>
+                    <input type="hidden" id="campaign-whatsapp-template-name" name="whatsapp_template_name" value="">
+                    <input type="hidden" id="campaign-whatsapp-template-language" name="whatsapp_template_language" value="">
+                    <input type="hidden" id="campaign-whatsapp-template-components" name="whatsapp_template_components" value="">
                 </div>
             </div>
         </div>
 
-        <!-- Sender Info -->
+        <!-- Delivery -->
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Sender</h2>
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Delivery</h2>
+            <div id="delivery-email-fields">
             {% if not campaign_senders or not campaign_smtp_profiles %}
             <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
                 Missing campaign senders or SMTP profiles. Add them in <a href="/admin/system/settings?domain=campaigns" class="underline">System Settings → Campaigns</a>.
             </div>
             {% else %}
+            <p class="mb-3 text-xs text-slate-500 dark:text-slate-400">Used when channel is <strong>Email</strong>.</p>
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Campaign Sender *</label>
-                    <select name="campaign_sender_id" required
+                    <select id="campaign-sender-id" name="campaign_sender_id"
                             class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                         <option value="" disabled {% if not campaign or not campaign.campaign_sender_id %}selected{% endif %}>Select a sender</option>
                         {% for sender in campaign_senders %}
@@ -166,7 +195,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">SMTP Profile *</label>
-                    <select name="campaign_smtp_config_id" required
+                    <select id="campaign-smtp-config-id" name="campaign_smtp_config_id"
                             class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                         <option value="" disabled {% if not campaign or not campaign.campaign_smtp_config_id %}selected{% endif %}>Select SMTP profile</option>
                         {% for smtp in campaign_smtp_profiles %}
@@ -179,6 +208,30 @@
                 </div>
             </div>
             {% endif %}
+            </div>
+            <div class="my-4 border-t border-slate-200 dark:border-slate-700"></div>
+            <div id="delivery-whatsapp-fields">
+            {% if not whatsapp_connectors %}
+            <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+                Missing WhatsApp connectors. Add one in <a href="/admin/crm/inbox/settings" class="underline">CRM Inbox Settings</a>.
+            </div>
+            {% else %}
+            <div class="max-w-xl">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">WhatsApp Connector *</label>
+                <p class="mb-2 text-xs text-slate-500 dark:text-slate-400">Used when channel is <strong>WhatsApp</strong>.</p>
+                <select id="whatsapp-connector-id" name="whatsapp_connector_id"
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="" disabled {% if campaign and not campaign.connector_config_id %}selected{% endif %}>Select connector</option>
+                    {% for connector in whatsapp_connectors %}
+                    <option value="{{ connector.id }}"
+                            {% if (campaign and campaign.connector_config_id == connector.id) or (not campaign and loop.first) %}selected{% endif %}>
+                        {{ connector.name }}{% if not connector.is_active %} (inactive){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            </div>
         </div>
 
         <!-- Actions -->
@@ -189,4 +242,460 @@
         </div>
     </form>
 </div>
+<script>
+(() => {
+    const channel = document.getElementById("campaign-channel");
+    const subjectGroup = document.getElementById("campaign-subject-group");
+    const htmlGroup = document.getElementById("campaign-html-group");
+    const subjectInput = document.getElementById("campaign-subject");
+    const htmlInput = document.getElementById("campaign-body-html");
+    const textInput = document.getElementById("campaign-body-text");
+    const textLabel = document.getElementById("campaign-text-label");
+    const helpText = document.getElementById("campaign-message-help");
+    const deliveryEmailFields = document.getElementById("delivery-email-fields");
+    const deliveryWhatsappFields = document.getElementById("delivery-whatsapp-fields");
+    const campaignSenderSelect = document.getElementById("campaign-sender-id");
+    const campaignSmtpSelect = document.getElementById("campaign-smtp-config-id");
+    const whatsappConnectorSelect = document.getElementById("whatsapp-connector-id");
+    const whatsappTemplateGroup = document.getElementById("campaign-whatsapp-template-group");
+    const whatsappTemplateSelect = document.getElementById("campaign-whatsapp-template-select");
+    const whatsappTemplateStatus = document.getElementById("campaign-whatsapp-template-status");
+    const whatsappTemplateHeaderFields = document.getElementById("campaign-whatsapp-template-header-fields");
+    const whatsappTemplateBodyFields = document.getElementById("campaign-whatsapp-template-body-fields");
+    const whatsappTemplateButtonFields = document.getElementById("campaign-whatsapp-template-button-fields");
+    const whatsappTemplateNameInput = document.getElementById("campaign-whatsapp-template-name");
+    const whatsappTemplateLanguageInput = document.getElementById("campaign-whatsapp-template-language");
+    const whatsappTemplateComponentsInput = document.getElementById("campaign-whatsapp-template-components");
+
+    if (!channel || !subjectGroup || !htmlGroup || !subjectInput || !htmlInput || !textInput || !textLabel || !helpText) {
+        return;
+    }
+
+    const whatsappTemplate = "Hi {{first_name}},\n\nThanks for being part of Dotmac.\nWe have an update for you: {{organization_name}}.\n\nReply STOP to opt out.";
+    const state = {
+        email: {
+            subject: subjectInput.value || "",
+            bodyHtml: htmlInput.value || "",
+            bodyText: textInput.value || "",
+        },
+        whatsapp: {
+            subject: "",
+            bodyHtml: "",
+            bodyText: whatsappTemplate,
+        },
+    };
+    let whatsappTemplates = [];
+    let templatesLoadedForConnector = "";
+    let selectedWhatsappTemplateName = "";
+    let selectedWhatsappTemplateLanguage = "";
+    let whatsappTemplateHeader = null;
+    let whatsappTemplateHeaderValues = {};
+    let whatsappTemplateHeaderMediaUrl = "";
+    let whatsappTemplateParams = [];
+    let whatsappTemplateParamValues = {};
+    let whatsappTemplateButtons = [];
+    let whatsappTemplateButtonValues = {};
+
+    function captureCurrent(mode) {
+        state[mode] = {
+            subject: subjectInput.value || "",
+            bodyHtml: htmlInput.value || "",
+            bodyText: textInput.value || "",
+        };
+    }
+
+    function applyMode(mode) {
+        const template = state[mode];
+        subjectInput.value = template.subject;
+        htmlInput.value = template.bodyHtml;
+        textInput.value = template.bodyText;
+
+        if (mode === "whatsapp") {
+            subjectGroup.classList.add("hidden");
+            htmlGroup.classList.add("hidden");
+            textLabel.textContent = "WhatsApp Message Template";
+            helpText.textContent = "Variables: {{first_name}}, {{last_name}}, {{email}}, {{organization_name}}.";
+            if (deliveryEmailFields) deliveryEmailFields.classList.add("hidden");
+            if (deliveryWhatsappFields) deliveryWhatsappFields.classList.remove("hidden");
+            if (whatsappTemplateGroup) whatsappTemplateGroup.classList.remove("hidden");
+            if (campaignSenderSelect) campaignSenderSelect.required = false;
+            if (campaignSmtpSelect) campaignSmtpSelect.required = false;
+            if (whatsappConnectorSelect) whatsappConnectorSelect.required = true;
+            if (
+                whatsappConnectorSelect &&
+                !whatsappConnectorSelect.value &&
+                whatsappConnectorSelect.options &&
+                whatsappConnectorSelect.options.length > 1
+            ) {
+                whatsappConnectorSelect.selectedIndex = 1;
+            }
+            loadWhatsappTemplates();
+        } else {
+            subjectGroup.classList.remove("hidden");
+            htmlGroup.classList.remove("hidden");
+            textLabel.textContent = "Plain Text Body (fallback)";
+            helpText.innerHTML = "Variables: <code>&#123;&#123;first_name&#125;&#125;</code>, <code>&#123;&#123;last_name&#125;&#125;</code>, <code>&#123;&#123;email&#125;&#125;</code>, <code>&#123;&#123;organization_name&#125;&#125;</code>. Subject is ignored for WhatsApp sends.";
+            if (deliveryEmailFields) deliveryEmailFields.classList.remove("hidden");
+            if (deliveryWhatsappFields) deliveryWhatsappFields.classList.add("hidden");
+            if (whatsappTemplateGroup) whatsappTemplateGroup.classList.add("hidden");
+            if (campaignSenderSelect) campaignSenderSelect.required = true;
+            if (campaignSmtpSelect) campaignSmtpSelect.required = true;
+            if (whatsappConnectorSelect) whatsappConnectorSelect.required = false;
+        }
+    }
+
+    function extractWhatsappTemplateHeader(template) {
+        if (!template || !Array.isArray(template.components)) {
+            return null;
+        }
+        const header = template.components.find((comp) => comp.type === "HEADER");
+        if (!header) {
+            return null;
+        }
+        const format = header.format || null;
+        if (format === "TEXT") {
+            const text = header.text || "";
+            const matches = [...text.matchAll(/\{\{(\d+)\}\}/g)];
+            const params = matches.map((m) => Number(m[1])).filter((n) => !Number.isNaN(n));
+            const unique = Array.from(new Set(params)).sort((a, b) => a - b);
+            if (!unique.length) {
+                return null;
+            }
+            return { format: "TEXT", params: unique.map((n) => String(n)) };
+        }
+        if (format) {
+            return { format };
+        }
+        return null;
+    }
+
+    function extractWhatsappTemplateButtons(template) {
+        if (!template || !Array.isArray(template.components)) {
+            return [];
+        }
+        const buttons = template.components.find((comp) => comp.type === "BUTTONS");
+        if (!buttons || !Array.isArray(buttons.buttons)) {
+            return [];
+        }
+        const paramButtons = [];
+        buttons.buttons.forEach((btn, idx) => {
+            if ((btn.type || "").toUpperCase() !== "URL") {
+                return;
+            }
+            const url = btn.url || "";
+            if (url.includes("{{1}}")) {
+                paramButtons.push({ index: idx });
+            }
+        });
+        return paramButtons;
+    }
+
+    function extractWhatsappTemplateParams(template) {
+        if (!template || !Array.isArray(template.components)) {
+            return [];
+        }
+        const body = template.components.find((comp) => comp.type === "BODY");
+        if (!body || !body.text) {
+            return [];
+        }
+        const matches = [...body.text.matchAll(/\{\{(\d+)\}\}/g)];
+        const params = matches.map((m) => Number(m[1])).filter((n) => !Number.isNaN(n));
+        const unique = Array.from(new Set(params)).sort((a, b) => a - b);
+        return unique.map((n) => String(n));
+    }
+
+    function getSelectedWhatsappTemplate() {
+        return whatsappTemplates.find(
+            (tmpl) => tmpl.name === selectedWhatsappTemplateName && tmpl.language === selectedWhatsappTemplateLanguage
+        );
+    }
+
+    function setHiddenWhatsappTemplateFields() {
+        if (whatsappTemplateNameInput) whatsappTemplateNameInput.value = selectedWhatsappTemplateName || "";
+        if (whatsappTemplateLanguageInput) whatsappTemplateLanguageInput.value = selectedWhatsappTemplateLanguage || "";
+    }
+
+    function renderWhatsappTemplateParameterFields() {
+        if (!whatsappTemplateHeaderFields || !whatsappTemplateBodyFields || !whatsappTemplateButtonFields) return;
+
+        whatsappTemplateHeaderFields.innerHTML = "";
+        whatsappTemplateBodyFields.innerHTML = "";
+        whatsappTemplateButtonFields.innerHTML = "";
+
+        if (whatsappTemplateHeader) {
+            if (whatsappTemplateHeader.format === "TEXT") {
+                whatsappTemplateHeader.params.forEach((param) => {
+                    const wrap = document.createElement("div");
+                    const label = document.createElement("label");
+                    label.className = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400";
+                    label.textContent = `Header ${param}`;
+                    const input = document.createElement("input");
+                    input.type = "text";
+                    input.value = whatsappTemplateHeaderValues[param] || "";
+                    input.required = true;
+                    input.className = "block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-primary-500";
+                    input.addEventListener("input", () => {
+                        whatsappTemplateHeaderValues[param] = input.value;
+                        applyWhatsappTemplateParameters();
+                    });
+                    wrap.appendChild(label);
+                    wrap.appendChild(input);
+                    whatsappTemplateHeaderFields.appendChild(wrap);
+                });
+            } else {
+                const wrap = document.createElement("div");
+                const label = document.createElement("label");
+                label.className = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400";
+                label.textContent = `Header ${whatsappTemplateHeader.format} URL`;
+                const input = document.createElement("input");
+                input.type = "url";
+                input.placeholder = "https://...";
+                input.required = true;
+                input.value = whatsappTemplateHeaderMediaUrl || "";
+                input.className = "block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-primary-500";
+                input.addEventListener("input", () => {
+                    whatsappTemplateHeaderMediaUrl = input.value;
+                    applyWhatsappTemplateParameters();
+                });
+                wrap.appendChild(label);
+                wrap.appendChild(input);
+                whatsappTemplateHeaderFields.appendChild(wrap);
+            }
+        }
+
+        whatsappTemplateParams.forEach((param) => {
+            const wrap = document.createElement("div");
+            const label = document.createElement("label");
+            label.className = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400";
+            label.textContent = `Parameter ${param}`;
+            const input = document.createElement("input");
+            input.type = "text";
+            input.required = true;
+            input.value = whatsappTemplateParamValues[param] || "";
+            input.className = "block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-primary-500";
+            input.addEventListener("input", () => {
+                whatsappTemplateParamValues[param] = input.value;
+                applyWhatsappTemplateParameters();
+            });
+            wrap.appendChild(label);
+            wrap.appendChild(input);
+            whatsappTemplateBodyFields.appendChild(wrap);
+        });
+
+        whatsappTemplateButtons.forEach((btn) => {
+            const wrap = document.createElement("div");
+            const label = document.createElement("label");
+            label.className = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400";
+            label.textContent = `Button ${btn.index + 1} URL param`;
+            const input = document.createElement("input");
+            input.type = "text";
+            input.required = true;
+            input.value = whatsappTemplateButtonValues[btn.index] || "";
+            input.className = "block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-primary-500";
+            input.addEventListener("input", () => {
+                whatsappTemplateButtonValues[btn.index] = input.value;
+                applyWhatsappTemplateParameters();
+            });
+            wrap.appendChild(label);
+            wrap.appendChild(input);
+            whatsappTemplateButtonFields.appendChild(wrap);
+        });
+    }
+
+    function populateWhatsappTemplateDropdown() {
+        if (!whatsappTemplateSelect) return;
+        whatsappTemplateSelect.innerHTML = '<option value="">Select template</option>';
+        for (const tmpl of whatsappTemplates) {
+            const option = document.createElement("option");
+            option.value = `${tmpl.name}::${tmpl.language}`;
+            option.textContent = `${tmpl.name} · ${tmpl.language}`;
+            whatsappTemplateSelect.appendChild(option);
+        }
+    }
+
+    function resetWhatsappTemplateSelection() {
+        selectedWhatsappTemplateName = "";
+        selectedWhatsappTemplateLanguage = "";
+        whatsappTemplateHeader = null;
+        whatsappTemplateHeaderValues = {};
+        whatsappTemplateHeaderMediaUrl = "";
+        whatsappTemplateParams = [];
+        whatsappTemplateParamValues = {};
+        whatsappTemplateButtons = [];
+        whatsappTemplateButtonValues = {};
+        setHiddenWhatsappTemplateFields();
+        if (whatsappTemplateComponentsInput) whatsappTemplateComponentsInput.value = "";
+        if (whatsappTemplateSelect) whatsappTemplateSelect.value = "";
+        renderWhatsappTemplateParameterFields();
+    }
+
+    function applyWhatsappTemplateParameters() {
+        const template = getSelectedWhatsappTemplate();
+        if (!template) {
+            if (whatsappTemplateComponentsInput) whatsappTemplateComponentsInput.value = "";
+            return;
+        }
+
+        const components = [];
+
+        if (whatsappTemplateHeader) {
+            if (whatsappTemplateHeader.format === "TEXT") {
+                const params = whatsappTemplateHeader.params.map((param) => {
+                    const value = whatsappTemplateHeaderValues[param];
+                    return { type: "text", text: value || "" };
+                });
+                if (params.length) {
+                    components.push({ type: "header", parameters: params });
+                }
+            } else if (whatsappTemplateHeaderMediaUrl) {
+                const kind = whatsappTemplateHeader.format?.toLowerCase();
+                const payload = {};
+                if (kind === "image") {
+                    payload.image = { link: whatsappTemplateHeaderMediaUrl };
+                } else if (kind === "video") {
+                    payload.video = { link: whatsappTemplateHeaderMediaUrl };
+                } else if (kind === "document") {
+                    payload.document = { link: whatsappTemplateHeaderMediaUrl };
+                }
+                if (Object.keys(payload).length) {
+                    components.push({ type: "header", parameters: [{ type: kind, ...payload }] });
+                }
+            }
+        }
+
+        const bodyParams = whatsappTemplateParams.map((param) => {
+            const value = whatsappTemplateParamValues[param];
+            return { type: "text", text: value || "" };
+        });
+        if (bodyParams.length) {
+            components.push({ type: "body", parameters: bodyParams });
+        }
+
+        if (whatsappTemplateButtons.length) {
+            whatsappTemplateButtons.forEach((btn) => {
+                const value = whatsappTemplateButtonValues[btn.index];
+                if (value !== undefined) {
+                    components.push({
+                        type: "button",
+                        sub_type: "url",
+                        index: String(btn.index),
+                        parameters: [{ type: "text", text: value || "" }],
+                    });
+                }
+            });
+        }
+        if (whatsappTemplateComponentsInput) {
+            whatsappTemplateComponentsInput.value = JSON.stringify(components);
+        }
+
+        if (typeof template.body === "string") {
+            let preview = template.body;
+            for (const param of whatsappTemplateParams) {
+                const value = whatsappTemplateParamValues[param] || "";
+                const token = "{" + "{" + param + "}" + "}";
+                preview = preview.split(token).join(value);
+            }
+            textInput.value = preview;
+            state.whatsapp.bodyText = preview;
+        }
+    }
+
+    function applyWhatsappTemplateSelection() {
+        if (!whatsappTemplateSelect) return;
+        const key = whatsappTemplateSelect.value;
+        if (!key) {
+            resetWhatsappTemplateSelection();
+            return;
+        }
+        const [name, language] = key.split("::");
+        selectedWhatsappTemplateName = name || "";
+        selectedWhatsappTemplateLanguage = language || "";
+        setHiddenWhatsappTemplateFields();
+        const match = getSelectedWhatsappTemplate();
+        if (match && typeof match.body === "string") {
+            textInput.value = match.body;
+            state.whatsapp.bodyText = match.body;
+        }
+        whatsappTemplateHeader = extractWhatsappTemplateHeader(match);
+        whatsappTemplateParams = extractWhatsappTemplateParams(match);
+        whatsappTemplateButtons = extractWhatsappTemplateButtons(match);
+        whatsappTemplateParamValues = {};
+        whatsappTemplateHeaderValues = {};
+        whatsappTemplateHeaderMediaUrl = "";
+        whatsappTemplateButtonValues = {};
+        if (whatsappTemplateParams.length) {
+            whatsappTemplateParams.forEach((param) => {
+                whatsappTemplateParamValues[param] = "";
+            });
+        }
+        if (whatsappTemplateHeader && whatsappTemplateHeader.format === "TEXT") {
+            whatsappTemplateHeader.params.forEach((param) => {
+                whatsappTemplateHeaderValues[param] = "";
+            });
+        }
+        if (whatsappTemplateButtons.length) {
+            whatsappTemplateButtons.forEach((btn) => {
+                whatsappTemplateButtonValues[btn.index] = "";
+            });
+        }
+        renderWhatsappTemplateParameterFields();
+        applyWhatsappTemplateParameters();
+    }
+
+    async function loadWhatsappTemplates() {
+        if (!whatsappConnectorSelect || !whatsappTemplateStatus) return;
+        const connectorId = whatsappConnectorSelect.value || "";
+        if (!connectorId) {
+            whatsappTemplates = [];
+            templatesLoadedForConnector = "";
+            resetWhatsappTemplateSelection();
+            populateWhatsappTemplateDropdown();
+            whatsappTemplateStatus.textContent = "Select a WhatsApp connector to load templates.";
+            return;
+        }
+        if (templatesLoadedForConnector === connectorId) {
+            return;
+        }
+        whatsappTemplateStatus.textContent = "Loading templates…";
+        try {
+            const resp = await fetch(`/admin/crm/campaigns/templates/whatsapp?connector_id=${encodeURIComponent(connectorId)}`);
+            const payload = await resp.json();
+            if (!resp.ok) {
+                throw new Error(payload.error || `HTTP ${resp.status}`);
+            }
+            whatsappTemplates = Array.isArray(payload.templates) ? payload.templates : [];
+            templatesLoadedForConnector = connectorId;
+            resetWhatsappTemplateSelection();
+            populateWhatsappTemplateDropdown();
+            whatsappTemplateStatus.textContent = whatsappTemplates.length
+                ? `Loaded ${whatsappTemplates.length} approved template(s).`
+                : "No approved WhatsApp templates found.";
+        } catch (err) {
+            whatsappTemplates = [];
+            templatesLoadedForConnector = "";
+            resetWhatsappTemplateSelection();
+            populateWhatsappTemplateDropdown();
+            whatsappTemplateStatus.textContent = "Failed to load WhatsApp templates.";
+        }
+    }
+
+    channel.addEventListener("change", () => {
+        const next = channel.value === "whatsapp" ? "whatsapp" : "email";
+        const previous = next === "whatsapp" ? "email" : "whatsapp";
+        captureCurrent(previous);
+        applyMode(next);
+    });
+    if (whatsappConnectorSelect) {
+        whatsappConnectorSelect.addEventListener("change", () => {
+            templatesLoadedForConnector = "";
+            loadWhatsappTemplates();
+        });
+    }
+    if (whatsappTemplateSelect) {
+        whatsappTemplateSelect.addEventListener("change", applyWhatsappTemplateSelection);
+    }
+
+    applyMode(channel.value === "whatsapp" ? "whatsapp" : "email");
+})();
+</script>
 {% endblock %}

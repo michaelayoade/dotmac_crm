@@ -55,6 +55,7 @@ class SettingDomain(enum.Enum):
     integration = "integration"
     campaigns = "campaigns"
     numbering = "numbering"
+    performance = "performance"
 
 
 class DomainSetting(Base):

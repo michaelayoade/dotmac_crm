@@ -1,4 +1,5 @@
 {% set m = high_priority_stats | default({}) %}
+{% set wq = m.waiting_queue_by_channel | default({}) %}
 <div id="dashboard-live-stats-cards"
      class="grid grid-cols-1 gap-4 sm:grid-cols-2 animate-fade-in-up"
      style="animation-delay: 0.15s"
@@ -15,9 +16,13 @@
         <p class="mt-2 text-3xl font-bold {% if (m.failed_outbox_count | default(0)) > 0 %}text-rose-600 dark:text-rose-400{% else %}text-slate-900 dark:text-white{% endif %}">
             {{ m.failed_outbox_count | default(0) }}
         </p>
-        <a href="/admin/crm/inbox?outbox_status=failed"
+        <a href="#dashboard-failed-outbox-panel"
+           hx-get="/admin/dashboard/failed-outbox"
+           hx-target="#dashboard-failed-outbox-panel"
+           hx-swap="innerHTML"
+           hx-on::after-request="document.getElementById('dashboard-failed-outbox-panel').scrollIntoView({behavior:'smooth', block:'start'})"
            class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-cyan-600 hover:text-cyan-700 dark:text-cyan-400">
-            Open failed outbox
+            Show failed outbox
         </a>
     </div>
 
@@ -27,11 +32,19 @@
             <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Needs Action</span>
         </div>
         <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ m.waiting_queue_count | default(0) }}</p>
+        <div class="mt-2 flex flex-wrap gap-2">
+            {% for key, label in [("email","Email"), ("whatsapp","WhatsApp"), ("facebook_messenger","FB"), ("instagram_dm","IG"), ("chat_widget","Chat")] %}
+                {% set ct = wq.get(key, 0) %}
+                {% if (ct | default(0)) > 0 %}
+                <a href="/admin/crm/inbox?status=needs_action&channel={{ key }}"
+                   class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200 dark:hover:bg-slate-900/60">
+                    <span>{{ label }}</span>
+                    <span class="tabular-nums text-slate-600 dark:text-slate-300">{{ ct }}</span>
+                </a>
+                {% endif %}
+            {% endfor %}
+        </div>
         <a href="/admin/crm/inbox?status=needs_action"
-           hx-get="/admin/crm/inbox?status=needs_action"
-           hx-target="body"
-           hx-swap="outerHTML"
-           hx-push-url="true"
            class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-cyan-600 hover:text-cyan-700 dark:text-cyan-400">
             Open needs-action queue
         </a>

@@ -117,6 +117,20 @@ def test_upsert_notification_setting_variants(db_session):
     )
     assert channel.value_text == "email"
 
+    talk_enabled = settings_api.upsert_notification_setting(
+        db_session,
+        "nextcloud_talk_notifications_enabled",
+        DomainSettingUpdate(value_text="true"),
+    )
+    assert talk_enabled.value_json is True
+
+    talk_password = settings_api.upsert_notification_setting(
+        db_session,
+        "nextcloud_talk_notifications_app_password",
+        DomainSettingUpdate(value_text="secret-token"),
+    )
+    assert talk_password.is_secret is True
+
 
 def test_upsert_scheduler_setting(db_session):
     beat = settings_api.upsert_scheduler_setting(

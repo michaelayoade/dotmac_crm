@@ -4,7 +4,7 @@ from app.schemas.crm.inbox import InboxSendRequest
 from app.services.crm import inbox as inbox_service
 from app.services.crm.inbox.notifications import send_reply_reminders
 from app.services.crm.inbox.outbound import TransientOutboundError
-from app.services.crm.inbox.outbox import list_due_outbox_ids, process_outbox_item
+from app.services.crm.inbox.outbox import cleanup_old_outbox, list_due_outbox_ids, process_outbox_item
 
 
 @celery_app.task(name="app.tasks.crm_inbox.send_reply_reminders")
@@ -79,6 +79,19 @@ def process_outbox_queue_task(limit: int = 50):
         for outbox_id in ids:
             send_outbox_item_task.delay(outbox_id)
         return len(ids)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.crm_inbox.cleanup_old_outbox")
+def cleanup_old_outbox_task(retention_days: int = 7):
+    """Remove old terminal outbox records so the failed queue doesn't grow forever."""
+    session = SessionLocal()
+    try:
+        return cleanup_old_outbox(session, retention_days=retention_days)
     except Exception:
         session.rollback()
         raise
