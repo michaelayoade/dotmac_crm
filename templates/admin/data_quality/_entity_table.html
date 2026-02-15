@@ -1,0 +1,60 @@
+<table class="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+    <thead class="bg-slate-50 dark:bg-slate-800/50">
+        <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Entity</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Quality</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Score</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Missing Fields</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Fields</th>
+        </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+        {% for entity in entities %}
+        {% set epct = entity.pct() %}
+        {% set bar_color = "bg-emerald-500" if epct >= 70 else ("bg-amber-500" if epct >= 40 else "bg-rose-500") %}
+        {% set text_color = "text-emerald-600 dark:text-emerald-400" if epct >= 70 else ("text-amber-600 dark:text-amber-400" if epct >= 40 else "text-rose-600 dark:text-rose-400") %}
+        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+            <td class="px-4 py-3 text-sm">
+                <span class="font-mono text-xs text-slate-600 dark:text-slate-300">{{ entity.entity_id[:8] }}...</span>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex items-center gap-2">
+                    <div class="h-2 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                        <div class="{{ bar_color }} h-full rounded-full" style="width: {{ epct }}%"></div>
+                    </div>
+                    <span class="text-sm font-semibold {{ text_color }}">{{ epct }}%</span>
+                </div>
+            </td>
+            <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                {{ "%.2f" | format(entity.score) }}
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex flex-wrap gap-1">
+                    {% for field in entity.missing_fields[:4] %}
+                    <span class="inline-block rounded-lg bg-rose-50 px-1.5 py-0.5 text-xs text-rose-700 dark:bg-rose-500/10 dark:text-rose-400">{{ field }}</span>
+                    {% endfor %}
+                    {% if entity.missing_fields | length > 4 %}
+                    <span class="text-xs text-slate-400">+{{ entity.missing_fields | length - 4 }}</span>
+                    {% endif %}
+                </div>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex flex-wrap gap-1">
+                    {% for field, val in entity.field_scores.items() %}
+                    {% if val > 0 %}
+                    <span class="inline-block rounded-lg bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" title="{{ field }}: {{ "%.0f" | format(val * 100) }}%">{{ field }}</span>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+        {% if entities | length == 0 %}
+        <tr>
+            <td colspan="5" class="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                No entities found in this domain.
+            </td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>

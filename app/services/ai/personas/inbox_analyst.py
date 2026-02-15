@@ -5,8 +5,16 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.ai_insight import InsightDomain
-from app.services.ai.personas._base import OutputField, OutputSchema, PersonaSpec
+from app.services.ai.personas._base import ContextQualityResult, OutputField, OutputSchema, PersonaSpec
 from app.services.ai.personas._registry import persona_registry
+
+
+def _quality(db: Session, params: dict[str, Any]) -> ContextQualityResult:
+    from app.services.data_quality.scoring import score_conversation_quality
+
+    r = score_conversation_quality(db, params.get("conversation_id", ""))
+    return ContextQualityResult(score=r.score, field_scores=r.field_scores, missing_fields=r.missing_fields)
+
 
 _OUTPUT_SCHEMA = OutputSchema(
     fields=(
@@ -54,5 +62,8 @@ persona_registry.register(
         severity_classifier=None,
         setting_key="intelligence_inbox_analyst_enabled",
         insight_ttl_hours=24,
+        context_quality_scorer=_quality,
+        min_context_quality=0.35,
+        skip_on_low_quality=True,
     )
 )

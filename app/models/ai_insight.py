@@ -31,6 +31,7 @@ class AIInsightStatus(enum.Enum):
     pending = "pending"
     completed = "completed"
     failed = "failed"
+    skipped = "skipped"
     acknowledged = "acknowledged"
     actioned = "actioned"
     expired = "expired"
@@ -60,6 +61,8 @@ class AIInsight(Base):
     structured_output: Mapped[dict | None] = mapped_column(JSON)
     confidence_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
     recommendations: Mapped[list | None] = mapped_column(JSON)
+
+    context_quality_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
 
     llm_provider: Mapped[str] = mapped_column(String(40), nullable=False, default="vllm")
     llm_model: Mapped[str] = mapped_column(String(100), nullable=False)

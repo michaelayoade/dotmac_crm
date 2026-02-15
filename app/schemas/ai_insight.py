@@ -18,6 +18,7 @@ class AIInsightRead(BaseModel):
     summary: str
     structured_output: dict | None = None
     confidence_score: float | None = None
+    context_quality_score: float | None = None
     recommendations: list | None = None
     llm_provider: str
     llm_model: str

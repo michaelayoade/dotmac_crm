@@ -15,6 +15,7 @@ from app.web.admin.campaigns import router as campaigns_router
 from app.web.admin.crm import router as crm_router
 
 # Import routers after auth helpers are available
+from app.web.admin.data_quality import router as data_quality_router
 from app.web.admin.dashboard import router as dashboard_router
 from app.web.admin.gis import router as gis_router
 from app.web.admin.integrations import router as integrations_router
@@ -105,5 +106,6 @@ router.include_router(performance_router)
 router.include_router(automations_router)
 router.include_router(ai_router)
 router.include_router(intelligence_router)
+router.include_router(data_quality_router)
 
 __all__ = ["get_current_user", "get_sidebar_stats", "router"]

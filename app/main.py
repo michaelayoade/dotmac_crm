@@ -11,6 +11,7 @@ from starlette.responses import Response
 
 from app.api.ai import router as ai_router
 from app.api.analytics import router as analytics_router
+from app.api.data_quality import router as data_quality_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.auth_flow import router as auth_flow_router
@@ -440,6 +441,7 @@ _include_api_router(defaults_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(performance_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(ai_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(data_quality_router, dependencies=[Depends(require_user_auth)])
 # Chat widget public endpoints - no auth required (visitor token-based)
 _include_api_router(widget_public_router)
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])
