@@ -531,6 +531,69 @@
 
 
 {# ============================================
+   SORTABLE TABLE HEAD
+   Clickable column headers with sort direction
+   indicators for server-side sorting via HTMX.
+   ============================================ #}
+{% macro sortable_table_head(columns, sort_by="created_at", sort_dir="desc", sort_url="", sort_target="", density="comfortable", selectable=False, select_label="Select all", extra_params="") %}
+{% set padding_map = {
+    'compact': 'px-4 py-2',
+    'comfortable': 'px-6 py-3',
+    'spacious': 'px-6 py-4'
+} %}
+{% set pad = padding_map[density] if density in padding_map else padding_map['comfortable'] %}
+<thead>
+    <tr class="border-b border-slate-100 dark:border-slate-700/50">
+        {% if selectable %}
+        <th scope="col" class="{{ pad }}">
+            <div class="flex items-center">
+                <input type="checkbox"
+                       data-bulk-select-all
+                       class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500"
+                       aria-label="{{ select_label }}"
+                       x-bind:checked="allSelected()" />
+            </div>
+        </th>
+        {% endif %}
+        {% for col in columns %}
+        {% set is_sortable = col.sortable | default(true) if col.key is defined else false %}
+        {% set is_active = (sort_by == col.key) if col.key is defined else false %}
+        {% set next_dir = 'asc' if (is_active and sort_dir == 'desc') else 'desc' %}
+        {% set separator = '&' if '?' in sort_url else '?' %}
+        {% set col_attrs = col.attrs | default({}) %}
+        {% set extra_class = col_attrs.get('class', '') %}
+        <th scope="col" class="{{ pad }} text-{{ col.align|default('left') }} text-xs font-semibold uppercase tracking-wider {% if is_active %}text-slate-600 dark:text-slate-300{% else %}text-slate-400 dark:text-slate-500{% endif %} {{ extra_class }}"
+            {% for attr_key, attr_val in col_attrs.items() %}{% if attr_key != 'class' %}{{ attr_key }}="{{ attr_val }}" {% endif %}{% endfor %}>
+            {% if is_sortable and sort_url %}
+            <a href="{{ sort_url }}{{ separator }}order_by={{ col.key }}&order_dir={{ next_dir }}{{ ('&' ~ extra_params) if extra_params else '' }}"
+               hx-get="{{ sort_url }}{{ separator }}order_by={{ col.key }}&order_dir={{ next_dir }}{{ ('&' ~ extra_params) if extra_params else '' }}"
+               {% if sort_target %}hx-target="{{ sort_target }}"{% endif %}
+               hx-push-url="true"
+               class="group/sort inline-flex items-center gap-1 cursor-pointer select-none transition-colors hover:text-slate-700 dark:hover:text-slate-200">
+                <span>{{ col.label }}</span>
+                {% if is_active %}
+                {# Active sort indicator #}
+                {% if sort_dir == 'asc' %}
+                <svg class="h-3.5 w-3.5 text-slate-600 dark:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"/></svg>
+                {% else %}
+                <svg class="h-3.5 w-3.5 text-slate-600 dark:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+                {% endif %}
+                {% else %}
+                {# Inactive — show faint arrows on hover #}
+                <svg class="h-3.5 w-3.5 text-slate-300 opacity-0 transition-opacity group-hover/sort:opacity-100 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l5 5 5-5M7 8l5-5 5 5"/></svg>
+                {% endif %}
+            </a>
+            {% else %}
+            {{ col.label }}
+            {% endif %}
+        </th>
+        {% endfor %}
+    </tr>
+</thead>
+{% endmacro %}
+
+
+{# ============================================
    TABLE CELL
    Consistent table cell padding and styling
    ============================================ #}

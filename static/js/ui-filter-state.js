@@ -193,6 +193,22 @@
       form.addEventListener("submit", saveFilters);
     }
 
+    // Sync URL-driven fields (e.g. order_by, order_dir set by sort header clicks)
+    // back into hidden form inputs after HTMX swaps so filter submissions preserve sort.
+    var urlSyncFields = Array.isArray(config.urlSyncFields) ? config.urlSyncFields : [];
+    if (urlSyncFields.length) {
+      document.body.addEventListener("htmx:afterSettle", function () {
+        var currentParams = getQueryParams();
+        urlSyncFields.forEach(function (field) {
+          var input = form.querySelector('[name="' + field + '"]');
+          if (input) {
+            input.value = currentParams.get(field) || input.dataset.default || "";
+          }
+        });
+        saveFilters();
+      });
+    }
+
     if (config.columns) {
       initColumnState(config.columns);
     }

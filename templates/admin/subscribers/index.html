@@ -30,8 +30,10 @@
 
     {# Filters #}
     {% call filter_bar() %}
-    <form hx-get="/admin/subscribers" hx-target="#subscribers-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
+    <form id="subscribers-filter-form" hx-get="/admin/subscribers" hx-target="#subscribers-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
         <input type="hidden" name="per_page" value="{{ per_page|default(20) }}">
+        <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
+        <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
         <div class="flex-1">
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Subscribers</label>
             {{ search_input("search", search or '', "Search by name, email, or subscriber ID...", "amber", {"hx-get": "/admin/subscribers", "hx-target": "#subscribers-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
@@ -294,5 +296,18 @@ function subscribersList() {
         }
     }
 }
+</script>
+<script src="/static/js/ui-filter-state.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
+    window.DotmacUiFilterState.init({
+        formId: "subscribers-filter-form",
+        fields: ["search", "external_system", "status", "order_by", "order_dir"],
+        urlSyncFields: ["order_by", "order_dir"],
+        filterStorageKey: "",
+        restoreOnEmptyQuery: false,
+    });
+});
 </script>
 {% endblock %}

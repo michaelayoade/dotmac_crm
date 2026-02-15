@@ -3,7 +3,7 @@
 import os
 from urllib.parse import quote as urlquote
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -141,8 +141,14 @@ def vendors_list(
     request: Request,
     status: str | None = None,
     search: str | None = None,
+    order_by: str = Query("name"),
+    order_dir: str = Query("asc"),
     db: Session = Depends(get_db),
 ):
+    if order_by not in {"created_at", "name"}:
+        order_by = "name"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "asc"
     current_status = (status or "active").lower()
     is_active = True
     if current_status == "inactive":
@@ -150,8 +156,8 @@ def vendors_list(
     vendors = vendor_service.vendors.list(
         db=db,
         is_active=is_active,
-        order_by="name",
-        order_dir="asc",
+        order_by=order_by,
+        order_dir=order_dir,
         limit=200,
         offset=0,
     )
@@ -194,6 +200,8 @@ def vendors_list(
             "vendors": vendors,
             "current_status": current_status,
             "search": search or "",
+            "order_by": order_by,
+            "order_dir": order_dir,
             "vendor_stats": vendor_stats,
             "recent_activities": recent_activities,
         }

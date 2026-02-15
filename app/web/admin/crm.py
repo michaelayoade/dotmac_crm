@@ -2753,10 +2753,16 @@ def crm_contacts_list(
     is_active: str | None = None,
     has_channels: str | None = None,
     linked_to_org: str | None = None,
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
 ):
+    if order_by not in {"created_at", "display_name"}:
+        order_by = "created_at"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "desc"
     def _parse_bool_filter(value: str | None) -> bool | None:
         if value is None or value == "":
             return None
@@ -2774,8 +2780,8 @@ def crm_contacts_list(
         party_status=party_status,
         is_active=active_filter,
         search=search,
-        order_by="created_at",
-        order_dir="desc",
+        order_by=order_by,
+        order_dir=order_dir,
         limit=10000,
         offset=0,
     )
@@ -2866,6 +2872,8 @@ def crm_contacts_list(
             "is_active": "" if is_active is None else str(is_active),
             "has_channels": "" if has_channels is None else str(has_channels),
             "linked_to_org": "" if linked_to_org is None else str(linked_to_org),
+            "order_by": order_by,
+            "order_dir": order_dir,
             "page": page,
             "per_page": per_page,
             "total": total,

@@ -387,11 +387,17 @@ def tickets_list(
     pm: str | None = None,
     spc: str | None = None,
     subscriber: str | None = None,
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
 ):
     """List all tickets with filters."""
+    if order_by not in {"created_at", "updated_at", "status", "priority"}:
+        order_by = "created_at"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "desc"
     offset = (page - 1) * per_page
     from app.csrf import get_csrf_token
 
@@ -458,7 +464,7 @@ def tickets_list(
         total = base_query.count()
         total_pages = max(1, ceil(total / per_page)) if per_page else 1
 
-        tickets = base_query.with_relations().order_by("created_at", "desc").paginate(per_page, offset).all()
+        tickets = base_query.with_relations().order_by(order_by, order_dir).paginate(per_page, offset).all()
 
     # Get stats by status
     stats = tickets_service.tickets.status_stats(db)
@@ -485,6 +491,8 @@ def tickets_list(
                 "subscriber": subscriber,
                 "subscriber_display": subscriber_display,
                 "subscriber_url": subscriber_url,
+                "order_by": order_by,
+                "order_dir": order_dir,
                 "page": page,
                 "per_page": per_page,
                 "total": total,
@@ -511,6 +519,8 @@ def tickets_list(
             "subscriber": subscriber,
             "subscriber_display": subscriber_display,
             "subscriber_url": subscriber_url,
+            "order_by": order_by,
+            "order_dir": order_dir,
             "page": page,
             "per_page": per_page,
             "total": total,

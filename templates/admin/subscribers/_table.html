@@ -1,4 +1,4 @@
-{% from "components/ui/macros.html" import status_badge, type_badge, avatar, row_action, empty_state, pagination, icon_view, icon_edit, icon_delete, table_shell, table_row %}
+{% from "components/ui/macros.html" import status_badge, type_badge, avatar, row_action, empty_state, pagination, icon_view, icon_edit, icon_delete, sortable_table_head, table_shell, table_row %}
 {% set pad = 'px-6 py-3' %}
 {% set ns = namespace(parts=[]) %}
 {% if search %}
@@ -13,31 +13,39 @@
 {% if per_page %}
     {% set ns.parts = ns.parts + ['per_page=' ~ per_page] %}
 {% endif %}
+{% if order_by is defined and order_by and order_by != 'created_at' %}
+    {% set ns.parts = ns.parts + ['order_by=' ~ order_by|urlencode] %}
+{% endif %}
+{% if order_dir is defined and order_dir and order_dir != 'desc' %}
+    {% set ns.parts = ns.parts + ['order_dir=' ~ order_dir|urlencode] %}
+{% endif %}
 {% set page_base_url = '/admin/subscribers' ~ ('?' ~ ns.parts|join('&') if ns.parts else '') %}
+
+{# Build sort link params (without sort fields themselves) #}
+{% set _sort_params = [] %}
+{% if search %}{% set _ = _sort_params.append('search=' ~ search|urlencode) %}{% endif %}
+{% if external_system %}{% set _ = _sort_params.append('external_system=' ~ external_system|urlencode) %}{% endif %}
+{% if status %}{% set _ = _sort_params.append('status=' ~ status|urlencode) %}{% endif %}
+{% if per_page %}{% set _ = _sort_params.append('per_page=' ~ per_page) %}{% endif %}
+{% set sort_extra = _sort_params | join('&') %}
 
 {% call table_shell(table_id="subscribers-table", color="amber", bulk_selectable=False) %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-            <thead>
-                <tr class="border-b border-slate-100 dark:border-slate-700/50">
-                    <th scope="col" class="w-12 {{ pad }}">
-                        <input type="checkbox"
-                               data-select-all
-                               class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500 cursor-pointer">
-                    </th>
-                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        <button class="group inline-flex items-center gap-1.5 transition-colors hover:text-slate-700 dark:hover:text-slate-200" hx-get="/admin/subscribers?sort=name" hx-target="#subscribers-table">
-                            Subscriber
-                            <svg class="h-3.5 w-3.5 text-slate-400 transition-colors group-hover:text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
-                            </svg>
-                        </button>
-                    </th>
-                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Source</th>
-                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
-                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Created</th>
-                    <th scope="col" class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
-                </tr>
-            </thead>
+            {{ sortable_table_head(
+                columns=[
+                    {'label': 'Subscriber', 'key': 'subscriber_number'},
+                    {'label': 'Source', 'sortable': false},
+                    {'label': 'Status', 'key': 'status'},
+                    {'label': 'Created', 'key': 'created_at'},
+                    {'label': 'Actions', 'sortable': false, 'align': 'right'}
+                ],
+                sort_by=order_by|default('created_at'),
+                sort_dir=order_dir|default('desc'),
+                sort_url="/admin/subscribers",
+                sort_target="#subscribers-table",
+                selectable=True,
+                extra_params=sort_extra
+            ) }}
             <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
                 {% if subscribers %}
                 {% for subscriber in subscribers %}
@@ -140,7 +148,7 @@
 <script>
 (function() {
     // Select-all checkbox functionality
-    const selectAll = document.querySelector('[data-select-all]');
+    const selectAll = document.querySelector('[data-bulk-select-all]');
     const checkboxes = document.querySelectorAll('[data-subscriber-select]');
 
     if (selectAll) {

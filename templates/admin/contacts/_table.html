@@ -1,17 +1,33 @@
-{% from "components/ui/macros.html" import table_shell, table_head, table_row, empty_state %}
-{% set columns = [
-    {'label': 'Name'},
-    {'label': 'Type'},
-    {'label': 'Status'},
-    {'label': 'Email'},
-    {'label': 'Phone'},
-    {'label': 'Organization'},
-    {'label': 'Actions', 'align': 'right'}
-] %}
+{% from "components/ui/macros.html" import table_shell, table_head, sortable_table_head, table_row, empty_state %}
+
+{% set _sort_params = [] %}
+{% if search %}{% set _ = _sort_params.append('search=' ~ search|urlencode) %}{% endif %}
+{% if party_status %}{% set _ = _sort_params.append('party_status=' ~ party_status|urlencode) %}{% endif %}
+{% if is_active %}{% set _ = _sort_params.append('is_active=' ~ is_active|urlencode) %}{% endif %}
+{% if has_channels %}{% set _ = _sort_params.append('has_channels=' ~ has_channels|urlencode) %}{% endif %}
+{% if linked_to_org %}{% set _ = _sort_params.append('linked_to_org=' ~ linked_to_org|urlencode) %}{% endif %}
+{% if per_page %}{% set _ = _sort_params.append('per_page=' ~ per_page) %}{% endif %}
+{% set sort_extra = _sort_params | join('&') %}
+
 {% set pad = 'px-6 py-3' %}
 {% call table_shell(table_id="contacts-table", color="primary") %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-        {{ table_head(columns) }}
+        {{ sortable_table_head(
+            columns=[
+                {'label': 'Name', 'key': 'display_name'},
+                {'label': 'Type', 'sortable': false},
+                {'label': 'Status', 'sortable': false},
+                {'label': 'Email', 'sortable': false},
+                {'label': 'Phone', 'sortable': false},
+                {'label': 'Organization', 'sortable': false},
+                {'label': 'Actions', 'sortable': false, 'align': 'right'}
+            ],
+            sort_by=order_by|default('created_at'),
+            sort_dir=order_dir|default('desc'),
+            sort_url="/admin/crm/contacts",
+            sort_target="#contacts-table",
+            extra_params=sort_extra
+        ) }}
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
             {% if contacts %}
             {% for contact in contacts %}
@@ -125,15 +141,18 @@
         of <span class="font-medium text-slate-900 dark:text-white">{{ total }}</span> results
     </p>
     <div class="flex items-center gap-2">
+        {% set _order_params = '' %}
+        {% if order_by is defined and order_by and order_by != 'created_at' %}{% set _order_params = _order_params ~ '&order_by=' ~ order_by %}{% endif %}
+        {% if order_dir is defined and order_dir and order_dir != 'desc' %}{% set _order_params = _order_params ~ '&order_dir=' ~ order_dir %}{% endif %}
         {% if page > 1 %}
-        <a href="/admin/contacts?page={{ page - 1 }}&search={{ search or '' }}&status={{ status or '' }}&entity_type={{ entity_type or '' }}&per_page={{ per_page }}"
+        <a href="/admin/contacts?page={{ page - 1 }}&search={{ search or '' }}&status={{ status or '' }}&entity_type={{ entity_type or '' }}&per_page={{ per_page }}{{ _order_params }}"
            class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             Previous
         </a>
         {% endif %}
         {% if page < total_pages %}
-        <a href="/admin/contacts?page={{ page + 1 }}&search={{ search or '' }}&status={{ status or '' }}&entity_type={{ entity_type or '' }}&per_page={{ per_page }}"
+        <a href="/admin/contacts?page={{ page + 1 }}&search={{ search or '' }}&status={{ status or '' }}&entity_type={{ entity_type or '' }}&per_page={{ per_page }}{{ _order_params }}"
            class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
             Next
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>

@@ -4,7 +4,7 @@ import contextlib
 import math
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
@@ -25,10 +25,16 @@ def subscriber_list(
     search: str | None = None,
     external_system: str | None = None,
     status: str | None = None,
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
     page: int = 1,
     per_page: int = 20,
 ):
     """List subscribers."""
+    if order_by not in {"created_at", "updated_at", "subscriber_number", "status"}:
+        order_by = "created_at"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "desc"
     from app.web.admin import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
@@ -50,6 +56,8 @@ def subscriber_list(
         search=search,
         external_system=external_system,
         status=status_filter,
+        order_by=order_by,
+        order_dir=order_dir,
         limit=per_page,
         offset=offset,
     )
@@ -74,6 +82,8 @@ def subscriber_list(
                 "search": search,
                 "external_system": external_system,
                 "status": status,
+                "order_by": order_by,
+                "order_dir": order_dir,
                 "page": page,
                 "per_page": per_page,
                 "total": total,
@@ -94,6 +104,8 @@ def subscriber_list(
             "search": search,
             "external_system": external_system,
             "status": status,
+            "order_by": order_by,
+            "order_dir": order_dir,
             "page": page,
             "per_page": per_page,
             "total": total,

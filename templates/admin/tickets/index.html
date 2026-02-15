@@ -66,6 +66,8 @@
     {% call filter_bar() %}
     <div class="flex flex-col gap-4">
         <form id="tickets-filter-form" hx-get="/admin/support/tickets" hx-target="#tickets-table" hx-trigger="submit, change from:select" class="space-y-4">
+            <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
+            <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
             <div class="w-full">
                 <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Tickets</label>
                 {{ search_input("search", search or '', "Search by ticket ID, title, or description...", "amber", {"hx-get": "/admin/support/tickets", "hx-target": "#tickets-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
@@ -231,7 +233,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
     window.DotmacUiFilterState.init({
         formId: "tickets-filter-form",
-        fields: ["status", "ticket_type", "assigned", "pm", "spc"],
+        fields: ["status", "ticket_type", "assigned", "pm", "spc", "order_by", "order_dir"],
+        urlSyncFields: ["order_by", "order_dir"],
         filterStorageKey: `admin:tickets:filters:${userId}`,
         restoreOnEmptyQuery: false,
         clearButtonSelector: '[data-clear-filters="tickets"]',
