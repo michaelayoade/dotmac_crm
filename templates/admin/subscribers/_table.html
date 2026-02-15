@@ -33,10 +33,18 @@
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
             {{ sortable_table_head(
                 columns=[
-                    {'label': 'Subscriber', 'key': 'subscriber_number'},
-                    {'label': 'Source', 'sortable': false},
-                    {'label': 'Status', 'key': 'status'},
-                    {'label': 'Created', 'key': 'created_at'},
+                    {'label': 'Subscriber', 'key': 'subscriber_number', 'attrs': {'data-subscriber-column': 'name'}},
+                    {'label': 'Source', 'sortable': false, 'attrs': {'data-subscriber-column': 'source'}},
+                    {'label': 'Status', 'key': 'status', 'attrs': {'data-subscriber-column': 'status'}},
+                    {'label': 'Created', 'key': 'created_at', 'attrs': {'data-subscriber-column': 'created'}},
+                    {'label': 'Subscriber #', 'sortable': false, 'attrs': {'data-subscriber-column': 'subscriber_number'}},
+                    {'label': 'Account #', 'sortable': false, 'attrs': {'data-subscriber-column': 'account_number'}},
+                    {'label': 'Service Plan', 'sortable': false, 'attrs': {'data-subscriber-column': 'service_plan'}},
+                    {'label': 'Speed', 'sortable': false, 'attrs': {'data-subscriber-column': 'service_speed'}},
+                    {'label': 'Service City', 'sortable': false, 'attrs': {'data-subscriber-column': 'service_city'}},
+                    {'label': 'Balance', 'sortable': false, 'attrs': {'data-subscriber-column': 'balance'}},
+                    {'label': 'Billing Cycle', 'sortable': false, 'attrs': {'data-subscriber-column': 'billing_cycle'}},
+                    {'label': 'Activated', 'sortable': false, 'attrs': {'data-subscriber-column': 'activated'}},
                     {'label': 'Actions', 'sortable': false, 'align': 'right'}
                 ],
                 sort_by=order_by|default('created_at'),
@@ -61,7 +69,7 @@
                                data-subscriber-type="{{ sub_type }}"
                                class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 focus:ring-offset-0 dark:border-slate-600 dark:bg-slate-700 dark:checked:bg-amber-500 cursor-pointer">
                     </td>
-                    <td class="whitespace-nowrap {{ pad }}">
+                    <td data-subscriber-column="name" class="whitespace-nowrap {{ pad }}">
                         <div class="flex items-center gap-4">
                             {{ avatar(name, sub_type) }}
                             <div class="min-w-0">
@@ -81,7 +89,7 @@
                             </div>
                         </div>
                     </td>
-                    <td class="whitespace-nowrap {{ pad }}">
+                    <td data-subscriber-column="source" class="whitespace-nowrap {{ pad }}">
                         {% if subscriber.external_system %}
                         <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                             <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
@@ -91,15 +99,23 @@
                         <span class="text-sm text-slate-400 dark:text-slate-500">Manual</span>
                         {% endif %}
                     </td>
-                    <td class="whitespace-nowrap {{ pad }}">
+                    <td data-subscriber-column="status" class="whitespace-nowrap {{ pad }}">
                         {% set status_colors = {'active': 'emerald', 'suspended': 'amber', 'terminated': 'red', 'pending': 'blue'} %}
                         {{ status_badge(subscriber.status.value|title, status_colors.get(subscriber.status.value, 'slate')) }}
                     </td>
-                    <td class="whitespace-nowrap {{ pad }}">
+                    <td data-subscriber-column="created" class="whitespace-nowrap {{ pad }}">
                         <div class="text-sm font-medium text-slate-900 dark:text-white">
                             {{ subscriber.created_at.strftime('%b %d, %Y') if subscriber.created_at else 'N/A' }}
                         </div>
                     </td>
+                    <td data-subscriber-column="subscriber_number" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.subscriber_number or '—' }}</td>
+                    <td data-subscriber-column="account_number" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.account_number or '—' }}</td>
+                    <td data-subscriber-column="service_plan" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.service_plan or '—' }}</td>
+                    <td data-subscriber-column="service_speed" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.service_speed or '—' }}</td>
+                    <td data-subscriber-column="service_city" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.service_city or '—' }}</td>
+                    <td data-subscriber-column="balance" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ '%.2f'|format(subscriber.balance) if subscriber.balance is not none else '—' }}</td>
+                    <td data-subscriber-column="billing_cycle" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.billing_cycle or '—' }}</td>
+                    <td data-subscriber-column="activated" class="whitespace-nowrap {{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ subscriber.activated_at.strftime('%b %d, %Y') if subscriber.activated_at else '—' }}</td>
                     <td class="whitespace-nowrap {{ pad }} text-right">
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             {{ row_action("/admin/subscribers/" ~ subscriber.id, icon_view(), "View details", "amber") }}
@@ -136,7 +152,7 @@
                     color2="orange",
                     action_label="Add Subscriber",
                     action_href="/admin/subscribers/new",
-                    colspan=6
+                    colspan=14
                 ) }}
                 {% endif %}
             </tbody>

@@ -1414,3 +1414,35 @@
     {% endif %}
 </div>
 {% endmacro %}
+
+
+{# ============================================
+   COLUMN PICKER
+   Reusable "Table Fields" dropdown that lets
+   users show/hide table columns. Works with
+   DotmacUiFilterState.initColumnState().
+   ============================================ #}
+{% macro column_picker(prefix, columns, color="primary") %}
+<div id="{{ prefix }}-column-picker" class="relative">
+    <button type="button" id="{{ prefix }}-column-picker-toggle" class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M6 12h12m-9 5h6"/>
+        </svg>
+        Table Fields
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+    </button>
+    <div id="{{ prefix }}-column-picker-panel" class="absolute right-0 z-50 mt-2 hidden w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Show Columns</p>
+        <div class="max-h-72 space-y-2 overflow-y-auto pr-1">
+            {% for col in columns %}
+            <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                <input type="checkbox" value="{{ col.key }}" data-{{ prefix }}-column-option class="h-4 w-4 rounded border-slate-300 text-{{ color }}-600 focus:ring-{{ color }}-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-{{ color }}-500"{{ ' checked' if col.default_visible }}{{ ' disabled' if col.required }}>
+                <span>{{ col.label }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endmacro %}
