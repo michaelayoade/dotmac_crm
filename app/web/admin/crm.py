@@ -667,6 +667,7 @@ async def inbox(
     db: Session = Depends(get_db),
     channel: str | None = None,
     status: str | None = None,
+    outbox_status: str | None = None,
     search: str | None = None,
     assignment: str | None = None,
     target_id: str | None = None,
@@ -692,6 +693,7 @@ async def inbox(
         query_params=request.query_params,
         channel=channel,
         status=status,
+        outbox_status=outbox_status,
         search=search,
         assignment=assignment,
         target_id=target_id,
@@ -1302,6 +1304,7 @@ async def inbox_conversations_partial(
     db: Session = Depends(get_db),
     channel: str | None = None,
     status: str | None = None,
+    outbox_status: str | None = None,
     search: str | None = None,
     assignment: str | None = None,
     target_id: str | None = None,
@@ -1324,6 +1327,7 @@ async def inbox_conversations_partial(
         db,
         channel=channel,
         status=status,
+        outbox_status=outbox_status,
         search=search,
         assignment=assignment,
         assigned_person_id=assigned_person_id,
@@ -1341,8 +1345,12 @@ async def inbox_conversations_partial(
             unread_count=unread_count,
             include_inbox_label=True,
         )
-        for conv, latest_message, unread_count in listing.conversations_raw
+        for conv, latest_message, unread_count, _failed_outbox in listing.conversations_raw
     ]
+    if outbox_status and str(outbox_status).strip().lower() == "failed":
+        for idx, (_conv, _latest_message, _unread_count, failed_outbox) in enumerate(listing.conversations_raw):
+            if failed_outbox and idx < len(conversations):
+                conversations[idx]["failed_outbox"] = failed_outbox
     if listing.comment_items and safe_offset == 0:
         conversations = conversations + listing.comment_items
         conversations.sort(
@@ -1359,6 +1367,7 @@ async def inbox_conversations_partial(
             "conversations": conversations,
             "current_channel": channel,
             "current_status": status,
+            "current_outbox_status": outbox_status,
             "current_assignment": assignment,
             "current_target_id": target_id,
             "search": search,

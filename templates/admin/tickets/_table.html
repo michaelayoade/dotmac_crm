@@ -1,25 +1,27 @@
 {% from "components/ui/macros.html" import empty_state, icon_edit, icon_view, pagination, row_action, table_shell, table_row %}
-{% set pad = 'px-6 py-3' %}
+{# Slightly denser padding so wide tables fit better without horizontal scrolling. #}
+{% set pad = 'px-4 py-2' %}
 
 {% call table_shell(table_id="tickets-table", color="amber") %}
-    <table class="min-w-full divide-y divide-slate-200/60 dark:divide-slate-700/60">
+    {# Fixed layout keeps the table constrained to the viewport; long content wraps/truncates instead of widening. #}
+    <table class="w-full table-fixed divide-y divide-slate-200/60 dark:divide-slate-700/60">
         <thead>
             <tr class="border-b border-slate-100 dark:border-slate-700/50">
-                <th scope="col" data-ticket-column="ticket" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ticket ID</th>
-                <th scope="col" data-ticket-column="type" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Type</th>
-                <th scope="col" data-ticket-column="customer" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Customer Name</th>
-                <th scope="col" data-ticket-column="customer_id" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Customer ID</th>
-                <th scope="col" data-ticket-column="subscriber" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Subscriber</th>
-                <th scope="col" data-ticket-column="region" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Region</th>
-                <th scope="col" data-ticket-column="priority" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Priority</th>
-                <th scope="col" data-ticket-column="status" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
-                <th scope="col" data-ticket-column="assigned" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Assigned</th>
-                <th scope="col" data-ticket-column="project_manager" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Project Manager</th>
-                <th scope="col" data-ticket-column="site_coordinator" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Site Coordinator</th>
-                <th scope="col" data-ticket-column="channel" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Channel</th>
-                <th scope="col" data-ticket-column="due_at" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Due Date</th>
-                <th scope="col" data-ticket-column="created" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Opening Date</th>
-                <th scope="col" class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
+                <th scope="col" data-ticket-column="ticket" class="{{ pad }} w-28 truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ticket ID</th>
+                <th scope="col" data-ticket-column="type" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Type</th>
+                <th scope="col" data-ticket-column="customer" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Customer</th>
+                <th scope="col" data-ticket-column="customer_id" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Cust ID</th>
+                <th scope="col" data-ticket-column="subscriber" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Subscriber</th>
+                <th scope="col" data-ticket-column="region" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Region</th>
+                <th scope="col" data-ticket-column="priority" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Priority</th>
+                <th scope="col" data-ticket-column="status" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Status</th>
+                <th scope="col" data-ticket-column="assigned" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Assigned</th>
+                <th scope="col" data-ticket-column="project_manager" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">PM</th>
+                <th scope="col" data-ticket-column="site_coordinator" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">SPC</th>
+                <th scope="col" data-ticket-column="channel" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Channel</th>
+                <th scope="col" data-ticket-column="due_at" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Due</th>
+                <th scope="col" data-ticket-column="created" class="{{ pad }} truncate text-left text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Opened</th>
+                <th scope="col" class="{{ pad }} w-28 whitespace-nowrap text-right text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actions</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -28,42 +30,35 @@
                 {% set priority_val = ticket.priority.value if ticket.priority is not string else ticket.priority %}
                 {% set channel_val = ticket.channel.value if ticket.channel is not string else ticket.channel %}
                 {% call table_row(color="amber") %}
-                    <td data-ticket-column="ticket" class="{{ pad }}">
-                        <div class="flex items-start gap-3">
+                    <td data-ticket-column="ticket" class="{{ pad }} align-top">
+                        <div class="flex items-center gap-3">
                             <div class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full {% if priority_val == 'urgent' %}bg-red-500 animate-pulse{% elif priority_val == 'high' %}bg-orange-500{% elif status_val == 'new' or priority_val == 'medium' or priority_val == 'normal' %}bg-blue-500{% else %}bg-slate-300 dark:bg-slate-600{% endif %}"></div>
-                            <div class="min-w-0 flex-1">
-                                <a href="/admin/support/tickets/{{ ticket.number or ticket.id }}" class="group/link flex items-center gap-1.5 text-sm font-semibold text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300">
-                                    <span>{{ ticket.number or (ticket.id|string)[:8] }}</span>
-                                    <svg class="h-3.5 w-3.5 opacity-0 transition-all group-hover/link:opacity-100 group-hover/link:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                </a>
-                                <p class="mt-0.5 truncate text-sm font-medium text-slate-900 dark:text-white">{{ ticket.title or 'No title' }}</p>
-                                {% if ticket.account %}
-                                <p class="mt-0.5 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
-                                    {{ ticket.account.name }}
-                                </p>
-                                {% endif %}
-                            </div>
+                            <a href="/admin/support/tickets/{{ ticket.number or ticket.id }}"
+                               class="group/link inline-flex max-w-full items-center gap-1.5 truncate text-sm font-semibold text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                               title="{{ ticket.title or '' }}">
+                                <span class="truncate">{{ ticket.number or (ticket.id|string)[:8] }}</span>
+                                <svg class="h-3.5 w-3.5 flex-shrink-0 opacity-0 transition-all group-hover/link:opacity-100 group-hover/link:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </a>
                         </div>
                     </td>
-                    <td data-ticket-column="type" class="{{ pad }}">
+                    <td data-ticket-column="type" class="{{ pad }} align-top">
                         <div class="text-sm font-medium text-slate-900 dark:text-white">
                             {{ ticket.ticket_type or '—' }}
                         </div>
                     </td>
-                    <td data-ticket-column="customer" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="customer" class="{{ pad }} align-top">
                         {% if ticket.customer %}
-                        <div class="text-sm font-medium text-slate-900 dark:text-white">
+                        <div class="truncate text-sm font-medium text-slate-900 dark:text-white" title="{{ ticket.customer.display_name or '' }}">
                             {{ ticket.customer.display_name or ((ticket.customer.first_name or '') ~ ' ' ~ (ticket.customer.last_name or '') | trim) or '—' }}
                         </div>
                         {% if ticket.customer.email %}
-                        <div class="text-xs text-slate-500 dark:text-slate-400">{{ ticket.customer.email }}</div>
+                        <div class="truncate text-xs text-slate-500 dark:text-slate-400" title="{{ ticket.customer.email }}">{{ ticket.customer.email }}</div>
                         {% endif %}
                         {% else %}
                         <div class="text-sm text-slate-500 dark:text-slate-400">—</div>
                         {% endif %}
                     </td>
-                    <td data-ticket-column="customer_id" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="customer_id" class="{{ pad }} align-top whitespace-nowrap">
                         {% set customer_id = ticket.customer_person_id or (ticket.customer.id if ticket.customer else None) %}
                         {% if customer_id %}
                         <div class="text-sm font-mono text-slate-600 dark:text-slate-300" title="{{ customer_id }}">{{ (customer_id|string)[:8] }}</div>
@@ -71,9 +66,9 @@
                         <div class="text-sm text-slate-500 dark:text-slate-400">—</div>
                         {% endif %}
                     </td>
-                    <td data-ticket-column="subscriber" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="subscriber" class="{{ pad }} align-top">
                         {% if ticket.subscriber %}
-                        <div class="text-sm font-medium text-slate-900 dark:text-white">{{ ticket.subscriber.display_name or 'Subscriber' }}</div>
+                        <div class="truncate text-sm font-medium text-slate-900 dark:text-white" title="{{ ticket.subscriber.display_name or '' }}">{{ ticket.subscriber.display_name or 'Subscriber' }}</div>
                         {% if ticket.subscriber.subscriber_number %}
                         <div class="text-xs text-slate-500 dark:text-slate-400">{{ ticket.subscriber.subscriber_number }}</div>
                         {% endif %}
@@ -106,7 +101,7 @@
                         <span class="inline-flex items-center rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-400 dark:bg-slate-800 dark:text-slate-500">Lower</span>
                         {% endif %}
                     </td>
-                    <td data-ticket-column="status" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="status" class="{{ pad }} align-top">
                         {# Status Badge #}
                         {% if status_val == 'new' %}
                         <span class="inline-flex items-center gap-1 rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-400">
@@ -126,17 +121,17 @@
                         {% elif status_val == 'waiting_on_customer' %}
                         <span class="inline-flex items-center gap-1 rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
                             <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            Waiting on Customer
+                            Waiting
                         </span>
                         {% elif status_val == 'lastmile_rerun' %}
                         <span class="inline-flex items-center gap-1 rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
                             <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                            Lastmile Rerun
+                            Rerun
                         </span>
                         {% elif status_val == 'site_under_construction' %}
                         <span class="inline-flex items-center gap-1 rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
                             <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6h4M12 6v12m7-2H5"/></svg>
-                            Site Under Construction
+                            Construction
                         </span>
                         {% elif status_val == 'on_hold' %}
                         <span class="inline-flex items-center gap-1 rounded-lg bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700 dark:bg-orange-500/20 dark:text-orange-400">
@@ -157,27 +152,36 @@
                         <span class="inline-flex items-center rounded-lg bg-red-100 px-2.5 py-1 text-xs font-medium text-red-600 dark:bg-red-500/20 dark:text-red-400">Canceled</span>
                         {% endif %}
                     </td>
-                    <td data-ticket-column="assigned" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="assigned" class="{{ pad }} align-top">
                         {% if ticket.assignees %}
-                        <div class="text-sm font-medium text-slate-900 dark:text-white">
-                            {% for assignee in ticket.assignees %}
-                                {% if assignee.person %}
-                                    {{ assignee.person.display_name or (assignee.person.first_name ~ ' ' ~ assignee.person.last_name) }}
-                                {% else %}
-                                    Technician {{ assignee.person_id|string|truncate(8, True, '') }}
-                                {% endif %}
-                                {% if not loop.last %}, {% endif %}
-                            {% endfor %}
+                        {% set _assignee_names = [] %}
+                        {% for assignee in ticket.assignees %}
+                            {% if assignee.person %}
+                                {% set _name = (assignee.person.display_name or (assignee.person.first_name ~ ' ' ~ assignee.person.last_name) | trim) %}
+                            {% else %}
+                                {% set _name = 'Technician ' ~ (assignee.person_id|string|truncate(8, True, '')) %}
+                            {% endif %}
+                            {% if _name %}{% set _ = _assignee_names.append(_name) %}{% endif %}
+                        {% endfor %}
+                        {% set _assignees_full = _assignee_names | join(', ') %}
+                        {% set _assignees_primary = _assignee_names | first %}
+                        <div class="truncate text-sm font-medium text-slate-900 dark:text-white"
+                             title="{{ _assignees_full }}">
+                            {{ _assignees_primary or '—' }}
+                            {% if (_assignee_names | length) > 1 %}
+                            <span class="ml-1 text-xs font-semibold text-slate-500 dark:text-slate-400">+{{ (_assignee_names | length) - 1 }}</span>
+                            {% endif %}
                         </div>
                         {% elif ticket.assigned_to %}
-                        <div class="text-sm font-medium text-slate-900 dark:text-white">
+                        <div class="truncate text-sm font-medium text-slate-900 dark:text-white"
+                             title="{{ ticket.assigned_to.display_name or (ticket.assigned_to.first_name ~ ' ' ~ ticket.assigned_to.last_name) }}">
                             {{ ticket.assigned_to.display_name or (ticket.assigned_to.first_name ~ ' ' ~ ticket.assigned_to.last_name) }}
                         </div>
                         {% else %}
                         <div class="text-sm text-slate-500 dark:text-slate-400 italic">Unassigned</div>
                         {% endif %}
                     </td>
-                    <td data-ticket-column="project_manager" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="project_manager" class="{{ pad }} align-top">
                         {% if ticket.ticket_manager %}
                         <div class="text-sm font-medium text-slate-900 dark:text-white">
                             {{ ticket.ticket_manager.display_name or ((ticket.ticket_manager.first_name or '') ~ ' ' ~ (ticket.ticket_manager.last_name or '') | trim) or '—' }}
@@ -186,7 +190,7 @@
                         <div class="text-sm text-slate-500 dark:text-slate-400">—</div>
                         {% endif %}
                     </td>
-                    <td data-ticket-column="site_coordinator" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="site_coordinator" class="{{ pad }} align-top">
                         {% if ticket.assistant_manager %}
                         <div class="text-sm font-medium text-slate-900 dark:text-white">
                             {{ ticket.assistant_manager.display_name or ((ticket.assistant_manager.first_name or '') ~ ' ' ~ (ticket.assistant_manager.last_name or '') | trim) or '—' }}
@@ -195,7 +199,7 @@
                         <div class="text-sm text-slate-500 dark:text-slate-400">—</div>
                         {% endif %}
                     </td>
-                    <td data-ticket-column="channel" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="channel" class="{{ pad }} align-top whitespace-nowrap">
                         {# Channel Badge #}
                         {% set channel_config = {
                             'email': {'icon': '<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>', 'color': 'violet', 'label': 'Email'},
@@ -209,10 +213,10 @@
                             <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-{{ ch.color }}-100 text-{{ ch.color }}-600 dark:bg-{{ ch.color }}-500/20 dark:text-{{ ch.color }}-400">
                                 {{ ch.icon|safe }}
                             </span>
-                            {{ ch.label }}
+                            <span class="truncate" title="{{ ch.label }}">{{ ch.label }}</span>
                         </span>
                     </td>
-                    <td data-ticket-column="due_at" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="due_at" class="{{ pad }} align-top whitespace-nowrap">
                         <div class="text-sm font-medium text-slate-900 dark:text-white">
                             {{ ticket.due_at.strftime('%b %d, %Y') if ticket.due_at else '—' }}
                         </div>
@@ -220,11 +224,11 @@
                         <div class="text-xs text-slate-500 dark:text-slate-400">{{ ticket.due_at.strftime('%H:%M') }}</div>
                         {% endif %}
                     </td>
-                    <td data-ticket-column="created" class="{{ pad }} whitespace-nowrap">
+                    <td data-ticket-column="created" class="{{ pad }} align-top whitespace-nowrap">
                         <div class="text-sm font-medium text-slate-900 dark:text-white">{{ ticket.created_at.strftime('%b %d, %Y') if ticket.created_at else '-' }}</div>
                         <div class="text-xs text-slate-500 dark:text-slate-400">{{ ticket.created_at.strftime('%H:%M') if ticket.created_at else '' }}</div>
                     </td>
-                    <td class="{{ pad }} whitespace-nowrap text-right">
+                    <td class="{{ pad }} align-top whitespace-nowrap text-right">
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             {{ row_action("/admin/support/tickets/" ~ (ticket.number or ticket.id), icon_view(), "View ticket", "amber") }}
                             {{ row_action("/admin/support/tickets/" ~ (ticket.number or ticket.id) ~ "/edit", icon_edit(), "Edit ticket", "slate") }}

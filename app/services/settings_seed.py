@@ -10,9 +10,11 @@ from app.services.domain_settings import (
     geocoding_settings,
     gis_settings,
     imports_settings,
+    integration_settings,
     inventory_settings,
     network_settings,
     notification_settings,
+    performance_settings,
     projects_settings,
     provisioning_settings,
     scheduler_settings,
@@ -271,6 +273,39 @@ def seed_notification_settings(db: Session) -> None:
         key="notification_queue_interval_seconds",
         value_type=SettingValueType.integer,
         value_text=os.getenv("NOTIFICATION_QUEUE_INTERVAL_SECONDS", "60"),
+    )
+    talk_notify_enabled_raw = os.getenv("NEXTCLOUD_TALK_NOTIFICATIONS_ENABLED", "false")
+    notification_settings.ensure_by_key(
+        db,
+        key="nextcloud_talk_notifications_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=talk_notify_enabled_raw,
+        value_json=talk_notify_enabled_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="nextcloud_talk_notifications_base_url",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NEXTCLOUD_TALK_NOTIFICATIONS_BASE_URL", ""),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="nextcloud_talk_notifications_username",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NEXTCLOUD_TALK_NOTIFICATIONS_USERNAME", ""),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="nextcloud_talk_notifications_app_password",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NEXTCLOUD_TALK_NOTIFICATIONS_APP_PASSWORD", ""),
+        is_secret=True,
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="nextcloud_talk_notifications_room_type",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("NEXTCLOUD_TALK_NOTIFICATIONS_ROOM_TYPE", "1"),
     )
 
 
@@ -680,4 +715,300 @@ def seed_comms_settings(db: Session) -> None:
         key="company_name",
         value_type=SettingValueType.string,
         value_text=os.getenv("COMPANY_NAME", "Dotmac CRM"),
+    )
+
+
+def seed_integration_settings(db: Session) -> None:
+    # LLM provider: vLLM (OpenAI-compatible chat completions).
+    integration_settings.ensure_by_key(
+        db,
+        key="llm_provider",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("LLM_PROVIDER", "vllm"),
+    )
+    ai_enabled_raw = os.getenv("AI_ENABLED", "false")
+    integration_settings.ensure_by_key(
+        db,
+        key="ai_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=ai_enabled_raw,
+        value_json=ai_enabled_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    intelligence_enabled_raw = os.getenv("INTELLIGENCE_ENABLED", "false")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=intelligence_enabled_raw,
+        value_json=intelligence_enabled_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    ticket_persona_raw = os.getenv("INTELLIGENCE_TICKET_ANALYST_ENABLED", "true")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_ticket_analyst_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=ticket_persona_raw,
+        value_json=ticket_persona_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    project_persona_raw = os.getenv("INTELLIGENCE_PROJECT_ADVISOR_ENABLED", "true")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_project_advisor_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=project_persona_raw,
+        value_json=project_persona_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    inbox_persona_raw = os.getenv("INTELLIGENCE_INBOX_ANALYST_ENABLED", "true")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_inbox_analyst_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=inbox_persona_raw,
+        value_json=inbox_persona_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    campaign_persona_raw = os.getenv("INTELLIGENCE_CAMPAIGN_OPTIMIZER_ENABLED", "true")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_campaign_optimizer_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=campaign_persona_raw,
+        value_json=campaign_persona_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    dispatch_persona_raw = os.getenv("INTELLIGENCE_DISPATCH_PLANNER_ENABLED", "true")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_dispatch_planner_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=dispatch_persona_raw,
+        value_json=dispatch_persona_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    vendor_persona_raw = os.getenv("INTELLIGENCE_VENDOR_ANALYST_ENABLED", "true")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_vendor_analyst_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=vendor_persona_raw,
+        value_json=vendor_persona_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    performance_persona_raw = os.getenv("INTELLIGENCE_PERFORMANCE_COACH_ENABLED", "true")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_performance_coach_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=performance_persona_raw,
+        value_json=performance_persona_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    customer_success_persona_raw = os.getenv("INTELLIGENCE_CUSTOMER_SUCCESS_ENABLED", "true")
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_customer_success_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=customer_success_persona_raw,
+        value_json=customer_success_persona_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_daily_token_budget",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("INTELLIGENCE_DAILY_TOKEN_BUDGET", "0"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="intelligence_max_insights_per_run",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("INTELLIGENCE_MAX_INSIGHTS_PER_RUN", "50"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_label",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("VLLM_LABEL", "primary"),
+    )
+
+    # Defaults are safe even if base_url/model are not configured yet.
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_timeout_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("VLLM_TIMEOUT_SECONDS", "30"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_max_retries",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("VLLM_MAX_RETRIES", "2"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_max_tokens",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("VLLM_MAX_TOKENS", "2048"),
+    )
+    require_key_raw = os.getenv("VLLM_REQUIRE_API_KEY", "false")
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_require_api_key",
+        value_type=SettingValueType.boolean,
+        value_text=require_key_raw,
+        value_json=require_key_raw.lower() in {"1", "true", "yes", "on"},
+    )
+
+    # Secondary endpoint (optional): use for a self-hosted model (e.g. Llama).
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_secondary_label",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("VLLM_SECONDARY_LABEL", "secondary"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_secondary_timeout_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("VLLM_SECONDARY_TIMEOUT_SECONDS", "30"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_secondary_max_retries",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("VLLM_SECONDARY_MAX_RETRIES", "1"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_secondary_max_tokens",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("VLLM_SECONDARY_MAX_TOKENS", "2048"),
+    )
+    secondary_require_key_raw = os.getenv("VLLM_SECONDARY_REQUIRE_API_KEY", "false")
+    integration_settings.ensure_by_key(
+        db,
+        key="vllm_secondary_require_api_key",
+        value_type=SettingValueType.boolean,
+        value_text=secondary_require_key_raw,
+        value_json=secondary_require_key_raw.lower() in {"1", "true", "yes", "on"},
+    )
+
+    secondary_base_url = (os.getenv("VLLM_SECONDARY_BASE_URL") or "").strip()
+    if secondary_base_url:
+        integration_settings.ensure_by_key(
+            db,
+            key="vllm_secondary_base_url",
+            value_type=SettingValueType.string,
+            value_text=secondary_base_url,
+        )
+    secondary_model = (os.getenv("VLLM_SECONDARY_MODEL") or "").strip()
+    if secondary_model:
+        integration_settings.ensure_by_key(
+            db,
+            key="vllm_secondary_model",
+            value_type=SettingValueType.string,
+            value_text=secondary_model,
+        )
+    secondary_api_key = (os.getenv("VLLM_SECONDARY_API_KEY") or "").strip()
+    if secondary_api_key and is_openbao_ref(secondary_api_key):
+        integration_settings.ensure_by_key(
+            db,
+            key="vllm_secondary_api_key",
+            value_type=SettingValueType.string,
+            value_text=secondary_api_key,
+            is_secret=True,
+        )
+
+    # Only seed connection details if provided; empty strings are treated as "not configured".
+    base_url = (os.getenv("VLLM_BASE_URL") or "").strip()
+    if base_url:
+        integration_settings.ensure_by_key(
+            db,
+            key="vllm_base_url",
+            value_type=SettingValueType.string,
+            value_text=base_url,
+        )
+
+    model = (os.getenv("VLLM_MODEL") or "").strip()
+    if model:
+        integration_settings.ensure_by_key(
+            db,
+            key="vllm_model",
+            value_type=SettingValueType.string,
+            value_text=model,
+        )
+
+    api_key = (os.getenv("VLLM_API_KEY") or "").strip()
+    if api_key and is_openbao_ref(api_key):
+        integration_settings.ensure_by_key(
+            db,
+            key="vllm_api_key",
+            value_type=SettingValueType.string,
+            value_text=api_key,
+            is_secret=True,
+        )
+
+
+def seed_performance_settings(db: Session) -> None:
+    performance_settings.ensure_by_key(
+        db,
+        key="scoring_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=os.getenv("PERFORMANCE_SCORING_ENABLED", "true"),
+        value_json=os.getenv("PERFORMANCE_SCORING_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="review_generation_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=os.getenv("PERFORMANCE_REVIEW_GENERATION_ENABLED", "false"),
+        value_json=os.getenv("PERFORMANCE_REVIEW_GENERATION_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="flagged_threshold",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_FLAGGED_THRESHOLD", "70"),
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="max_reviews_per_run",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_MAX_REVIEWS_PER_RUN", "20"),
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="peer_comparison_min_team_size",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_PEER_COMPARISON_MIN_TEAM_SIZE", "3"),
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="review_sample_tickets",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_REVIEW_SAMPLE_TICKETS", "3"),
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="review_sample_conversations",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_REVIEW_SAMPLE_CONVERSATIONS", "3"),
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="review_sample_work_orders",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_REVIEW_SAMPLE_WORK_ORDERS", "2"),
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="review_sample_max_chars",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_REVIEW_SAMPLE_MAX_CHARS", "600"),
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="review_manual_daily_limit_per_manager",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_REVIEW_MANUAL_DAILY_LIMIT_PER_MANAGER", "25"),
+    )
+    performance_settings.ensure_by_key(
+        db,
+        key="review_cooldown_hours",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("PERFORMANCE_REVIEW_COOLDOWN_HOURS", "24"),
     )

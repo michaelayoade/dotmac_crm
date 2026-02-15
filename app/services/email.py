@@ -100,7 +100,7 @@ def _get_smtp_config(db: Session | None) -> dict:
     }
 
 
-def _get_app_url(db: Session | None) -> str:
+def get_app_url(db: Session | None) -> str:
     return _env_value("APP_URL") or _setting_value(db, "app_url") or "http://localhost:8000"
 
 
@@ -408,7 +408,7 @@ def send_password_reset_email(
     Returns:
         True if email was sent successfully, False otherwise
     """
-    app_url = _get_app_url(db)
+    app_url = get_app_url(db)
     reset_url = f"{app_url}{reset_path}?token={reset_token}"
 
     # Get configurable expiry minutes
@@ -487,7 +487,7 @@ def send_user_invite_email(db: Session, to_email: str, reset_token: str, person_
     Returns:
         True if email was sent successfully, False otherwise
     """
-    app_url = _get_app_url(db)
+    app_url = get_app_url(db)
     reset_url = f"{app_url}/auth/reset-password?token={reset_token}"
 
     # Get configurable expiry minutes

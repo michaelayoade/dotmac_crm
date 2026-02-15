@@ -19,7 +19,7 @@ from app.services.crm.inbox.search import normalize_search
 
 @dataclass(frozen=True)
 class InboxListResult:
-    conversations_raw: list[tuple[Any, Any, int]]
+    conversations_raw: list[tuple[Any, Any, int, dict | None]]
     comment_items: list[dict]
     channel_enum: ChannelType | None
     status_enum: ConversationStatus | None
@@ -36,6 +36,7 @@ async def load_inbox_list(
     *,
     channel: str | None,
     status: str | None,
+    outbox_status: str | None,
     search: str | None,
     assignment: str | None,
     assigned_person_id: str | None,
@@ -51,6 +52,7 @@ async def load_inbox_list(
     cache_params = {
         "channel": channel,
         "status": status,
+        "outbox_status": outbox_status,
         "search": normalized_search,
         "assignment": assignment,
         "assigned_person_id": assigned_person_id,
@@ -68,6 +70,9 @@ async def load_inbox_list(
     channel_enum = None
     status_enum = None
     status_enums = None
+    outbox_status_filter = (outbox_status or "").strip().lower() or None
+    if outbox_status_filter not in {"failed"}:
+        outbox_status_filter = None
     if channel:
         try:
             channel_enum = ChannelType(channel)
@@ -87,6 +92,8 @@ async def load_inbox_list(
     target_prefix = (target_id or "").strip()
     target_is_comment = target_prefix.startswith("fb:") or target_prefix.startswith("ig:")
     include_comments = not channel and assignment_filter != "assigned" and (status_enum is None)
+    if outbox_status_filter:
+        include_comments = False
     if target_is_comment:
         include_comments = True
     if include_comments and not target_is_comment and target_prefix:
@@ -94,7 +101,7 @@ async def load_inbox_list(
     if safe_offset > 0:
         include_comments = False
 
-    conversations_raw: list[tuple[Any, Any, int]] = []
+    conversations_raw: list[tuple[Any, Any, int, dict | None]] = []
     has_more = False
     next_offset: int | None = None
     if not target_is_comment:
@@ -103,6 +110,7 @@ async def load_inbox_list(
             channel=channel_enum,
             status=status_enum,
             statuses=status_enums,
+            outbox_status=outbox_status_filter,
             search=normalized_search,
             assignment=assignment,
             assigned_person_id=assigned_person_id,

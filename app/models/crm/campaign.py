@@ -6,7 +6,8 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-from app.models.crm.enums import CampaignRecipientStatus, CampaignStatus, CampaignType
+from app.models.connector import ConnectorConfig
+from app.models.crm.enums import CampaignChannel, CampaignRecipientStatus, CampaignStatus, CampaignType
 
 
 class Campaign(Base):
@@ -15,6 +16,7 @@ class Campaign(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     campaign_type: Mapped[CampaignType] = mapped_column(Enum(CampaignType), default=CampaignType.one_time)
+    channel: Mapped[CampaignChannel] = mapped_column(Enum(CampaignChannel), default=CampaignChannel.email)
     status: Mapped[CampaignStatus] = mapped_column(Enum(CampaignStatus), default=CampaignStatus.draft)
 
     # Email fields
@@ -24,6 +26,11 @@ class Campaign(Base):
     from_name: Mapped[str | None] = mapped_column(String(160))
     from_email: Mapped[str | None] = mapped_column(String(255))
     reply_to: Mapped[str | None] = mapped_column(String(255))
+
+    # WhatsApp template fields
+    whatsapp_template_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    whatsapp_template_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    whatsapp_template_components: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Targeting
     segment_filter: Mapped[dict | None] = mapped_column(JSON)
@@ -48,6 +55,9 @@ class Campaign(Base):
     campaign_smtp_config_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("crm_campaign_smtp_configs.id")
     )
+    connector_config_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("connector_configs.id")
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
@@ -61,6 +71,7 @@ class Campaign(Base):
     created_by = relationship("Person", foreign_keys=[created_by_id])
     sender = relationship("CampaignSender", foreign_keys=[campaign_sender_id])
     smtp_config = relationship("CampaignSmtpConfig", foreign_keys=[campaign_smtp_config_id])
+    connector_config = relationship(ConnectorConfig, foreign_keys=[connector_config_id])
     steps = relationship("CampaignStep", back_populates="campaign", order_by="CampaignStep.step_index")
     recipients = relationship("CampaignRecipient", back_populates="campaign")
 
@@ -107,7 +118,8 @@ class CampaignRecipient(Base):
     campaign_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_campaigns.id"), nullable=False)
     person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
     step_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_campaign_steps.id"))
-    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[CampaignRecipientStatus] = mapped_column(
         Enum(CampaignRecipientStatus), default=CampaignRecipientStatus.pending
     )

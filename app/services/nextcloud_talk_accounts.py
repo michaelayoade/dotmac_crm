@@ -24,11 +24,7 @@ def upsert_account(
     encrypted = _encrypt_secret(db, app_password_value)
     person_uuid = coerce_uuid(person_id)
 
-    account = (
-        db.query(NextcloudTalkAccount)
-        .filter(NextcloudTalkAccount.person_id == person_uuid)
-        .first()
-    )
+    account = db.query(NextcloudTalkAccount).filter(NextcloudTalkAccount.person_id == person_uuid).first()
     if account:
         account.base_url = base_url_value
         account.username = username_value
@@ -48,11 +44,7 @@ def upsert_account(
 
 def clear_account(db: Session, *, person_id: str) -> None:
     person_uuid = coerce_uuid(person_id)
-    account = (
-        db.query(NextcloudTalkAccount)
-        .filter(NextcloudTalkAccount.person_id == person_uuid)
-        .first()
-    )
+    account = db.query(NextcloudTalkAccount).filter(NextcloudTalkAccount.person_id == person_uuid).first()
     if not account:
         return
     db.delete(account)
@@ -61,11 +53,7 @@ def clear_account(db: Session, *, person_id: str) -> None:
 
 def get_account_credentials(db: Session, *, person_id: str) -> dict[str, str] | None:
     person_uuid = coerce_uuid(person_id)
-    account = (
-        db.query(NextcloudTalkAccount)
-        .filter(NextcloudTalkAccount.person_id == person_uuid)
-        .first()
-    )
+    account = db.query(NextcloudTalkAccount).filter(NextcloudTalkAccount.person_id == person_uuid).first()
     if not account:
         return None
     return {

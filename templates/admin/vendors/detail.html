@@ -10,7 +10,13 @@
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ vendor.name }}</h1>
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Vendor profile and portal users.</p>
         </div>
-        <a href="/admin/vendors" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Back to Vendors</a>
+        <div class="flex items-center gap-3">
+            <a href="/admin/vendors/{{ vendor.id }}/edit" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                Edit Vendor
+            </a>
+            <a href="/admin/vendors" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Back to Vendors</a>
+        </div>
     </div>
 
     {% if error %}
@@ -26,6 +32,10 @@
                 <div>
                     <dt class="text-slate-500 dark:text-slate-400">Code</dt>
                     <dd class="font-medium text-slate-900 dark:text-white">{{ vendor.code or '—' }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400">ERP ID</dt>
+                    <dd class="font-medium text-slate-900 dark:text-white">{{ vendor.erp_id or '—' }}</dd>
                 </div>
                 <div>
                     <dt class="text-slate-500 dark:text-slate-400">Contact</dt>

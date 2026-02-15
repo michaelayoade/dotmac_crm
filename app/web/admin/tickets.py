@@ -765,7 +765,7 @@ async def ticket_create_post(
     ticket_type: str | None = Form(None),
     priority: str = Form("normal"),
     channel: str = Form("web"),
-    status: str = Form("new"),
+    status: str = Form("open"),
     due_at: str | None = Form(None),
     tags: str | None = Form(None),
     attachments: UploadFile | list[UploadFile] | None = File(None),
@@ -895,7 +895,7 @@ async def ticket_create_post(
             "priority": priority_map.get(priority, TicketPriority.medium),
             "ticket_type": ticket_type.strip() if ticket_type else None,
             "channel": channel_map.get(channel, TicketChannel.web),
-            "status": status_map.get(status, TicketStatus.new),
+            "status": status_map.get(status, TicketStatus.open),
             "due_at": due_datetime,
             "tags": tag_list,
             "metadata_": metadata_value,
@@ -1061,7 +1061,7 @@ async def ticket_edit_post(
     ticket_type: str | None = Form(None),
     priority: str = Form("normal"),
     channel: str = Form("web"),
-    status: str = Form("new"),
+    status: str = Form("open"),
     due_at: str | None = Form(None),
     tags: str | None = Form(None),
     attachments: UploadFile | list[UploadFile] | None = File(None),
@@ -1732,15 +1732,16 @@ async def add_ticket_comment(
         prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        current_user = get_current_user(request)
+        actor_id = str(current_user.get("person_id")) if current_user else None
         payload = TicketCommentCreate(
             ticket_id=UUID(str(ticket.id)),
+            author_person_id=UUID(actor_id) if actor_id else None,
             body=body,
             is_internal=is_internal == "true",
             attachments=saved_attachments or None,
         )
         tickets_service.ticket_comments.create(db=db, payload=payload)
-        current_user = get_current_user(request)
-        actor_id = str(current_user.get("person_id")) if current_user else None
 
         # Best-effort @mention notifications (does not affect comment creation).
         if mentions:

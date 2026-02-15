@@ -133,6 +133,7 @@ def process_nurture_steps():
                         campaign_id=campaign.id,
                         person_id=orig.person_id,
                         step_id=step.id,
+                        address=orig.address,
                         email=orig.email,
                         status=CampaignRecipientStatus.pending,
                     )

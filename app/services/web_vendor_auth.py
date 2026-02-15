@@ -171,13 +171,14 @@ def vendor_refresh(request: Request):
         max_age = (
             vendor_portal.get_remember_max_age(db) if session.get("remember") else vendor_portal.get_session_max_age(db)
         )
+        refreshed_token = str(session.get("session_token") or session_token or "")
     finally:
         db.close()
 
     response = Response(status_code=204)
     response.set_cookie(
         key=vendor_portal.SESSION_COOKIE_NAME,
-        value=session_token or "",
+        value=refreshed_token,
         httponly=True,
         secure=True,
         samesite="lax",

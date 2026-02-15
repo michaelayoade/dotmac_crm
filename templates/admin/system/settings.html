@@ -875,6 +875,48 @@
         </div>
         <div id="smtp-test-result" class="mt-4"></div>
     </div>
+
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 275ms">
+        <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/10 to-cyan-500/10 dark:from-sky-500/20 dark:to-cyan-500/20">
+                <svg class="h-5 w-5 text-sky-600 dark:text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 14h.01M16 10h.01M9 16H5a2 2 0 01-2-2V7a2 2 0 012-2h14a2 2 0 012 2v7a2 2 0 01-2 2h-4l-4 4v-4z"/></svg>
+            </div>
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Nextcloud Talk Test</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Use saved Talk notification settings to create/invite and send a test message.</p>
+            </div>
+        </div>
+        <form method="POST"
+              action="/admin/system/settings/test-talk"
+              hx-post="/admin/system/settings/test-talk"
+              hx-target="#talk-test-result"
+              hx-swap="innerHTML"
+              hx-indicator="#talk-test-spinner"
+              class="mt-4 grid gap-4 sm:grid-cols-2">
+            {% include "components/forms/csrf_input.html" %}
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Talk Username / Full Name</label>
+                <input type="text" name="invite_target" required
+                       placeholder="e.g. Confidence Okaka"
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-sky-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Message (optional)</label>
+                <input type="text" name="message"
+                       placeholder="Dotmac Talk notification test message."
+                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-sky-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+            </div>
+            <div class="sm:col-span-2">
+                <button type="submit"
+                        class="inline-flex items-center gap-2 rounded-xl border border-slate-200/60 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-sky-500 dark:hover:bg-sky-900/20 dark:hover:text-sky-400">
+                    <svg id="talk-test-spinner" class="htmx-indicator h-4 w-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <svg class="h-4 w-4 htmx-indicator-hide" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 14h.01M16 10h.01M9 16H5a2 2 0 01-2-2V7a2 2 0 012-2h14a2 2 0 012 2v7a2 2 0 01-2 2h-4l-4 4v-4z"/></svg>
+                    Test Talk Connection
+                </button>
+            </div>
+        </form>
+        <div id="talk-test-result" class="mt-4"></div>
+    </div>
     {% endif %}
 
     {% endif %}

@@ -5,7 +5,7 @@
         <thead>
             <tr class="border-b border-slate-100 dark:border-slate-700/50">
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Recipient</th>
-                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Email</th>
+                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Address</th>
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Sent At</th>
             </tr>
@@ -22,7 +22,7 @@
                     Unknown
                     {% endif %}
                 </td>
-                <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ r.email }}</td>
+                <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ r.address }}</td>
                 <td class="{{ pad }}">
                     {% set rs_colors = {
                         'pending': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',

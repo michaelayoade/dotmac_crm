@@ -516,6 +516,27 @@ class ProjectQuotes(ListResponseMixin):
             raise HTTPException(status_code=403, detail="Quote ownership required")
         if quote.status not in {ProjectQuoteStatus.draft, ProjectQuoteStatus.revision_requested}:
             raise HTTPException(status_code=400, detail="Quote is not in a submittable state")
+
+        active_items = (
+            db.query(QuoteLineItem)
+            .filter(QuoteLineItem.quote_id == quote.id)
+            .filter(QuoteLineItem.is_active.is_(True))
+            .order_by(QuoteLineItem.created_at.asc())
+            .all()
+        )
+        if not active_items:
+            raise HTTPException(
+                status_code=400, detail="Quote must have at least one active line item before submission"
+            )
+        for idx, item in enumerate(active_items, start=1):
+            has_description = bool((item.description or "").strip())
+            has_type = bool((item.item_type or "").strip())
+            if not (has_description or has_type):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Quote line item {idx} is missing description or type",
+                )
+
         previous_status = quote.status
         quote.status = ProjectQuoteStatus.submitted
         quote.submitted_at = _now()

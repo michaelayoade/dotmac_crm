@@ -5,9 +5,9 @@ from app.api.deps import get_db
 from app.models.connector import ConnectorConfig
 from app.schemas.nextcloud_talk import (
     NextcloudTalkLoginRequest,
-    NextcloudTalkMessageRequest,
-    NextcloudTalkMessageListRequest,
     NextcloudTalkMessageListMeRequest,
+    NextcloudTalkMessageListRequest,
+    NextcloudTalkMessageRequest,
     NextcloudTalkMessageSendMeRequest,
     NextcloudTalkRoomCreateMeRequest,
     NextcloudTalkRoomCreateRequest,
@@ -16,7 +16,11 @@ from app.schemas.nextcloud_talk import (
 from app.services.auth_dependencies import require_user_auth
 from app.services.common import coerce_uuid
 from app.services.nextcloud_talk import NextcloudTalkClient, NextcloudTalkError
-from app.services.nextcloud_talk_me import NextcloudTalkNotConnectedError, connect as talk_connect, disconnect as talk_disconnect, get_status as talk_status, resolve_client as resolve_talk_me_client
+from app.services.nextcloud_talk_me import NextcloudTalkNotConnectedError
+from app.services.nextcloud_talk_me import connect as talk_connect
+from app.services.nextcloud_talk_me import disconnect as talk_disconnect
+from app.services.nextcloud_talk_me import get_status as talk_status
+from app.services.nextcloud_talk_me import resolve_client as resolve_talk_me_client
 
 router = APIRouter(prefix="/nextcloud-talk", tags=["nextcloud-talk"])
 
@@ -60,7 +64,9 @@ def me_status(db: Session = Depends(get_db), auth: dict = Depends(require_user_a
 
 
 @router.post("/me/login", response_model=dict)
-def me_login(payload: NextcloudTalkLoginRequest, db: Session = Depends(get_db), auth: dict = Depends(require_user_auth)):
+def me_login(
+    payload: NextcloudTalkLoginRequest, db: Session = Depends(get_db), auth: dict = Depends(require_user_auth)
+):
     """Store Nextcloud Talk credentials for the current user after verifying connectivity."""
     try:
         status_obj = talk_connect(
@@ -101,7 +107,9 @@ def me_list_rooms(db: Session = Depends(get_db), auth: dict = Depends(require_us
 
 
 @router.post("/me/rooms", response_model=dict)
-def me_create_room(payload: NextcloudTalkRoomCreateMeRequest, db: Session = Depends(get_db), auth: dict = Depends(require_user_auth)):
+def me_create_room(
+    payload: NextcloudTalkRoomCreateMeRequest, db: Session = Depends(get_db), auth: dict = Depends(require_user_auth)
+):
     try:
         client = resolve_talk_me_client(db, person_id=str(auth.get("person_id") or ""))
     except NextcloudTalkNotConnectedError as exc:

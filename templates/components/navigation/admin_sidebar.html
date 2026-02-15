@@ -10,6 +10,8 @@
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations',
     'material-requests': 'operations',
     'my-performance': 'reports',
+    'team-performance': 'reports',
+    'ai-insights': 'reports',
     'service-teams': 'system'
 } %}
 {% set field_service_pages = ['installations', 'technicians', 'dispatch', 'work-orders'] %}
@@ -114,8 +116,10 @@
 {% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_technician = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_crm = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
+{% set can_reports_ai_insights = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_my_performance = can_inbox %}
-{% set reports_section_visible = can_reports_network or can_reports_technician or can_reports_crm or can_reports_my_performance %}
+{% set can_reports_team_performance = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
+{% set reports_section_visible = can_reports_network or can_reports_technician or can_reports_crm or can_reports_ai_insights or can_reports_my_performance or can_reports_team_performance %}
 
 {% set can_admin_hub = is_admin
     or 'rbac:roles:read' in user_permissions
@@ -459,6 +463,12 @@
             {% endif %}
             {% if can_reports_my_performance %}
             <a href="/agent/my-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'my-performance' else '' }}">My Performance</a>
+            {% endif %}
+            {% if can_reports_team_performance %}
+            <a href="/admin/performance/team" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'team-performance' else '' }}">Team Performance</a>
+            {% endif %}
+            {% if can_reports_ai_insights %}
+            <a href="/admin/intelligence/insights" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'ai-insights' else '' }}">AI Insights</a>
             {% endif %}
         </div>
     </div>

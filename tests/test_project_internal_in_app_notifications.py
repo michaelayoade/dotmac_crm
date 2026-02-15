@@ -34,8 +34,6 @@ def test_project_created_in_app_notification_dedupes_roles_same_person(db_sessio
     )
     assert len(notes) == 1
     assert notes[0].body
-    assert "Owner" in notes[0].body
-    assert "Manager" in notes[0].body
     assert "Project Manager" in notes[0].body
     assert "Site Project Coordinator" in notes[0].body
     assert "Site: 123 Main St" in notes[0].body

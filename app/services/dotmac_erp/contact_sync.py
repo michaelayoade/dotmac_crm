@@ -105,13 +105,24 @@ class DotMacERPContactSync:
             self._org_cache[erp_id] = org
         return org
 
+    def _get_person_by_erp_person_id(self, erp_person_id: str) -> Person | None:
+        """Get Person by erp_person_id with caching."""
+        cache_key = f"erp_person:{erp_person_id}"
+        if cache_key in self._person_cache:
+            return self._person_cache[cache_key]
+        person = self.db.query(Person).filter(Person.erp_person_id == erp_person_id).first()
+        if person:
+            self._person_cache[cache_key] = person
+        return person
+
     def _get_person_by_erp_customer_id(self, erp_customer_id: str) -> Person | None:
         """Get Person by erp_customer_id with caching."""
-        if erp_customer_id in self._person_cache:
-            return self._person_cache[erp_customer_id]
+        cache_key = f"erp_customer:{erp_customer_id}"
+        if cache_key in self._person_cache:
+            return self._person_cache[cache_key]
         person = self.db.query(Person).filter(Person.erp_customer_id == erp_customer_id).first()
         if person:
-            self._person_cache[erp_customer_id] = person
+            self._person_cache[cache_key] = person
         return person
 
     def _get_person_by_email(self, email: str) -> Person | None:
@@ -188,7 +199,7 @@ class DotMacERPContactSync:
 
         # Try by erp_customer_id first
         if contact_id:
-            person = self._get_person_by_erp_customer_id(contact_id)
+            person = self._get_person_by_erp_person_id(contact_id) or self._get_person_by_erp_customer_id(contact_id)
             if person:
                 return person, "found_by_erp_id"
 
@@ -196,6 +207,8 @@ class DotMacERPContactSync:
         if email:
             person = self._get_person_by_email(email)
             if person:
+                if contact_id and not person.erp_person_id:
+                    person.erp_person_id = contact_id
                 if contact_id and not person.erp_customer_id:
                     person.erp_customer_id = contact_id
                     self.db.flush()
@@ -235,6 +248,11 @@ class DotMacERPContactSync:
                 person.job_title = contact["job_title"]
             person.party_status = party_status
             person.is_active = contact.get("is_active", True)
+            if contact_id and not person.erp_person_id:
+                person.erp_person_id = contact_id
+            if contact_id and not person.erp_customer_id:
+                person.erp_customer_id = contact_id
+            self.db.flush()
             if address:
                 person.address_line1 = address.get("line1") or person.address_line1
                 person.city = address.get("city") or person.city
@@ -254,6 +272,7 @@ class DotMacERPContactSync:
                 phone=self._normalize_phone(contact.get("phone")),
                 job_title=contact.get("job_title"),
                 party_status=party_status,
+                erp_person_id=contact_id,
                 erp_customer_id=contact_id,
                 address_line1=address.get("line1"),
                 city=address.get("city"),
@@ -305,7 +324,8 @@ class DotMacERPContactSync:
             result.channels_upserted += 1
 
         if contact_id:
-            self._person_cache[contact_id] = person
+            self._person_cache[f"erp_person:{contact_id}"] = person
+            self._person_cache[f"erp_customer:{contact_id}"] = person
 
     def sync_organizations(self) -> ContactSyncResult:
         """Pull companies from ERP and sync to Organization model."""

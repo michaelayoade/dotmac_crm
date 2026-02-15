@@ -64,6 +64,29 @@ def _resolve_whatsapp_config(db: Session, target_id: str | None) -> WhatsappTemp
     )
 
 
+def _resolve_whatsapp_config_by_connector(db: Session, connector_config_id: str) -> WhatsappTemplateConfig:
+    config = db.get(ConnectorConfig, coerce_uuid(connector_config_id))
+    if not config or config.connector_type != ConnectorType.whatsapp:
+        raise HTTPException(status_code=400, detail="WhatsApp connector not configured")
+
+    auth_config = config.auth_config if isinstance(config.auth_config, dict) else {}
+    access_token = auth_config.get("token") or auth_config.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=400, detail="WhatsApp access token missing")
+
+    metadata = config.metadata_ if isinstance(config.metadata_, dict) else {}
+    business_account_id = metadata.get("business_account_id") or auth_config.get("business_account_id")
+    if not business_account_id:
+        raise HTTPException(status_code=400, detail="WhatsApp business account ID missing")
+
+    base_url = config.base_url or "https://graph.facebook.com/v19.0"
+    return WhatsappTemplateConfig(
+        base_url=base_url.rstrip("/"),
+        access_token=str(access_token),
+        business_account_id=str(business_account_id),
+    )
+
+
 def _extract_body_text(components: list[dict]) -> str:
     for comp in components:
         if comp.get("type") == "BODY":
@@ -75,14 +98,18 @@ def list_whatsapp_templates(
     db: Session,
     *,
     target_id: str | None = None,
+    connector_config_id: str | None = None,
     limit: int = 200,
 ) -> list[dict]:
-    cache_key = target_id or "default"
+    cache_key = connector_config_id or target_id or "default"
     cached = _TEMPLATE_CACHE.get(cache_key)
     if cached and (time.time() - cached[0]) < _CACHE_TTL_SECONDS:
         return cached[1]
 
-    config = _resolve_whatsapp_config(db, target_id)
+    if connector_config_id:
+        config = _resolve_whatsapp_config_by_connector(db, connector_config_id)
+    else:
+        config = _resolve_whatsapp_config(db, target_id)
 
     url = f"{config.base_url}/{config.business_account_id}/message_templates"
     headers = {"Authorization": f"Bearer {config.access_token}"}

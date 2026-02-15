@@ -113,6 +113,20 @@ class NotificationHandler:
             )
             db.add(notification)
 
+            # Technician-facing ticket templates should also be mirrored to in-app/Talk,
+            # but only when the primary notification is not already a push notification.
+            if code in TECHNICIAN_TEMPLATE_CODES and notification.channel != NotificationChannel.push:
+                db.add(
+                    Notification(
+                        template_id=template.id,
+                        channel=NotificationChannel.push,
+                        recipient=recipient,
+                        subject=self._render_subject(template, payload, event),
+                        body=body,
+                        status=NotificationStatus.queued,
+                    )
+                )
+
             logger.info(f"Queued notification for event {event.event_type.value} to {recipient}")
 
     def _resolve_recipient_for_template(self, db: Session, event: Event, template_code: str) -> str | None:

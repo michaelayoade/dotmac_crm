@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.services.nextcloud_talk import NextcloudTalkClient, NextcloudTalkError
+from app.services.nextcloud_talk import NextcloudTalkClient
 from app.services.nextcloud_talk_accounts import clear_account, get_account_credentials, upsert_account
 
 
@@ -63,4 +63,3 @@ def connect(
 
 def disconnect(db: Session, *, person_id: str) -> None:
     clear_account(db, person_id=person_id)
-

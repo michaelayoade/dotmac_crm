@@ -16,10 +16,12 @@ from app.models.crm.enums import (
     MessageDirection,
     MessageStatus,
 )
+from app.models.crm.outbox import OutboxMessage
 from app.models.crm.team import CrmAgent
 from app.models.integration import IntegrationTarget
 from app.models.person import Person
 from app.services.common import coerce_uuid
+from app.services.crm.inbox import outbox as outbox_service
 
 
 def list_inbox_conversations(
@@ -27,6 +29,7 @@ def list_inbox_conversations(
     channel: ChannelType | None = None,
     status: ConversationStatus | None = None,
     statuses: list[ConversationStatus] | None = None,
+    outbox_status: str | None = None,
     search: str | None = None,
     assignment: str | None = None,
     assigned_person_id: str | None = None,
@@ -37,7 +40,7 @@ def list_inbox_conversations(
 ) -> list[tuple]:
     """List inbox conversations with latest message and unread count.
 
-    Returns a list of tuples: (Conversation, latest_message_dict, unread_count)
+    Returns a list of tuples: (Conversation, latest_message_dict, unread_count, failed_outbox_summary)
     where latest_message_dict contains: body, channel_type, received_at, sent_at, created_at,
     last_message_at, message_type, has_attachments
     """
@@ -149,6 +152,17 @@ def list_inbox_conversations(
         )
         query = query.filter(~((Conversation.status == ConversationStatus.resolved) & newer_open))
 
+    outbox_status_filter = (outbox_status or "").strip().lower() or None
+    failed_outbox_subq = None
+    if outbox_status_filter == outbox_service.STATUS_FAILED:
+        failed_exists = (
+            db.query(OutboxMessage.id)
+            .filter(OutboxMessage.conversation_id == Conversation.id)
+            .filter(OutboxMessage.status == outbox_service.STATUS_FAILED)
+            .exists()
+        )
+        query = query.filter(failed_exists)
+
     last_message_ts = func.coalesce(
         Message.received_at,
         Message.sent_at,
@@ -198,51 +212,92 @@ def list_inbox_conversations(
         unread_subq.c.conv_id == Conversation.id,
     )
 
+    if outbox_status_filter == outbox_service.STATUS_FAILED:
+        # LATERAL: pick the most recent failed outbox row for each conversation (deterministic).
+        failed_outbox_subq = lateral(
+            select(
+                OutboxMessage.last_error.label("last_error"),
+                OutboxMessage.attempts.label("attempts"),
+                OutboxMessage.last_attempt_at.label("last_attempt_at"),
+            )
+            .select_from(OutboxMessage)
+            .where(OutboxMessage.conversation_id == Conversation.id)
+            .where(OutboxMessage.status == outbox_service.STATUS_FAILED)
+            .order_by(
+                (OutboxMessage.last_attempt_at.is_(None)).asc(),
+                OutboxMessage.last_attempt_at.desc(),
+                OutboxMessage.updated_at.desc(),
+            )
+            .limit(1)
+        ).alias("failed_outbox")
+        query = query.outerjoin(
+            failed_outbox_subq,
+            true(),
+        )
+
     query = query.order_by(
         Conversation.last_message_at.desc().nullslast(),
         Conversation.updated_at.desc(),
     )
 
-    conversations_raw = (
-        query.add_columns(
-            latest_message_subq.c.body,
-            latest_message_subq.c.channel_type,
-            latest_message_subq.c.channel_target_id,
-            latest_message_subq.c.channel_target_name,
-            latest_message_subq.c.received_at,
-            latest_message_subq.c.sent_at,
-            latest_message_subq.c.created_at,
-            latest_message_subq.c.last_message_at,
-            latest_message_subq.c.metadata,
-            latest_message_subq.c.has_attachments,
-            unread_subq.c.unread_count,
+    cols = [
+        latest_message_subq.c.body,
+        latest_message_subq.c.channel_type,
+        latest_message_subq.c.channel_target_id,
+        latest_message_subq.c.channel_target_name,
+        latest_message_subq.c.received_at,
+        latest_message_subq.c.sent_at,
+        latest_message_subq.c.created_at,
+        latest_message_subq.c.last_message_at,
+        latest_message_subq.c.metadata,
+        latest_message_subq.c.has_attachments,
+        unread_subq.c.unread_count,
+    ]
+    if failed_outbox_subq is not None:
+        cols.extend(
+            [
+                failed_outbox_subq.c.last_error,
+                failed_outbox_subq.c.attempts,
+                failed_outbox_subq.c.last_attempt_at,
+            ]
         )
-        .limit(limit)
-        .offset(offset)
-        .all()
-    )
+
+    conversations_raw = query.add_columns(*cols).limit(limit).offset(offset).all()
 
     result = []
     for row in conversations_raw:
         conv = row[0]
+        failed_outbox = None
+        if failed_outbox_subq is not None and len(row) >= 15:
+            # cols has 11 entries (indices 1..11); failed_outbox starts right after
+            fo_offset = 12  # 1 (conv) + 11 (cols)
+            failed_outbox = {
+                "last_error": row[fo_offset],
+                "attempts": int(row[fo_offset + 1] or 0),
+                "last_attempt_at": row[fo_offset + 2],
+            }
+
         latest_message = None
-        if row[1] is not None or row[2] is not None or row[9] is not None:
-            metadata = row[9] if isinstance(row[9], dict) else None
+        body, channel_type, channel_target_id, channel_target_name = row[1:5]
+        received_at, sent_at, created_at, last_message_at = row[5:9]
+        raw_metadata, has_attachments, unread_count = row[9:12]
+        if body is not None or channel_type is not None or raw_metadata is not None:
+            metadata = raw_metadata if isinstance(raw_metadata, dict) else None
             latest_message = {
-                "body": row[1],
-                "channel_type": row[2],
-                "channel_target_id": row[3],
-                "channel_target_name": row[4],
-                "received_at": row[5],
-                "sent_at": row[6],
-                "created_at": row[7],
-                "last_message_at": row[8],
+                "body": body,
+                "channel_type": channel_type,
+                "channel_target_id": channel_target_id,
+                "channel_target_name": channel_target_name,
+                "received_at": received_at,
+                "sent_at": sent_at,
+                "created_at": created_at,
+                "last_message_at": last_message_at,
                 "metadata": metadata,
                 "message_type": metadata.get("type") if metadata else None,
-                "has_attachments": bool(row[10]) if row[10] is not None else False,
+                "has_attachments": bool(has_attachments) if has_attachments is not None else False,
             }
-        unread_count = row[11] or 0
-        result.append((conv, latest_message, unread_count))
+        unread_count_value = unread_count or 0
+        result.append((conv, latest_message, unread_count_value, failed_outbox))
 
     return result
 
@@ -299,6 +354,36 @@ def get_inbox_stats(db: Session) -> dict:
     return stats
 
 
+def get_waiting_queue_counts_by_channel(db: Session) -> dict[str, int]:
+    """Get per-channel counts for the 'needs_action' queue (open + snoozed).
+
+    This matches the inbox channel filter semantics (a conversation is included for a channel
+    if it has *any* messages with that channel_type).
+
+    Returns: {email: N, whatsapp: N, ...}
+    """
+    waiting_statuses = [ConversationStatus.open, ConversationStatus.snoozed]
+
+    rows = (
+        db.query(
+            Message.channel_type,
+            func.count(func.distinct(Conversation.id)).label("conv_count"),
+        )
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.status.in_(waiting_statuses))
+        .group_by(Message.channel_type)
+        .all()
+    )
+
+    counts: dict[str, int] = {ct.value: 0 for ct in ChannelType}
+    for channel_type, conv_count in rows:
+        if channel_type:
+            counts[channel_type.value] = int(conv_count or 0)
+
+    return counts
+
+
 def get_channel_stats(db: Session) -> dict[str, int]:
     """Get conversation counts per channel in a single query.
 
@@ -341,6 +426,7 @@ class InboxQueries:
         db: Session,
         channel: ChannelType | None = None,
         status: ConversationStatus | None = None,
+        outbox_status: str | None = None,
         search: str | None = None,
         assignment: str | None = None,
         assigned_person_id: str | None = None,
@@ -352,6 +438,7 @@ class InboxQueries:
             db=db,
             channel=channel,
             status=status,
+            outbox_status=outbox_status,
             search=search,
             assignment=assignment,
             assigned_person_id=assigned_person_id,

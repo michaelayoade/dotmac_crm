@@ -65,59 +65,63 @@
     {# Filters #}
     {% call filter_bar() %}
     <div class="flex flex-col gap-4">
-        <form id="tickets-filter-form" hx-get="/admin/support/tickets" hx-target="#tickets-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
-            <div class="flex-1">
+        <form id="tickets-filter-form" hx-get="/admin/support/tickets" hx-target="#tickets-table" hx-trigger="submit, change from:select" class="space-y-4">
+            <div class="w-full">
                 <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Tickets</label>
                 {{ search_input("search", search or '', "Search by ticket ID, title, or description...", "amber", {"hx-get": "/admin/support/tickets", "hx-target": "#tickets-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
             </div>
             {% if subscriber %}
             <input type="hidden" name="subscriber" value="{{ subscriber }}" />
             {% endif %}
-            <div class="w-full lg:w-44">
-                {{ filter_select("status", [
-                    {"value": "", "label": "All Status"},
-                    {"value": "new", "label": "New"},
-                    {"value": "open", "label": "Open"},
-                    {"value": "pending", "label": "Pending"},
-                    {"value": "waiting_on_customer", "label": "Waiting on Customer"},
-                    {"value": "lastmile_rerun", "label": "Lastmile Rerun"},
-                    {"value": "site_under_construction", "label": "Site Under Construction"},
-                    {"value": "on_hold", "label": "On Hold"},
-                    {"value": "resolved", "label": "Resolved"},
-                    {"value": "closed", "label": "Closed"},
-                    {"value": "canceled", "label": "Canceled"}
-                ], status or '', "Status", "amber") }}
+            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6 xl:items-end">
+                <div class="w-full">
+                    {{ filter_select("status", [
+                        {"value": "", "label": "All Status"},
+                        {"value": "new", "label": "New"},
+                        {"value": "open", "label": "Open"},
+                        {"value": "pending", "label": "Pending"},
+                        {"value": "waiting_on_customer", "label": "Waiting on Customer"},
+                        {"value": "lastmile_rerun", "label": "Lastmile Rerun"},
+                        {"value": "site_under_construction", "label": "Site Under Construction"},
+                        {"value": "on_hold", "label": "On Hold"},
+                        {"value": "resolved", "label": "Resolved"},
+                        {"value": "closed", "label": "Closed"},
+                        {"value": "canceled", "label": "Canceled"}
+                    ], status or '', "Status", "amber") }}
+                </div>
+                <div class="w-full">
+                    {% set type_filter_options = [{"value": "", "label": "All Ticket Types"}] %}
+                    {% for item in ticket_type_options or [] %}
+                        {% set _ = type_filter_options.append({"value": item, "label": item}) %}
+                    {% endfor %}
+                    {{ filter_select("ticket_type", type_filter_options, ticket_type or '', "Ticket Type", "amber") }}
+                </div>
+                <div class="w-full">
+                    {{ filter_select("assigned", [
+                        {"value": "", "label": "All Assignees"},
+                        {"value": "me", "label": "Assigned to Me"}
+                    ], assigned or '', "Assigned", "amber") }}
+                </div>
+                <div class="w-full">
+                    {% set pm_filter_options = [{"value": "", "label": "All Project Managers"}, {"value": "me", "label": "Me"}] %}
+                    {% for option in pm_options or [] %}
+                        {% set _ = pm_filter_options.append(option) %}
+                    {% endfor %}
+                    {{ filter_select("pm", pm_filter_options, pm or '', "PM", "amber") }}
+                </div>
+                <div class="w-full">
+                    {% set spc_filter_options = [{"value": "", "label": "All Site Coordinators"}, {"value": "me", "label": "Me"}] %}
+                    {% for option in spc_options or [] %}
+                        {% set _ = spc_filter_options.append(option) %}
+                    {% endfor %}
+                    {{ filter_select("spc", spc_filter_options, spc or '', "SPC", "amber") }}
+                </div>
+                <div class="flex items-end">
+                    {% if status or ticket_type or assigned or pm or spc %}
+                    {{ action_button("Clear Filters", "/admin/support/tickets" ~ ("?subscriber=" ~ subscriber if subscriber else ""), '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate", None, "md", "link", {"data-clear-filters": "tickets"}) }}
+                    {% endif %}
+                </div>
             </div>
-            <div class="w-full lg:w-44">
-                {% set type_filter_options = [{"value": "", "label": "All Ticket Types"}] %}
-                {% for item in ticket_type_options or [] %}
-                    {% set _ = type_filter_options.append({"value": item, "label": item}) %}
-                {% endfor %}
-                {{ filter_select("ticket_type", type_filter_options, ticket_type or '', "Ticket Type", "amber") }}
-            </div>
-            <div class="w-full lg:w-44">
-                {{ filter_select("assigned", [
-                    {"value": "", "label": "All Assignees"},
-                    {"value": "me", "label": "Assigned to Me"}
-                ], assigned or '', "Assigned", "amber") }}
-            </div>
-            <div class="w-full lg:w-44">
-                {% set pm_filter_options = [{"value": "", "label": "All Project Managers"}, {"value": "me", "label": "Me"}] %}
-                {% for option in pm_options or [] %}
-                    {% set _ = pm_filter_options.append(option) %}
-                {% endfor %}
-                {{ filter_select("pm", pm_filter_options, pm or '', "PM", "amber") }}
-            </div>
-            <div class="w-full lg:w-44">
-                {% set spc_filter_options = [{"value": "", "label": "All Site Coordinators"}, {"value": "me", "label": "Me"}] %}
-                {% for option in spc_options or [] %}
-                    {% set _ = spc_filter_options.append(option) %}
-                {% endfor %}
-                {{ filter_select("spc", spc_filter_options, spc or '', "SPC", "amber") }}
-            </div>
-            {% if status or ticket_type or assigned or pm or spc %}
-            {{ action_button("Clear Filters", "/admin/support/tickets" ~ ("?subscriber=" ~ subscriber if subscriber else ""), '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate", None, "md", "link", {"data-clear-filters": "tickets"}) }}
-            {% endif %}
         </form>
 
         <div class="flex justify-end">
@@ -131,7 +135,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                     </svg>
                 </button>
-                <div id="tickets-column-picker-panel" class="absolute right-0 z-20 mt-2 hidden w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                <div id="tickets-column-picker-panel" class="absolute right-0 z-50 mt-2 hidden w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
                     <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Show Columns</p>
                     <div id="tickets-column-options" class="max-h-72 space-y-2 overflow-y-auto pr-1">
                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
@@ -229,6 +233,7 @@ document.addEventListener("DOMContentLoaded", () => {
         formId: "tickets-filter-form",
         fields: ["status", "ticket_type", "assigned", "pm", "spc"],
         filterStorageKey: `admin:tickets:filters:${userId}`,
+        restoreOnEmptyQuery: false,
         clearButtonSelector: '[data-clear-filters="tickets"]',
         columns: {
             optionSelector: "[data-ticket-column-option]",

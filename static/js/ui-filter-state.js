@@ -159,8 +159,11 @@
 
     const query = getQueryParams();
     const hasQueryFilters = fields.some((field) => hasValue(query.get(field) || ""));
+    const hasManagedFilterParams = fields.some((field) => query.has(field));
 
-    if (!hasQueryFilters && shouldRestore && storageKey) {
+    // Only restore when no managed filter params are present at all.
+    // If params exist but are blank (e.g., pm=&spc=), treat it as an explicit clear action.
+    if (!hasManagedFilterParams && !hasQueryFilters && shouldRestore && storageKey) {
       const saved = readSavedJson(storageKey);
       if (saved && typeof saved === "object") {
         const restored = getQueryParams();
@@ -177,7 +180,7 @@
           return;
         }
       }
-    } else if (hasQueryFilters) {
+    } else if (hasManagedFilterParams || hasQueryFilters) {
       saveFilters();
     }
 

@@ -59,9 +59,15 @@ _NOTIFICATION_SETTING_KEYS = {
     "alert_notifications_default_template_id",
     "alert_notifications_default_rotation_id",
     "alert_notifications_default_delay_minutes",
+    "nextcloud_talk_notifications_enabled",
+    "nextcloud_talk_notifications_base_url",
+    "nextcloud_talk_notifications_username",
+    "nextcloud_talk_notifications_app_password",
+    "nextcloud_talk_notifications_room_type",
 }
-_NOTIFICATION_SETTING_INT_KEYS = {"alert_notifications_default_delay_minutes"}
-_NOTIFICATION_SETTING_BOOL_KEYS = {"alert_notifications_enabled"}
+_NOTIFICATION_SETTING_INT_KEYS = {"alert_notifications_default_delay_minutes", "nextcloud_talk_notifications_room_type"}
+_NOTIFICATION_SETTING_BOOL_KEYS = {"alert_notifications_enabled", "nextcloud_talk_notifications_enabled"}
+_NOTIFICATION_SETTING_SECRET_KEYS = {"nextcloud_talk_notifications_app_password"}
 
 _SCHEDULER_SETTING_KEYS = {
     "broker_url",
@@ -698,7 +704,10 @@ def _normalize_notification_setting(key: str, payload: DomainSettingUpdate) -> D
             parsed = int(value)
         except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail="Value must be an integer") from exc
-        if parsed < 0:
+        if key == "nextcloud_talk_notifications_room_type":
+            if parsed < 1 or parsed > 3:
+                raise HTTPException(status_code=400, detail="Value must be between 1 and 3")
+        elif parsed < 0:
             raise HTTPException(status_code=400, detail="Value must be >= 0")
         data["value_type"] = SettingValueType.integer
         data["value_text"] = str(parsed)
@@ -723,6 +732,8 @@ def _normalize_notification_setting(key: str, payload: DomainSettingUpdate) -> D
         data["value_type"] = SettingValueType.string
         data["value_text"] = str(value)
         data["value_json"] = None
+    if key in _NOTIFICATION_SETTING_SECRET_KEYS:
+        data["is_secret"] = True
     return DomainSettingUpdate(**data)
 
 

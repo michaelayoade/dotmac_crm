@@ -75,6 +75,26 @@ def _parse_datetime_opt(value: str | None) -> datetime | None:
         return None
 
 
+def _resolve_current_person_id(request: Request, current_user: dict | None) -> str | None:
+    """Resolve current person ID for 'me' filters from auth/session context."""
+    auth = getattr(request.state, "auth", None)
+    candidate_ids: list[object] = []
+    if isinstance(auth, dict):
+        candidate_ids.append(auth.get("person_id"))
+    if isinstance(current_user, dict):
+        candidate_ids.append(current_user.get("person_id"))
+        candidate_ids.append(current_user.get("id"))
+
+    for raw_id in candidate_ids:
+        if not raw_id:
+            continue
+        try:
+            return str(coerce_uuid(str(raw_id)))
+        except Exception:
+            continue
+    return None
+
+
 def _log_activity(
     db: Session,
     request: Request,
@@ -355,6 +375,7 @@ def _load_project_pm_spc_options(db: Session) -> tuple[list[dict[str, str]], lis
 @router.get("", response_class=HTMLResponse)
 def projects_list(
     request: Request,
+    search: str | None = None,
     status: str | None = None,
     project_type: str | None = None,
     pm: str | None = None,
@@ -371,10 +392,12 @@ def projects_list(
 
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
-    current_person_id = str(current_user.get("person_id")) if current_user and current_user.get("person_id") else None
+    current_person_id = _resolve_current_person_id(request, current_user)
 
     pm_person_id = None
     if pm == "me":
+        if not current_person_id:
+            raise HTTPException(status_code=400, detail="Unable to resolve current user for PM filter")
         pm_person_id = current_person_id
     elif pm:
         try:
@@ -384,6 +407,8 @@ def projects_list(
 
     spc_person_id = None
     if spc == "me":
+        if not current_person_id:
+            raise HTTPException(status_code=400, detail="Unable to resolve current user for SPC filter")
         spc_person_id = current_person_id
     elif spc:
         try:
@@ -406,6 +431,7 @@ def projects_list(
         order_dir="desc",
         limit=per_page,
         offset=offset,
+        search=search,
     )
 
     all_projects = projects_service.projects.list(
@@ -423,6 +449,7 @@ def projects_list(
         order_dir="desc",
         limit=10000,
         offset=0,
+        search=search,
     )
     total = len(all_projects)
     total_pages = (total + per_page - 1) // per_page if total else 1
@@ -443,6 +470,7 @@ def projects_list(
         order_dir="desc",
         limit=10000,
         offset=0,
+        search=search,
     )
     for project in all_projects_unfiltered:
         status_value = project.status.value if project.status else ProjectStatus.planned.value
@@ -457,6 +485,7 @@ def projects_list(
             "request": request,
             "projects": projects,
             "status": status,
+            "search": search,
             "project_type": project_type,
             "project_types": [item.value for item in ProjectType],
             "pm": pm,
@@ -650,9 +679,12 @@ def project_tasks_list(
 
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
+    current_person_id = _resolve_current_person_id(request, current_user)
     assigned_to_person_id = None
-    if assigned == "me" and current_user and current_user.get("person_id"):
-        assigned_to_person_id = str(current_user.get("person_id"))
+    if assigned == "me":
+        if not current_person_id:
+            raise HTTPException(status_code=400, detail="Unable to resolve current user for assignment filter")
+        assigned_to_person_id = current_person_id
 
     tasks = projects_service.project_tasks.list(
         db=db,

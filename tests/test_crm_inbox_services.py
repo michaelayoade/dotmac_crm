@@ -1326,6 +1326,66 @@ def test_send_instagram_message_auth_error_records_metadata(db_session, crm_cont
     assert "token expired" in message.metadata_["send_error"]["error"]
 
 
+def test_send_instagram_message_with_image_attachment_passes_image_url(db_session, crm_contact):
+    from app.models.crm.conversation import Message
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
+    from app.schemas.crm.conversation import ConversationCreate
+    from app.services.crm import conversation as conversation_service
+
+    ig_channel = PersonChannel(
+        person_id=crm_contact.id,
+        channel_type=PersonChannelType.instagram_dm,
+        address="ig_user_456",
+    )
+    db_session.add(ig_channel)
+    db_session.commit()
+
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    inbound_message = Message(
+        conversation_id=conversation.id,
+        person_channel_id=ig_channel.id,
+        channel_type=ChannelType.instagram_dm,
+        direction=MessageDirection.inbound,
+        status=MessageStatus.received,
+        body="Inbound",
+        received_at=datetime.now(UTC),
+    )
+    db_session.add(inbound_message)
+    db_session.flush()
+
+    payload = InboxSendRequest(
+        conversation_id=conversation.id,
+        channel_type=ChannelType.instagram_dm,
+        body="Please see image",
+        attachments=[
+            {
+                "url": "/static/uploads/messages/test-image.jpg",
+                "mime_type": "image/jpeg",
+                "file_name": "test-image.jpg",
+                "file_size": 1234,
+                "stored_name": "test-image.jpg",
+            }
+        ],
+    )
+
+    with (
+        patch("app.services.email.get_app_url", return_value="https://crm.dotmac.io"),
+        patch(
+            "app.services.meta_messaging.send_instagram_message_sync",
+            return_value={"message_id": "ig-msg-1", "recipient_id": "ig-user-1"},
+        ) as mock_send,
+    ):
+        message = inbox_service.send_message(db_session, payload)
+
+    assert message.status == MessageStatus.sent
+    kwargs = mock_send.call_args.kwargs
+    assert kwargs["image_url"] == "https://crm.dotmac.io/static/uploads/messages/test-image.jpg"
+
+
 def test_send_email_missing_recipient(db_session, crm_contact):
     """Test sending email with empty recipient address raises 400."""
     from app.models.person import ChannelType as PersonChannelType

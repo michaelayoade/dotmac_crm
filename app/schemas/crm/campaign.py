@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.crm.enums import CampaignRecipientStatus, CampaignStatus, CampaignType
+from app.models.crm.enums import CampaignChannel, CampaignRecipientStatus, CampaignStatus, CampaignType
 
 
 class SegmentFilter(BaseModel):
@@ -23,14 +23,19 @@ class SegmentFilter(BaseModel):
 class CampaignBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     campaign_type: CampaignType = CampaignType.one_time
+    channel: CampaignChannel = CampaignChannel.email
     subject: str | None = Field(default=None, max_length=200)
     body_html: str | None = None
     body_text: str | None = None
     campaign_sender_id: UUID | None = None
     campaign_smtp_config_id: UUID | None = None
+    connector_config_id: UUID | None = None
     from_name: str | None = Field(default=None, max_length=160)
     from_email: str | None = Field(default=None, max_length=255)
     reply_to: str | None = Field(default=None, max_length=255)
+    whatsapp_template_name: str | None = Field(default=None, max_length=200)
+    whatsapp_template_language: str | None = Field(default=None, max_length=10)
+    whatsapp_template_components: dict | None = None
     segment_filter: dict | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
@@ -42,14 +47,19 @@ class CampaignCreate(CampaignBase):
 class CampaignUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     campaign_type: CampaignType | None = None
+    channel: CampaignChannel | None = None
     subject: str | None = Field(default=None, max_length=200)
     body_html: str | None = None
     body_text: str | None = None
     campaign_sender_id: UUID | None = None
     campaign_smtp_config_id: UUID | None = None
+    connector_config_id: UUID | None = None
     from_name: str | None = Field(default=None, max_length=160)
     from_email: str | None = Field(default=None, max_length=255)
     reply_to: str | None = Field(default=None, max_length=255)
+    whatsapp_template_name: str | None = Field(default=None, max_length=200)
+    whatsapp_template_language: str | None = Field(default=None, max_length=10)
+    whatsapp_template_components: dict | None = None
     segment_filter: dict | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
     is_active: bool | None = None
@@ -113,7 +123,8 @@ class CampaignRecipientRead(BaseModel):
     campaign_id: UUID
     person_id: UUID
     step_id: UUID | None = None
-    email: str
+    address: str
+    email: str | None = None
     status: CampaignRecipientStatus
     notification_id: UUID | None = None
     sent_at: datetime | None = None

@@ -62,6 +62,11 @@ class CampaignType(enum.Enum):
     nurture = "nurture"
 
 
+class CampaignChannel(enum.Enum):
+    email = "email"
+    whatsapp = "whatsapp"
+
+
 class CampaignRecipientStatus(enum.Enum):
     pending = "pending"
     sent = "sent"
