@@ -1,34 +1,245 @@
 {% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, loading_button %}
 
-{% block title %}Performance Review{% endblock %}
+{% set agent_name = person.display_name or ((person.first_name or '') ~ ' ' ~ (person.last_name or '')) | trim if person else 'Agent' %}
+
+{% block title %}Performance Review - {{ agent_name }}{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+{% if is_self_view | default(false) %}
+<a href="/agent/my-performance" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">My Performance</a>
+{% else %}
+<a href="/admin/performance/team" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Team Performance</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/performance/agents/{{ review.person_id }}" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">{{ agent_name }}</a>
+{% endif %}
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">Review</span>
+{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-    <div class="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-        <h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">Performance Review</h1>
-        <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Provider: {{ review.llm_provider }} | Model: {{ review.llm_model }}</p>
-        <p class="mt-4 text-slate-800 dark:text-slate-200">{{ review.summary_text }}</p>
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+
+    {# Review Header #}
+    {% set comp = review.composite_score | float %}
+    {% set comp_color = "emerald" if comp >= 70 else ("amber" if comp >= 40 else "rose") %}
+
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div class="flex items-start gap-4">
+                <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-lg shadow-violet-500/25">
+                    <svg class="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-semibold text-slate-900 dark:text-white">Performance Review</h1>
+                    <p class="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+                        {{ agent_name }} &middot;
+                        {{ review.review_period_start.strftime('%b %d') }} &ndash; {{ review.review_period_end.strftime('%b %d, %Y') }}
+                    </p>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        {% if review.is_acknowledged %}
+                        <span class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                            <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            Acknowledged{{ ' on ' ~ review.acknowledged_at.strftime('%b %d, %Y') if review.acknowledged_at else '' }}
+                        </span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-lg bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">Pending acknowledgment</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="flex-shrink-0 rounded-xl border border-{{ comp_color }}-200/60 bg-{{ comp_color }}-50 px-5 py-3 text-center dark:border-{{ comp_color }}-800/40 dark:bg-{{ comp_color }}-900/20">
+                <p class="text-xs font-semibold uppercase tracking-wide text-{{ comp_color }}-600 dark:text-{{ comp_color }}-400">Composite</p>
+                <p class="font-display text-3xl font-bold text-{{ comp_color }}-700 dark:text-{{ comp_color }}-300">{{ "%.1f"|format(comp) }}</p>
+            </div>
+        </div>
     </div>
 
-    <div class="grid gap-6 lg:grid-cols-2">
-        <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-900/20">
-            <h2 class="text-lg font-semibold text-emerald-900 dark:text-emerald-300">Strengths</h2>
-            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-emerald-800 dark:text-emerald-200">
-                {% for item in review.strengths_json %}<li>{{ item }}</li>{% else %}<li>None</li>{% endfor %}
-            </ul>
-        </div>
-        <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
-            <h2 class="text-lg font-semibold text-amber-900 dark:text-amber-300">Improvements</h2>
-            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800 dark:text-amber-200">
-                {% for item in review.improvements_json %}<li>{{ item }}</li>{% else %}<li>None</li>{% endfor %}
-            </ul>
-        </div>
+    {# Summary #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <h2 class="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
+            <svg class="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/></svg>
+            Summary
+        </h2>
+        <p class="mt-3 text-sm leading-relaxed text-slate-700 dark:text-slate-300">{{ review.summary_text }}</p>
     </div>
 
-    {% if is_self_view %}
-    <form method="post" action="/agent/my-performance/reviews/{{ review.id }}/ack">
-        <button class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600" type="submit">Acknowledge</button>
-    </form>
+    {# Domain Score Breakdown #}
+    {% set domain_labels = {
+        "support": "Support",
+        "operations": "Operations",
+        "field_service": "Field Service",
+        "communication": "Communication",
+        "sales": "Sales",
+        "data_quality": "Data Quality"
+    } %}
+    {% set domain_colors = {
+        "support": "cyan",
+        "operations": "indigo",
+        "field_service": "violet",
+        "communication": "blue",
+        "sales": "amber",
+        "data_quality": "teal"
+    } %}
+
+    {% if review.domain_scores_json %}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <h2 class="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
+            <svg class="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/></svg>
+            Domain Scores
+        </h2>
+        <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {% for domain, dscore in review.domain_scores_json.items() %}
+            {% set ds = dscore | float %}
+            {% set dcolor = domain_colors.get(domain, "slate") %}
+            {% set bar_color = "bg-emerald-500" if ds >= 70 else ("bg-amber-500" if ds >= 40 else "bg-rose-500") %}
+            {% set text_color = "emerald" if ds >= 70 else ("amber" if ds >= 40 else "rose") %}
+            <div class="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/50">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-{{ dcolor }}-100 dark:bg-{{ dcolor }}-500/20">
+                            <svg class="h-3.5 w-3.5 text-{{ dcolor }}-600 dark:text-{{ dcolor }}-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                        </div>
+                        <span class="text-xs font-medium text-slate-600 dark:text-slate-400">{{ domain_labels.get(domain, domain | replace('_', ' ') | title) }}</span>
+                    </div>
+                    <span class="font-display text-lg font-bold text-{{ text_color }}-600 dark:text-{{ text_color }}-400">{{ "%.1f"|format(ds) }}</span>
+                </div>
+                <div class="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div class="{{ bar_color }} h-full rounded-full transition-all duration-500" style="width: {{ [ds, 100] | min }}%"></div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
     {% endif %}
+
+    {# Four Review Sections: Strengths, Improvements, Recommendations, Callouts #}
+    <div class="grid gap-6 lg:grid-cols-2">
+
+        {# Strengths #}
+        <div class="animate-fade-in-up rounded-2xl border border-emerald-200/60 bg-white p-6 shadow-sm dark:border-emerald-800/40 dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-500/20">
+                    <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                </div>
+                <h2 class="text-base font-semibold text-emerald-900 dark:text-emerald-300">Strengths</h2>
+            </div>
+            <ul class="mt-4 space-y-2">
+                {% for item in review.strengths_json %}
+                <li class="flex items-start gap-2.5 text-sm text-emerald-800 dark:text-emerald-200">
+                    <svg class="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                    <span>{{ item }}</span>
+                </li>
+                {% else %}
+                <li class="text-sm text-slate-500 dark:text-slate-400">No strengths recorded.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        {# Improvements #}
+        <div class="animate-fade-in-up rounded-2xl border border-amber-200/60 bg-white p-6 shadow-sm dark:border-amber-800/40 dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-500/20">
+                    <svg class="h-5 w-5 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                </div>
+                <h2 class="text-base font-semibold text-amber-900 dark:text-amber-300">Areas for Improvement</h2>
+            </div>
+            <ul class="mt-4 space-y-2">
+                {% for item in review.improvements_json %}
+                <li class="flex items-start gap-2.5 text-sm text-amber-800 dark:text-amber-200">
+                    <svg class="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                    <span>{{ item }}</span>
+                </li>
+                {% else %}
+                <li class="text-sm text-slate-500 dark:text-slate-400">No improvements recorded.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        {# Recommendations #}
+        <div class="animate-fade-in-up rounded-2xl border border-blue-200/60 bg-white p-6 shadow-sm dark:border-blue-800/40 dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-500/20">
+                    <svg class="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                </div>
+                <h2 class="text-base font-semibold text-blue-900 dark:text-blue-300">Recommendations</h2>
+            </div>
+            <ul class="mt-4 space-y-2">
+                {% for item in review.recommendations_json %}
+                <li class="flex items-start gap-2.5 text-sm text-blue-800 dark:text-blue-200">
+                    <svg class="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+                    <span>{{ item }}</span>
+                </li>
+                {% else %}
+                <li class="text-sm text-slate-500 dark:text-slate-400">No recommendations recorded.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        {# Callouts #}
+        <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-600/30">
+                    <svg class="h-5 w-5 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
+                </div>
+                <h2 class="text-base font-semibold text-slate-900 dark:text-slate-200">Callouts</h2>
+            </div>
+            <ul class="mt-4 space-y-2">
+                {% for item in review.callouts_json %}
+                <li class="flex items-start gap-2.5 text-sm text-slate-700 dark:text-slate-300">
+                    <svg class="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 13V5a2 2 0 00-2-2H4a2 2 0 00-2 2v8a2 2 0 002 2h3l3 3 3-3h3a2 2 0 002-2zM5 7a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1zm1 3a1 1 0 100 2h3a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+                    <span>{{ item }}</span>
+                </li>
+                {% else %}
+                <li class="text-sm text-slate-500 dark:text-slate-400">No callouts recorded.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    {# Self-view acknowledgment button #}
+    {% if is_self_view | default(false) and not review.is_acknowledged %}
+    <div class="animate-fade-in-up rounded-2xl border border-primary-200/60 bg-primary-50/50 p-6 shadow-sm dark:border-primary-800/40 dark:bg-primary-900/10">
+        <div class="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-primary-900 dark:text-primary-300">Acknowledge this review</h3>
+                <p class="mt-0.5 text-xs text-primary-700 dark:text-primary-400">Confirm that you have read and understood this performance review.</p>
+            </div>
+            <form method="post" action="/agent/my-performance/reviews/{{ review.id }}/ack">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token | default('') }}">
+                {{ loading_button(
+                    label="Acknowledge Review",
+                    loading_label="Acknowledging...",
+                    color="primary",
+                    icon="check",
+                    size="md"
+                ) }}
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    {# LLM Metadata Footer #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-slate-50/50 px-6 py-3 dark:border-slate-700/60 dark:bg-slate-800/50">
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-slate-400 dark:text-slate-500">
+            <span class="flex items-center gap-1.5">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                {{ review.llm_provider | title }} / {{ review.llm_model }}
+            </span>
+            {% if review.llm_tokens_in or review.llm_tokens_out %}
+            <span class="flex items-center gap-1.5">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
+                {{ review.llm_tokens_in | default(0) }} in / {{ review.llm_tokens_out | default(0) }} out tokens
+            </span>
+            {% endif %}
+            <span class="flex items-center gap-1.5">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                Generated {{ review.created_at.strftime('%b %d, %Y at %H:%M') }}
+            </span>
+        </div>
+    </div>
+
 </div>
 {% endblock %}

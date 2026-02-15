@@ -1,23 +1,100 @@
+{% from "components/ui/macros.html" import empty_state %}
+
 {% if rows %}
 <div class="overflow-x-auto">
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead>
-            <tr>
-                <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-300">Agent</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-300">Composite</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-300">Team</th>
-                <th class="px-3 py-2"></th>
+            <tr class="bg-slate-50/50 dark:bg-slate-800/50">
+                <th scope="col" class="w-12 px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">#</th>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Agent</th>
+                <th scope="col" class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Composite</th>
+                {% set sample_domains = rows[0].domain_scores.keys() if rows[0].domain_scores else [] %}
+                {% for domain in sample_domains %}
+                <th scope="col" class="hidden px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 lg:table-cell">{{ domain | replace('_', ' ') | truncate(12, True) }}</th>
+                {% endfor %}
+                <th scope="col" class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Team</th>
+                <th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</th>
+                <th scope="col" class="w-16 px-4 py-3"></th>
             </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
             {% for row in rows %}
-            <tr>
-                <td class="px-3 py-2 text-sm text-slate-900 dark:text-slate-100">{{ row.name }}</td>
-                <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-300">{{ "%.2f"|format(row.composite_score) }}</td>
-                <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-300">{{ row.team_type or "-" }}</td>
-                <td class="px-3 py-2 text-right">
-                    <a class="text-sm font-medium text-primary-700 hover:text-primary-800 dark:text-primary-400"
-                       href="/admin/performance/agents/{{ row.person_id }}">View</a>
+            {% set rank = loop.index %}
+            {% set score = row.composite_score %}
+            {% set score_color = "emerald" if score >= 70 else ("amber" if score >= 40 else "rose") %}
+            <tr class="transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-700/30">
+                {# Rank #}
+                <td class="px-4 py-3 text-center">
+                    {% if rank == 1 %}
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 text-xs font-bold text-white shadow-sm">1</span>
+                    {% elif rank == 2 %}
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-slate-300 to-slate-400 text-xs font-bold text-white shadow-sm dark:from-slate-500 dark:to-slate-600">2</span>
+                    {% elif rank == 3 %}
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-orange-300 to-orange-400 text-xs font-bold text-white shadow-sm dark:from-orange-500 dark:to-orange-600">3</span>
+                    {% else %}
+                    <span class="text-sm font-medium text-slate-400 dark:text-slate-500">{{ rank }}</span>
+                    {% endif %}
+                </td>
+
+                {# Agent name #}
+                <td class="px-4 py-3">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-{{ score_color }}-100 text-xs font-bold text-{{ score_color }}-700 dark:bg-{{ score_color }}-500/20 dark:text-{{ score_color }}-400">
+                            {{ row.name[:2] | upper }}
+                        </div>
+                        <span class="text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</span>
+                    </div>
+                </td>
+
+                {# Composite score #}
+                <td class="px-4 py-3 text-center">
+                    <span class="inline-flex items-center gap-1.5 rounded-lg bg-{{ score_color }}-50 px-2.5 py-1 text-sm font-bold text-{{ score_color }}-700 dark:bg-{{ score_color }}-500/15 dark:text-{{ score_color }}-400">
+                        {% if score >= 70 %}
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                        {% elif score < 40 %}
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+                        {% endif %}
+                        {{ "%.1f"|format(score) }}
+                    </span>
+                </td>
+
+                {# Domain scores (mini bars) #}
+                {% for domain in sample_domains %}
+                {% set dscore = row.domain_scores.get(domain, 0) %}
+                {% set dcolor = "emerald" if dscore >= 70 else ("amber" if dscore >= 40 else "rose") %}
+                <td class="hidden px-3 py-3 lg:table-cell">
+                    <div class="flex flex-col items-center gap-1">
+                        <span class="text-xs font-medium text-{{ dcolor }}-600 dark:text-{{ dcolor }}-400">{{ "%.0f"|format(dscore) }}</span>
+                        <div class="h-1.5 w-12 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                            <div class="h-full rounded-full bg-{{ dcolor }}-500 transition-all duration-300" style="width: {{ [dscore, 100] | min }}%"></div>
+                        </div>
+                    </div>
+                </td>
+                {% endfor %}
+
+                {# Team type #}
+                <td class="px-4 py-3">
+                    {% if row.team_type %}
+                    <span class="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{ row.team_type | replace('_', ' ') | title }}</span>
+                    {% else %}
+                    <span class="text-xs text-slate-400 dark:text-slate-500">&mdash;</span>
+                    {% endif %}
+                </td>
+
+                {# Period #}
+                <td class="px-4 py-3 text-right">
+                    {% if row.score_period_start %}
+                    <span class="text-xs text-slate-500 dark:text-slate-400">{{ row.score_period_start.strftime('%b %d') }}</span>
+                    {% endif %}
+                </td>
+
+                {# Actions #}
+                <td class="px-4 py-3 text-right">
+                    <a href="/admin/performance/agents/{{ row.person_id }}"
+                       class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300">
+                        View
+                        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </a>
                 </td>
             </tr>
             {% endfor %}
@@ -25,5 +102,11 @@
     </table>
 </div>
 {% else %}
-<p class="text-sm text-slate-600 dark:text-slate-300">No performance data available yet.</p>
+<div class="px-6 py-12 text-center">
+    <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-700">
+        <svg class="h-6 w-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+    </div>
+    <p class="mt-3 text-sm font-medium text-slate-900 dark:text-white">No performance data yet</p>
+    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Scores are generated weekly by the performance scoring engine.</p>
+</div>
 {% endif %}

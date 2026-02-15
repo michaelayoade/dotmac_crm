@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
+from app.models.person import Person
 from app.services.auth_dependencies import require_permission
+from app.services.common import coerce_uuid
 from app.services.performance.reports import performance_reports
 from app.services.performance.reviews import performance_reviews
 from app.web.admin import get_current_user, get_sidebar_stats
@@ -49,9 +51,21 @@ def team_overview(request: Request, db: Session = Depends(_get_db)):
         db, user["person_id"], user.get("roles", []), user.get("permissions", [])
     )
     rows = performance_reports.leaderboard_for_scope(db, scope)
+    # Aggregate stats for summary cards
+    agent_count = len(rows)
+    avg_score = round(sum(r["composite_score"] for r in rows) / agent_count, 1) if rows else 0
+    top_performer = rows[0] if rows else None
     return templates.TemplateResponse(
         "admin/performance/team_overview.html",
-        _ctx(request, db, active_page="team-performance", rows=rows),
+        _ctx(
+            request,
+            db,
+            active_page="team-performance",
+            rows=rows,
+            agent_count=agent_count,
+            avg_score=avg_score,
+            top_performer=top_performer,
+        ),
     )
 
 
@@ -82,11 +96,24 @@ def agent_detail(request: Request, person_id: str, db: Session = Depends(_get_db
         performance_reports.assert_can_access_person(scope, person_id)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    person = db.get(Person, coerce_uuid(person_id))
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
     history = performance_reports.score_history(db, person_id)
+    latest = history[-1] if history else None
     reviews = performance_reports.reviews(db, person_id, limit=10)
     return templates.TemplateResponse(
         "admin/performance/agent_detail.html",
-        _ctx(request, db, active_page="team-performance", person_id=person_id, history=history, reviews=reviews),
+        _ctx(
+            request,
+            db,
+            active_page="team-performance",
+            person_id=person_id,
+            person=person,
+            latest=latest,
+            history=history,
+            reviews=reviews,
+        ),
     )
 
 
@@ -120,9 +147,10 @@ def review_detail(request: Request, review_id: str, db: Session = Depends(_get_d
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    person = db.get(Person, review.person_id)
     return templates.TemplateResponse(
         "admin/performance/review_detail.html",
-        _ctx(request, db, active_page="team-performance", review=review),
+        _ctx(request, db, active_page="team-performance", review=review, person=person),
     )
 
 
