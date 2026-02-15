@@ -1,13 +1,39 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.models.ai_insight import InsightDomain
 
+# ---------------------------------------------------------------------------
+# Data quality types (used by both data_quality module and AI engine)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ContextQualityResult:
+    """Result of evaluating context data completeness for a persona."""
+
+    score: float                                  # 0.0 (empty) to 1.0 (fully populated)
+    field_scores: dict[str, float] = field(default_factory=dict)
+    missing_fields: list[str] = field(default_factory=list)
+
+    @property
+    def sufficient(self) -> bool:
+        """Whether the score meets a reasonable minimum (0.3)."""
+        return self.score >= 0.3
+
+
+def _default_quality_scorer(_db: Session, _params: dict[str, Any]) -> ContextQualityResult:
+    """Fallback scorer: always returns sufficient. Used when no scorer is defined."""
+    return ContextQualityResult(score=1.0)
+
+
+# ---------------------------------------------------------------------------
+# Output schema types
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class OutputField:
@@ -32,6 +58,10 @@ class OutputSchema:
         return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Persona specification
+# ---------------------------------------------------------------------------
+
 @dataclass(frozen=True)
 class PersonaSpec:
     key: str
@@ -48,3 +78,8 @@ class PersonaSpec:
     setting_key: str | None = None
     insight_ttl_hours: int = 72
     severity_classifier: Callable[[dict[str, Any]], str] | None = None
+
+    # Data readiness gate
+    context_quality_scorer: Callable[[Session, dict[str, Any]], ContextQualityResult] = _default_quality_scorer
+    min_context_quality: float = 0.0       # 0.0 = no gate (always proceed)
+    skip_on_low_quality: bool = True       # if True, skip LLM; if False, proceed but tag

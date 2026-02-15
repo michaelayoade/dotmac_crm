@@ -1,0 +1,122 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, stats_card %}
+
+{% block title %}{{ report.label }} Quality - Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/data-quality" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Data Quality</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">{{ report.label }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+
+    {% set pct = report.avg_pct() %}
+    {% set header_color = "emerald" if pct >= 70 else ("amber" if pct >= 40 else "rose") %}
+    {% set header_color2 = "green" if pct >= 70 else ("orange" if pct >= 40 else "red") %}
+
+    {{ page_header(
+        title=report.label ~ " Data Quality",
+        subtitle="Field completeness across " ~ report.entity_count | string ~ " recent entities.",
+        icon='<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>',
+        color=header_color,
+        color2=header_color2
+    ) }}
+
+    {# Stats row #}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in-up">
+        {{ stats_card(
+            label="Average Quality",
+            value=(pct | string) + "%",
+            color=header_color,
+            color2=header_color2,
+            icon='<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>'
+        ) }}
+        {{ stats_card(
+            label="Entities",
+            value=report.entity_count | string,
+            color="cyan",
+            color2="blue",
+            icon='<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>'
+        ) }}
+        {{ stats_card(
+            label="Above Threshold",
+            value=(report.pct_above_threshold | string) + "%",
+            color="teal",
+            color2="emerald",
+            icon='<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
+        ) }}
+        {{ stats_card(
+            label="High Quality",
+            value=(report.pct_high_quality | string) + "%",
+            color="green",
+            color2="emerald",
+            icon='<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>'
+        ) }}
+    </div>
+
+    {# Top Missing Fields #}
+    {% if report.top_missing_fields %}
+    <div class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800 animate-fade-in-up">
+        <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Most Common Missing Fields</h3>
+        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Fields that score zero most frequently across entities in this domain.</p>
+        <div class="mt-4 space-y-2">
+            {% for field_name, count in report.top_missing_fields %}
+            {% set field_pct = (count / report.entity_count * 100) | round(1) if report.entity_count > 0 else 0 %}
+            <div class="flex items-center gap-3">
+                <span class="w-32 text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ field_name }}</span>
+                <div class="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                    <div class="h-full rounded-full bg-amber-500 transition-all" style="width: {{ field_pct }}%"></div>
+                </div>
+                <span class="w-20 text-right text-xs text-slate-500 dark:text-slate-400">{{ count }} ({{ field_pct }}%)</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Entity Table #}
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800 animate-fade-in-up">
+        <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Entities by Quality</h3>
+                    <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Sorted worst-first. {{ total }} total entities.</p>
+                </div>
+            </div>
+        </div>
+        <div class="overflow-x-auto"
+             hx-get="/admin/data-quality/{{ domain }}/_table?limit={{ limit }}&offset={{ offset }}"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+            {% include "admin/data_quality/_entity_table.html" %}
+        </div>
+    </div>
+
+    {# Pagination #}
+    {% if total > limit %}
+    <div class="flex items-center justify-between">
+        <span class="text-sm text-slate-500 dark:text-slate-400">
+            Showing {{ offset + 1 }}–{{ [offset + limit, total] | min }} of {{ total }}
+        </span>
+        <div class="flex gap-2">
+            {% if offset > 0 %}
+            <a href="/admin/data-quality/{{ domain }}?limit={{ limit }}&offset={{ [offset - limit, 0] | max }}"
+               class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+                Previous
+            </a>
+            {% endif %}
+            {% if offset + limit < total %}
+            <a href="/admin/data-quality/{{ domain }}?limit={{ limit }}&offset={{ offset + limit }}"
+               class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+                Next
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

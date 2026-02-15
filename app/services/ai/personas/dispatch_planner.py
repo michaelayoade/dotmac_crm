@@ -5,8 +5,15 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.ai_insight import InsightDomain
-from app.services.ai.personas._base import OutputField, OutputSchema, PersonaSpec
+from app.services.ai.personas._base import ContextQualityResult, OutputField, OutputSchema, PersonaSpec
 from app.services.ai.personas._registry import persona_registry
+
+
+def _quality(db: Session, params: dict[str, Any]) -> ContextQualityResult:
+    from app.services.data_quality.scoring import score_work_order_quality
+
+    r = score_work_order_quality(db, params.get("work_order_id", ""))
+    return ContextQualityResult(score=r.score, field_scores=r.field_scores, missing_fields=r.missing_fields)
 
 
 def _classify_severity(output: dict[str, Any]) -> str:
@@ -64,5 +71,8 @@ persona_registry.register(
         severity_classifier=_classify_severity,
         setting_key="intelligence_dispatch_planner_enabled",
         insight_ttl_hours=48,
+        context_quality_scorer=_quality,
+        min_context_quality=0.30,
+        skip_on_low_quality=True,
     )
 )

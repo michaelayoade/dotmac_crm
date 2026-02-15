@@ -12,6 +12,7 @@
     'my-performance': 'reports',
     'team-performance': 'reports',
     'ai-insights': 'reports',
+    'data-quality': 'system',
     'service-teams': 'system'
 } %}
 {% set field_service_pages = ['installations', 'technicians', 'dispatch', 'work-orders'] %}
@@ -507,6 +508,9 @@
             {% endif %}
             {% if can_service_teams %}
             <a href="/admin/system/teams" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'service-teams' else '' }}">Service Teams</a>
+            {% endif %}
+            {% if is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
+            <a href="/admin/data-quality" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'data-quality' else '' }}">Data Quality</a>
             {% endif %}
             {% if can_system_health %}
             <a href="/admin/system/health" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'system-health' else '' }}">Server Health</a>
