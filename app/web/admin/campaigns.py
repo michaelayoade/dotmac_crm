@@ -142,8 +142,14 @@ def campaign_list(
     db: Session = Depends(_get_db),
     status: str | None = Query(None),
     search: str | None = Query(None),
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
 ):
-    items = campaigns_service.list(db, status=status, search=search)
+    if order_by not in {"created_at", "updated_at", "name"}:
+        order_by = "created_at"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "desc"
+    items = campaigns_service.list(db, status=status, search=search, order_by=order_by, order_dir=order_dir)
     status_counts = Campaigns.count_by_status(db)
     ctx = _base_ctx(
         request,
@@ -152,6 +158,8 @@ def campaign_list(
         status_counts=status_counts,
         filter_status=status or "",
         search=search or "",
+        order_by=order_by,
+        order_dir=order_dir,
     )
     return templates.TemplateResponse("admin/crm/campaigns.html", ctx)
 

@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, table_shell, table_row, empty_state, filter_bar, filter_select, search_input %}
+{% from "components/ui/macros.html" import danger_button, sortable_table_head, table_shell, table_row, empty_state, filter_bar, filter_select, search_input %}
 {% block title %}Projects - Admin{% endblock %}
 
 {% block content %}
@@ -96,6 +96,8 @@
             {# Preserve pagination size when applying filters; always reset to page 1. #}
             <input type="hidden" name="per_page" value="{{ per_page }}">
             <input type="hidden" name="page" value="1">
+            <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
+            <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
             <div class="w-full lg:max-w-3xl">
                 <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
                 {{ search_input("search", search or "", "Search by project name, code, number, region...", "primary") }}
@@ -276,27 +278,42 @@
         <!-- Table View -->
         <div x-show="activeView === 'table'">
     {% set pad = 'px-6 py-3' %}
+    {# Build extra params for sort links #}
+    {% set _sort_params = [] %}
+    {% if search %}{% set _ = _sort_params.append('search=' ~ search|urlencode) %}{% endif %}
+    {% if status %}{% set _ = _sort_params.append('status=' ~ status|urlencode) %}{% endif %}
+    {% if project_type %}{% set _ = _sort_params.append('project_type=' ~ project_type|urlencode) %}{% endif %}
+    {% if pm %}{% set _ = _sort_params.append('pm=' ~ pm|urlencode) %}{% endif %}
+    {% if spc %}{% set _ = _sort_params.append('spc=' ~ spc|urlencode) %}{% endif %}
+    {% if per_page %}{% set _ = _sort_params.append('per_page=' ~ per_page) %}{% endif %}
+    {% set sort_extra = _sort_params | join('&') %}
+
     {% call table_shell(table_id="projects-table", color="primary") %}
         <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-            <thead>
-                <tr class="border-b border-slate-100 dark:border-slate-700/50">
-                    <th data-project-column="project" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project</th>
-                    <th data-project-column="code" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Code</th>
-                    <th data-project-column="type" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project Type</th>
-                    <th data-project-column="customer" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
-                    <th data-project-column="region" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
-                    <th data-project-column="status" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                    <th data-project-column="priority" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
-                    <th data-project-column="owner" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Owner</th>
-                    <th data-project-column="manager" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Manager</th>
-                    <th data-project-column="project_manager" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project Manager</th>
-                    <th data-project-column="assistant_manager" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Site Coordinator</th>
-                    <th data-project-column="start_at" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Start Date</th>
-                    <th data-project-column="due_at" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Due Date</th>
-                    <th data-project-column="created" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created</th>
-                    <th class="{{ pad }}"><span class="sr-only">Actions</span></th>
-                </tr>
-            </thead>
+            {{ sortable_table_head(
+                columns=[
+                    {'label': 'Project', 'key': 'name', 'attrs': {'data-project-column': 'project'}},
+                    {'label': 'Code', 'sortable': false, 'attrs': {'data-project-column': 'code'}},
+                    {'label': 'Project Type', 'sortable': false, 'attrs': {'data-project-column': 'type'}},
+                    {'label': 'Customer', 'sortable': false, 'attrs': {'data-project-column': 'customer'}},
+                    {'label': 'Region', 'sortable': false, 'attrs': {'data-project-column': 'region'}},
+                    {'label': 'Status', 'sortable': false, 'attrs': {'data-project-column': 'status'}},
+                    {'label': 'Priority', 'key': 'priority', 'attrs': {'data-project-column': 'priority'}},
+                    {'label': 'Owner', 'sortable': false, 'attrs': {'data-project-column': 'owner'}},
+                    {'label': 'Manager', 'sortable': false, 'attrs': {'data-project-column': 'manager'}},
+                    {'label': 'Project Manager', 'sortable': false, 'attrs': {'data-project-column': 'project_manager'}},
+                    {'label': 'Site Coordinator', 'sortable': false, 'attrs': {'data-project-column': 'assistant_manager'}},
+                    {'label': 'Start Date', 'sortable': false, 'attrs': {'data-project-column': 'start_at'}},
+                    {'label': 'Due Date', 'sortable': false, 'attrs': {'data-project-column': 'due_at'}},
+                    {'label': 'Created', 'key': 'created_at', 'attrs': {'data-project-column': 'created'}},
+                    {'label': 'Actions', 'sortable': false, 'align': 'right'}
+                ],
+                sort_by=order_by|default('created_at'),
+                sort_dir=order_dir|default('desc'),
+                sort_url="/admin/projects",
+                sort_target="",
+                extra_params=sort_extra
+            ) }}
             <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
                 {% if projects %}
                 {% for project in projects %}
@@ -397,6 +414,8 @@
         {% set project_type_param = '&project_type=' ~ project_type if project_type else '' %}
         {% set pm_param = '&pm=' ~ pm if pm else '' %}
         {% set spc_param = '&spc=' ~ spc if spc else '' %}
+        {% set order_by_param = '&order_by=' ~ order_by if order_by and order_by != 'created_at' else '' %}
+        {% set order_dir_param = '&order_dir=' ~ order_dir if order_dir and order_dir != 'desc' else '' %}
         <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row">
             <div class="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
                 <span>Page {{ page }} of {{ total_pages }}</span>
@@ -422,10 +441,10 @@
             </div>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
-                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
                 {% endif %}
                 {% if page < total_pages %}
-                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
                 {% endif %}
             </div>
         </div>
@@ -574,7 +593,8 @@ document.addEventListener("DOMContentLoaded", () => {
     ];
     window.DotmacUiFilterState.init({
         formId: "projects-filter-form",
-        fields: ["search", "status", "project_type", "pm", "spc"],
+        fields: ["search", "status", "project_type", "pm", "spc", "order_by", "order_dir"],
+        urlSyncFields: ["order_by", "order_dir"],
         filterStorageKey: `admin:projects:filters:${userId}`,
         columns: {
             optionSelector: "[data-project-column-option]",

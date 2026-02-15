@@ -15,12 +15,21 @@ from typing import Any
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.services.common import apply_ordering
+
 from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
 from app.models.subscriber import AccountType, Organization, Subscriber, SubscriberStatus
 
 
 class SubscriberManager:
     """Manager for subscriber operations."""
+
+    _ordering_fields = {
+        "created_at": Subscriber.created_at,
+        "updated_at": Subscriber.updated_at,
+        "subscriber_number": Subscriber.subscriber_number,
+        "status": Subscriber.status,
+    }
 
     def list(
         self,
@@ -32,6 +41,8 @@ class SubscriberManager:
         person_id: uuid.UUID | None = None,
         organization_id: uuid.UUID | None = None,
         is_active: bool | None = True,
+        order_by: str = "created_at",
+        order_dir: str = "desc",
         limit: int = 50,
         offset: int = 0,
     ) -> list[Subscriber]:
@@ -67,7 +78,7 @@ class SubscriberManager:
         if is_active is not None:
             query = query.filter(Subscriber.is_active == is_active)
 
-        query = query.order_by(Subscriber.created_at.desc())
+        query = apply_ordering(query, order_by, order_dir, self._ordering_fields)
         return query.offset(offset).limit(limit).all()
 
     def count(

@@ -78,7 +78,9 @@
     <!-- Filters and Search -->
     <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 100ms;">
         <div class="p-4">
-            <form hx-get="/admin/contacts" hx-target="#contacts-table" hx-trigger="submit, change from:select" hx-include="[name='search'], [name='status'], [name='entity_type'], [name='per_page']">
+            <form id="contacts-filter-form" hx-get="/admin/contacts" hx-target="#contacts-table" hx-trigger="submit, change from:select" hx-include="[name='search'], [name='status'], [name='entity_type'], [name='per_page'], [name='order_by'], [name='order_dir']">
+                <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
+                <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
                     <!-- Search -->
                     <div class="flex-1">
@@ -169,7 +171,22 @@
     </div>
 
     <!-- Contacts Table -->
+    <div id="contacts-table">
     {% include "admin/contacts/_table.html" %}
+    </div>
 
 </div>
+<script src="/static/js/ui-filter-state.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
+    window.DotmacUiFilterState.init({
+        formId: "contacts-filter-form",
+        fields: ["search", "status", "entity_type", "order_by", "order_dir"],
+        urlSyncFields: ["order_by", "order_dir"],
+        filterStorageKey: "",
+        restoreOnEmptyQuery: false,
+    });
+});
+</script>
 {% endblock %}

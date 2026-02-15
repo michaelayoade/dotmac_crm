@@ -381,11 +381,17 @@ def projects_list(
     pm: str | None = None,
     spc: str | None = None,
     notice: str | None = None,
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
 ):
     """List all projects."""
+    if order_by not in {"created_at", "name", "priority"}:
+        order_by = "created_at"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "desc"
     offset = (page - 1) * per_page
     from app.csrf import get_csrf_token
     from app.web.admin import get_current_user, get_sidebar_stats
@@ -427,8 +433,8 @@ def projects_list(
         project_manager_person_id=pm_person_id,
         assistant_manager_person_id=spc_person_id,
         is_active=None,
-        order_by="created_at",
-        order_dir="desc",
+        order_by=order_by,
+        order_dir=order_dir,
         limit=per_page,
         offset=offset,
         search=search,
@@ -445,8 +451,8 @@ def projects_list(
         project_manager_person_id=pm_person_id,
         assistant_manager_person_id=spc_person_id,
         is_active=None,
-        order_by="created_at",
-        order_dir="desc",
+        order_by=order_by,
+        order_dir=order_dir,
         limit=10000,
         offset=0,
         search=search,
@@ -492,6 +498,8 @@ def projects_list(
             "spc": spc,
             "pm_options": pm_options,
             "spc_options": spc_options,
+            "order_by": order_by,
+            "order_dir": order_dir,
             "page": page,
             "per_page": per_page,
             "total": total,
