@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import ambient_background, page_header, stats_card, action_button, filter_bar, search_input, filter_select, icon_users, icon_user, icon_plus, animation_styles %}
+{% from "components/ui/macros.html" import ambient_background, page_header, stats_card, action_button, filter_bar, search_input, filter_select, icon_users, icon_user, icon_plus, animation_styles, column_picker %}
 
 {% block title %}Subscribers - Admin{% endblock %}
 
@@ -30,36 +30,55 @@
 
     {# Filters #}
     {% call filter_bar() %}
-    <form id="subscribers-filter-form" hx-get="/admin/subscribers" hx-target="#subscribers-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
-        <input type="hidden" name="per_page" value="{{ per_page|default(20) }}">
-        <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
-        <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
-        <div class="flex-1">
-            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Subscribers</label>
-            {{ search_input("search", search or '', "Search by name, email, or subscriber ID...", "amber", {"hx-get": "/admin/subscribers", "hx-target": "#subscribers-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+    <div class="flex flex-col gap-4">
+        <form id="subscribers-filter-form" hx-get="/admin/subscribers" hx-target="#subscribers-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:items-end">
+            <input type="hidden" name="per_page" value="{{ per_page|default(20) }}">
+            <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
+            <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
+            <div class="flex-1">
+                <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Subscribers</label>
+                {{ search_input("search", search or '', "Search by name, email, or subscriber ID...", "amber", {"hx-get": "/admin/subscribers", "hx-target": "#subscribers-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+            </div>
+            <div class="w-full lg:w-48">
+                {{ filter_select("external_system", [
+                    {"value": "", "label": "All Sources"},
+                    {"value": "splynx", "label": "Splynx"},
+                    {"value": "ucrm", "label": "UCRM"},
+                    {"value": "whmcs", "label": "WHMCS"},
+                    {"value": "manual", "label": "Manual"}
+                ], external_system or '', "Source", "amber") }}
+            </div>
+            <div class="w-full lg:w-48">
+                {{ filter_select("status", [
+                    {"value": "", "label": "All Status"},
+                    {"value": "active", "label": "Active"},
+                    {"value": "suspended", "label": "Suspended"},
+                    {"value": "terminated", "label": "Terminated"},
+                    {"value": "pending", "label": "Pending"}
+                ], status or '', "Status", "amber") }}
+            </div>
+            {% if search or external_system or status %}
+            {{ action_button("Clear", "/admin/subscribers", '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate") }}
+            {% endif %}
+        </form>
+
+        <div class="flex justify-end">
+            {{ column_picker("subscriber", [
+                {"key": "name", "label": "Subscriber", "default_visible": true, "required": true},
+                {"key": "source", "label": "Source", "default_visible": true},
+                {"key": "status", "label": "Status", "default_visible": true},
+                {"key": "created", "label": "Created", "default_visible": true},
+                {"key": "subscriber_number", "label": "Subscriber #", "default_visible": false},
+                {"key": "account_number", "label": "Account #", "default_visible": false},
+                {"key": "service_plan", "label": "Service Plan", "default_visible": false},
+                {"key": "service_speed", "label": "Speed", "default_visible": false},
+                {"key": "service_city", "label": "Service City", "default_visible": false},
+                {"key": "balance", "label": "Balance", "default_visible": false},
+                {"key": "billing_cycle", "label": "Billing Cycle", "default_visible": false},
+                {"key": "activated", "label": "Activated", "default_visible": false}
+            ], "amber") }}
         </div>
-        <div class="w-full lg:w-48">
-            {{ filter_select("external_system", [
-                {"value": "", "label": "All Sources"},
-                {"value": "splynx", "label": "Splynx"},
-                {"value": "ucrm", "label": "UCRM"},
-                {"value": "whmcs", "label": "WHMCS"},
-                {"value": "manual", "label": "Manual"}
-            ], external_system or '', "Source", "amber") }}
-        </div>
-        <div class="w-full lg:w-48">
-            {{ filter_select("status", [
-                {"value": "", "label": "All Status"},
-                {"value": "active", "label": "Active"},
-                {"value": "suspended", "label": "Suspended"},
-                {"value": "terminated", "label": "Terminated"},
-                {"value": "pending", "label": "Pending"}
-            ], status or '', "Status", "amber") }}
-        </div>
-        {% if search or external_system or status %}
-        {{ action_button("Clear", "/admin/subscribers", '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate") }}
-        {% endif %}
-    </form>
+    </div>
     {% endcall %}
 
     {# Subscribers Table #}
@@ -301,12 +320,38 @@ function subscribersList() {
 <script>
 document.addEventListener("DOMContentLoaded", () => {
     if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
+    const columnDefinitions = [
+        { key: "name", defaultVisible: true },
+        { key: "source", defaultVisible: true },
+        { key: "status", defaultVisible: true },
+        { key: "created", defaultVisible: true },
+        { key: "subscriber_number", defaultVisible: false },
+        { key: "account_number", defaultVisible: false },
+        { key: "service_plan", defaultVisible: false },
+        { key: "service_speed", defaultVisible: false },
+        { key: "service_city", defaultVisible: false },
+        { key: "balance", defaultVisible: false },
+        { key: "billing_cycle", defaultVisible: false },
+        { key: "activated", defaultVisible: false }
+    ];
     window.DotmacUiFilterState.init({
         formId: "subscribers-filter-form",
         fields: ["search", "external_system", "status", "order_by", "order_dir"],
         urlSyncFields: ["order_by", "order_dir"],
         filterStorageKey: "",
         restoreOnEmptyQuery: false,
+        columns: {
+            optionSelector: "[data-subscriber-column-option]",
+            storageKey: "admin:subscribers:columns",
+            cellAttr: "data-subscriber-column",
+            validKeys: columnDefinitions.map(c => c.key),
+            defaultVisible: columnDefinitions.filter(c => c.defaultVisible).map(c => c.key),
+            requiredKeys: ["name"],
+            containerId: "subscriber-column-picker",
+            toggleButtonId: "subscriber-column-picker-toggle",
+            panelId: "subscriber-column-picker-panel",
+            afterSwapTargetId: "subscribers-table",
+        },
     });
 });
 </script>

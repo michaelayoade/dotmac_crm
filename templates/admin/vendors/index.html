@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, sortable_table_head, status_badge, table_shell, table_row, empty_state %}
+{% from "components/ui/macros.html" import danger_button, sortable_table_head, status_badge, table_shell, table_row, empty_state, column_picker %}
 {% block title %}Vendors - Admin{% endblock %}
 
 {% block content %}
@@ -34,22 +34,37 @@
     {% endif %}
 
     <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="flex flex-col gap-4 sm:flex-row">
-            <div class="flex-1">
-                <div class="relative">
-                    <input type="text" name="search" value="{{ search }}" placeholder="Search vendors..."
-                           class="block w-full rounded-lg border border-slate-300 bg-white pl-10 pr-4 py-2 text-sm shadow-sm placeholder-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500">
-                    <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                    </svg>
+        <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-4 sm:flex-row">
+                <div class="flex-1">
+                    <div class="relative">
+                        <input type="text" name="search" value="{{ search }}" placeholder="Search vendors..."
+                               class="block w-full rounded-lg border border-slate-300 bg-white pl-10 pr-4 py-2 text-sm shadow-sm placeholder-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500">
+                        <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <select name="status" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="active" {% if current_status != 'inactive' %}selected{% endif %}>Active</option>
+                        <option value="inactive" {% if current_status == 'inactive' %}selected{% endif %}>Inactive</option>
+                    </select>
+                    <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Filter</button>
                 </div>
             </div>
-            <div class="flex gap-3">
-                <select name="status" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="active" {% if current_status != 'inactive' %}selected{% endif %}>Active</option>
-                    <option value="inactive" {% if current_status == 'inactive' %}selected{% endif %}>Inactive</option>
-                </select>
-                <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Filter</button>
+            <div class="flex justify-end">
+                {{ column_picker("vendor", [
+                    {"key": "name", "label": "Vendor", "default_visible": true, "required": true},
+                    {"key": "contact", "label": "Contact Email", "default_visible": true},
+                    {"key": "phone", "label": "Phone", "default_visible": true},
+                    {"key": "status", "label": "Status", "default_visible": true},
+                    {"key": "code", "label": "Vendor Code", "default_visible": false},
+                    {"key": "contact_name", "label": "Contact Name", "default_visible": false},
+                    {"key": "license", "label": "License #", "default_visible": false},
+                    {"key": "service_area", "label": "Service Area", "default_visible": false},
+                    {"key": "created", "label": "Created Date", "default_visible": false}
+                ], "primary") }}
             </div>
         </div>
     </form>
@@ -64,10 +79,15 @@
         <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
             {{ sortable_table_head(
                 columns=[
-                    {'label': 'Vendor', 'key': 'name'},
-                    {'label': 'Contact', 'sortable': false},
-                    {'label': 'Phone', 'sortable': false},
-                    {'label': 'Status', 'sortable': false},
+                    {'label': 'Vendor', 'key': 'name', 'attrs': {'data-vendor-column': 'name'}},
+                    {'label': 'Contact', 'sortable': false, 'attrs': {'data-vendor-column': 'contact'}},
+                    {'label': 'Phone', 'sortable': false, 'attrs': {'data-vendor-column': 'phone'}},
+                    {'label': 'Status', 'sortable': false, 'attrs': {'data-vendor-column': 'status'}},
+                    {'label': 'Vendor Code', 'sortable': false, 'attrs': {'data-vendor-column': 'code'}},
+                    {'label': 'Contact Name', 'sortable': false, 'attrs': {'data-vendor-column': 'contact_name'}},
+                    {'label': 'License #', 'sortable': false, 'attrs': {'data-vendor-column': 'license'}},
+                    {'label': 'Service Area', 'sortable': false, 'attrs': {'data-vendor-column': 'service_area'}},
+                    {'label': 'Created', 'sortable': false, 'attrs': {'data-vendor-column': 'created'}},
                     {'label': 'Actions', 'sortable': false, 'align': 'right'}
                 ],
                 sort_by=order_by|default('name'),
@@ -80,21 +100,26 @@
                 {% if vendors %}
                 {% for vendor in vendors %}
                 {% call table_row(color="primary") %}
-                    <td class="{{ pad }}">
+                    <td data-vendor-column="name" class="{{ pad }}">
                         <a href="/admin/vendors/{{ vendor.id }}" class="group/link flex items-center gap-1.5">
                             <span class="text-sm font-semibold text-slate-900 group-hover/link:text-primary-600 dark:text-white dark:group-hover/link:text-primary-400 transition-colors">{{ vendor.name }}</span>
                             <svg class="h-3.5 w-3.5 text-slate-400 opacity-0 transition-all group-hover/link:opacity-100 group-hover/link:translate-x-0.5 group-hover/link:text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                         </a>
                     </td>
-                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ vendor.contact_email or '—' }}</td>
-                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ vendor.contact_phone or '—' }}</td>
-                    <td class="{{ pad }}">
+                    <td data-vendor-column="contact" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ vendor.contact_email or '—' }}</td>
+                    <td data-vendor-column="phone" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ vendor.contact_phone or '—' }}</td>
+                    <td data-vendor-column="status" class="{{ pad }}">
                         {% if vendor.is_active %}
                         {{ status_badge("Active", "active", size="sm") }}
                         {% else %}
                         {{ status_badge("Inactive", "inactive", size="sm") }}
                         {% endif %}
                     </td>
+                    <td data-vendor-column="code" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ vendor.code or '—' }}</td>
+                    <td data-vendor-column="contact_name" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ vendor.contact_name or '—' }}</td>
+                    <td data-vendor-column="license" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ vendor.license_number or '—' }}</td>
+                    <td data-vendor-column="service_area" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ vendor.service_area or '—' }}</td>
+                    <td data-vendor-column="created" class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ vendor.created_at.strftime('%Y-%m-%d') if vendor.created_at else '—' }}</td>
                     <td class="{{ pad }} text-right">
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             <a href="/admin/vendors/{{ vendor.id }}" class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300" title="View">
@@ -111,7 +136,7 @@
                 {% endcall %}
                 {% endfor %}
                 {% else %}
-                {{ empty_state("No vendors found", "Create your first vendor to get started.", action_label="New Vendor", action_href="/admin/vendors/new", colspan=5) }}
+                {{ empty_state("No vendors found", "Create your first vendor to get started.", action_label="New Vendor", action_href="/admin/vendors/new", colspan=10) }}
                 {% endif %}
             </tbody>
         </table>
@@ -121,4 +146,37 @@
     {% set activity_link = "/admin/system/audit" %}
     {% include "components/data/recent_activity_panel.html" %}
 </div>
+
+<script src="/static/js/ui-filter-state.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
+    const columnDefinitions = [
+        { key: "name", defaultVisible: true },
+        { key: "contact", defaultVisible: true },
+        { key: "phone", defaultVisible: true },
+        { key: "status", defaultVisible: true },
+        { key: "code", defaultVisible: false },
+        { key: "contact_name", defaultVisible: false },
+        { key: "license", defaultVisible: false },
+        { key: "service_area", defaultVisible: false },
+        { key: "created", defaultVisible: false }
+    ];
+    window.DotmacUiFilterState.init({
+        formId: "",
+        fields: [],
+        columns: {
+            optionSelector: "[data-vendor-column-option]",
+            storageKey: "admin:vendors:columns",
+            cellAttr: "data-vendor-column",
+            validKeys: columnDefinitions.map(c => c.key),
+            defaultVisible: columnDefinitions.filter(c => c.defaultVisible).map(c => c.key),
+            requiredKeys: ["name"],
+            containerId: "vendor-column-picker",
+            toggleButtonId: "vendor-column-picker-toggle",
+            panelId: "vendor-column-picker-panel",
+        },
+    });
+});
+</script>
 {% endblock %}

@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, table_shell, table_row, empty_state, stats_card, dashboard_kpi_grid, dashboard_filter_panel %}
+{% from "components/ui/macros.html" import danger_button, table_shell, table_row, empty_state, stats_card, dashboard_kpi_grid, dashboard_filter_panel, column_picker %}
 {% block title %}CRM Contacts - Admin{% endblock %}
 
 {% block content %}
@@ -76,44 +76,64 @@
     {% endif %}
 
     {% call dashboard_filter_panel(color="primary", title="Filters") %}
-    <form method="get">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-5">
-            <div class="sm:col-span-2">
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Search</label>
-                <input type="text" name="search" value="{{ search }}" placeholder="Search name, email, phone"
-                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+    <div class="flex flex-col gap-4">
+        <form method="get">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-5">
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Search</label>
+                    <input type="text" name="search" value="{{ search }}" placeholder="Search name, email, phone"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Type</label>
+                    <select name="party_status" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="" {% if party_status == '' %}selected{% endif %}>All</option>
+                        {% for status in party_statuses %}
+                        <option value="{{ status }}" {% if party_status == status %}selected{% endif %}>{{ status | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Channels</label>
+                    <select name="has_channels" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="" {% if has_channels == '' %}selected{% endif %}>Any</option>
+                        <option value="true" {% if has_channels == 'true' %}selected{% endif %}>Has channels</option>
+                        <option value="false" {% if has_channels == 'false' %}selected{% endif %}>No channels</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Organization Link</label>
+                    <select name="linked_to_org" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="" {% if linked_to_org == '' %}selected{% endif %}>Any</option>
+                        <option value="true" {% if linked_to_org == 'true' %}selected{% endif %}>Linked</option>
+                        <option value="false" {% if linked_to_org == 'false' %}selected{% endif %}>Unlinked</option>
+                    </select>
+                </div>
             </div>
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Type</label>
-                <select name="party_status" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="" {% if party_status == '' %}selected{% endif %}>All</option>
-                    {% for status in party_statuses %}
-                    <option value="{{ status }}" {% if party_status == status %}selected{% endif %}>{{ status | replace('_', ' ') | title }}</option>
-                    {% endfor %}
-                </select>
+            <div class="mt-4 flex items-center justify-end gap-2">
+                <a href="/admin/crm/contacts" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Reset</a>
+                <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Filter</button>
             </div>
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Channels</label>
-                <select name="has_channels" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="" {% if has_channels == '' %}selected{% endif %}>Any</option>
-                    <option value="true" {% if has_channels == 'true' %}selected{% endif %}>Has channels</option>
-                    <option value="false" {% if has_channels == 'false' %}selected{% endif %}>No channels</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Organization Link</label>
-                <select name="linked_to_org" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="" {% if linked_to_org == '' %}selected{% endif %}>Any</option>
-                    <option value="true" {% if linked_to_org == 'true' %}selected{% endif %}>Linked</option>
-                    <option value="false" {% if linked_to_org == 'false' %}selected{% endif %}>Unlinked</option>
-                </select>
-            </div>
+        </form>
+
+        <div class="flex justify-end">
+            {{ column_picker("contact", [
+                {"key": "name", "label": "Contact", "default_visible": true, "required": true},
+                {"key": "customer_id", "label": "Customer ID", "default_visible": true},
+                {"key": "details", "label": "Contact Details", "default_visible": true},
+                {"key": "linked", "label": "Linked", "default_visible": true},
+                {"key": "type", "label": "Type", "default_visible": true},
+                {"key": "status", "label": "Status", "default_visible": true},
+                {"key": "job_title", "label": "Job Title", "default_visible": false},
+                {"key": "city", "label": "City", "default_visible": false},
+                {"key": "region", "label": "Region", "default_visible": false},
+                {"key": "address", "label": "Address", "default_visible": false},
+                {"key": "gender", "label": "Gender", "default_visible": false},
+                {"key": "marketing", "label": "Marketing Opt-in", "default_visible": false},
+                {"key": "created", "label": "Created Date", "default_visible": false}
+            ], "primary") }}
         </div>
-        <div class="mt-4 flex items-center justify-end gap-2">
-            <a href="/admin/crm/contacts" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Reset</a>
-            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Filter</button>
-        </div>
-    </form>
+    </div>
     {% endcall %}
 
     {% set pad = 'px-6 py-3' %}
@@ -121,12 +141,12 @@
         <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
             <thead>
                 <tr class="border-b border-slate-100 dark:border-slate-700/50">
-                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Contact</th>
-                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Customer ID</th>
-                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Contact Details</th>
-                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Linked</th>
-                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Type</th>
-                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">
+                    <th data-contact-column="name" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Contact</th>
+                    <th data-contact-column="customer_id" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Customer ID</th>
+                    <th data-contact-column="details" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Contact Details</th>
+                    <th data-contact-column="linked" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Linked</th>
+                    <th data-contact-column="type" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Type</th>
+                    <th data-contact-column="status" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">
                         <form method="get" action="/admin/crm/contacts" class="flex items-center gap-3">
                             <span>Status</span>
                             <input type="hidden" name="search" value="{{ search }}">
@@ -143,6 +163,13 @@
                             </select>
                         </form>
                     </th>
+                    <th data-contact-column="job_title" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Job Title</th>
+                    <th data-contact-column="city" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">City</th>
+                    <th data-contact-column="region" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Region</th>
+                    <th data-contact-column="address" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Address</th>
+                    <th data-contact-column="gender" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Gender</th>
+                    <th data-contact-column="marketing" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Marketing Opt-in</th>
+                    <th data-contact-column="created" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Created Date</th>
                     <th class="{{ pad }} text-right"><span class="sr-only">Actions</span></th>
                 </tr>
             </thead>
@@ -152,14 +179,14 @@
                 {% set person = people_map.get(contact.person_id|string) if contact.person_id else None %}
                 {% set org = org_map.get(contact.organization_id|string) if contact.organization_id else None %}
                 {% call table_row() %}
-                    <td class="{{ pad }}">
+                    <td data-contact-column="name" class="{{ pad }}">
                         <div class="font-medium text-slate-900 dark:text-white">{{ contact.display_name or 'Contact ' ~ contact.id|string|truncate(8, True, '') }}</div>
                         <div class="text-xs text-slate-500 dark:text-slate-400">{{ contact.id | string | truncate(12, True, '') }}</div>
                     </td>
-                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                    <td data-contact-column="customer_id" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {{ contact.splynx_id or '—' }}
                     </td>
-                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                    <td data-contact-column="details" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {% set channels = contact.channels or [] %}
                         {% if channels %}
                         <div class="space-y-1.5">
@@ -190,7 +217,7 @@
                             </div>
                         {% endif %}
                     </td>
-                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                    <td data-contact-column="linked" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {% if person %}
                         {{ person.first_name }} {{ person.last_name }}
                         {% elif org %}
@@ -199,18 +226,31 @@
                         —
                         {% endif %}
                     </td>
-                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                    <td data-contact-column="type" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {% if contact.metadata_ and contact.metadata_.get('is_reseller') %}
                         Reseller
                         {% else %}
                         {{ contact.party_status.value | replace('_', ' ') | title if contact.party_status else '—' }}
                         {% endif %}
                     </td>
-                    <td class="{{ pad }}">
+                    <td data-contact-column="status" class="{{ pad }}">
                         <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                             {{ 'Active' if contact.is_active else 'Inactive' }}
                         </span>
                     </td>
+                    <td data-contact-column="job_title" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ contact.job_title or '—' }}</td>
+                    <td data-contact-column="city" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ contact.city or '—' }}</td>
+                    <td data-contact-column="region" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ contact.region or '—' }}</td>
+                    <td data-contact-column="address" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ contact.address_line1 or '—' }}</td>
+                    <td data-contact-column="gender" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ contact.gender.value|title if contact.gender else '—' }}</td>
+                    <td data-contact-column="marketing" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {% if contact.marketing_opt_in %}
+                        <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-500/20 dark:text-green-400">Yes</span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">No</span>
+                        {% endif %}
+                    </td>
+                    <td data-contact-column="created" class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ contact.created_at.strftime('%Y-%m-%d') if contact.created_at else '—' }}</td>
                     <td class="{{ pad }} text-right text-sm">
                         <a href="/admin/crm/contacts/{{ contact.id }}" class="text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-100">View</a>
                         <a href="/admin/crm/contacts/{{ contact.id }}/edit" class="text-primary-600 hover:text-primary-700">Edit</a>
@@ -219,7 +259,7 @@
                 {% endcall %}
                 {% endfor %}
                 {% else %}
-                {{ empty_state("No contacts found", "Create your first contact to get started.", action_label="New Contact", action_href="/admin/crm/contacts/new", colspan=7) }}
+                {{ empty_state("No contacts found", "Create your first contact to get started.", action_label="New Contact", action_href="/admin/crm/contacts/new", colspan=14) }}
                 {% endif %}
             </tbody>
         </table>
@@ -247,4 +287,41 @@
     {% set activity_link = "/admin/system/audit" %}
     {% include "components/data/recent_activity_panel.html" %}
 </div>
+
+<script src="/static/js/ui-filter-state.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
+    const columnDefinitions = [
+        { key: "name", defaultVisible: true },
+        { key: "customer_id", defaultVisible: true },
+        { key: "details", defaultVisible: true },
+        { key: "linked", defaultVisible: true },
+        { key: "type", defaultVisible: true },
+        { key: "status", defaultVisible: true },
+        { key: "job_title", defaultVisible: false },
+        { key: "city", defaultVisible: false },
+        { key: "region", defaultVisible: false },
+        { key: "address", defaultVisible: false },
+        { key: "gender", defaultVisible: false },
+        { key: "marketing", defaultVisible: false },
+        { key: "created", defaultVisible: false }
+    ];
+    window.DotmacUiFilterState.init({
+        formId: "",
+        fields: [],
+        columns: {
+            optionSelector: "[data-contact-column-option]",
+            storageKey: "admin:contacts:columns",
+            cellAttr: "data-contact-column",
+            validKeys: columnDefinitions.map(c => c.key),
+            defaultVisible: columnDefinitions.filter(c => c.defaultVisible).map(c => c.key),
+            requiredKeys: ["name"],
+            containerId: "contact-column-picker",
+            toggleButtonId: "contact-column-picker-toggle",
+            panelId: "contact-column-picker-panel",
+        },
+    });
+});
+</script>
 {% endblock %}
