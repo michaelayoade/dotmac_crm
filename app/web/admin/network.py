@@ -2,28 +2,30 @@
 
 from __future__ import annotations
 
-import json
+import logging
 import math
 from typing import cast
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, text
-from sqlalchemy.orm import Session, load_only
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.domain_settings import SettingDomain
-from app.models.fiber_change_request import FiberChangeRequestOperation
+from app.models.fiber_change_request import FiberChangeRequestOperation, FiberChangeRequestStatus
 from app.models.gis import GeoAreaType, GeoLocation, GeoLocationType
 from app.models.network import (
     FdhCabinet,
-    FiberAccessPoint,
     FiberSegment,
     FiberSplice,
     FiberSpliceClosure,
     FiberSpliceTray,
+    FiberStrand,
+    FiberTerminationPoint,
     Splitter,
+    SplitterPort,
 )
 from app.services import fiber_change_requests as change_request_service
 from app.services import gis as gis_service
@@ -31,9 +33,25 @@ from app.services import settings_spec
 from app.services import vendor as vendor_service
 from app.services.common import coerce_uuid
 from app.services.fiber_plant import fiber_plant
+from app.services.network_impl import fdh_cabinets as fdh_cabinets_service
+from app.services.network_impl import splitters as splitters_service
+
+logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/network", tags=["web-admin-network"])
+
+_ASSET_MODEL_BY_TYPE = {
+    "fdh_cabinet": FdhCabinet,
+    "splice_closure": FiberSpliceClosure,
+    "fiber_segment": FiberSegment,
+    "fiber_splice": FiberSplice,
+    "fiber_splice_tray": FiberSpliceTray,
+    "fiber_strand": FiberStrand,
+    "fiber_termination_point": FiberTerminationPoint,
+    "splitter": Splitter,
+    "splitter_port": SplitterPort,
+}
 
 
 def get_db():
@@ -81,34 +99,42 @@ def _coerce_float(value: object, default: float) -> float:
     return default
 
 
-def _postgis_available(db: Session) -> bool:
-    if db.bind is None or db.bind.dialect.name != "postgresql":
-        return False
-    try:
-        return db.execute(text("SELECT 1 FROM pg_extension WHERE extname = 'postgis'")).scalar() == 1
-    except Exception:
-        return False
+def _get_regions(db: Session) -> list:
+    """Load region GeoAreas for FDH cabinet forms."""
+    return gis_service.geo_areas.list(
+        db,
+        area_type=GeoAreaType.region.value,
+        is_active=True,
+        min_latitude=None,
+        min_longitude=None,
+        max_latitude=None,
+        max_longitude=None,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
 
 
-@router.get("/map", response_class=HTMLResponse)
-def network_map(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+def _sanitize_error(exc: Exception) -> str:
+    """Return a safe error message without leaking internal details."""
+    msg = str(exc)
+    if "duplicate key" in msg.lower() or "unique" in msg.lower():
+        return "A record with these details already exists."
+    if "foreign key" in msg.lower() or "violates" in msg.lower():
+        return "This operation references data that does not exist or has been removed."
+    if "Coordinates out of range" in msg or "Invalid coordinates" in msg:
+        return msg
+    return "An unexpected error occurred. Please check your input and try again."
 
-    features: list[dict] = []
 
-    # FDH Cabinets
-    fdh_cabinets = (
+def _get_cabinets_with_location(db: Session) -> list:
+    """Load active FDH cabinets that have coordinates."""
+    from sqlalchemy.orm import load_only
+
+    return (
         db.query(FdhCabinet)
-        .options(
-            load_only(
-                FdhCabinet.id,
-                FdhCabinet.name,
-                FdhCabinet.code,
-                FdhCabinet.latitude,
-                FdhCabinet.longitude,
-                FdhCabinet.is_active,
-            )
-        )
+        .options(load_only(FdhCabinet.id, FdhCabinet.name, FdhCabinet.code, FdhCabinet.latitude, FdhCabinet.longitude))
         .filter(
             FdhCabinet.is_active.is_(True),
             FdhCabinet.latitude.isnot(None),
@@ -116,179 +142,44 @@ def network_map(request: Request, db: Session = Depends(get_db)):
         )
         .all()
     )
-    splitter_counts: dict = {}
-    if fdh_cabinets:
-        fdh_ids = [fdh.id for fdh in fdh_cabinets]
-        splitter_counts = {
-            row[0]: row[1]
-            for row in (
-                db.query(Splitter.fdh_id, func.count(Splitter.id))
-                .filter(Splitter.fdh_id.in_(fdh_ids))
-                .group_by(Splitter.fdh_id)
-                .all()
-            )
-        }
-    for fdh in fdh_cabinets:
-        splitter_count = splitter_counts.get(fdh.id, 0)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [fdh.longitude, fdh.latitude]},
-                "properties": {
-                    "id": str(fdh.id),
-                    "type": "fdh_cabinet",
-                    "name": fdh.name,
-                    "code": fdh.code,
-                    "splitter_count": splitter_count,
-                },
-            }
-        )
 
-    # Splice Closures
-    closures = (
-        db.query(FiberSpliceClosure)
-        .options(
-            load_only(
-                FiberSpliceClosure.id,
-                FiberSpliceClosure.name,
-                FiberSpliceClosure.latitude,
-                FiberSpliceClosure.longitude,
-                FiberSpliceClosure.is_active,
-            )
-        )
-        .filter(
-            FiberSpliceClosure.is_active.is_(True),
-            FiberSpliceClosure.latitude.isnot(None),
-            FiberSpliceClosure.longitude.isnot(None),
-        )
-        .all()
-    )
-    splice_counts: dict = {}
-    tray_counts: dict = {}
-    if closures:
-        closure_ids = [closure.id for closure in closures]
-        splice_counts = {
-            row[0]: row[1]
-            for row in (
-                db.query(FiberSplice.closure_id, func.count(FiberSplice.id))
-                .filter(FiberSplice.closure_id.in_(closure_ids))
-                .group_by(FiberSplice.closure_id)
-                .all()
-            )
-        }
-        tray_counts = {
-            row[0]: row[1]
-            for row in (
-                db.query(FiberSpliceTray.closure_id, func.count(FiberSpliceTray.id))
-                .filter(FiberSpliceTray.closure_id.in_(closure_ids))
-                .group_by(FiberSpliceTray.closure_id)
-                .all()
-            )
-        }
-    for closure in closures:
-        splice_count = splice_counts.get(closure.id, 0)
-        tray_count = tray_counts.get(closure.id, 0)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [closure.longitude, closure.latitude]},
-                "properties": {
-                    "id": str(closure.id),
-                    "type": "splice_closure",
-                    "name": closure.name,
-                    "splice_count": splice_count,
-                    "tray_count": tray_count,
-                },
-            }
-        )
 
-    # Access Points
-    access_points = (
-        db.query(FiberAccessPoint)
-        .options(
-            load_only(
-                FiberAccessPoint.id,
-                FiberAccessPoint.name,
-                FiberAccessPoint.code,
-                FiberAccessPoint.access_point_type,
-                FiberAccessPoint.placement,
-                FiberAccessPoint.latitude,
-                FiberAccessPoint.longitude,
-                FiberAccessPoint.is_active,
-            )
-        )
-        .filter(
-            FiberAccessPoint.is_active.is_(True),
-            FiberAccessPoint.latitude.isnot(None),
-            FiberAccessPoint.longitude.isnot(None),
-        )
-        .all()
-    )
-    for ap in access_points:
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [ap.longitude, ap.latitude]},
-                "properties": {
-                    "id": str(ap.id),
-                    "type": "access_point",
-                    "name": ap.name,
-                    "code": ap.code,
-                    "ap_type": ap.access_point_type,
-                    "placement": ap.placement,
-                },
-            }
-        )
+def _normalize_asset_type(asset_type: str | None) -> str:
+    normalized = (asset_type or "").strip().lower()
+    if normalized == "fiber_splice_closure":
+        return "splice_closure"
+    return normalized
 
-    # Fiber Segments
-    segments_count = db.query(func.count(FiberSegment.id)).filter(FiberSegment.is_active.is_(True)).scalar() or 0
-    segment_geoms = []
-    if _postgis_available(db):
-        segment_geoms = (
-            db.query(FiberSegment, func.ST_AsGeoJSON(FiberSegment.route_geom))
-            .filter(
-                FiberSegment.is_active.is_(True),
-                FiberSegment.route_geom.isnot(None),
-            )
-            .all()
-        )
-    for segment, geojson_str in segment_geoms:
-        if not geojson_str:
-            continue
-        geom = json.loads(geojson_str)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": geom,
-                "properties": {
-                    "id": str(segment.id),
-                    "type": "fiber_segment",
-                    "name": segment.name,
-                    "segment_type": segment.segment_type.value if segment.segment_type else None,
-                    "cable_type": segment.cable_type.value if segment.cable_type else None,
-                    "fiber_count": segment.fiber_count,
-                    "length_m": segment.length_m,
-                },
-            }
-        )
 
-    geojson_data = {"type": "FeatureCollection", "features": features}
+def _asset_snapshot(db: Session, asset_type: str | None, asset_id: str | None):
+    if not asset_type or not asset_id:
+        return None
+    model = _ASSET_MODEL_BY_TYPE.get(_normalize_asset_type(asset_type))
+    if not model:
+        return None
+    try:
+        return db.get(model, coerce_uuid(str(asset_id)))
+    except Exception:
+        return None
 
-    stats = {
-        "fdh_cabinets": db.query(func.count(FdhCabinet.id)).filter(FdhCabinet.is_active.is_(True)).scalar(),
-        "fdh_with_location": len(fdh_cabinets),
-        "splice_closures": db.query(func.count(FiberSpliceClosure.id))
-        .filter(FiberSpliceClosure.is_active.is_(True))
-        .scalar(),
-        "closures_with_location": len(closures),
-        "splitters": db.query(func.count(Splitter.id)).filter(Splitter.is_active.is_(True)).scalar(),
-        "total_splices": db.query(func.count(FiberSplice.id)).scalar(),
-        "segments": segments_count,
-        "access_points": db.query(func.count(FiberAccessPoint.id))
-        .filter(FiberAccessPoint.is_active.is_(True))
-        .scalar(),
-        "access_points_with_location": len(access_points),
-    }
+
+def _is_conflict(change_request, asset) -> bool:
+    if not change_request or not asset:
+        return False
+    request_created = getattr(change_request, "created_at", None)
+    asset_updated = getattr(asset, "updated_at", None)
+    if not request_created or not asset_updated:
+        return False
+    return asset_updated > request_created
+
+
+@router.get("/map", response_class=HTMLResponse)
+def network_map(request: Request, db: Session = Depends(get_db)):
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    # Delegate GeoJSON generation to the service (single source of truth)
+    geojson_data = fiber_plant.get_geojson(db)
+    stats = fiber_plant.get_stats(db)
     qa_stats = fiber_plant.get_quality_stats(db)
 
     cost_settings = {
@@ -384,9 +275,9 @@ def pop_sites_list(
 def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
-    cabinets = db.query(FdhCabinet).order_by(FdhCabinet.name.asc()).all()
+    cabinets = fdh_cabinets_service.list(db, region_id=None, order_by="name", order_dir="asc", limit=500, offset=0)
     stats = {
-        "total": db.query(func.count(FdhCabinet.id)).scalar() or 0,
+        "total": db.query(func.count(FdhCabinet.id)).filter(FdhCabinet.is_active.is_(True)).scalar() or 0,
     }
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinets.html",
@@ -406,19 +297,6 @@ def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
 def fdh_cabinet_new(request: Request, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
-    regions = gis_service.geo_areas.list(
-        db,
-        area_type=GeoAreaType.region.value,
-        is_active=True,
-        min_latitude=None,
-        min_longitude=None,
-        max_latitude=None,
-        max_longitude=None,
-        order_by="name",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-form.html",
         {
@@ -428,7 +306,7 @@ def fdh_cabinet_new(request: Request, db: Session = Depends(get_db)):
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "cabinet": None,
-            "regions": regions,
+            "regions": _get_regions(db),
             "action_url": "/admin/network/fdh-cabinets/new",
         },
     )
@@ -469,23 +347,11 @@ def fdh_cabinet_create(
         )
     except Exception as exc:
         db.rollback()
-        error = str(exc)
+        error = _sanitize_error(exc)
+        logger.exception("FDH cabinet create failed")
 
     from app.web.admin import get_current_user, get_sidebar_stats
 
-    regions = gis_service.geo_areas.list(
-        db,
-        area_type=GeoAreaType.region.value,
-        is_active=True,
-        min_latitude=None,
-        min_longitude=None,
-        max_latitude=None,
-        max_longitude=None,
-        order_by="name",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-form.html",
         {
@@ -495,7 +361,7 @@ def fdh_cabinet_create(
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "cabinet": None,
-            "regions": regions,
+            "regions": _get_regions(db),
             "action_url": "/admin/network/fdh-cabinets/new",
             "error": error,
         },
@@ -510,22 +376,12 @@ def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(
     cabinet = db.get(FdhCabinet, cabinet_id)
     if not cabinet:
         return RedirectResponse(url="/admin/network/fdh-cabinets", status_code=303)
-    regions = gis_service.geo_areas.list(
-        db,
-        area_type=GeoAreaType.region.value,
-        is_active=True,
-        min_latitude=None,
-        min_longitude=None,
-        max_latitude=None,
-        max_longitude=None,
-        order_by="name",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
+    regions = _get_regions(db)
     region_map = {str(region.id): region for region in regions}
     region = region_map.get(str(cabinet.region_id)) if cabinet.region_id else None
-    splitters = db.query(Splitter).filter(Splitter.fdh_id == cabinet.id).order_by(Splitter.name.asc()).all()
+    cabinet_splitters = splitters_service.list(
+        db, fdh_id=str(cabinet.id), order_by="name", order_dir="asc", limit=500, offset=0
+    )
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-detail.html",
         {
@@ -536,7 +392,7 @@ def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(
             "sidebar_stats": get_sidebar_stats(db),
             "cabinet": cabinet,
             "region": region,
-            "splitters": splitters,
+            "splitters": cabinet_splitters,
             "activities": [],
         },
     )
@@ -549,19 +405,6 @@ def fdh_cabinet_edit(request: Request, cabinet_id: str, db: Session = Depends(ge
     cabinet = db.get(FdhCabinet, cabinet_id)
     if not cabinet:
         return RedirectResponse(url="/admin/network/fdh-cabinets", status_code=303)
-    regions = gis_service.geo_areas.list(
-        db,
-        area_type=GeoAreaType.region.value,
-        is_active=True,
-        min_latitude=None,
-        min_longitude=None,
-        max_latitude=None,
-        max_longitude=None,
-        order_by="name",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-form.html",
         {
@@ -571,7 +414,7 @@ def fdh_cabinet_edit(request: Request, cabinet_id: str, db: Session = Depends(ge
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "cabinet": cabinet,
-            "regions": regions,
+            "regions": _get_regions(db),
             "action_url": f"/admin/network/fdh-cabinets/{cabinet_id}/edit",
         },
     )
@@ -613,23 +456,11 @@ def fdh_cabinet_update(
         )
     except Exception as exc:
         db.rollback()
-        error = str(exc)
+        error = _sanitize_error(exc)
+        logger.exception("FDH cabinet update failed for %s", cabinet_id)
 
     from app.web.admin import get_current_user, get_sidebar_stats
 
-    regions = gis_service.geo_areas.list(
-        db,
-        area_type=GeoAreaType.region.value,
-        is_active=True,
-        min_latitude=None,
-        min_longitude=None,
-        max_latitude=None,
-        max_longitude=None,
-        order_by="name",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-form.html",
         {
@@ -639,7 +470,7 @@ def fdh_cabinet_update(
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "cabinet": cabinet,
-            "regions": regions,
+            "regions": _get_regions(db),
             "action_url": f"/admin/network/fdh-cabinets/{cabinet_id}/edit",
             "error": error,
         },
@@ -655,6 +486,210 @@ def network_map_alias():
 @router.get("/fiber-plant", response_class=HTMLResponse)
 def fiber_plant_alias():
     return RedirectResponse(url="/admin/network/map", status_code=302)
+
+
+@router.get("/fiber-change-requests", response_class=HTMLResponse)
+def fiber_change_requests_list(
+    request: Request,
+    bulk_status: str | None = Query(None),
+    skipped: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    requests = change_request_service.list_requests(db, status=FiberChangeRequestStatus.pending)
+    conflicts: dict[str, bool] = {}
+    for req in requests:
+        asset = _asset_snapshot(db, req.asset_type, str(req.asset_id) if req.asset_id else None)
+        conflicts[str(req.id)] = _is_conflict(req, asset)
+
+    return templates.TemplateResponse(
+        "admin/network/fiber/change_requests.html",
+        {
+            "request": request,
+            "active_page": "fiber-change-requests",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "requests": requests,
+            "conflicts": conflicts,
+            "bulk_status": bulk_status,
+            "skipped": skipped or 0,
+        },
+    )
+
+
+@router.get("/fiber-change-requests/{request_id}", response_class=HTMLResponse)
+def fiber_change_request_detail(
+    request: Request,
+    request_id: str,
+    error: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    change_request = change_request_service.get_request(db, request_id)
+    asset = _asset_snapshot(
+        db,
+        change_request.asset_type,
+        str(change_request.asset_id) if change_request.asset_id else None,
+    )
+    conflict = _is_conflict(change_request, asset)
+    pending = change_request.status == FiberChangeRequestStatus.pending
+
+    activities = []
+    if change_request.created_at:
+        activities.append(
+            {
+                "title": "Request submitted",
+                "description": f"Operation: {change_request.operation.value}",
+                "occurred_at": change_request.created_at,
+            }
+        )
+    if change_request.reviewed_at:
+        reviewer_name = "-"
+        if change_request.reviewed_by:
+            reviewer_name = (
+                (getattr(change_request.reviewed_by, "display_name", None))
+                or f"{change_request.reviewed_by.first_name} {change_request.reviewed_by.last_name}".strip()
+                or "-"
+            )
+        activities.append(
+            {
+                "title": f"Reviewed ({change_request.status.value})",
+                "description": f"By {reviewer_name}",
+                "occurred_at": change_request.reviewed_at,
+            }
+        )
+    if change_request.applied_at:
+        activities.append(
+            {
+                "title": "Applied to live asset",
+                "description": None,
+                "occurred_at": change_request.applied_at,
+            }
+        )
+
+    asset_data = {}
+    if asset is not None:
+        # Best-effort snapshot for UI inspection.
+        asset_data = {
+            key: value for key, value in vars(asset).items() if not key.startswith("_sa_") and not key.startswith("_")
+        }
+
+    return templates.TemplateResponse(
+        "admin/network/fiber/change_request_detail.html",
+        {
+            "request": request,
+            "active_page": "fiber-change-requests",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "change_request": change_request,
+            "asset_data": asset_data,
+            "conflict": conflict,
+            "pending": pending,
+            "activities": activities,
+            "error": error,
+        },
+    )
+
+
+@router.post("/fiber-change-requests/{request_id}/approve", response_class=HTMLResponse)
+async def fiber_change_request_approve(
+    request: Request,
+    request_id: str,
+    review_notes: str | None = Form(None),
+    force_apply: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    reviewer_person_id = str(current_user.get("person_id") or "")
+    if not reviewer_person_id:
+        return RedirectResponse(
+            url=f"/admin/network/fiber-change-requests/{request_id}?error=forbidden", status_code=303
+        )
+
+    change_request = change_request_service.get_request(db, request_id)
+    asset = _asset_snapshot(
+        db,
+        change_request.asset_type,
+        str(change_request.asset_id) if change_request.asset_id else None,
+    )
+    if _is_conflict(change_request, asset) and not force_apply:
+        return RedirectResponse(
+            url=f"/admin/network/fiber-change-requests/{request_id}?error=conflict", status_code=303
+        )
+
+    change_request_service.approve_request(db, request_id, reviewer_person_id, review_notes)
+    return RedirectResponse(url=f"/admin/network/fiber-change-requests/{request_id}", status_code=303)
+
+
+@router.post("/fiber-change-requests/{request_id}/reject", response_class=HTMLResponse)
+async def fiber_change_request_reject(
+    request: Request,
+    request_id: str,
+    review_notes: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user
+
+    if not (review_notes or "").strip():
+        return RedirectResponse(
+            url=f"/admin/network/fiber-change-requests/{request_id}?error=reject_note_required",
+            status_code=303,
+        )
+
+    current_user = get_current_user(request)
+    reviewer_person_id = str(current_user.get("person_id") or "")
+    if not reviewer_person_id:
+        return RedirectResponse(
+            url=f"/admin/network/fiber-change-requests/{request_id}?error=forbidden", status_code=303
+        )
+
+    change_request_service.reject_request(db, request_id, reviewer_person_id, review_notes.strip())
+    return RedirectResponse(url=f"/admin/network/fiber-change-requests/{request_id}", status_code=303)
+
+
+@router.post("/fiber-change-requests/bulk-approve", response_class=HTMLResponse)
+async def fiber_change_requests_bulk_approve(
+    request: Request,
+    force_apply: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user
+
+    form = await request.form()
+    request_ids = [value for value in form.getlist("request_ids") if isinstance(value, str) and value.strip()]
+
+    current_user = get_current_user(request)
+    reviewer_person_id = str(current_user.get("person_id") or "")
+    if not reviewer_person_id:
+        return RedirectResponse(url="/admin/network/fiber-change-requests?bulk_status=forbidden", status_code=303)
+
+    skipped = 0
+    for request_id in request_ids:
+        try:
+            change_request = change_request_service.get_request(db, request_id)
+            asset = _asset_snapshot(
+                db,
+                change_request.asset_type,
+                str(change_request.asset_id) if change_request.asset_id else None,
+            )
+            if _is_conflict(change_request, asset) and not force_apply:
+                skipped += 1
+                continue
+            change_request_service.approve_request(db, request_id, reviewer_person_id, None)
+        except Exception:
+            db.rollback()
+            skipped += 1
+
+    return RedirectResponse(
+        url=f"/admin/network/fiber-change-requests?bulk_status=approved&skipped={skipped}",
+        status_code=303,
+    )
 
 
 @router.post("/fiber-map/update-position")
@@ -683,9 +718,12 @@ async def fiber_map_update_position(request: Request, db: Session = Depends(get_
         return JSONResponse(
             {"success": True, "request_id": str(request_record.id), "status": request_record.status.value}
         )
-    except Exception as exc:
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception:
         db.rollback()
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("fiber_map_update_position failed")
+        return JSONResponse({"error": "Failed to create position update request"}, status_code=500)
 
 
 @router.post("/fiber-map/save-plan")
@@ -707,9 +745,10 @@ async def fiber_map_save_plan(request: Request, db: Session = Depends(get_db)):
         return JSONResponse(
             {"success": True, "revision_id": str(revision.id), "revision_number": revision.revision_number}
         )
-    except Exception as exc:
+    except Exception:
         db.rollback()
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("fiber_map_save_plan failed")
+        return JSONResponse({"error": "Failed to save route plan"}, status_code=500)
 
 
 @router.get("/fiber-map/nearest-cabinet")
@@ -720,44 +759,35 @@ async def fiber_map_nearest_cabinet(lat: float, lng: float, db: Session = Depend
 async def find_nearest_cabinet(_request: Request | None, lat: float, lng: float, db: Session):
     try:
         lat_f, lng_f = _parse_lat_lng(lat, lng)
-        cabinets = (
-            db.query(FdhCabinet)
-            .filter(
-                FdhCabinet.is_active.is_(True),
-                FdhCabinet.latitude.isnot(None),
-                FdhCabinet.longitude.isnot(None),
-            )
-            .all()
-        )
-        if not cabinets:
-            return JSONResponse({"error": "No cabinets found"}, status_code=404)
-
-        nearest = None
-        nearest_dist = None
-        for cabinet in cabinets:
-            if cabinet.latitude is None or cabinet.longitude is None:
-                continue
-            dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
-            if nearest_dist is None or dist < nearest_dist:
-                nearest = cabinet
-                nearest_dist = dist
-
-        if not nearest or nearest_dist is None:
-            return JSONResponse({"error": "No cabinets found"}, status_code=404)
-
-        return JSONResponse(
-            {
-                "id": str(nearest.id),
-                "name": nearest.name,
-                "code": nearest.code,
-                "latitude": nearest.latitude,
-                "longitude": nearest.longitude,
-                "distance_m": nearest_dist,
-                "distance_display": _format_distance(nearest_dist),
-            }
-        )
-    except Exception as exc:
+    except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+
+    cabinets = _get_cabinets_with_location(db)
+    if not cabinets:
+        return JSONResponse({"error": "No cabinets found"}, status_code=404)
+
+    nearest = None
+    nearest_dist = None
+    for cabinet in cabinets:
+        dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
+        if nearest_dist is None or dist < nearest_dist:
+            nearest = cabinet
+            nearest_dist = dist
+
+    if not nearest or nearest_dist is None:
+        return JSONResponse({"error": "No cabinets found"}, status_code=404)
+
+    return JSONResponse(
+        {
+            "id": str(nearest.id),
+            "name": nearest.name,
+            "code": nearest.code,
+            "latitude": nearest.latitude,
+            "longitude": nearest.longitude,
+            "distance_m": nearest_dist,
+            "distance_display": _format_distance(nearest_dist),
+        }
+    )
 
 
 @router.get("/fiber-map/plan-options")
@@ -768,35 +798,26 @@ async def fiber_map_plan_options(lat: float, lng: float, db: Session = Depends(g
 async def plan_options(_request: Request | None, lat: float, lng: float, db: Session):
     try:
         lat_f, lng_f = _parse_lat_lng(lat, lng)
-        cabinets = (
-            db.query(FdhCabinet)
-            .filter(
-                FdhCabinet.is_active.is_(True),
-                FdhCabinet.latitude.isnot(None),
-                FdhCabinet.longitude.isnot(None),
-            )
-            .all()
-        )
-        options = []
-        for cabinet in cabinets:
-            if cabinet.latitude is None or cabinet.longitude is None:
-                continue
-            dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
-            options.append(
-                {
-                    "id": str(cabinet.id),
-                    "name": cabinet.name,
-                    "code": cabinet.code,
-                    "latitude": cabinet.latitude,
-                    "longitude": cabinet.longitude,
-                    "distance_m": dist,
-                    "distance_display": _format_distance(dist),
-                }
-            )
-        options.sort(key=lambda item: cast(float, item["distance_m"]))
-        return JSONResponse({"options": options[:5]})
-    except Exception as exc:
+    except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+
+    cabinets = _get_cabinets_with_location(db)
+    options = []
+    for cabinet in cabinets:
+        dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
+        options.append(
+            {
+                "id": str(cabinet.id),
+                "name": cabinet.name,
+                "code": cabinet.code,
+                "latitude": cabinet.latitude,
+                "longitude": cabinet.longitude,
+                "distance_m": dist,
+                "distance_display": _format_distance(dist),
+            }
+        )
+    options.sort(key=lambda item: cast(float, item["distance_m"]))
+    return JSONResponse({"options": options[:5]})
 
 
 @router.get("/fiber-map/route")
@@ -807,19 +828,20 @@ async def fiber_map_route(lat: float, lng: float, cabinet_id: str, db: Session =
 async def plan_route(_request: Request | None, lat: float, lng: float, cabinet_id: str, db: Session):
     try:
         lat_f, lng_f = _parse_lat_lng(lat, lng)
-        cabinet = db.get(FdhCabinet, cabinet_id)
-        if not cabinet or cabinet.latitude is None or cabinet.longitude is None:
-            return JSONResponse({"error": "Cabinet not found"}, status_code=404)
-
-        lat_c = float(cabinet.latitude)
-        lng_c = float(cabinet.longitude)
-        dist = _haversine_distance_m(lat_f, lng_f, lat_c, lng_c)
-        return JSONResponse(
-            {
-                "path_coords": [[lat_f, lng_f], [lat_c, lng_c]],
-                "distance_m": dist,
-                "distance_display": _format_distance(dist),
-            }
-        )
-    except Exception as exc:
+    except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+
+    cabinet = db.get(FdhCabinet, cabinet_id)
+    if not cabinet or cabinet.latitude is None or cabinet.longitude is None:
+        return JSONResponse({"error": "Cabinet not found"}, status_code=404)
+
+    lat_c = float(cabinet.latitude)
+    lng_c = float(cabinet.longitude)
+    dist = _haversine_distance_m(lat_f, lng_f, lat_c, lng_c)
+    return JSONResponse(
+        {
+            "path_coords": [[lat_f, lng_f], [lat_c, lng_c]],
+            "distance_m": dist,
+            "distance_display": _format_distance(dist),
+        }
+    )

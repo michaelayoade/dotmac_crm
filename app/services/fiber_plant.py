@@ -1,9 +1,10 @@
 """Fiber plant service for GeoJSON, statistics, and quality checks."""
 
 import json
+import logging
 
 from sqlalchemy import func, or_, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.models.network import (
     FdhCabinet,
@@ -16,6 +17,8 @@ from app.models.network import (
     Splitter,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class FiberPlantManager:
     """Manages fiber plant GeoJSON and statistics."""
@@ -27,6 +30,7 @@ class FiberPlantManager:
         include_closures: bool = True,
         include_pops: bool = True,
         include_segments: bool = True,
+        include_access_points: bool = True,
     ) -> dict:
         """Return all fiber plant assets as a GeoJSON FeatureCollection."""
         features = []
@@ -43,89 +47,133 @@ class FiberPlantManager:
         if include_segments:
             features.extend(self._get_segment_features(db))
 
+        if include_access_points:
+            features.extend(self._get_access_point_features(db))
+
         return {"type": "FeatureCollection", "features": features}
 
     def _get_fdh_features(self, db: Session) -> list[dict]:
-        """Get FDH cabinet GeoJSON features."""
+        """Get FDH cabinet GeoJSON features with batch-loaded splitter counts."""
         fdh_cabinets = (
             db.query(FdhCabinet)
-            .filter(FdhCabinet.is_active.is_(True))
-            .filter(FdhCabinet.latitude.isnot(None))
-            .filter(FdhCabinet.longitude.isnot(None))
+            .options(
+                load_only(
+                    FdhCabinet.id,
+                    FdhCabinet.name,
+                    FdhCabinet.code,
+                    FdhCabinet.latitude,
+                    FdhCabinet.longitude,
+                    FdhCabinet.notes,
+                )
+            )
+            .filter(
+                FdhCabinet.is_active.is_(True),
+                FdhCabinet.latitude.isnot(None),
+                FdhCabinet.longitude.isnot(None),
+            )
             .all()
         )
-        features = []
-        for fdh in fdh_cabinets:
-            splitter_count = db.query(func.count(Splitter.id)).filter(Splitter.fdh_id == fdh.id).scalar()
-            features.append(
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [fdh.longitude, fdh.latitude],
-                    },
-                    "properties": {
-                        "id": str(fdh.id),
-                        "type": "fdh_cabinet",
-                        "name": fdh.name,
-                        "code": fdh.code,
-                        "splitter_count": splitter_count,
-                        "notes": fdh.notes,
-                    },
-                }
-            )
-        return features
+        if not fdh_cabinets:
+            return []
+
+        # Batch load splitter counts in a single query
+        fdh_ids = [fdh.id for fdh in fdh_cabinets]
+        splitter_counts = {
+            row[0]: row[1]
+            for row in db.query(Splitter.fdh_id, func.count(Splitter.id))
+            .filter(Splitter.fdh_id.in_(fdh_ids))
+            .group_by(Splitter.fdh_id)
+            .all()
+        }
+
+        return [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [fdh.longitude, fdh.latitude]},
+                "properties": {
+                    "id": str(fdh.id),
+                    "type": "fdh_cabinet",
+                    "name": fdh.name,
+                    "code": fdh.code,
+                    "splitter_count": splitter_counts.get(fdh.id, 0),
+                    "notes": fdh.notes,
+                },
+            }
+            for fdh in fdh_cabinets
+        ]
 
     def _get_closure_features(self, db: Session) -> list[dict]:
-        """Get splice closure GeoJSON features."""
+        """Get splice closure GeoJSON features with batch-loaded counts."""
         closures = (
             db.query(FiberSpliceClosure)
-            .filter(FiberSpliceClosure.is_active.is_(True))
-            .filter(FiberSpliceClosure.latitude.isnot(None))
-            .filter(FiberSpliceClosure.longitude.isnot(None))
+            .options(
+                load_only(
+                    FiberSpliceClosure.id,
+                    FiberSpliceClosure.name,
+                    FiberSpliceClosure.latitude,
+                    FiberSpliceClosure.longitude,
+                    FiberSpliceClosure.notes,
+                )
+            )
+            .filter(
+                FiberSpliceClosure.is_active.is_(True),
+                FiberSpliceClosure.latitude.isnot(None),
+                FiberSpliceClosure.longitude.isnot(None),
+            )
             .all()
         )
-        features = []
-        for closure in closures:
-            splice_count = db.query(func.count(FiberSplice.id)).filter(FiberSplice.closure_id == closure.id).scalar()
-            tray_count = (
-                db.query(func.count(FiberSpliceTray.id)).filter(FiberSpliceTray.closure_id == closure.id).scalar()
-            )
-            features.append(
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [closure.longitude, closure.latitude],
-                    },
-                    "properties": {
-                        "id": str(closure.id),
-                        "type": "splice_closure",
-                        "name": closure.name,
-                        "splice_count": splice_count,
-                        "tray_count": tray_count,
-                        "notes": closure.notes,
-                    },
-                }
-            )
-        return features
+        if not closures:
+            return []
+
+        # Batch load splice and tray counts
+        closure_ids = [c.id for c in closures]
+        splice_counts = {
+            row[0]: row[1]
+            for row in db.query(FiberSplice.closure_id, func.count(FiberSplice.id))
+            .filter(FiberSplice.closure_id.in_(closure_ids))
+            .group_by(FiberSplice.closure_id)
+            .all()
+        }
+        tray_counts = {
+            row[0]: row[1]
+            for row in db.query(FiberSpliceTray.closure_id, func.count(FiberSpliceTray.id))
+            .filter(FiberSpliceTray.closure_id.in_(closure_ids))
+            .group_by(FiberSpliceTray.closure_id)
+            .all()
+        }
+
+        return [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [c.longitude, c.latitude]},
+                "properties": {
+                    "id": str(c.id),
+                    "type": "splice_closure",
+                    "name": c.name,
+                    "splice_count": splice_counts.get(c.id, 0),
+                    "tray_count": tray_counts.get(c.id, 0),
+                    "notes": c.notes,
+                },
+            }
+            for c in closures
+        ]
 
     def _get_olt_features(self, db: Session) -> list[dict]:
         """Get OLT device GeoJSON features."""
         olts = (
             db.query(OLTDevice)
-            .filter(OLTDevice.is_active.is_(True))
-            .filter(OLTDevice.latitude.isnot(None))
-            .filter(OLTDevice.longitude.isnot(None))
+            .options(load_only(OLTDevice.id, OLTDevice.name, OLTDevice.latitude, OLTDevice.longitude, OLTDevice.notes))
+            .filter(
+                OLTDevice.is_active.is_(True),
+                OLTDevice.latitude.isnot(None),
+                OLTDevice.longitude.isnot(None),
+            )
             .all()
         )
         return [
             {
                 "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [olt.longitude, olt.latitude],
-                },
+                "geometry": {"type": "Point", "coordinates": [olt.longitude, olt.latitude]},
                 "properties": {
                     "id": str(olt.id),
                     "type": "olt_device",
@@ -137,49 +185,120 @@ class FiberPlantManager:
         ]
 
     def _get_segment_features(self, db: Session) -> list[dict]:
-        """Get fiber segment GeoJSON features."""
-        segments = db.query(FiberSegment).filter(FiberSegment.is_active.is_(True)).all()
+        """Get fiber segment GeoJSON features with batch geometry loading."""
         features = []
-        for segment in segments:
-            coords = self._get_segment_geometry(db, segment)
-            if coords:
+
+        # Batch load segments with PostGIS geometry in a single query
+        if self._postgis_available(db):
+            rows = (
+                db.query(FiberSegment, func.ST_AsGeoJSON(FiberSegment.route_geom))
+                .filter(
+                    FiberSegment.is_active.is_(True),
+                    FiberSegment.route_geom.isnot(None),
+                )
+                .all()
+            )
+            for segment, geojson_str in rows:
+                if not geojson_str:
+                    continue
                 features.append(
                     {
                         "type": "Feature",
-                        "geometry": coords,
+                        "geometry": json.loads(geojson_str),
                         "properties": {
                             "id": str(segment.id),
                             "type": "fiber_segment",
                             "name": segment.name,
                             "segment_type": segment.segment_type.value if segment.segment_type else None,
+                            "cable_type": segment.cable_type.value if segment.cable_type else None,
+                            "fiber_count": segment.fiber_count,
                             "length_m": segment.length_m,
                             "notes": segment.notes,
                         },
                     }
                 )
+
+        # Also include segments without PostGIS geometry but with termination points
+        segments_without_geom = (
+            db.query(FiberSegment)
+            .options(
+                joinedload(FiberSegment.from_point),
+                joinedload(FiberSegment.to_point),
+            )
+            .filter(
+                FiberSegment.is_active.is_(True),
+                FiberSegment.route_geom.is_(None),
+                FiberSegment.from_point_id.isnot(None),
+                FiberSegment.to_point_id.isnot(None),
+            )
+            .all()
+        )
+        for segment in segments_without_geom:
+            fp = segment.from_point
+            tp = segment.to_point
+            if fp and tp and fp.latitude and fp.longitude and tp.latitude and tp.longitude:
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [
+                                [fp.longitude, fp.latitude],
+                                [tp.longitude, tp.latitude],
+                            ],
+                        },
+                        "properties": {
+                            "id": str(segment.id),
+                            "type": "fiber_segment",
+                            "name": segment.name,
+                            "segment_type": segment.segment_type.value if segment.segment_type else None,
+                            "cable_type": segment.cable_type.value if segment.cable_type else None,
+                            "fiber_count": segment.fiber_count,
+                            "length_m": segment.length_m,
+                            "notes": segment.notes,
+                        },
+                    }
+                )
+
         return features
 
-    def _get_segment_geometry(self, db: Session, segment: FiberSegment) -> dict | None:
-        """Extract geometry from a fiber segment."""
-        if segment.route_geom is not None:
-            geojson = db.query(func.ST_AsGeoJSON(segment.route_geom)).scalar()
-            if geojson:
-                return json.loads(geojson)
-        elif segment.from_point and segment.to_point:
-            if (
-                segment.from_point.latitude
-                and segment.from_point.longitude
-                and segment.to_point.latitude
-                and segment.to_point.longitude
-            ):
-                return {
-                    "type": "LineString",
-                    "coordinates": [
-                        [segment.from_point.longitude, segment.from_point.latitude],
-                        [segment.to_point.longitude, segment.to_point.latitude],
-                    ],
-                }
-        return None
+    def _get_access_point_features(self, db: Session) -> list[dict]:
+        """Get fiber access point GeoJSON features."""
+        access_points = (
+            db.query(FiberAccessPoint)
+            .options(
+                load_only(
+                    FiberAccessPoint.id,
+                    FiberAccessPoint.name,
+                    FiberAccessPoint.code,
+                    FiberAccessPoint.access_point_type,
+                    FiberAccessPoint.placement,
+                    FiberAccessPoint.latitude,
+                    FiberAccessPoint.longitude,
+                )
+            )
+            .filter(
+                FiberAccessPoint.is_active.is_(True),
+                FiberAccessPoint.latitude.isnot(None),
+                FiberAccessPoint.longitude.isnot(None),
+            )
+            .all()
+        )
+        return [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [ap.longitude, ap.latitude]},
+                "properties": {
+                    "id": str(ap.id),
+                    "type": "access_point",
+                    "name": ap.name,
+                    "code": ap.code,
+                    "ap_type": ap.access_point_type,
+                    "placement": ap.placement,
+                },
+            }
+            for ap in access_points
+        ]
 
     def get_fdh_splitters(self, db: Session, fdh_id: str) -> list[dict]:
         """Get splitters for a specific FDH cabinet."""
@@ -210,6 +329,15 @@ class FiberPlantManager:
 
     def get_stats(self, db: Session) -> dict:
         """Get summary statistics for the fiber plant."""
+        fiber_segments_count = db.query(func.count(FiberSegment.id)).filter(FiberSegment.is_active.is_(True)).scalar()
+        access_points_count = (
+            db.query(func.count(FiberAccessPoint.id)).filter(FiberAccessPoint.is_active.is_(True)).scalar()
+        )
+        access_points_with_loc = (
+            db.query(func.count(FiberAccessPoint.id))
+            .filter(FiberAccessPoint.is_active.is_(True), FiberAccessPoint.latitude.isnot(None))
+            .scalar()
+        )
         return {
             "fdh_cabinets": db.query(func.count(FdhCabinet.id)).filter(FdhCabinet.is_active.is_(True)).scalar(),
             "fdh_with_location": db.query(func.count(FdhCabinet.id))
@@ -222,9 +350,12 @@ class FiberPlantManager:
             .filter(FiberSpliceClosure.is_active.is_(True), FiberSpliceClosure.latitude.isnot(None))
             .scalar(),
             "splitters": db.query(func.count(Splitter.id)).filter(Splitter.is_active.is_(True)).scalar(),
-            "fiber_segments": db.query(func.count(FiberSegment.id)).filter(FiberSegment.is_active.is_(True)).scalar(),
+            "fiber_segments": fiber_segments_count,
+            "segments": fiber_segments_count,  # template alias
             "total_splices": db.query(func.count(FiberSplice.id)).scalar(),
             "olt_devices": db.query(func.count(OLTDevice.id)).filter(OLTDevice.is_active.is_(True)).scalar(),
+            "access_points": access_points_count,
+            "access_points_with_location": access_points_with_loc,
         }
 
     def _postgis_available(self, db: Session) -> bool:
