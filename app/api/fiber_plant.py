@@ -15,6 +15,7 @@ def get_fiber_plant_geojson(
     include_closures: bool = Query(True, description="Include splice closures"),
     include_pops: bool = Query(True, description="Include POP sites"),
     include_segments: bool = Query(True, description="Include fiber segments/routes"),
+    include_access_points: bool = Query(True, description="Include fiber access points"),
     db: Session = Depends(get_db),
 ):
     """Return all fiber plant assets as a GeoJSON FeatureCollection."""
@@ -24,6 +25,7 @@ def get_fiber_plant_geojson(
         include_closures=include_closures,
         include_pops=include_pops,
         include_segments=include_segments,
+        include_access_points=include_access_points,
     )
 
 

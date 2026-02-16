@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
@@ -75,12 +76,13 @@ from app.services.response import ListResponseMixin
 
 
 def _safe_get(db: Session, model, item_id: object):
+    if item_id is None:
+        raise HTTPException(status_code=400, detail="Missing resource ID")
     try:
-        if item_id is None:
-            raise ValueError("Missing id")
-        return db.get(model, coerce_uuid(item_id))
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="Resource not found") from exc
+        uid = coerce_uuid(item_id)
+    except (ValueError, HTTPException) as exc:
+        raise HTTPException(status_code=400, detail="Invalid resource ID format") from exc
+    return db.get(model, uid)
 
 
 class OLTDevices(ListResponseMixin):
@@ -374,7 +376,7 @@ class OntAssignments(ListResponseMixin):
         assignment = _safe_get(db, OntAssignment, assignment_id)
         if not assignment:
             raise HTTPException(status_code=404, detail="ONT assignment not found")
-        db.delete(assignment)
+        assignment.active = False
         db.commit()
 
 
@@ -438,7 +440,10 @@ class OltShelves(ListResponseMixin):
         shelf = _safe_get(db, OltShelf, shelf_id)
         if not shelf:
             raise HTTPException(status_code=404, detail="OLT shelf not found")
-        db.delete(shelf)
+        child_count = db.query(OltCard).filter(OltCard.shelf_id == shelf.id, OltCard.is_active.is_(True)).count()
+        if child_count > 0:
+            raise HTTPException(status_code=409, detail=f"Cannot delete: shelf has {child_count} active card(s)")
+        shelf.is_active = False
         db.commit()
 
 
@@ -502,7 +507,12 @@ class OltCards(ListResponseMixin):
         card = _safe_get(db, OltCard, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="OLT card not found")
-        db.delete(card)
+        child_count = (
+            db.query(OltCardPort).filter(OltCardPort.card_id == card.id, OltCardPort.is_active.is_(True)).count()
+        )
+        if child_count > 0:
+            raise HTTPException(status_code=409, detail=f"Cannot delete: card has {child_count} active port(s)")
+        card.is_active = False
         db.commit()
 
 
@@ -569,7 +579,10 @@ class OltCardPorts(ListResponseMixin):
         port = _safe_get(db, OltCardPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="OLT card port not found")
-        db.delete(port)
+        pon_count = db.query(PonPort).filter(PonPort.olt_card_port_id == port.id, PonPort.is_active.is_(True)).count()
+        if pon_count > 0:
+            raise HTTPException(status_code=409, detail=f"Cannot delete: port has {pon_count} active PON port(s)")
+        port.is_active = False
         db.commit()
 
 
@@ -593,14 +606,19 @@ class FdhCabinets(ListResponseMixin):
     def list(
         db: Session,
         region_id: str | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
+        is_active: bool | None = None,
+        order_by: str = "created_at",
+        order_dir: str = "desc",
+        limit: int = 100,
+        offset: int = 0,
     ):
         query = db.query(FdhCabinet)
         if region_id:
             query = query.filter(FdhCabinet.region_id == region_id)
+        if is_active is None:
+            query = query.filter(FdhCabinet.is_active.is_(True))
+        else:
+            query = query.filter(FdhCabinet.is_active == is_active)
         query = apply_ordering(
             query,
             order_by,
@@ -625,7 +643,10 @@ class FdhCabinets(ListResponseMixin):
         cabinet = _safe_get(db, FdhCabinet, cabinet_id)
         if not cabinet:
             raise HTTPException(status_code=404, detail="FDH cabinet not found")
-        db.delete(cabinet)
+        child_count = db.query(Splitter).filter(Splitter.fdh_id == cabinet.id, Splitter.is_active.is_(True)).count()
+        if child_count > 0:
+            raise HTTPException(status_code=409, detail=f"Cannot delete: cabinet has {child_count} active splitter(s)")
+        cabinet.is_active = False
         db.commit()
 
 
@@ -663,14 +684,19 @@ class Splitters(ListResponseMixin):
     def list(
         db: Session,
         fdh_id: str | None,
-        order_by: str,
-        order_dir: str,
-        limit: int,
-        offset: int,
+        is_active: bool | None = None,
+        order_by: str = "created_at",
+        order_dir: str = "desc",
+        limit: int = 100,
+        offset: int = 0,
     ):
         query = db.query(Splitter)
         if fdh_id:
             query = query.filter(Splitter.fdh_id == fdh_id)
+        if is_active is None:
+            query = query.filter(Splitter.is_active.is_(True))
+        else:
+            query = query.filter(Splitter.is_active == is_active)
         query = apply_ordering(
             query,
             order_by,
@@ -700,7 +726,14 @@ class Splitters(ListResponseMixin):
         splitter = _safe_get(db, Splitter, splitter_id)
         if not splitter:
             raise HTTPException(status_code=404, detail="Splitter not found")
-        db.delete(splitter)
+        child_count = (
+            db.query(SplitterPort)
+            .filter(SplitterPort.splitter_id == splitter.id, SplitterPort.is_active.is_(True))
+            .count()
+        )
+        if child_count > 0:
+            raise HTTPException(status_code=409, detail=f"Cannot delete: splitter has {child_count} active port(s)")
+        splitter.is_active = False
         db.commit()
 
 
@@ -787,7 +820,14 @@ class SplitterPorts(ListResponseMixin):
         port = _safe_get(db, SplitterPort, port_id)
         if not port:
             raise HTTPException(status_code=404, detail="Splitter port not found")
-        db.delete(port)
+        link_count = (
+            db.query(PonPortSplitterLink)
+            .filter(PonPortSplitterLink.splitter_port_id == port.id, PonPortSplitterLink.active.is_(True))
+            .count()
+        )
+        if link_count > 0:
+            raise HTTPException(status_code=409, detail=f"Cannot delete: port has {link_count} active PON link(s)")
+        port.is_active = False
         db.commit()
 
 
@@ -978,7 +1018,6 @@ class FiberSplices(ListResponseMixin):
         db.add(splice)
         db.commit()
         db.refresh(splice)
-        splice.position = payload.position
         return splice
 
     @staticmethod
@@ -1099,6 +1138,9 @@ class FiberSpliceTrays(ListResponseMixin):
         tray = _safe_get(db, FiberSpliceTray, tray_id)
         if not tray:
             raise HTTPException(status_code=404, detail="Fiber splice tray not found")
+        splice_count = db.query(FiberSplice).filter(FiberSplice.tray_id == tray.id).count()
+        if splice_count > 0:
+            raise HTTPException(status_code=409, detail=f"Cannot delete: tray has {splice_count} splice(s)")
         db.delete(tray)
         db.commit()
 
@@ -1162,7 +1204,19 @@ class FiberTerminationPoints(ListResponseMixin):
         point = _safe_get(db, FiberTerminationPoint, point_id)
         if not point:
             raise HTTPException(status_code=404, detail="Fiber termination point not found")
-        db.delete(point)
+        segment_count = (
+            db.query(FiberSegment)
+            .filter(
+                FiberSegment.is_active.is_(True),
+                or_(FiberSegment.from_point_id == point.id, FiberSegment.to_point_id == point.id),
+            )
+            .count()
+        )
+        if segment_count > 0:
+            raise HTTPException(
+                status_code=409, detail=f"Cannot delete: point is referenced by {segment_count} active segment(s)"
+            )
+        point.is_active = False
         db.commit()
 
 
@@ -1292,7 +1346,7 @@ class PonPortSplitterLinks(ListResponseMixin):
         link = _safe_get(db, PonPortSplitterLink, link_id)
         if not link:
             raise HTTPException(status_code=404, detail="PON port link not found")
-        db.delete(link)
+        link.active = False
         db.commit()
 
 

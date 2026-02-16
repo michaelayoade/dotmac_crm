@@ -87,13 +87,21 @@ class GeoSync(ListResponseMixin):
     def sync_olt_devices(db: Session, deactivate_missing: bool = False) -> SyncResult:
         result = SyncResult()
         olts = db.query(OLTDevice).all()
+
+        # Pre-fetch all OLT-linked GeoLocations in a single query
+        existing_map: dict[uuid.UUID, GeoLocation] = {
+            loc.olt_device_id: loc
+            for loc in db.query(GeoLocation).filter(GeoLocation.olt_device_id.isnot(None)).all()
+            if loc.olt_device_id is not None
+        }
+
         seen_ids: set[uuid.UUID] = set()
         for olt in olts:
             if olt.latitude is None or olt.longitude is None:
                 result.skipped += 1
                 continue
             seen_ids.add(olt.id)
-            existing = db.query(GeoLocation).filter(GeoLocation.olt_device_id == olt.id).first()
+            existing = existing_map.get(olt.id)
             if existing:
                 existing.name = olt.name
                 existing.location_type = GeoLocationType.network_device
@@ -125,13 +133,21 @@ class GeoSync(ListResponseMixin):
     def sync_fdh_cabinets(db: Session, deactivate_missing: bool = False) -> SyncResult:
         result = SyncResult()
         fdhs = db.query(FdhCabinet).all()
+
+        # Pre-fetch all FDH-linked GeoLocations in a single query
+        existing_map: dict[uuid.UUID, GeoLocation] = {
+            loc.fdh_cabinet_id: loc
+            for loc in db.query(GeoLocation).filter(GeoLocation.fdh_cabinet_id.isnot(None)).all()
+            if loc.fdh_cabinet_id is not None
+        }
+
         seen_ids: set[uuid.UUID] = set()
         for fdh in fdhs:
             if fdh.latitude is None or fdh.longitude is None:
                 result.skipped += 1
                 continue
             seen_ids.add(fdh.id)
-            existing = db.query(GeoLocation).filter(GeoLocation.fdh_cabinet_id == fdh.id).first()
+            existing = existing_map.get(fdh.id)
             if existing:
                 existing.name = fdh.name
                 existing.location_type = GeoLocationType.fdh
