@@ -332,6 +332,12 @@ def campaign_preview_audience_data(db: Session, *, campaign_id: str) -> dict:
     }
 
 
+def campaign_preview_page_data(db: Session, *, campaign_id: str) -> dict:
+    return {
+        "campaign": campaigns_service.get(db, campaign_id),
+    }
+
+
 def campaign_whatsapp_templates_payload(db: Session, *, connector_id: str | None) -> tuple[dict, int]:
     from app.services.crm.inbox.whatsapp_templates import list_whatsapp_templates
 
