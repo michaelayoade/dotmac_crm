@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from html import escape as html_escape
 from typing import Any, Literal
-from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import urljoin, urlparse
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -80,6 +80,7 @@ from app.services.settings_spec import resolve_value
 from app.services.subscriber import subscriber as subscriber_service
 from app.web.admin.crm_inbox_actions_core import router as crm_inbox_actions_core_router
 from app.web.admin.crm_inbox_catalog import router as crm_inbox_catalog_router
+from app.web.admin.crm_inbox_comment_reply import router as crm_inbox_comment_reply_router
 from app.web.admin.crm_inbox_comments import router as crm_inbox_comments_router
 from app.web.admin.crm_inbox_connectors_actions import router as crm_inbox_connectors_actions_router
 from app.web.admin.crm_inbox_conversations import router as crm_inbox_conversations_router
@@ -708,6 +709,7 @@ def _apply_message_attachments(
 router.include_router(crm_presence_router)
 router.include_router(crm_inbox_settings_router)
 router.include_router(crm_inbox_catalog_router)
+router.include_router(crm_inbox_comment_reply_router)
 router.include_router(crm_inbox_comments_router)
 router.include_router(crm_inbox_connectors_actions_router)
 router.include_router(crm_inbox_conversations_router)
@@ -766,114 +768,6 @@ async def inbox(
             "request": request,
             **context,
         },
-    )
-
-
-@router.post("/inbox/comments/{comment_id}/reply", response_class=HTMLResponse)
-async def reply_to_social_comment(
-    request: Request,
-    comment_id: str,
-    message: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    next_url = request.query_params.get("next")
-    if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
-        next_url = "/admin/crm/inbox"
-
-    referer_query: dict[str, str] = {}
-    referer = request.headers.get("referer")
-    if referer:
-        with contextlib.suppress(Exception):
-            referer_query = dict(parse_qsl(urlparse(referer).query, keep_blank_values=True))
-
-    target_id = request.query_params.get("target_id") or referer_query.get("target_id")
-    search = request.query_params.get("search") or referer_query.get("search")
-
-    def _build_reply_redirect(
-        *,
-        reply_sent: bool = False,
-        reply_error: bool = False,
-        reply_error_detail: str | None = None,
-    ) -> str:
-        parsed_next = urlparse(next_url)
-        params = dict(parse_qsl(parsed_next.query, keep_blank_values=True))
-
-        # Preserve main inbox context and remove legacy comments channel forcing.
-        params.pop("channel", None)
-        params["comment_id"] = comment_id
-        if target_id:
-            params["target_id"] = target_id
-        if search:
-            params["search"] = search
-
-        if reply_sent:
-            params["reply_sent"] = "1"
-        if reply_error:
-            params["reply_error"] = "1"
-        if reply_error_detail:
-            params["reply_error_detail"] = reply_error_detail
-
-        return urlunparse(parsed_next._replace(query=urlencode(params, doseq=True)))
-
-    from app.services.crm.inbox.comment_replies import reply_to_social_comment
-    from app.web.admin import get_current_user
-
-    current_user = get_current_user(request)
-    actor_id = (current_user or {}).get("person_id")
-    result = await reply_to_social_comment(
-        db,
-        comment_id=comment_id,
-        message=message,
-        actor_id=actor_id,
-        roles=_get_current_roles(request),
-        scopes=_get_current_scopes(request),
-    )
-    if result.kind == "forbidden":
-        return RedirectResponse(
-            url=_build_reply_redirect(
-                reply_error=True,
-                reply_error_detail="Forbidden",
-            ),
-            status_code=303,
-        )
-    if result.kind == "not_found":
-        return RedirectResponse(
-            url=_build_reply_redirect(reply_error=True),
-            status_code=303,
-        )
-    if result.kind == "error":
-        logger.exception(
-            "social_comment_reply_failed comment_id=%s error=%s",
-            comment_id,
-            result.error_detail,
-        )
-        return RedirectResponse(
-            url=_build_reply_redirect(
-                reply_error=True,
-                reply_error_detail=result.error_detail or "Reply failed",
-            ),
-            status_code=303,
-        )
-
-    return RedirectResponse(
-        url=_build_reply_redirect(reply_sent=True),
-        status_code=303,
-    )
-
-
-@router.get("/inbox/comments/{comment_id}/reply", response_class=HTMLResponse)
-def reply_to_social_comment_get(
-    request: Request,
-    comment_id: str,
-    next: str | None = None,
-):
-    next_url = next or "/admin/crm/inbox"
-    if not next_url.startswith("/") or next_url.startswith("//"):
-        next_url = "/admin/crm/inbox"
-    detail = quote("Session expired. Please re-submit your reply.", safe="")
-    return RedirectResponse(
-        url=f"{next_url}?channel=comments&comment_id={comment_id}&reply_error=1&reply_error_detail={detail}",
-        status_code=303,
     )
 
 
