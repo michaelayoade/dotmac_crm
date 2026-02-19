@@ -72,10 +72,7 @@ from app.services.crm import conversation as conversation_service
 from app.services.crm import inbox as inbox_service
 from app.services.crm.conversations.service import MessageAttachments as MessageAttachmentsService
 from app.services.crm.inbox.formatting import (
-    filter_messages_for_user,
     format_contact_for_template,
-    format_conversation_for_template,
-    format_message_for_template,
 )
 from app.services.crm.inbox.page_context import build_inbox_page_context
 from app.services.person import InvalidTransitionError, People
@@ -87,6 +84,7 @@ from app.web.admin.crm_inbox_conversations import router as crm_inbox_conversati
 from app.web.admin.crm_inbox_message import router as crm_inbox_message_router
 from app.web.admin.crm_inbox_private_notes import router as crm_inbox_private_notes_router
 from app.web.admin.crm_inbox_settings import router as crm_inbox_settings_router
+from app.web.admin.crm_inbox_status import router as crm_inbox_status_router
 from app.web.admin.crm_presence import router as crm_presence_router
 
 
@@ -711,6 +709,7 @@ router.include_router(crm_inbox_conversations_router)
 router.include_router(crm_inbox_actions_core_router)
 router.include_router(crm_inbox_message_router)
 router.include_router(crm_inbox_private_notes_router)
+router.include_router(crm_inbox_status_router)
 
 
 @router.get("/inbox", response_class=HTMLResponse)
@@ -762,189 +761,6 @@ async def inbox(
             **context,
         },
     )
-
-
-@router.post("/inbox/conversation/{conversation_id}/status", response_class=HTMLResponse)
-async def update_conversation_status(
-    request: Request,
-    conversation_id: str,
-    new_status: str = Query(...),
-    db: Session = Depends(get_db),
-):
-    """Update conversation status.
-
-    When resolving via the message-thread target, an interstitial gate is
-    shown if the conversation's person has no active Lead.
-    """
-    from app.services.crm.inbox.conversation_status import update_conversation_status
-    from app.web.admin import get_current_user
-
-    current_user = get_current_user(request)
-    actor_id = (current_user or {}).get("person_id")
-
-    # ── Resolve gate check ────────────────────────────────────
-    if new_status == "resolved" and request.headers.get("HX-Target") == "message-thread":
-        from app.services.crm.inbox.resolve_gate import check_resolve_gate
-
-        gate = check_resolve_gate(db, conversation_id)
-        if gate.kind == "needs_gate":
-            return templates.TemplateResponse(
-                "admin/crm/_resolve_gate.html",
-                {
-                    "request": request,
-                    "conversation_id": conversation_id,
-                    "csrf_token": get_csrf_token(request),
-                },
-            )
-    # ── End gate check ────────────────────────────────────────
-
-    result = update_conversation_status(
-        db,
-        conversation_id=conversation_id,
-        new_status=new_status,
-        actor_id=actor_id,
-        roles=_get_current_roles(request),
-        scopes=_get_current_scopes(request),
-    )
-    if result.kind == "forbidden":
-        return HTMLResponse(
-            "<div class='p-6 text-center text-slate-500'>Forbidden</div>",
-            status_code=403,
-        )
-
-    if request.headers.get("HX-Target") == "message-thread":
-        return _render_thread_or_error(request, db, conversation_id, current_user)
-
-    from app.web.admin.crm_inbox_conversations import inbox_conversations_partial
-
-    return await inbox_conversations_partial(request, db)
-
-
-def _render_thread_or_error(
-    request: Request,
-    db: Session,
-    conversation_id: str,
-    current_user: dict,
-) -> HTMLResponse:
-    """Shared helper: load conversation thread and return rendered template."""
-    from app.services.crm.inbox.thread import load_conversation_thread
-
-    thread = load_conversation_thread(
-        db,
-        conversation_id,
-        actor_person_id=current_user.get("person_id"),
-        mark_read=False,
-    )
-    if thread.kind != "success" or not thread.conversation:
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>")
-
-    conversation = format_conversation_for_template(thread.conversation, db, include_inbox_label=True)
-    messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
-    current_roles = _get_current_roles(request)
-    messages = filter_messages_for_user(
-        messages,
-        current_user.get("person_id"),
-        current_roles,
-    )
-    from app.logic import private_note_logic
-
-    return templates.TemplateResponse(
-        "admin/crm/_message_thread.html",
-        {
-            "request": request,
-            "conversation": conversation,
-            "messages": messages,
-            "current_user": current_user,
-            "current_roles": current_roles,
-            "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
-        },
-    )
-
-
-@router.post("/inbox/conversation/{conversation_id}/resolve-with-lead", response_class=HTMLResponse)
-async def inbox_resolve_with_lead(
-    request: Request,
-    conversation_id: str,
-    db: Session = Depends(get_db),
-):
-    """Create a Lead for the conversation contact, then resolve."""
-    from app.services.crm.inbox.resolve_gate import resolve_with_lead
-    from app.web.admin import get_current_user
-
-    current_user = get_current_user(request)
-    actor_id = (current_user or {}).get("person_id")
-    outcome = resolve_with_lead(
-        db,
-        conversation_id=conversation_id,
-        actor_id=actor_id,
-        roles=_get_current_roles(request),
-        scopes=_get_current_scopes(request),
-    )
-    if outcome == "forbidden":
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    if outcome == "not_found":
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>", status_code=404)
-    return _render_thread_or_error(request, db, conversation_id, current_user)
-
-
-@router.post("/inbox/conversation/{conversation_id}/resolve-without-lead", response_class=HTMLResponse)
-async def inbox_resolve_without_lead(
-    request: Request,
-    conversation_id: str,
-    db: Session = Depends(get_db),
-):
-    """Resolve the conversation without creating a lead."""
-    from app.services.crm.inbox.resolve_gate import resolve_without_lead
-    from app.web.admin import get_current_user
-
-    current_user = get_current_user(request)
-    actor_id = (current_user or {}).get("person_id")
-    outcome = resolve_without_lead(
-        db,
-        conversation_id=conversation_id,
-        actor_id=actor_id,
-        roles=_get_current_roles(request),
-        scopes=_get_current_scopes(request),
-    )
-    if outcome == "forbidden":
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    if outcome == "not_found":
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>", status_code=404)
-    return _render_thread_or_error(request, db, conversation_id, current_user)
-
-
-@router.post("/inbox/conversation/{conversation_id}/link-and-resolve", response_class=HTMLResponse)
-async def inbox_link_and_resolve(
-    request: Request,
-    conversation_id: str,
-    person_id: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    """Link conversation to an existing contact (merge), then resolve."""
-    from app.services.crm.inbox.conversation_actions import resolve_conversation
-    from app.web.admin import get_current_user
-
-    current_user = get_current_user(request)
-    merged_by_id = (current_user or {}).get("person_id")
-    result = resolve_conversation(
-        db,
-        conversation_id=conversation_id,
-        person_id=person_id,
-        channel_type=None,
-        channel_address=None,
-        merged_by_id=merged_by_id,
-        roles=_get_current_roles(request),
-        scopes=_get_current_scopes(request),
-        also_resolve=True,
-    )
-    if result.kind == "forbidden":
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    if result.kind == "not_found":
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>", status_code=404)
-    if result.kind == "error":
-        detail = html_escape(result.error_detail or "Unknown error")
-        return HTMLResponse(f"<div class='p-6 text-center text-slate-500'>Error: {detail}</div>", status_code=400)
-    return _render_thread_or_error(request, db, conversation_id, current_user)
 
 
 @router.post("/inbox/conversation/new", response_class=HTMLResponse)
