@@ -1,7 +1,6 @@
 """Admin campaign management web routes."""
 
 from datetime import datetime
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -13,10 +12,6 @@ from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import CampaignChannel, CampaignType
 from app.models.crm.sales import Pipeline, PipelineStage
 from app.models.person import PartyStatus
-from app.schemas.crm.campaign import (
-    CampaignStepCreate,
-    CampaignStepUpdate,
-)
 from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
 from app.services.crm.campaigns import (
     Campaigns,
@@ -31,6 +26,8 @@ from app.services.crm.web_campaigns import (
     CampaignUpsertInput,
     build_campaign_create_payload,
     build_campaign_form_stub,
+    build_campaign_step_create_payload,
+    build_campaign_step_update_payload,
     build_campaign_update_payload,
     campaign_detail_page_data,
     campaign_preview_audience_data,
@@ -588,14 +585,14 @@ def campaign_step_create(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    payload = CampaignStepCreate(
-        campaign_id=UUID(campaign_id),
-        step_index=step_index,
-        name=_form_str_opt(name),
-        subject=_form_str_opt(subject),
-        body_html=_form_str_opt(body_html),
-        body_text=_form_str_opt(body_text),
+    payload = build_campaign_step_create_payload(
+        campaign_id=campaign_id,
+        name=name,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
         delay_days=delay_days,
+        step_index=step_index,
     )
     steps_service.create(db, payload)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
@@ -616,13 +613,13 @@ def campaign_step_update(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    payload = CampaignStepUpdate(
-        step_index=step_index,
-        name=_form_str_opt(name),
-        subject=_form_str_opt(subject),
-        body_html=_form_str_opt(body_html),
-        body_text=_form_str_opt(body_text),
+    payload = build_campaign_step_update_payload(
+        name=name,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
         delay_days=delay_days,
+        step_index=step_index,
     )
     steps_service.update(db, step_id, payload)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
