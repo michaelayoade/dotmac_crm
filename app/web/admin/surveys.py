@@ -289,7 +289,10 @@ def survey_send(survey_id: str, db: Session = Depends(_get_db)):
     survey = survey_manager.get(db, survey_id)
     if survey.status != CustomerSurveyStatus.active:
         survey_manager.activate(db, survey_id)
-    distribute_survey.delay(survey_id)
+    try:
+        distribute_survey.delay(survey_id)
+    except Exception:
+        return RedirectResponse(url=f"/admin/surveys/{survey_id}?send_error=queue_unavailable", status_code=303)
     return RedirectResponse(url=f"/admin/surveys/{survey_id}", status_code=303)
 
 

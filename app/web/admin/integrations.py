@@ -1934,7 +1934,7 @@ def dotmac_erp_sync_now(
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
             f"Failed to queue sync task: {html_escape(str(e))}"
             "</div>",
-            status_code=500,
+            status_code=200,
         )
 
 
@@ -1960,7 +1960,7 @@ def dotmac_erp_inventory_sync_now(request: Request, db: Session = Depends(get_db
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
             f"Failed to queue inventory sync task: {html_escape(str(e))}"
             "</div>",
-            status_code=500,
+            status_code=200,
         )
 
 
@@ -1985,7 +1985,7 @@ def dotmac_erp_contacts_sync_now(request: Request, db: Session = Depends(get_db)
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
             f"Failed to queue contacts sync task: {html_escape(str(e))}"
             "</div>",
-            status_code=500,
+            status_code=200,
         )
 
 
@@ -2010,7 +2010,7 @@ def dotmac_erp_shifts_sync_now(request: Request, db: Session = Depends(get_db)):
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
             f"Failed to queue shift sync task: {html_escape(str(e))}"
             "</div>",
-            status_code=500,
+            status_code=200,
         )
 
 
@@ -2035,7 +2035,7 @@ def dotmac_erp_teams_sync_now(request: Request, db: Session = Depends(get_db)):
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
             f"Failed to queue team sync task: {html_escape(str(e))}"
             "</div>",
-            status_code=500,
+            status_code=200,
         )
 
 
@@ -2060,5 +2060,5 @@ def dotmac_erp_agents_sync_now(request: Request, db: Session = Depends(get_db)):
             '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
             f"Failed to queue agent sync task: {html_escape(str(e))}"
             "</div>",
-            status_code=500,
+            status_code=200,
         )
