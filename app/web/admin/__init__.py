@@ -13,10 +13,10 @@ from app.web.admin.ai import router as ai_router
 from app.web.admin.automations import router as automations_router
 from app.web.admin.campaigns import router as campaigns_router
 from app.web.admin.crm import router as crm_router
+from app.web.admin.dashboard import router as dashboard_router
 
 # Import routers after auth helpers are available
 from app.web.admin.data_quality import router as data_quality_router
-from app.web.admin.dashboard import router as dashboard_router
 from app.web.admin.gis import router as gis_router
 from app.web.admin.integrations import router as integrations_router
 from app.web.admin.intelligence import router as intelligence_router
@@ -31,6 +31,7 @@ from app.web.admin.performance import router as performance_router
 from app.web.admin.projects import router as projects_router
 from app.web.admin.reports import router as reports_router
 from app.web.admin.service_teams import router as service_teams_router
+from app.web.admin.storage import router as storage_router
 from app.web.admin.subscribers import router as subscribers_router
 from app.web.admin.surveys import router as surveys_router
 from app.web.admin.system import router as system_router
@@ -85,6 +86,7 @@ router.include_router(dashboard_router)
 router.include_router(system_router)
 router.include_router(projects_router)
 router.include_router(tickets_router)
+router.include_router(storage_router)
 router.include_router(inventory_router)
 router.include_router(gis_router)
 router.include_router(integrations_router)

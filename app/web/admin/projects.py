@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime
 from html import escape as html_escape
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -41,6 +42,7 @@ from app.schemas.projects import (
 )
 from app.schemas.vendor import InstallationProjectCreate, InstallationProjectUpdate
 from app.services import audit as audit_service
+from app.services import filter_preferences as filter_preferences_service
 from app.services import person as person_service
 from app.services import projects as projects_service
 from app.services import vendor as vendor_service
@@ -50,7 +52,9 @@ from app.services.audit_helpers import (
     format_changes,
     log_audit_event,
 )
+from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
+from app.services.filter_engine import parse_filter_payload_json
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/projects", tags=["web-admin-projects"])
@@ -372,7 +376,11 @@ def _load_project_pm_spc_options(db: Session) -> tuple[list[dict[str, str]], lis
     return pm_options, spc_options
 
 
-@router.get("", response_class=HTMLResponse)
+@router.get(
+    "",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def projects_list(
     request: Request,
     search: str | None = None,
@@ -381,6 +389,7 @@ def projects_list(
     pm: str | None = None,
     spc: str | None = None,
     notice: str | None = None,
+    filters: str | None = None,
     order_by: str = Query("created_at"),
     order_dir: str = Query("desc"),
     page: int = Query(1, ge=1),
@@ -399,6 +408,45 @@ def projects_list(
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
     current_person_id = _resolve_current_person_id(request, current_user)
+    try:
+        filters_payload = parse_filter_payload_json(filters)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    current_person_uuid = None
+    if current_person_id:
+        try:
+            current_person_uuid = coerce_uuid(current_person_id)
+        except Exception:
+            current_person_uuid = None
+
+    query_params_map = {key: value for key, value in request.query_params.items()}
+    if current_person_uuid:
+        if filter_preferences_service.has_managed_params(query_params_map, filter_preferences_service.PROJECTS_PAGE):
+            state = filter_preferences_service.extract_managed_state(
+                query_params_map,
+                filter_preferences_service.PROJECTS_PAGE,
+            )
+            filter_preferences_service.save_preference(
+                db,
+                current_person_uuid,
+                filter_preferences_service.PROJECTS_PAGE.key,
+                state,
+            )
+        else:
+            saved_state = filter_preferences_service.get_preference(
+                db,
+                current_person_uuid,
+                filter_preferences_service.PROJECTS_PAGE.key,
+            )
+            if saved_state:
+                merged = filter_preferences_service.merge_query_with_state(
+                    query_params_map,
+                    filter_preferences_service.PROJECTS_PAGE,
+                    saved_state,
+                )
+                if merged != query_params_map:
+                    target_url = request.url.path if not merged else f"{request.url.path}?{urlencode(merged)}"
+                    return RedirectResponse(url=target_url, status_code=302)
 
     pm_person_id = None
     if pm == "me":
@@ -438,6 +486,7 @@ def projects_list(
         limit=per_page,
         offset=offset,
         search=search,
+        filters_payload=filters_payload,
     )
 
     all_projects = projects_service.projects.list(
@@ -456,6 +505,7 @@ def projects_list(
         limit=10000,
         offset=0,
         search=search,
+        filters_payload=filters_payload,
     )
     total = len(all_projects)
     total_pages = (total + per_page - 1) // per_page if total else 1
@@ -477,9 +527,10 @@ def projects_list(
         limit=10000,
         offset=0,
         search=search,
+        filters_payload=filters_payload,
     )
     for project in all_projects_unfiltered:
-        status_value = project.status.value if project.status else ProjectStatus.planned.value
+        status_value = project.status.value if project.status else ProjectStatus.open.value
         status_counts[status_value] = status_counts.get(status_value, 0) + 1
     total_count = len(all_projects_unfiltered)
     pm_options, spc_options = _load_project_pm_spc_options(db)
@@ -496,6 +547,7 @@ def projects_list(
             "project_types": [item.value for item in ProjectType],
             "pm": pm,
             "spc": spc,
+            "filters": filters,
             "pm_options": pm_options,
             "spc_options": spc_options,
             "order_by": order_by,
@@ -514,7 +566,11 @@ def projects_list(
     )
 
 
-@router.get("/new", response_class=HTMLResponse)
+@router.get(
+    "/new",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:create"))],
+)
 def project_new(request: Request, db: Session = Depends(get_db)):
     project = {
         "name": "",
@@ -522,7 +578,7 @@ def project_new(request: Request, db: Session = Depends(get_db)):
         "description": "",
         "customer_address": "",
         "project_type": "",
-        "status": ProjectStatus.planned.value,
+        "status": ProjectStatus.open.value,
         "priority": ProjectPriority.normal.value,
         "project_template_id": "",
         "subscriber_id": "",
@@ -540,7 +596,11 @@ def project_new(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/projects/project_form.html", context)
 
 
-@router.post("", response_class=HTMLResponse)
+@router.post(
+    "",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:create"))],
+)
 async def project_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = form.getlist("attachments")
@@ -573,7 +633,7 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
 
     payload_data = {
         "name": project["name"],
-        "status": project["status"] or ProjectStatus.planned.value,
+        "status": project["status"] or ProjectStatus.open.value,
         "priority": project["priority"] or ProjectPriority.normal.value,
         "is_active": project["is_active"],
     }
@@ -668,13 +728,18 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
         return templates.TemplateResponse("admin/projects/project_form.html", context)
 
 
-@router.get("/tasks", response_class=HTMLResponse)
+@router.get(
+    "/tasks",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:task:read"))],
+)
 def project_tasks_list(
     request: Request,
     project_id: str | None = None,
     status: str | None = None,
     priority: str | None = None,
     assigned: str | None = None,
+    filters: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
     db: Session = Depends(get_db),
@@ -688,6 +753,48 @@ def project_tasks_list(
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
     current_person_id = _resolve_current_person_id(request, current_user)
+    try:
+        filters_payload = parse_filter_payload_json(filters)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    current_person_uuid = None
+    if current_person_id:
+        try:
+            current_person_uuid = coerce_uuid(current_person_id)
+        except Exception:
+            current_person_uuid = None
+
+    query_params_map = {key: value for key, value in request.query_params.items()}
+    if current_person_uuid:
+        if filter_preferences_service.has_managed_params(
+            query_params_map,
+            filter_preferences_service.PROJECT_TASKS_PAGE,
+        ):
+            state = filter_preferences_service.extract_managed_state(
+                query_params_map,
+                filter_preferences_service.PROJECT_TASKS_PAGE,
+            )
+            filter_preferences_service.save_preference(
+                db,
+                current_person_uuid,
+                filter_preferences_service.PROJECT_TASKS_PAGE.key,
+                state,
+            )
+        else:
+            saved_state = filter_preferences_service.get_preference(
+                db,
+                current_person_uuid,
+                filter_preferences_service.PROJECT_TASKS_PAGE.key,
+            )
+            if saved_state:
+                merged = filter_preferences_service.merge_query_with_state(
+                    query_params_map,
+                    filter_preferences_service.PROJECT_TASKS_PAGE,
+                    saved_state,
+                )
+                if merged != query_params_map:
+                    target_url = request.url.path if not merged else f"{request.url.path}?{urlencode(merged)}"
+                    return RedirectResponse(url=target_url, status_code=302)
     assigned_to_person_id = None
     if assigned == "me":
         if not current_person_id:
@@ -707,6 +814,7 @@ def project_tasks_list(
         limit=per_page,
         offset=offset,
         include_assigned=True,
+        filters_payload=filters_payload,
     )
 
     all_tasks = projects_service.project_tasks.list(
@@ -721,6 +829,7 @@ def project_tasks_list(
         order_dir="desc",
         limit=10000,
         offset=0,
+        filters_payload=filters_payload,
     )
     total = len(all_tasks)
     total_pages = (total + per_page - 1) // per_page if total else 1
@@ -759,6 +868,7 @@ def project_tasks_list(
             "status": status,
             "priority": priority,
             "assigned": assigned,
+            "filters": filters,
             "page": page,
             "per_page": per_page,
             "total": total,
@@ -770,7 +880,11 @@ def project_tasks_list(
     )
 
 
-@router.get("/tasks/new", response_class=HTMLResponse)
+@router.get(
+    "/tasks/new",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:task:write"))],
+)
 def project_task_new(request: Request, db: Session = Depends(get_db)):
     task = {
         "project_id": "",
@@ -789,7 +903,11 @@ def project_task_new(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
 
-@router.post("/tasks", response_class=HTMLResponse)
+@router.post(
+    "/tasks",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:task:write"))],
+)
 async def project_task_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = form.getlist("attachments")
@@ -972,7 +1090,11 @@ def _build_template_task_editor_payload(db: Session, template_id: str) -> tuple[
     return tasks, payload
 
 
-@router.get("/templates", response_class=HTMLResponse)
+@router.get(
+    "/templates",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def project_templates_list(request: Request, db: Session = Depends(get_db)):
     try:
         template_items = projects_service.project_templates.list(
@@ -1014,7 +1136,11 @@ def project_templates_list(request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/templates/new", response_class=HTMLResponse)
+@router.get(
+    "/templates/new",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def project_template_new(request: Request, db: Session = Depends(get_db)):
     template = {
         "name": "",
@@ -1026,7 +1152,11 @@ def project_template_new(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/projects/project_template_form.html", context)
 
 
-@router.post("/templates", response_class=HTMLResponse)
+@router.post(
+    "/templates",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_template_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     template = {
@@ -1062,7 +1192,11 @@ async def project_template_create(request: Request, db: Session = Depends(get_db
         return templates.TemplateResponse("admin/projects/project_template_form.html", context)
 
 
-@router.get("/templates/{template_id}", response_class=HTMLResponse)
+@router.get(
+    "/templates/{template_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def project_template_detail(request: Request, template_id: str, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
 
@@ -1103,7 +1237,11 @@ def project_template_detail(request: Request, template_id: str, db: Session = De
     )
 
 
-@router.get("/templates/{template_id}/tasks/editor", response_class=HTMLResponse)
+@router.get(
+    "/templates/{template_id}/tasks/editor",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def project_template_tasks_editor(request: Request, template_id: str, db: Session = Depends(get_db)):
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
@@ -1133,7 +1271,11 @@ def project_template_tasks_editor(request: Request, template_id: str, db: Sessio
     )
 
 
-@router.post("/templates/{template_id}/tasks/editor", response_class=HTMLResponse)
+@router.post(
+    "/templates/{template_id}/tasks/editor",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_template_tasks_editor_update(request: Request, template_id: str, db: Session = Depends(get_db)):
     form = await request.form()
     raw_tasks = _form_str(form.get("tasks_json")).strip()
@@ -1288,7 +1430,11 @@ async def project_template_tasks_editor_update(request: Request, template_id: st
     return RedirectResponse(f"/admin/projects/templates/{template_id}", status_code=303)
 
 
-@router.get("/templates/{template_id}/edit", response_class=HTMLResponse)
+@router.get(
+    "/templates/{template_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def project_template_edit(request: Request, template_id: str, db: Session = Depends(get_db)):
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
@@ -1314,7 +1460,11 @@ def project_template_edit(request: Request, template_id: str, db: Session = Depe
     return templates.TemplateResponse("admin/projects/project_template_form.html", context)
 
 
-@router.post("/templates/{template_id}/edit", response_class=HTMLResponse)
+@router.post(
+    "/templates/{template_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_template_update(request: Request, template_id: str, db: Session = Depends(get_db)):
     form = await request.form()
     template = {
@@ -1355,13 +1505,21 @@ async def project_template_update(request: Request, template_id: str, db: Sessio
         return templates.TemplateResponse("admin/projects/project_template_form.html", context)
 
 
-@router.post("/templates/{template_id}/delete", response_class=HTMLResponse)
+@router.post(
+    "/templates/{template_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def project_template_delete(request: Request, template_id: str, db: Session = Depends(get_db)):
     projects_service.project_templates.delete(db=db, template_id=template_id)
     return RedirectResponse("/admin/projects/templates", status_code=303)
 
 
-@router.get("/templates/{template_id}/tasks/new", response_class=HTMLResponse)
+@router.get(
+    "/templates/{template_id}/tasks/new",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def project_template_task_new(request: Request, template_id: str, db: Session = Depends(get_db)):
     template = projects_service.project_templates.get(db=db, template_id=template_id)
     task = {
@@ -1379,7 +1537,11 @@ def project_template_task_new(request: Request, template_id: str, db: Session = 
     return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
 
 
-@router.post("/templates/{template_id}/tasks", response_class=HTMLResponse)
+@router.post(
+    "/templates/{template_id}/tasks",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_template_task_create(request: Request, template_id: str, db: Session = Depends(get_db)):
     form = await request.form()
     task = {
@@ -1450,7 +1612,11 @@ async def project_template_task_create(request: Request, template_id: str, db: S
         return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
 
 
-@router.get("/templates/{template_id}/tasks/{task_id}/edit", response_class=HTMLResponse)
+@router.get(
+    "/templates/{template_id}/tasks/{task_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def project_template_task_edit(request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)):
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
@@ -1485,7 +1651,11 @@ def project_template_task_edit(request: Request, template_id: str, task_id: str,
     return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
 
 
-@router.post("/templates/{template_id}/tasks/{task_id}/edit", response_class=HTMLResponse)
+@router.post(
+    "/templates/{template_id}/tasks/{task_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_template_task_update(request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)):
     form = await request.form()
     try:
@@ -1569,7 +1739,11 @@ async def project_template_task_update(request: Request, template_id: str, task_
         return templates.TemplateResponse("admin/projects/project_template_task_form.html", context)
 
 
-@router.post("/templates/{template_id}/tasks/{task_id}/delete", response_class=HTMLResponse)
+@router.post(
+    "/templates/{template_id}/tasks/{task_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def project_template_task_delete(request: Request, template_id: str, task_id: str, db: Session = Depends(get_db)):
     try:
         existing_task = projects_service.project_template_tasks.get(db=db, task_id=task_id)
@@ -1589,10 +1763,14 @@ def project_template_task_delete(request: Request, template_id: str, task_id: st
     return RedirectResponse(f"/admin/projects/templates/{template_id}", status_code=303)
 
 
-@router.get("/{project_ref}", response_class=HTMLResponse)
+@router.get(
+    "/{project_ref}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def project_detail(request: Request, project_ref: str, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
-    from app.services.crm.inbox.agents import list_active_agents_for_mentions
+    from app.services.agent_mentions import list_active_users_for_mentions
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
@@ -1708,14 +1886,18 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
             "customer_name": customer_name,
             "customer_address": customer_address,
             "csrf_token": get_csrf_token(request),
-            "mention_agents": list_active_agents_for_mentions(db),
+            "mention_agents": list_active_users_for_mentions(db),
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         },
     )
 
 
-@router.post("/{project_ref}/comments", response_class=HTMLResponse)
+@router.post(
+    "/{project_ref}/comments",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_comment_create(request: Request, project_ref: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
@@ -1806,7 +1988,11 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
         return templates.TemplateResponse("admin/errors/500.html", context, status_code=500)
 
 
-@router.post("/{project_ref}/comments/{comment_id}/edit", response_class=HTMLResponse)
+@router.post(
+    "/{project_ref}/comments/{comment_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_comment_edit(request: Request, project_ref: str, comment_id: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
@@ -1857,7 +2043,11 @@ def _get_project_labels(db: Session, project, assigned_vendor_id: str | None = N
     return labels
 
 
-@router.get("/{project_ref}/edit", response_class=HTMLResponse)
+@router.get(
+    "/{project_ref}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def project_edit(request: Request, project_ref: str, db: Session = Depends(get_db)):
     try:
         project, should_redirect = _resolve_project_reference(db, project_ref)
@@ -1883,7 +2073,7 @@ def project_edit(request: Request, project_ref: str, db: Session = Depends(get_d
         "project_type": project.project_type.value if project.project_type else "",
         "project_template_id": str(project.project_template_id) if project.project_template_id else "",
         "assigned_vendor_id": "",
-        "status": project.status.value if project.status else ProjectStatus.planned.value,
+        "status": project.status.value if project.status else ProjectStatus.open.value,
         "priority": project.priority.value if project.priority else ProjectPriority.normal.value,
         "subscriber_id": str(project.subscriber_id) if project.subscriber_id else "",
         "owner_person_id": str(project.owner_person_id) if project.owner_person_id else "",
@@ -1936,7 +2126,11 @@ def project_edit(request: Request, project_ref: str, db: Session = Depends(get_d
     return templates.TemplateResponse("admin/projects/project_form.html", context)
 
 
-@router.post("/{project_ref}/edit", response_class=HTMLResponse)
+@router.post(
+    "/{project_ref}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = form.getlist("attachments")
@@ -1978,7 +2172,7 @@ async def project_update(request: Request, project_ref: str, db: Session = Depen
 
     payload_data = {
         "name": project["name"],
-        "status": project["status"] or ProjectStatus.planned.value,
+        "status": project["status"] or ProjectStatus.open.value,
         "priority": project["priority"] or ProjectPriority.normal.value,
         "is_active": project["is_active"],
     }
@@ -2086,7 +2280,11 @@ async def project_update(request: Request, project_ref: str, db: Session = Depen
         return templates.TemplateResponse("admin/projects/project_form.html", context)
 
 
-@router.post("/{project_ref}/status", response_class=HTMLResponse)
+@router.post(
+    "/{project_ref}/status",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_status_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
     """Quick inline status update for a project."""
     from app.web.admin import get_current_user
@@ -2122,7 +2320,11 @@ async def project_status_update(request: Request, project_ref: str, db: Session 
         return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
 
 
-@router.post("/{project_ref}/priority", response_class=HTMLResponse)
+@router.post(
+    "/{project_ref}/priority",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:update"))],
+)
 async def project_priority_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
     """Quick inline priority update for a project."""
     from app.web.admin import get_current_user
@@ -2158,17 +2360,25 @@ async def project_priority_update(request: Request, project_ref: str, db: Sessio
         return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
 
 
-@router.post("/{project_ref}/delete", response_class=HTMLResponse)
+@router.post(
+    "/{project_ref}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:delete"))],
+)
 def project_delete(request: Request, project_ref: str, db: Session = Depends(get_db)):
     project, _should_redirect = _resolve_project_reference(db, project_ref)
     projects_service.projects.delete(db=db, project_id=str(project.id))
     return RedirectResponse("/admin/projects", status_code=303)
 
 
-@router.get("/tasks/{task_ref}", response_class=HTMLResponse)
+@router.get(
+    "/tasks/{task_ref}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:task:read"))],
+)
 def project_task_detail(request: Request, task_ref: str, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
-    from app.services.crm.inbox.agents import list_active_agents_for_mentions
+    from app.services.agent_mentions import list_active_users_for_mentions
     from app.web.admin import get_current_user, get_sidebar_stats
 
     try:
@@ -2219,14 +2429,18 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
             "comments": comments,
             "activities": activities,
             "csrf_token": get_csrf_token(request),
-            "mention_agents": list_active_agents_for_mentions(db),
+            "mention_agents": list_active_users_for_mentions(db),
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
         },
     )
 
 
-@router.post("/tasks/{task_ref}/comments", response_class=HTMLResponse)
+@router.post(
+    "/tasks/{task_ref}/comments",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:task:write"))],
+)
 async def project_task_comment_create(request: Request, task_ref: str, db: Session = Depends(get_db)):
     from app.web.admin import get_current_user, get_sidebar_stats
 
@@ -2307,7 +2521,11 @@ async def project_task_comment_create(request: Request, task_ref: str, db: Sessi
         return templates.TemplateResponse("admin/errors/500.html", context, status_code=500)
 
 
-@router.get("/tasks/{task_ref}/edit", response_class=HTMLResponse)
+@router.get(
+    "/tasks/{task_ref}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:task:write"))],
+)
 def project_task_edit(request: Request, task_ref: str, db: Session = Depends(get_db)):
     try:
         task, should_redirect = _resolve_project_task_reference(db, task_ref)
@@ -2350,7 +2568,11 @@ def project_task_edit(request: Request, task_ref: str, db: Session = Depends(get
     return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
 
-@router.post("/tasks/{task_ref}/edit", response_class=HTMLResponse)
+@router.post(
+    "/tasks/{task_ref}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:task:write"))],
+)
 async def project_task_update(request: Request, task_ref: str, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = form.getlist("attachments")
@@ -2467,7 +2689,11 @@ async def project_task_update(request: Request, task_ref: str, db: Session = Dep
         return templates.TemplateResponse("admin/projects/project_task_form.html", context)
 
 
-@router.post("/tasks/{task_ref}/delete", response_class=HTMLResponse)
+@router.post(
+    "/tasks/{task_ref}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("project:task:write"))],
+)
 def project_task_delete(request: Request, task_ref: str, db: Session = Depends(get_db)):
     task, _should_redirect = _resolve_project_task_reference(db, task_ref)
     projects_service.project_tasks.delete(db=db, task_id=str(task.id))

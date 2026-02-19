@@ -31,6 +31,7 @@ from app.models.connector import (  # noqa: F401
 from app.models.contracts import ContractSignature  # noqa: F401
 from app.models.crm import (  # noqa: F401
     AgentPresence,
+    AgentPresenceEvent,
     AgentPresenceStatus,
     Campaign,
     CampaignRecipient,
@@ -132,6 +133,7 @@ from app.models.material_request import (  # noqa: F401
 from app.models.network import (  # noqa: F401
     FdhCabinet,
     FiberAccessPoint,
+    FiberAssetMergeLog,
     FiberEndpointType,
     FiberSegment,
     FiberSegmentType,
@@ -173,6 +175,10 @@ from app.models.notification import (  # noqa: F401
     OnCallRotationMember,
 )
 from app.models.oauth_token import OAuthToken  # noqa: F401
+from app.models.organization_membership import (  # noqa: F401
+    OrganizationMembership,
+    OrganizationMembershipRole,
+)
 from app.models.performance import (  # noqa: F401
     AgentPerformanceGoal,
     AgentPerformanceReview,
@@ -263,6 +269,7 @@ from app.models.timecost import (  # noqa: F401
     ExpenseLine,
     WorkLog,
 )
+from app.models.user_filter_preference import UserFilterPreference  # noqa: F401
 from app.models.vendor import (  # noqa: F401
     AsBuiltRoute,
     AsBuiltRouteStatus,

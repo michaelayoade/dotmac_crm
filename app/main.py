@@ -1,5 +1,4 @@
 import secrets
-from datetime import UTC, datetime
 from threading import Lock
 from time import monotonic
 
@@ -11,7 +10,6 @@ from starlette.responses import Response
 
 from app.api.ai import router as ai_router
 from app.api.analytics import router as analytics_router
-from app.api.data_quality import router as data_quality_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.auth_flow import router as auth_flow_router
@@ -21,6 +19,7 @@ from app.api.connectors import router as connectors_router
 from app.api.crm import router as crm_router
 from app.api.crm.widget_public import router as widget_public_router
 from app.api.customers import router as customers_router
+from app.api.data_quality import router as data_quality_router
 from app.api.defaults import router as defaults_router
 from app.api.deps import require_role, require_user_auth
 from app.api.dispatch import router as dispatch_router
@@ -68,7 +67,7 @@ from app.middleware.api_rate_limit import APIRateLimitMiddleware
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.observability import ObservabilityMiddleware
 from app.services import audit as audit_service
-from app.services import settings_spec
+from app.services import branding_state
 from app.services.crm import smtp_inbound as smtp_inbound_service
 from app.services.settings_seed import (
     seed_audit_settings,
@@ -89,7 +88,6 @@ from app.services.settings_seed import (
     seed_workflow_settings,
 )
 from app.telemetry import setup_otel
-from app.services import branding_state
 from app.web import router as web_router
 from app.web_home import router as web_home_router
 from app.websocket.router import router as ws_router
@@ -177,8 +175,8 @@ async def branding_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-# CSRF Protection paths - protect web admin and vendor forms
-_CSRF_PROTECTED_PATHS = ["/admin/", "/web/", "/vendor/"]
+# CSRF Protection paths - protect web admin/vendor/reseller forms
+_CSRF_PROTECTED_PATHS = ["/admin/", "/web/", "/vendor/", "/reseller/"]
 _CSRF_EXEMPT_PATHS = ["/api/", "/auth/", "/health", "/metrics", "/static/"]
 
 
@@ -220,67 +218,26 @@ async def csrf_middleware(request: Request, call_next):
                 status_code=403,
             )
 
-        # Check header first (for HTMX/fetch requests)
-        header_token = request.headers.get(CSRF_HEADER_NAME)
-        if header_token:
-            if not secrets.compare_digest(cookie_token, header_token):
-                from fastapi.responses import HTMLResponse
-
-                return HTMLResponse(
-                    content="<h1>403 Forbidden</h1><p>CSRF token invalid. Please refresh the page and try again.</p>",
-                    status_code=403,
-                )
-        else:
-            # For form submissions, check form data
+        # Check header first (for HTMX/fetch requests), otherwise fall back to form field.
+        request_token = request.headers.get(CSRF_HEADER_NAME)
+        if not request_token:
             content_type = request.headers.get("content-type", "")
             if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
-                # Read body and check token
-                body = await request.body()
-
-                # Parse form data to get CSRF token
-                from urllib.parse import parse_qs
-
                 try:
-                    if "multipart/form-data" in content_type:
-                        # For multipart, we need to handle it differently
-                        # The form data will include _csrf_token field
-                        # Since we can't easily parse multipart here, we'll trust
-                        # that the middleware before us handled it
-                        # For now, we'll check if the field exists in the raw body
-                        form_token = None
-                        if b"_csrf_token" in body:
-                            # Extract token from multipart body (simplified)
-                            import re
-
-                            match = re.search(rb'name="_csrf_token"\r\n\r\n([^\r\n-]+)', body)
-                            if match:
-                                form_token = match.group(1).decode("utf-8")
-                    else:
-                        form_data = parse_qs(body.decode("utf-8"))
-                        form_token = form_data.get("_csrf_token", [None])[0]
-
-                    if form_token and not secrets.compare_digest(cookie_token, form_token):
-                        from fastapi.responses import HTMLResponse
-
-                        return HTMLResponse(
-                            content="<h1>403 Forbidden</h1><p>CSRF token invalid. Please refresh the page and try again.</p>",
-                            status_code=403,
-                        )
+                    form = await request.form()
+                    raw = form.get("_csrf_token")
+                    if isinstance(raw, str):
+                        request_token = raw
                 except Exception:
-                    pass  # If parsing fails, continue (token validation happens elsewhere)
+                    request_token = None
 
-                # Reconstruct request with body for downstream handlers.
-                # Starlette expects a stream; return body once then empty.
-                body_sent = False
+        if not request_token or not secrets.compare_digest(cookie_token, request_token):
+            from fastapi.responses import HTMLResponse
 
-                async def receive():
-                    nonlocal body_sent
-                    if body_sent:
-                        return {"type": "http.request", "body": b"", "more_body": False}
-                    body_sent = True
-                    return {"type": "http.request", "body": body, "more_body": False}
-
-                request = Request(scope=request.scope, receive=receive)
+            return HTMLResponse(
+                content="<h1>403 Forbidden</h1><p>CSRF token invalid. Please refresh the page and try again.</p>",
+                status_code=403,
+            )
 
     response = await call_next(request)
     if response is None:
@@ -465,7 +422,14 @@ async def static_cache_middleware(request: Request, call_next):
     - Images: 1 week cache
     - Other static: 1 day cache
     """
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except RuntimeError as exc:
+        # Starlette can raise this when the client disconnects mid-request.
+        # Return a synthetic response so it does not bubble as an unhandled exception.
+        if str(exc) == "No response returned.":
+            return Response(status_code=499)
+        raise
     if response is None:
         return Response(
             content='{"detail":"No response returned"}',
@@ -532,6 +496,14 @@ def _start_jobs():
     finally:
         db.close()
     smtp_inbound_service.start_smtp_inbound_server()
+
+
+@app.on_event("startup")
+def _ensure_storage():
+    from app.services.storage import storage
+
+    if hasattr(storage, "ensure_bucket"):
+        storage.ensure_bucket()
 
 
 @app.on_event("startup")

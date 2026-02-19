@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,8 @@ from app.schemas.projects import (
 from app.schemas.timecost import CostSummary
 from app.services import projects as projects_service
 from app.services import timecost as timecost_service
+from app.services.auth_dependencies import require_permission
+from app.services.filter_engine import parse_filter_payload_json
 
 router = APIRouter()
 
@@ -24,12 +26,18 @@ router = APIRouter()
     response_model=ProjectRead,
     status_code=status.HTTP_201_CREATED,
     tags=["projects"],
+    dependencies=[Depends(require_permission("project:create"))],
 )
 def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
     return projects_service.projects.create(db, payload)
 
 
-@router.get("/projects", response_model=ListResponse[ProjectRead], tags=["projects"])
+@router.get(
+    "/projects",
+    response_model=ListResponse[ProjectRead],
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def list_projects(
     subscriber_id: str | None = None,
     status: str | None = None,
@@ -40,51 +48,79 @@ def list_projects(
     project_manager_person_id: str | None = None,
     assistant_manager_person_id: str | None = None,
     is_active: bool | None = None,
+    filters: str | None = None,
     order_by: str = Query(default="created_at"),
     order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
+    try:
+        filters_payload = parse_filter_payload_json(filters)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return projects_service.projects.list_response(
         db,
-        subscriber_id,
-        status,
-        project_type,
-        priority,
-        owner_person_id,
-        manager_person_id,
-        project_manager_person_id,
-        assistant_manager_person_id,
-        is_active,
-        order_by,
-        order_dir,
-        limit,
-        offset,
+        subscriber_id=subscriber_id,
+        status=status,
+        project_type=project_type,
+        priority=priority,
+        owner_person_id=owner_person_id,
+        manager_person_id=manager_person_id,
+        project_manager_person_id=project_manager_person_id,
+        assistant_manager_person_id=assistant_manager_person_id,
+        is_active=is_active,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=limit,
+        offset=offset,
+        filters_payload=filters_payload,
     )
 
 
-@router.patch("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
+@router.patch(
+    "/projects/{project_id}",
+    response_model=ProjectRead,
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depends(get_db)):
     return projects_service.projects.update(db, project_id, payload)
 
 
-@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["projects"])
+@router.delete(
+    "/projects/{project_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:delete"))],
+)
 def delete_project(project_id: str, db: Session = Depends(get_db)):
     projects_service.projects.delete(db, project_id)
 
 
-@router.get("/projects/charts/summary", tags=["projects"])
+@router.get(
+    "/projects/charts/summary",
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def projects_chart_summary(db: Session = Depends(get_db)):
     return projects_service.projects.chart_summary(db)
 
 
-@router.get("/projects/kanban", tags=["projects"])
+@router.get(
+    "/projects/kanban",
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def projects_kanban(db: Session = Depends(get_db)):
     return projects_service.projects.kanban_view(db)
 
 
-@router.get("/projects/gantt", tags=["projects"])
+@router.get(
+    "/projects/gantt",
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def projects_gantt(db: Session = Depends(get_db)):
     return projects_service.projects.gantt_view(db)
 
@@ -95,7 +131,11 @@ class ProjectGanttUpdate(BaseModel):
     value: str
 
 
-@router.post("/projects/gantt/due-date", tags=["projects"])
+@router.post(
+    "/projects/gantt/due-date",
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def projects_gantt_due_date(payload: ProjectGanttUpdate, db: Session = Depends(get_db)):
     return projects_service.projects.update_gantt_date(db, payload.id, payload.field, payload.value)
 
@@ -109,12 +149,21 @@ class ProjectKanbanMove(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-@router.post("/projects/kanban/move", tags=["projects"])
+@router.post(
+    "/projects/kanban/move",
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:update"))],
+)
 def projects_kanban_move(payload: ProjectKanbanMove, db: Session = Depends(get_db)):
     return projects_service.projects.update_status(db, payload.id, payload.to)
 
 
-@router.get("/projects/{project_id}", response_model=ProjectRead, tags=["projects"])
+@router.get(
+    "/projects/{project_id}",
+    response_model=ProjectRead,
+    tags=["projects"],
+    dependencies=[Depends(require_permission("project:read"))],
+)
 def get_project(project_id: str, db: Session = Depends(get_db)):
     return projects_service.projects.get(db, project_id)
 
@@ -123,6 +172,7 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
     "/projects/{project_id}/cost-summary",
     response_model=CostSummary,
     tags=["projects"],
+    dependencies=[Depends(require_permission("project:read"))],
 )
 def project_cost_summary(project_id: str, db: Session = Depends(get_db)):
     return timecost_service.project_cost_summary(db, project_id)
@@ -133,6 +183,7 @@ def project_cost_summary(project_id: str, db: Session = Depends(get_db)):
     response_model=ProjectTaskRead,
     status_code=status.HTTP_201_CREATED,
     tags=["project-tasks"],
+    dependencies=[Depends(require_permission("project:task:write"))],
 )
 def create_project_task(payload: ProjectTaskCreate, db: Session = Depends(get_db)):
     return projects_service.project_tasks.create(db, payload)
@@ -142,6 +193,7 @@ def create_project_task(payload: ProjectTaskCreate, db: Session = Depends(get_db
     "/project-tasks/{task_id}",
     response_model=ProjectTaskRead,
     tags=["project-tasks"],
+    dependencies=[Depends(require_permission("project:task:read"))],
 )
 def get_project_task(task_id: str, db: Session = Depends(get_db)):
     return projects_service.project_tasks.get(db, task_id)
@@ -151,6 +203,7 @@ def get_project_task(task_id: str, db: Session = Depends(get_db)):
     "/project-tasks",
     response_model=ListResponse[ProjectTaskRead],
     tags=["project-tasks"],
+    dependencies=[Depends(require_permission("project:task:read"))],
 )
 def list_project_tasks(
     project_id: str | None = None,
@@ -159,24 +212,30 @@ def list_project_tasks(
     assigned_to_person_id: str | None = None,
     parent_task_id: str | None = None,
     is_active: bool | None = None,
+    filters: str | None = None,
     order_by: str = Query(default="created_at"),
     order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
+    try:
+        filters_payload = parse_filter_payload_json(filters)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return projects_service.project_tasks.list_response(
         db,
-        project_id,
-        status,
-        priority,
-        assigned_to_person_id,
-        parent_task_id,
-        is_active,
-        order_by,
-        order_dir,
-        limit,
-        offset,
+        project_id=project_id,
+        status=status,
+        priority=priority,
+        assigned_to_person_id=assigned_to_person_id,
+        parent_task_id=parent_task_id,
+        is_active=is_active,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=limit,
+        offset=offset,
+        filters_payload=filters_payload,
     )
 
 
@@ -184,6 +243,7 @@ def list_project_tasks(
     "/project-tasks/{task_id}",
     response_model=ProjectTaskRead,
     tags=["project-tasks"],
+    dependencies=[Depends(require_permission("project:task:write"))],
 )
 def update_project_task(task_id: str, payload: ProjectTaskUpdate, db: Session = Depends(get_db)):
     return projects_service.project_tasks.update(db, task_id, payload)
@@ -193,6 +253,7 @@ def update_project_task(task_id: str, payload: ProjectTaskUpdate, db: Session = 
     "/project-tasks/{task_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["project-tasks"],
+    dependencies=[Depends(require_permission("project:task:write"))],
 )
 def delete_project_task(task_id: str, db: Session = Depends(get_db)):
     projects_service.project_tasks.delete(db, task_id)

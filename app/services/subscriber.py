@@ -10,21 +10,20 @@ from __future__ import annotations
 import builtins
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.services.common import apply_ordering
-
 from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
-from app.models.subscriber import AccountType, Organization, Subscriber, SubscriberStatus
+from app.models.subscriber import Organization, Subscriber, SubscriberStatus
+from app.services.common import apply_ordering
 
 
 class SubscriberManager:
     """Manager for subscriber operations."""
 
-    _ordering_fields = {
+    _ordering_fields: ClassVar[dict[str, Any]] = {
         "created_at": Subscriber.created_at,
         "updated_at": Subscriber.updated_at,
         "subscriber_number": Subscriber.subscriber_number,
@@ -578,132 +577,21 @@ class SubscriberManager:
 
         for person in people_to_check.values():
             metadata = dict(person.metadata_ or {})
-            should_be_reseller = person.id in reseller_person_ids
+            override_reseller = bool(metadata.get("reseller_override"))
+            should_be_reseller = override_reseller or (person.id in reseller_person_ids)
             is_reseller = bool(metadata.get("is_reseller"))
             if should_be_reseller and not is_reseller:
                 metadata["is_reseller"] = True
                 person.metadata_ = metadata
                 results["flagged_people_as_reseller"] += 1
-            elif not should_be_reseller and is_reseller:
+            elif not should_be_reseller and is_reseller and not override_reseller:
                 metadata.pop("is_reseller", None)
                 person.metadata_ = metadata or None
                 results["unflagged_people_as_reseller"] += 1
 
-        # Ensure reseller contacts are attached to reseller organizations per cluster.
-        all_cluster_org_ids = {
-            person.organization_id
-            for person in people_to_check.values()
-            if person.id in reseller_person_ids and person.organization_id
-        }
-        org_by_id: dict[uuid.UUID, Organization] = {}
-        org_member_counts: dict[uuid.UUID, int] = {}
-        if all_cluster_org_ids:
-            org_by_id = {
-                org.id: org for org in db.query(Organization).filter(Organization.id.in_(all_cluster_org_ids)).all()
-            }
-            org_member_counts = {
-                org_id: int(count)
-                for org_id, count in (
-                    db.query(Person.organization_id, func.count(Person.id))
-                    .filter(Person.organization_id.in_(all_cluster_org_ids))
-                    .group_by(Person.organization_id)
-                    .all()
-                )
-                if org_id
-            }
-
-        def is_transient_single_person_org(org: Organization, owner: Person) -> bool:
-            member_count = org_member_counts.get(org.id, 0)
-            if member_count != 1:
-                return False
-            if org.account_type != AccountType.reseller:
-                return False
-            if org.erp_id or org.domain or org.website or org.legal_name or org.tax_id:
-                return False
-            display_name = (owner.display_name or f"{owner.first_name or ''} {owner.last_name or ''}".strip()).strip()
-            return org.name == display_name or org.name == owner.email or org.name.startswith("Reseller ")
-
-        for root, member_ids in cluster_members.items():
-            raw_members = [people_to_check.get(person_id) for person_id in member_ids]
-            members: list[Person] = [person for person in raw_members if person is not None]
-            if not members:
-                continue
-
-            org_usage: dict[uuid.UUID, int] = {}
-            for person in members:
-                if person.organization_id:
-                    org_usage[person.organization_id] = org_usage.get(person.organization_id, 0) + 1
-
-            preferred_org: Organization | None = None
-            if org_usage:
-                ranked_org_ids = sorted(
-                    org_usage.items(),
-                    key=lambda item: (
-                        1 if org_by_id.get(item[0]) and org_by_id[item[0]].account_type == AccountType.reseller else 0,
-                        item[1],
-                    ),
-                    reverse=True,
-                )
-                preferred_org = org_by_id.get(ranked_org_ids[0][0])
-
-            if not preferred_org:
-                primary_key = ""
-                key_candidates = cluster_keys.get(root, [])
-                if key_candidates:
-                    primary_key = sorted(
-                        key_candidates,
-                        key=lambda key: (key.startswith("email:"), len(reseller_contact_groups.get(key, set()))),
-                        reverse=True,
-                    )[0]
-                org_name = f"Reseller {primary_key.split(':', 1)[1]}" if primary_key else f"Reseller {str(root)[:8]}"
-                preferred_org = Organization(
-                    name=org_name[:160],
-                    account_type=AccountType.reseller,
-                    is_active=True,
-                    metadata_={"auto_created_by": "subscriber_reconcile", "reseller_key": primary_key or None},
-                )
-                db.add(preferred_org)
-                db.flush()
-                org_by_id[preferred_org.id] = preferred_org
-                org_member_counts[preferred_org.id] = 0
-                results["created_reseller_orgs"] += 1
-
-            if preferred_org.account_type != AccountType.reseller:
-                preferred_org.account_type = AccountType.reseller
-                results["promoted_orgs_to_reseller"] += 1
-
-            for person in members:
-                if person.organization_id == preferred_org.id:
-                    continue
-                if person.organization_id is None:
-                    person.organization_id = preferred_org.id
-                    results["linked_people_to_reseller_org"] += 1
-                    org_member_counts[preferred_org.id] = org_member_counts.get(preferred_org.id, 0) + 1
-                    continue
-
-                current_org = org_by_id.get(person.organization_id)
-                if current_org and is_transient_single_person_org(current_org, person):
-                    person.organization_id = preferred_org.id
-                    results["linked_people_to_reseller_org"] += 1
-                    org_member_counts[current_org.id] = max(0, org_member_counts.get(current_org.id, 1) - 1)
-                    org_member_counts[preferred_org.id] = org_member_counts.get(preferred_org.id, 0) + 1
-
-        orphan_reseller_orgs = (
-            db.query(Organization)
-            .outerjoin(Person, Person.organization_id == Organization.id)
-            .filter(Organization.account_type == AccountType.reseller)
-            .group_by(Organization.id)
-            .having(func.count(Person.id) == 0)
-            .all()
-        )
-        for org in orphan_reseller_orgs:
-            metadata = dict(org.metadata_ or {})
-            auto_created = metadata.get("auto_created_by") == "subscriber_reconcile"
-            lightweight = not (org.erp_id or org.domain or org.website or org.legal_name or org.tax_id)
-            if auto_created or lightweight:
-                org.is_active = False
-                org.account_type = AccountType.other
-                results["deactivated_empty_reseller_orgs"] += 1
+        # Controlled reseller model:
+        # We may still flag `Person.metadata_.is_reseller` via inference for legacy/organic detection,
+        # but we do not create/promote reseller organizations or re-parent people here.
 
         if subscriber_person_ids:
             linked_people = db.query(Person).filter(Person.id.in_(subscriber_person_ids)).all()
