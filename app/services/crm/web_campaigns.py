@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import CampaignChannel, CampaignType
 from app.models.person import Person
-from app.schemas.crm.campaign import CampaignCreate, CampaignUpdate
+from app.schemas.crm.campaign import CampaignCreate, CampaignStepCreate, CampaignStepUpdate, CampaignUpdate
 from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
 from app.services.crm.campaigns import Campaigns
@@ -344,3 +344,43 @@ def campaign_whatsapp_templates_payload(db: Session, *, connector_id: str | None
 
     approved = [template for template in templates_payload if str(template.get("status", "")).lower() == "approved"]
     return {"templates": approved}, 200
+
+
+def build_campaign_step_create_payload(
+    *,
+    campaign_id: str,
+    name: str,
+    subject: str,
+    body_html: str,
+    body_text: str,
+    delay_days: int,
+    step_index: int,
+) -> CampaignStepCreate:
+    return CampaignStepCreate(
+        campaign_id=UUID(campaign_id),
+        step_index=step_index,
+        name=_form_str_opt(name),
+        subject=_form_str_opt(subject),
+        body_html=_form_str_opt(body_html),
+        body_text=_form_str_opt(body_text),
+        delay_days=delay_days,
+    )
+
+
+def build_campaign_step_update_payload(
+    *,
+    name: str,
+    subject: str,
+    body_html: str,
+    body_text: str,
+    delay_days: int,
+    step_index: int,
+) -> CampaignStepUpdate:
+    return CampaignStepUpdate(
+        step_index=step_index,
+        name=_form_str_opt(name),
+        subject=_form_str_opt(subject),
+        body_html=_form_str_opt(body_html),
+        body_text=_form_str_opt(body_text),
+        delay_days=delay_days,
+    )
