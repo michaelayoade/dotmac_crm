@@ -15,7 +15,7 @@ from typing import Any, Literal
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -84,6 +84,7 @@ from app.web.admin.crm_inbox_conversations import router as crm_inbox_conversati
 from app.web.admin.crm_inbox_message import router as crm_inbox_message_router
 from app.web.admin.crm_inbox_private_notes import router as crm_inbox_private_notes_router
 from app.web.admin.crm_inbox_settings import router as crm_inbox_settings_router
+from app.web.admin.crm_inbox_start import router as crm_inbox_start_router
 from app.web.admin.crm_inbox_status import router as crm_inbox_status_router
 from app.web.admin.crm_presence import router as crm_presence_router
 
@@ -709,6 +710,7 @@ router.include_router(crm_inbox_conversations_router)
 router.include_router(crm_inbox_actions_core_router)
 router.include_router(crm_inbox_message_router)
 router.include_router(crm_inbox_private_notes_router)
+router.include_router(crm_inbox_start_router)
 router.include_router(crm_inbox_status_router)
 
 
@@ -760,78 +762,6 @@ async def inbox(
             "request": request,
             **context,
         },
-    )
-
-
-@router.post("/inbox/conversation/new", response_class=HTMLResponse)
-async def start_new_conversation(
-    request: Request,
-    channel_type: str = Form(...),
-    channel_target_id: str | None = Form(None),
-    contact_id: str | None = Form(None),
-    contact_address: str = Form(...),
-    contact_name: str | None = Form(None),
-    cc_addresses: str | None = Form(None),
-    subject: str | None = Form(None),
-    message: str | None = Form(None),
-    attachments: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | None = File(None),
-    whatsapp_template_name: str | None = Form(None),
-    whatsapp_template_language: str | None = Form(None),
-    whatsapp_template_components: str | None = Form(None),
-    db: Session = Depends(get_db),
-):
-    """Start a new outbound conversation."""
-    from app.services.crm.conversations import message_attachments as message_attachment_service
-    from app.services.crm.inbox.admin_ui import start_new_conversation
-    from app.web.admin import get_current_user
-
-    current_user = get_current_user(request)
-    attachments_payload: list[dict] | None = None
-    try:
-        prepared = await message_attachment_service.prepare(attachments)
-        saved = message_attachment_service.save(prepared)
-        attachments_payload = saved or None
-    except Exception as exc:
-        detail = quote(str(getattr(exc, "detail", None) or str(exc) or "Attachment upload failed"), safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox?new_error=1&new_error_detail={detail}",
-            status_code=303,
-        )
-
-    result = start_new_conversation(
-        db,
-        channel_type=channel_type,
-        channel_target_id=channel_target_id,
-        contact_id=contact_id,
-        contact_address=contact_address,
-        contact_name=contact_name,
-        cc_addresses_raw=cc_addresses,
-        subject=subject,
-        message_text=message,
-        attachments_payload=attachments_payload,
-        whatsapp_template_name=whatsapp_template_name,
-        whatsapp_template_language=whatsapp_template_language,
-        whatsapp_template_components=whatsapp_template_components,
-        author_person_id=current_user.get("person_id") if current_user else None,
-        roles=_get_current_roles(request),
-        scopes=_get_current_scopes(request),
-    )
-
-    if result.kind == "forbidden":
-        return HTMLResponse(
-            "<div class='p-6 text-center text-slate-500'>Forbidden</div>",
-            status_code=403,
-        )
-    if result.kind != "success":
-        detail = quote(result.error_detail or "Failed to send message", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox?new_error=1&new_error_detail={detail}",
-            status_code=303,
-        )
-
-    return RedirectResponse(
-        url=f"/admin/crm/inbox?conversation_id={result.conversation_id}",
-        status_code=303,
     )
 
 
