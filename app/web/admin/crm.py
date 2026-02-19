@@ -82,6 +82,7 @@ from app.services.crm.inbox.page_context import build_inbox_page_context
 from app.services.person import InvalidTransitionError, People
 from app.services.settings_spec import resolve_value
 from app.services.subscriber import subscriber as subscriber_service
+from app.web.admin.crm_inbox_comments import router as crm_inbox_comments_router
 from app.web.admin.crm_inbox_settings import router as crm_inbox_settings_router
 from app.web.admin.crm_presence import router as crm_presence_router
 
@@ -694,6 +695,7 @@ def _can_write_sales(request: Request) -> bool:
 
 router.include_router(crm_presence_router)
 router.include_router(crm_inbox_settings_router)
+router.include_router(crm_inbox_comments_router)
 
 
 @router.get("/inbox", response_class=HTMLResponse)
@@ -743,83 +745,6 @@ async def inbox(
         {
             "request": request,
             **context,
-        },
-    )
-
-
-@router.get("/inbox/comments/list", response_class=HTMLResponse)
-async def inbox_comments_list(
-    request: Request,
-    db: Session = Depends(get_db),
-    search: str | None = None,
-    comment_id: str | None = None,
-    target_id: str | None = None,
-    offset: int | None = None,
-    limit: int | None = None,
-    page: int | None = None,
-):
-    from app.services.crm.inbox.comments_context import load_comments_context
-
-    safe_limit = max(int(limit or 150), 1)
-    safe_page = max(int(page or 1), 1)
-    safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
-    context = await load_comments_context(
-        db,
-        search=search,
-        comment_id=comment_id,
-        offset=safe_offset,
-        limit=safe_limit,
-        fetch=True,
-        target_id=target_id,
-        include_thread=False,
-    )
-    template_name = "admin/crm/_comment_list_page.html" if safe_offset > 0 else "admin/crm/_comment_list.html"
-    return templates.TemplateResponse(
-        template_name,
-        {
-            "request": request,
-            "comments": context.grouped_comments,
-            "selected_comment": context.selected_comment,
-            "selected_comment_id": (
-                str(getattr(context.selected_comment, "id", None))
-                if getattr(context.selected_comment, "id", None) is not None
-                else None
-            ),
-            "search": search,
-            "current_target_id": target_id,
-            "comments_has_more": context.has_more,
-            "comments_next_offset": context.next_offset,
-            "comments_limit": context.limit,
-            "comments_page": (safe_offset // safe_limit) + 1,
-            "comments_prev_page": (safe_page - 1) if safe_page > 1 else None,
-            "comments_next_page": (safe_page + 1) if context.has_more else None,
-        },
-    )
-
-
-@router.get("/inbox/comments/thread", response_class=HTMLResponse)
-async def inbox_comments_thread(
-    request: Request,
-    db: Session = Depends(get_db),
-    search: str | None = None,
-    comment_id: str | None = None,
-    target_id: str | None = None,
-):
-    from app.services.crm.inbox.comments_context import load_comments_context
-
-    context = await load_comments_context(
-        db,
-        search=search,
-        comment_id=comment_id,
-        fetch=False,
-        target_id=target_id,
-    )
-    return templates.TemplateResponse(
-        "admin/crm/_comment_thread.html",
-        {
-            "request": request,
-            "selected_comment": context.selected_comment,
-            "comment_replies": context.comment_replies,
         },
     )
 
