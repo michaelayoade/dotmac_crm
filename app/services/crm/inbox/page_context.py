@@ -6,12 +6,17 @@ import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.logic import private_note_logic
 from app.models.connector import ConnectorType
+from app.models.crm.conversation import Conversation, Message
+from app.models.crm.enums import ChannelType
 from app.models.domain_settings import SettingDomain
 from app.services import crm as crm_service
+from app.services.common import coerce_uuid
+from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox.agents import get_current_agent_id
 from app.services.crm.inbox.comments_context import list_comment_inboxes, load_comments_context
@@ -19,6 +24,7 @@ from app.services.crm.inbox.dashboard import load_inbox_stats
 from app.services.crm.inbox.formatting import (
     format_contact_for_template,
     format_conversation_for_template,
+    format_message_for_template,
 )
 from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel_targets
 from app.services.crm.inbox.listing import load_inbox_list
@@ -323,3 +329,51 @@ async def build_inbox_conversations_partial_context(
         "conversations_next_page": (safe_page + 1) if listing.has_more else None,
     }
     return template_name, context
+
+
+def build_inbox_contact_detail_context(
+    db: Session,
+    *,
+    contact_id: str,
+    conversation_id: str | None = None,
+) -> dict | None:
+    try:
+        contact_service.Contacts.get(db, contact_id)
+        contact = contact_service.get_person_with_relationships(db, contact_id)
+    except Exception:
+        return None
+    if not contact:
+        return None
+
+    contact_details = format_contact_for_template(contact, db)
+    private_notes: list[dict] = []
+    notes_query = (
+        db.query(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(Conversation.person_id == coerce_uuid(contact_id))
+        .filter(Message.channel_type == ChannelType.note)
+        .order_by(
+            func.coalesce(
+                Message.received_at,
+                Message.sent_at,
+                Message.created_at,
+            ).desc()
+        )
+        .limit(10)
+        .all()
+    )
+    for note in notes_query:
+        payload = format_message_for_template(note, db)
+        if payload.get("is_private_note"):
+            private_notes.append(payload)
+        if len(private_notes) >= 5:
+            break
+    assignment_options = crm_service.get_agent_team_options(db)
+    return {
+        "contact": contact_details,
+        "conversation_id": conversation_id,
+        "agents": assignment_options.get("agents"),
+        "teams": assignment_options.get("teams"),
+        "agent_labels": assignment_options.get("agent_labels"),
+        "private_notes": private_notes,
+    }
