@@ -14,9 +14,6 @@ from app.models.crm.sales import Pipeline, PipelineStage
 from app.models.person import PartyStatus
 from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
 from app.services.crm.campaigns import (
-    Campaigns,
-)
-from app.services.crm.campaigns import (
     campaign_steps as steps_service,
 )
 from app.services.crm.campaigns import (
@@ -30,6 +27,7 @@ from app.services.crm.web_campaigns import (
     build_campaign_step_update_payload,
     build_campaign_update_payload,
     campaign_detail_page_data,
+    campaign_list_page_data,
     campaign_preview_audience_data,
     campaign_recipients_table_data,
     campaign_steps_page_data,
@@ -169,21 +167,16 @@ def campaign_list(
 ):
     if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    if order_by not in {"created_at", "updated_at", "name"}:
-        order_by = "created_at"
-    if order_dir not in {"asc", "desc"}:
-        order_dir = "desc"
-    items = campaigns_service.list(db, status=status, search=search, order_by=order_by, order_dir=order_dir)
-    status_counts = Campaigns.count_by_status(db)
     ctx = _base_ctx(
         request,
         db,
-        campaigns=items,
-        status_counts=status_counts,
-        filter_status=status or "",
-        search=search or "",
-        order_by=order_by,
-        order_dir=order_dir,
+        **campaign_list_page_data(
+            db,
+            status=status,
+            search=search,
+            order_by=order_by,
+            order_dir=order_dir,
+        ),
     )
     return templates.TemplateResponse("admin/crm/campaigns.html", ctx)
 
