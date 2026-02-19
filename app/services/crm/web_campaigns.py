@@ -300,3 +300,21 @@ def campaign_detail_page_data(db: Session, *, campaign_id: str) -> dict:
         "person_map": person_map,
         "steps": steps,
     }
+
+
+def campaign_recipients_table_data(
+    db: Session,
+    *,
+    campaign_id: str,
+    status: str | None,
+    offset: int,
+) -> dict:
+    recipients = recipients_service.list(db, campaign_id, status=status, limit=50, offset=offset)
+    person_ids = [recipient.person_id for recipient in recipients]
+    persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+    person_map = {str(person.id): person for person in persons}
+    return {
+        "recipients": recipients,
+        "person_map": person_map,
+        "campaign_id": campaign_id,
+    }

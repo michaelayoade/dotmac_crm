@@ -12,7 +12,7 @@ from app.db import SessionLocal
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import CampaignChannel, CampaignType
 from app.models.crm.sales import Pipeline, PipelineStage
-from app.models.person import PartyStatus, Person
+from app.models.person import PartyStatus
 from app.schemas.crm.campaign import (
     CampaignStepCreate,
     CampaignStepUpdate,
@@ -20,9 +20,6 @@ from app.schemas.crm.campaign import (
 from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
 from app.services.crm.campaigns import (
     Campaigns,
-)
-from app.services.crm.campaigns import (
-    campaign_recipients as recipients_service,
 )
 from app.services.crm.campaigns import (
     campaign_steps as steps_service,
@@ -36,6 +33,7 @@ from app.services.crm.web_campaigns import (
     build_campaign_form_stub,
     build_campaign_update_payload,
     campaign_detail_page_data,
+    campaign_recipients_table_data,
     resolve_campaign_upsert,
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
@@ -563,16 +561,15 @@ def campaign_recipients_table(
 ):
     if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    recipients = recipients_service.list(db, campaign_id, status=status, limit=50, offset=offset)
-    person_ids = [r.person_id for r in recipients]
-    persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
-    person_map = {str(p.id): p for p in persons}
     ctx = _base_ctx(
         request,
         db,
-        recipients=recipients,
-        person_map=person_map,
-        campaign_id=campaign_id,
+        **campaign_recipients_table_data(
+            db,
+            campaign_id=campaign_id,
+            status=status,
+            offset=offset,
+        ),
     )
     return templates.TemplateResponse("admin/crm/_campaign_recipients_table.html", ctx)
 
