@@ -1,8 +1,6 @@
 """Admin campaign management web routes."""
 
-import json
 from datetime import datetime
-from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -13,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import CampaignChannel, CampaignType
+from app.models.crm.sales import Pipeline, PipelineStage
 from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import (
     CampaignCreate,
@@ -20,8 +19,7 @@ from app.schemas.crm.campaign import (
     CampaignStepUpdate,
     CampaignUpdate,
 )
-from app.services.crm.campaign_senders import campaign_senders
-from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
+from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
 from app.services.crm.campaigns import (
     Campaigns,
 )
@@ -33,6 +31,13 @@ from app.services.crm.campaigns import (
 )
 from app.services.crm.campaigns import (
     campaigns as campaigns_service,
+)
+from app.services.crm.web_campaigns import (
+    CampaignUpsertInput,
+    build_campaign_create_payload,
+    build_campaign_form_stub,
+    build_campaign_update_payload,
+    resolve_campaign_upsert,
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.admin.crm import REGION_OPTIONS
@@ -67,29 +72,9 @@ def _parse_datetime_opt(value: str | None) -> datetime | None:
         return None
 
 
-def _build_segment_filter(
-    party_statuses: list[str],
-    regions: list[str],
-    active_status: str | None,
-    created_after: str | None,
-    created_before: str | None,
-) -> dict | None:
-    """Build segment_filter dict from form fields, returning None if empty."""
-    sf: dict = {}
-    if party_statuses:
-        sf["party_status"] = [s for s in party_statuses if s]
-    if regions:
-        sf["regions"] = [r for r in regions if r]
-    if active_status and active_status.strip():
-        sf["active_status"] = active_status.strip()
-    if created_after and created_after.strip():
-        sf["created_after"] = created_after.strip()
-    if created_before and created_before.strip():
-        sf["created_before"] = created_before.strip()
-    return sf or None
-
-
 def _load_campaign_senders(db: Session):
+    from app.services.crm.campaign_senders import campaign_senders
+
     return campaign_senders.list(
         db=db,
         is_active=None,
@@ -101,6 +86,8 @@ def _load_campaign_senders(db: Session):
 
 
 def _load_campaign_smtp_profiles(db: Session):
+    from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
+
     return campaign_smtp_configs.list(
         db=db,
         is_active=None,
@@ -121,6 +108,22 @@ def _load_whatsapp_connectors(db: Session):
     )
 
 
+def _load_active_pipelines(db: Session):
+    return db.query(Pipeline).filter(Pipeline.is_active.is_(True)).order_by(Pipeline.name.asc()).limit(200).all()
+
+
+def _load_active_pipeline_stages(db: Session):
+    return (
+        db.query(PipelineStage)
+        .join(Pipeline, PipelineStage.pipeline_id == Pipeline.id)
+        .filter(PipelineStage.is_active.is_(True))
+        .filter(Pipeline.is_active.is_(True))
+        .order_by(Pipeline.name.asc(), PipelineStage.order_index.asc(), PipelineStage.name.asc())
+        .limit(500)
+        .all()
+    )
+
+
 def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
     current_user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
@@ -131,6 +134,28 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
         "active_page": "campaigns",
         **kwargs,
     }
+
+
+def _get_current_roles(request: Request) -> list[str]:
+    auth = getattr(request.state, "auth", None)
+    if isinstance(auth, dict):
+        roles = auth.get("roles") or []
+        if isinstance(roles, list):
+            return [str(role) for role in roles]
+    return []
+
+
+def _get_current_scopes(request: Request) -> list[str]:
+    auth = getattr(request.state, "auth", None)
+    if isinstance(auth, dict):
+        scopes = auth.get("scopes") or []
+        if isinstance(scopes, list):
+            return [str(scope) for scope in scopes]
+    return []
+
+
+def _forbidden_html() -> HTMLResponse:
+    return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
 
 
 # ── List ──────────────────────────────────────────────────────────────────────
@@ -145,6 +170,8 @@ def campaign_list(
     order_by: str = Query("created_at"),
     order_dir: str = Query("desc"),
 ):
+    if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     if order_by not in {"created_at", "updated_at", "name"}:
         order_by = "created_at"
     if order_dir not in {"asc", "desc"}:
@@ -169,6 +196,8 @@ def campaign_list(
 
 @router.get("/new", response_class=HTMLResponse)
 def campaign_create_form(request: Request, db: Session = Depends(_get_db)):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     ctx = _base_ctx(
         request,
         db,
@@ -177,6 +206,8 @@ def campaign_create_form(request: Request, db: Session = Depends(_get_db)):
         campaign_channels=CampaignChannel,
         party_statuses=PartyStatus,
         region_options=REGION_OPTIONS,
+        pipelines=_load_active_pipelines(db),
+        pipeline_stages=_load_active_pipeline_stages(db),
         campaign_senders=_load_campaign_senders(db),
         campaign_smtp_profiles=_load_campaign_smtp_profiles(db),
         whatsapp_connectors=_load_whatsapp_connectors(db),
@@ -200,6 +231,8 @@ def campaign_create(
     whatsapp_connector_id: str = Form(""),
     seg_party_status: list[str] = Form([]),
     seg_regions: list[str] = Form([]),
+    seg_pipeline_ids: list[str] = Form([]),
+    seg_stage_ids: list[str] = Form([]),
     seg_active_status: str = Form("active"),
     seg_created_after: str = Form(""),
     seg_created_before: str = Form(""),
@@ -207,101 +240,41 @@ def campaign_create(
     whatsapp_template_language: str = Form(""),
     whatsapp_template_components: str = Form(""),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     current_user = get_current_user(request)
     created_by_id = current_user.get("person_id") if current_user else None
-
-    try:
-        ct = CampaignType(campaign_type)
-    except ValueError:
-        ct = CampaignType.one_time
-    try:
-        selected_channel = CampaignChannel(channel)
-    except ValueError:
-        selected_channel = CampaignChannel.email
-
-    segment_filter = _build_segment_filter(
-        seg_party_status,
-        seg_regions,
-        seg_active_status,
-        seg_created_after,
-        seg_created_before,
+    resolved = resolve_campaign_upsert(
+        db,
+        form=CampaignUpsertInput(
+            campaign_type=campaign_type,
+            channel=channel,
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            campaign_sender_id=campaign_sender_id,
+            campaign_smtp_config_id=campaign_smtp_config_id,
+            whatsapp_connector_id=whatsapp_connector_id,
+            seg_party_status=seg_party_status,
+            seg_regions=seg_regions,
+            seg_pipeline_ids=seg_pipeline_ids,
+            seg_stage_ids=seg_stage_ids,
+            seg_active_status=seg_active_status,
+            seg_created_after=seg_created_after,
+            seg_created_before=seg_created_before,
+            whatsapp_template_name=whatsapp_template_name,
+            whatsapp_template_language=whatsapp_template_language,
+            whatsapp_template_components=whatsapp_template_components,
+        ),
     )
-
-    # Parse WhatsApp template components JSON
-    wa_template_name = _form_str_opt(whatsapp_template_name)
-    wa_template_lang = _form_str_opt(whatsapp_template_language)
-    wa_template_components: dict | None = None
-    if whatsapp_template_components.strip():
-        try:
-            wa_template_components = json.loads(whatsapp_template_components)
-        except (json.JSONDecodeError, TypeError):
-            wa_template_components = None
-
-    errors: list[str] = []
-    sender = None
-    sender_id_value = campaign_sender_id.strip()
-    smtp_profile = None
-    smtp_id_value = campaign_smtp_config_id.strip()
-    whatsapp_connector = None
-    whatsapp_connector_id_value = whatsapp_connector_id.strip()
-
-    if selected_channel == CampaignChannel.email:
-        if sender_id_value:
-            try:
-                sender = campaign_senders.get(db, sender_id_value)
-            except HTTPException as exc:
-                errors.append(str(exc.detail))
-        else:
-            errors.append("Campaign sender is required.")
-
-        if sender and not sender.is_active:
-            errors.append("Selected campaign sender is inactive.")
-
-        if smtp_id_value:
-            try:
-                smtp_profile = campaign_smtp_configs.get(db, smtp_id_value)
-            except HTTPException as exc:
-                errors.append(str(exc.detail))
-        else:
-            errors.append("Campaign SMTP profile is required.")
-
-        if smtp_profile and not smtp_profile.is_active:
-            errors.append("Selected campaign SMTP profile is inactive.")
-    else:
-        if whatsapp_connector_id_value:
-            try:
-                whatsapp_connector = db.get(ConnectorConfig, UUID(whatsapp_connector_id_value))
-            except ValueError:
-                errors.append("Invalid WhatsApp connector.")
-                whatsapp_connector = None
-            if not whatsapp_connector and "Invalid WhatsApp connector." not in errors:
-                errors.append("WhatsApp connector not found.")
-            elif whatsapp_connector and whatsapp_connector.connector_type != ConnectorType.whatsapp:
-                errors.append("Selected connector is not a WhatsApp connector.")
-            elif whatsapp_connector and not whatsapp_connector.is_active:
-                errors.append("Selected WhatsApp connector is inactive.")
-        else:
-            errors.append("WhatsApp connector is required.")
-
-    if errors:
-        campaign_stub = SimpleNamespace(
-            id=None,
+    if resolved.errors:
+        campaign_stub = build_campaign_form_stub(
+            campaign_id=None,
             name=name,
-            campaign_type=ct,
-            channel=selected_channel,
-            subject=subject or None,
-            body_html=body_html or None,
-            body_text=body_text or None,
-            from_name=None,
-            from_email=None,
-            reply_to=None,
-            segment_filter=segment_filter,
-            campaign_sender_id=sender_id_value or None,
-            campaign_smtp_config_id=smtp_id_value or None,
-            connector_config_id=whatsapp_connector_id_value or None,
-            whatsapp_template_name=wa_template_name,
-            whatsapp_template_language=wa_template_lang,
-            whatsapp_template_components=wa_template_components,
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            resolved=resolved,
         )
         ctx = _base_ctx(
             request,
@@ -311,32 +284,20 @@ def campaign_create(
             campaign_channels=CampaignChannel,
             party_statuses=PartyStatus,
             region_options=REGION_OPTIONS,
+            pipelines=_load_active_pipelines(db),
+            pipeline_stages=_load_active_pipeline_stages(db),
             campaign_senders=_load_campaign_senders(db),
             campaign_smtp_profiles=_load_campaign_smtp_profiles(db),
             whatsapp_connectors=_load_whatsapp_connectors(db),
-            errors=errors,
+            errors=resolved.errors,
         )
         return templates.TemplateResponse("admin/crm/campaign_form.html", ctx, status_code=400)
-
-    payload = CampaignCreate(
+    payload = build_campaign_create_payload(
         name=name,
-        campaign_type=ct,
-        channel=selected_channel,
-        subject=_form_str_opt(subject),
-        body_html=_form_str_opt(body_html),
-        body_text=_form_str_opt(body_text),
-        campaign_sender_id=sender.id if selected_channel == CampaignChannel.email and sender else None,
-        campaign_smtp_config_id=smtp_profile.id if selected_channel == CampaignChannel.email and smtp_profile else None,
-        connector_config_id=whatsapp_connector.id
-        if selected_channel == CampaignChannel.whatsapp and whatsapp_connector
-        else None,
-        from_name=sender.from_name if selected_channel == CampaignChannel.email and sender else None,
-        from_email=sender.from_email if selected_channel == CampaignChannel.email and sender else None,
-        reply_to=sender.reply_to if selected_channel == CampaignChannel.email and sender else None,
-        whatsapp_template_name=wa_template_name if selected_channel == CampaignChannel.whatsapp else None,
-        whatsapp_template_language=wa_template_lang if selected_channel == CampaignChannel.whatsapp else None,
-        whatsapp_template_components=wa_template_components if selected_channel == CampaignChannel.whatsapp else None,
-        segment_filter=segment_filter,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
+        resolved=resolved,
     )
     campaign = campaigns_service.create(db, payload, created_by_id=created_by_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
@@ -351,6 +312,8 @@ def campaign_detail(
     campaign_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     campaign = campaigns_service.get(db, campaign_id)
     stats = Campaigns.analytics(db, campaign_id)
     recipients = recipients_service.list(db, campaign_id, limit=20, offset=0)
@@ -383,6 +346,8 @@ def campaign_edit_form(
     campaign_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     campaign = campaigns_service.get(db, campaign_id)
     ctx = _base_ctx(
         request,
@@ -392,6 +357,8 @@ def campaign_edit_form(
         campaign_channels=CampaignChannel,
         party_statuses=PartyStatus,
         region_options=REGION_OPTIONS,
+        pipelines=_load_active_pipelines(db),
+        pipeline_stages=_load_active_pipeline_stages(db),
         campaign_senders=_load_campaign_senders(db),
         campaign_smtp_profiles=_load_campaign_smtp_profiles(db),
         whatsapp_connectors=_load_whatsapp_connectors(db),
@@ -416,6 +383,8 @@ def campaign_update(
     whatsapp_connector_id: str = Form(""),
     seg_party_status: list[str] = Form([]),
     seg_regions: list[str] = Form([]),
+    seg_pipeline_ids: list[str] = Form([]),
+    seg_stage_ids: list[str] = Form([]),
     seg_active_status: str = Form("active"),
     seg_created_after: str = Form(""),
     seg_created_before: str = Form(""),
@@ -423,98 +392,39 @@ def campaign_update(
     whatsapp_template_language: str = Form(""),
     whatsapp_template_components: str = Form(""),
 ):
-    try:
-        ct = CampaignType(campaign_type)
-    except ValueError:
-        ct = CampaignType.one_time
-    try:
-        selected_channel = CampaignChannel(channel)
-    except ValueError:
-        selected_channel = CampaignChannel.email
-
-    segment_filter = _build_segment_filter(
-        seg_party_status,
-        seg_regions,
-        seg_active_status,
-        seg_created_after,
-        seg_created_before,
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
+    resolved = resolve_campaign_upsert(
+        db,
+        form=CampaignUpsertInput(
+            campaign_type=campaign_type,
+            channel=channel,
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            campaign_sender_id=campaign_sender_id,
+            campaign_smtp_config_id=campaign_smtp_config_id,
+            whatsapp_connector_id=whatsapp_connector_id,
+            seg_party_status=seg_party_status,
+            seg_regions=seg_regions,
+            seg_pipeline_ids=seg_pipeline_ids,
+            seg_stage_ids=seg_stage_ids,
+            seg_active_status=seg_active_status,
+            seg_created_after=seg_created_after,
+            seg_created_before=seg_created_before,
+            whatsapp_template_name=whatsapp_template_name,
+            whatsapp_template_language=whatsapp_template_language,
+            whatsapp_template_components=whatsapp_template_components,
+        ),
     )
-
-    # Parse WhatsApp template components JSON
-    wa_template_name = _form_str_opt(whatsapp_template_name)
-    wa_template_lang = _form_str_opt(whatsapp_template_language)
-    wa_template_components: dict | None = None
-    if whatsapp_template_components.strip():
-        try:
-            wa_template_components = json.loads(whatsapp_template_components)
-        except (json.JSONDecodeError, TypeError):
-            wa_template_components = None
-
-    errors: list[str] = []
-    sender = None
-    sender_id_value = campaign_sender_id.strip()
-    smtp_profile = None
-    smtp_id_value = campaign_smtp_config_id.strip()
-    whatsapp_connector = None
-    whatsapp_connector_id_value = whatsapp_connector_id.strip()
-
-    if selected_channel == CampaignChannel.email:
-        if sender_id_value:
-            try:
-                sender = campaign_senders.get(db, sender_id_value)
-            except HTTPException as exc:
-                errors.append(str(exc.detail))
-        else:
-            errors.append("Campaign sender is required.")
-
-        if sender and not sender.is_active:
-            errors.append("Selected campaign sender is inactive.")
-
-        if smtp_id_value:
-            try:
-                smtp_profile = campaign_smtp_configs.get(db, smtp_id_value)
-            except HTTPException as exc:
-                errors.append(str(exc.detail))
-        else:
-            errors.append("Campaign SMTP profile is required.")
-
-        if smtp_profile and not smtp_profile.is_active:
-            errors.append("Selected campaign SMTP profile is inactive.")
-    else:
-        if whatsapp_connector_id_value:
-            try:
-                whatsapp_connector = db.get(ConnectorConfig, UUID(whatsapp_connector_id_value))
-            except ValueError:
-                errors.append("Invalid WhatsApp connector.")
-                whatsapp_connector = None
-            if not whatsapp_connector and "Invalid WhatsApp connector." not in errors:
-                errors.append("WhatsApp connector not found.")
-            elif whatsapp_connector and whatsapp_connector.connector_type != ConnectorType.whatsapp:
-                errors.append("Selected connector is not a WhatsApp connector.")
-            elif whatsapp_connector and not whatsapp_connector.is_active:
-                errors.append("Selected WhatsApp connector is inactive.")
-        else:
-            errors.append("WhatsApp connector is required.")
-
-    if errors:
-        campaign_stub = SimpleNamespace(
-            id=campaign_id,
+    if resolved.errors:
+        campaign_stub = build_campaign_form_stub(
+            campaign_id=campaign_id,
             name=name,
-            campaign_type=ct,
-            channel=selected_channel,
-            subject=subject or None,
-            body_html=body_html or None,
-            body_text=body_text or None,
-            from_name=None,
-            from_email=None,
-            reply_to=None,
-            segment_filter=segment_filter,
-            campaign_sender_id=sender_id_value or None,
-            campaign_smtp_config_id=smtp_id_value or None,
-            connector_config_id=whatsapp_connector_id_value or None,
-            whatsapp_template_name=wa_template_name,
-            whatsapp_template_language=wa_template_lang,
-            whatsapp_template_components=wa_template_components,
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            resolved=resolved,
         )
         ctx = _base_ctx(
             request,
@@ -524,32 +434,20 @@ def campaign_update(
             campaign_channels=CampaignChannel,
             party_statuses=PartyStatus,
             region_options=REGION_OPTIONS,
+            pipelines=_load_active_pipelines(db),
+            pipeline_stages=_load_active_pipeline_stages(db),
             campaign_senders=_load_campaign_senders(db),
             campaign_smtp_profiles=_load_campaign_smtp_profiles(db),
             whatsapp_connectors=_load_whatsapp_connectors(db),
-            errors=errors,
+            errors=resolved.errors,
         )
         return templates.TemplateResponse("admin/crm/campaign_form.html", ctx, status_code=400)
-
-    payload = CampaignUpdate(
+    payload = build_campaign_update_payload(
         name=name,
-        campaign_type=ct,
-        channel=selected_channel,
-        segment_filter=segment_filter,
-        subject=_form_str_opt(subject),
-        body_html=_form_str_opt(body_html),
-        body_text=_form_str_opt(body_text),
-        campaign_sender_id=sender.id if selected_channel == CampaignChannel.email and sender else None,
-        campaign_smtp_config_id=smtp_profile.id if selected_channel == CampaignChannel.email and smtp_profile else None,
-        connector_config_id=whatsapp_connector.id
-        if selected_channel == CampaignChannel.whatsapp and whatsapp_connector
-        else None,
-        from_name=sender.from_name if selected_channel == CampaignChannel.email and sender else None,
-        from_email=sender.from_email if selected_channel == CampaignChannel.email and sender else None,
-        reply_to=sender.reply_to if selected_channel == CampaignChannel.email and sender else None,
-        whatsapp_template_name=wa_template_name if selected_channel == CampaignChannel.whatsapp else None,
-        whatsapp_template_language=wa_template_lang if selected_channel == CampaignChannel.whatsapp else None,
-        whatsapp_template_components=wa_template_components if selected_channel == CampaignChannel.whatsapp else None,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
+        resolved=resolved,
     )
     campaigns_service.update(db, campaign_id, payload)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
@@ -560,9 +458,12 @@ def campaign_update(
 
 @router.post("/{campaign_id}/delete")
 def campaign_delete(
+    request: Request,
     campaign_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     campaigns_service.delete(db, campaign_id)
     return RedirectResponse(url="/admin/crm/campaigns", status_code=303)
 
@@ -572,10 +473,13 @@ def campaign_delete(
 
 @router.post("/{campaign_id}/schedule")
 def campaign_schedule(
+    request: Request,
     campaign_id: str,
     db: Session = Depends(_get_db),
     scheduled_at: str = Form(...),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     dt = _parse_datetime_opt(scheduled_at)
     if not dt:
         return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
@@ -585,18 +489,24 @@ def campaign_schedule(
 
 @router.post("/{campaign_id}/send")
 def campaign_send_now(
+    request: Request,
     campaign_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     campaigns_service.send_now(db, campaign_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 
 @router.post("/{campaign_id}/cancel")
 def campaign_cancel(
+    request: Request,
     campaign_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     campaigns_service.cancel(db, campaign_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
@@ -610,6 +520,8 @@ def campaign_preview(
     campaign_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     campaign = campaigns_service.get(db, campaign_id)
     ctx = _base_ctx(request, db, campaign=campaign)
     return templates.TemplateResponse("admin/crm/campaign_preview.html", ctx)
@@ -624,6 +536,8 @@ def campaign_preview_audience(
     campaign_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     campaign = campaigns_service.get(db, campaign_id)
     result = Campaigns.preview_audience(db, campaign.segment_filter, campaign.channel)
     ctx = _base_ctx(
@@ -638,10 +552,14 @@ def campaign_preview_audience(
 
 @router.get("/templates/whatsapp", response_class=JSONResponse)
 def campaign_whatsapp_templates(
+    request: Request,
     connector_id: str | None = Query(None),
     db: Session = Depends(_get_db),
 ):
     from app.services.crm.inbox.whatsapp_templates import list_whatsapp_templates
+
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return JSONResponse({"templates": [], "error": "Forbidden"}, status_code=403)
 
     if not connector_id:
         return JSONResponse({"templates": [], "error": "Connector is required"}, status_code=400)
@@ -663,6 +581,8 @@ def campaign_recipients_table(
     status: str | None = Query(None),
     offset: int = Query(0),
 ):
+    if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     recipients = recipients_service.list(db, campaign_id, status=status, limit=50, offset=offset)
     person_ids = [r.person_id for r in recipients]
     persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
@@ -686,6 +606,8 @@ def campaign_steps_list(
     campaign_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     campaign = campaigns_service.get(db, campaign_id)
     steps = steps_service.list(db, campaign_id)
     ctx = _base_ctx(request, db, campaign=campaign, steps=steps)
@@ -694,6 +616,7 @@ def campaign_steps_list(
 
 @router.post("/{campaign_id}/steps")
 def campaign_step_create(
+    request: Request,
     campaign_id: str,
     db: Session = Depends(_get_db),
     name: str = Form(""),
@@ -703,6 +626,8 @@ def campaign_step_create(
     delay_days: int = Form(0),
     step_index: int = Form(0),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     payload = CampaignStepCreate(
         campaign_id=UUID(campaign_id),
         step_index=step_index,
@@ -718,6 +643,7 @@ def campaign_step_create(
 
 @router.post("/{campaign_id}/steps/{step_id}")
 def campaign_step_update(
+    request: Request,
     campaign_id: str,
     step_id: str,
     db: Session = Depends(_get_db),
@@ -728,6 +654,8 @@ def campaign_step_update(
     delay_days: int = Form(0),
     step_index: int = Form(0),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     payload = CampaignStepUpdate(
         step_index=step_index,
         name=_form_str_opt(name),
@@ -742,9 +670,12 @@ def campaign_step_update(
 
 @router.post("/{campaign_id}/steps/{step_id}/delete")
 def campaign_step_delete(
+    request: Request,
     campaign_id: str,
     step_id: str,
     db: Session = Depends(_get_db),
 ):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
     steps_service.delete(db, step_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
