@@ -16,7 +16,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunpa
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy import func
@@ -79,6 +79,7 @@ from app.services.person import InvalidTransitionError, People
 from app.services.settings_spec import resolve_value
 from app.services.subscriber import subscriber as subscriber_service
 from app.web.admin.crm_inbox_actions_core import router as crm_inbox_actions_core_router
+from app.web.admin.crm_inbox_catalog import router as crm_inbox_catalog_router
 from app.web.admin.crm_inbox_comments import router as crm_inbox_comments_router
 from app.web.admin.crm_inbox_conversations import router as crm_inbox_conversations_router
 from app.web.admin.crm_inbox_message import router as crm_inbox_message_router
@@ -705,6 +706,7 @@ def _apply_message_attachments(
 
 router.include_router(crm_presence_router)
 router.include_router(crm_inbox_settings_router)
+router.include_router(crm_inbox_catalog_router)
 router.include_router(crm_inbox_comments_router)
 router.include_router(crm_inbox_conversations_router)
 router.include_router(crm_inbox_actions_core_router)
@@ -763,107 +765,6 @@ async def inbox(
             **context,
         },
     )
-
-
-@router.get("/inbox/whatsapp-templates", response_class=JSONResponse)
-async def whatsapp_templates(
-    request: Request,
-    target_id: str | None = Query(None),
-    db: Session = Depends(get_db),
-):
-    from app.services.crm.inbox.permissions import can_view_inbox
-    from app.services.crm.inbox.whatsapp_templates import list_whatsapp_templates
-
-    if not can_view_inbox(_get_current_roles(request), _get_current_scopes(request)):
-        return JSONResponse({"templates": [], "error": "Forbidden"}, status_code=403)
-
-    templates = list_whatsapp_templates(db, target_id=target_id)
-    return JSONResponse({"templates": templates})
-
-
-@router.get("/inbox/whatsapp-contacts", response_class=JSONResponse)
-async def whatsapp_contacts(
-    request: Request,
-    search: str | None = Query(None),
-    db: Session = Depends(get_db),
-):
-    from app.services.crm.inbox.permissions import can_view_inbox
-
-    if not can_view_inbox(_get_current_roles(request), _get_current_scopes(request)):
-        return JSONResponse({"contacts": [], "error": "Forbidden"}, status_code=403)
-
-    try:
-        contacts = crm_service.contacts.list_whatsapp_contacts(
-            db,
-            search=search,
-            limit=20,
-            offset=0,
-        )
-        return JSONResponse({"contacts": contacts})
-    except Exception:
-        logger.exception("whatsapp_contact_list_failed")
-        return JSONResponse({"contacts": [], "error": "Failed to load contacts"}, status_code=500)
-
-
-@router.get("/inbox/email-connector", response_class=HTMLResponse)
-def email_connector_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-def _inbox_settings_redirect(next_url: str | None = None):
-    if next_url and _is_safe_url(next_url):
-        return RedirectResponse(url=next_url, status_code=303)
-    return RedirectResponse(url="/admin/crm/inbox/settings", status_code=303)
-
-
-@router.get("/inbox/whatsapp-connector", response_class=HTMLResponse)
-def whatsapp_connector_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/email-poll", response_class=HTMLResponse)
-def email_poll_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/email-check", response_class=HTMLResponse)
-def email_check_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/email-reset-cursor", response_class=HTMLResponse)
-def email_reset_cursor_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/email-polling/reset", response_class=HTMLResponse)
-def email_polling_reset_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/email-delete", response_class=HTMLResponse)
-def email_delete_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/email-activate", response_class=HTMLResponse)
-def email_activate_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/teams", response_class=HTMLResponse)
-def inbox_teams_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/agents", response_class=HTMLResponse)
-def inbox_agents_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
-
-
-@router.get("/inbox/agent-teams", response_class=HTMLResponse)
-def inbox_agent_teams_redirect(next: str | None = None):
-    return _inbox_settings_redirect(next)
 
 
 @router.post("/inbox/email-connector", response_class=HTMLResponse)
