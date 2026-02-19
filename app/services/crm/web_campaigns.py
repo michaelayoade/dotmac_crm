@@ -393,3 +393,31 @@ def campaign_steps_page_data(db: Session, *, campaign_id: str) -> dict:
         "campaign": campaign,
         "steps": steps,
     }
+
+
+def campaign_list_page_data(
+    db: Session,
+    *,
+    status: str | None,
+    search: str | None,
+    order_by: str,
+    order_dir: str,
+) -> dict:
+    normalized_order_by = order_by if order_by in {"created_at", "updated_at", "name"} else "created_at"
+    normalized_order_dir = order_dir if order_dir in {"asc", "desc"} else "desc"
+    campaigns = campaigns_service.list(
+        db,
+        status=status,
+        search=search,
+        order_by=normalized_order_by,
+        order_dir=normalized_order_dir,
+    )
+    status_counts = Campaigns.count_by_status(db)
+    return {
+        "campaigns": campaigns,
+        "status_counts": status_counts,
+        "filter_status": status or "",
+        "search": search or "",
+        "order_by": normalized_order_by,
+        "order_dir": normalized_order_dir,
+    }
