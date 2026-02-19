@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.services.crm.inbox.settings_admin import (
+    bulk_update_agents,
     create_agent,
     create_agent_team,
     create_message_template,
@@ -164,44 +165,19 @@ async def bulk_update_crm_agents(
     agent_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
-    from app.services.crm.inbox.settings_admin import deactivate_agent
-
-    selected_ids = [agent_id.strip() for agent_id in agent_ids if agent_id and agent_id.strip()]
-    if not selected_ids:
-        detail = quote("No agents selected", safe="")
+    result = bulk_update_agents(
+        db,
+        action=action,
+        agent_ids=agent_ids,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if not result.ok:
+        detail = quote(result.error_detail or "Failed to update selected agents", safe="")
         return RedirectResponse(
             url=f"/admin/crm/inbox/settings?agent_error=1&agent_error_detail={detail}",
             status_code=303,
         )
-
-    normalized_action = action.strip().lower()
-    if normalized_action != "deactivate":
-        detail = quote("Unsupported bulk action", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox/settings?agent_error=1&agent_error_detail={detail}",
-            status_code=303,
-        )
-
-    roles = _get_current_roles(request)
-    scopes = _get_current_scopes(request)
-    failures = 0
-    for agent_id in selected_ids:
-        result = deactivate_agent(
-            db,
-            agent_id=agent_id,
-            roles=roles,
-            scopes=scopes,
-        )
-        if not result.ok:
-            failures += 1
-
-    if failures:
-        detail = quote(f"Failed to update {failures} selected agent(s)", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox/settings?agent_error=1&agent_error_detail={detail}",
-            status_code=303,
-        )
-
     return RedirectResponse(url="/admin/crm/inbox/settings?agent_update=1", status_code=303)
 
 

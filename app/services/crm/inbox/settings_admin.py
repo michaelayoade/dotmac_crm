@@ -35,6 +35,12 @@ class NotificationSettingsResult:
     error_detail: str | None = None
 
 
+@dataclass(frozen=True)
+class BulkAgentUpdateResult:
+    ok: bool
+    error_detail: str | None = None
+
+
 def _coerce_value_json(value: object | None) -> dict[Any, Any] | list[Any] | bool | int | str | None:
     if isinstance(value, dict | list | bool | int | str):
         return value
@@ -251,6 +257,40 @@ def deactivate_agent(
         return ActionResult(ok=True)
     except Exception as exc:
         return ActionResult(ok=False, error_detail=str(exc) or "Failed to update agent")
+
+
+def bulk_update_agents(
+    db: Session,
+    *,
+    action: str,
+    agent_ids: list[str],
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> BulkAgentUpdateResult:
+    selected_ids = [agent_id.strip() for agent_id in agent_ids if agent_id and agent_id.strip()]
+    if not selected_ids:
+        return BulkAgentUpdateResult(ok=False, error_detail="No agents selected")
+
+    normalized_action = action.strip().lower()
+    if normalized_action != "deactivate":
+        return BulkAgentUpdateResult(ok=False, error_detail="Unsupported bulk action")
+
+    failures = 0
+    for agent_id in selected_ids:
+        result = deactivate_agent(
+            db,
+            agent_id=agent_id,
+            roles=roles,
+            scopes=scopes,
+        )
+        if not result.ok:
+            failures += 1
+    if failures:
+        return BulkAgentUpdateResult(
+            ok=False,
+            error_detail=f"Failed to update {failures} selected agent(s)",
+        )
+    return BulkAgentUpdateResult(ok=True)
 
 
 def activate_agent(
