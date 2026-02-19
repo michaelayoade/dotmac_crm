@@ -318,3 +318,14 @@ def campaign_recipients_table_data(
         "person_map": person_map,
         "campaign_id": campaign_id,
     }
+
+
+def campaign_preview_audience_data(db: Session, *, campaign_id: str) -> dict:
+    campaign = campaigns_service.get(db, campaign_id)
+    audience = Campaigns.preview_audience(db, campaign.segment_filter, campaign.channel)
+    audience_address_label = "Phone" if campaign.channel == CampaignChannel.whatsapp else "Email"
+    return {
+        "audience": audience,
+        "campaign": campaign,
+        "audience_address_label": audience_address_label,
+    }
