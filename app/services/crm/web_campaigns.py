@@ -12,9 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import CampaignChannel, CampaignType
+from app.models.person import Person
 from app.schemas.crm.campaign import CampaignCreate, CampaignUpdate
 from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
+from app.services.crm.campaigns import Campaigns
+from app.services.crm.campaigns import campaign_recipients as recipients_service
+from app.services.crm.campaigns import campaign_steps as steps_service
+from app.services.crm.campaigns import campaigns as campaigns_service
 
 
 @dataclass(slots=True)
@@ -278,3 +283,20 @@ def build_campaign_update_payload(
         if selected_channel == CampaignChannel.whatsapp
         else None,
     )
+
+
+def campaign_detail_page_data(db: Session, *, campaign_id: str) -> dict:
+    campaign = campaigns_service.get(db, campaign_id)
+    stats = Campaigns.analytics(db, campaign_id)
+    recipients = recipients_service.list(db, campaign_id, limit=20, offset=0)
+    person_ids = [r.person_id for r in recipients]
+    persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+    person_map = {str(person.id): person for person in persons}
+    steps = steps_service.list(db, campaign_id) if campaign.campaign_type == CampaignType.nurture else []
+    return {
+        "campaign": campaign,
+        "stats": stats,
+        "recipients": recipients,
+        "person_map": person_map,
+        "steps": steps,
+    }
