@@ -26,7 +26,7 @@ from app.config import settings
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
 from app.logging import get_logger
-from app.models.crm.conversation import Conversation, Message
+from app.models.crm.conversation import Message
 from app.models.crm.enums import (
     ChannelType,
     LeadStatus,
@@ -71,7 +71,6 @@ from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm import inbox as inbox_service
 from app.services.crm.conversations.service import MessageAttachments as MessageAttachmentsService
-from app.services.crm.inbox.agents import get_current_agent_id
 from app.services.crm.inbox.formatting import (
     filter_messages_for_user,
     format_contact_for_template,
@@ -83,6 +82,7 @@ from app.services.person import InvalidTransitionError, People
 from app.services.settings_spec import resolve_value
 from app.services.subscriber import subscriber as subscriber_service
 from app.web.admin.crm_inbox_comments import router as crm_inbox_comments_router
+from app.web.admin.crm_inbox_conversations import router as crm_inbox_conversations_router
 from app.web.admin.crm_inbox_settings import router as crm_inbox_settings_router
 from app.web.admin.crm_presence import router as crm_presence_router
 
@@ -696,6 +696,7 @@ def _can_write_sales(request: Request) -> bool:
 router.include_router(crm_presence_router)
 router.include_router(crm_inbox_settings_router)
 router.include_router(crm_inbox_comments_router)
+router.include_router(crm_inbox_conversations_router)
 
 
 @router.get("/inbox", response_class=HTMLResponse)
@@ -745,227 +746,6 @@ async def inbox(
         {
             "request": request,
             **context,
-        },
-    )
-
-
-@router.get("/inbox/conversations", response_class=HTMLResponse)
-async def inbox_conversations_partial(
-    request: Request,
-    db: Session = Depends(get_db),
-    channel: str | None = None,
-    status: str | None = None,
-    outbox_status: str | None = None,
-    search: str | None = None,
-    assignment: str | None = None,
-    target_id: str | None = None,
-    offset: int | None = None,
-    limit: int | None = None,
-    page: int | None = None,
-):
-    """Partial template for conversation list (HTMX)."""
-    from app.web.admin import get_current_user
-
-    current_user = get_current_user(request)
-    assigned_person_id = current_user.get("person_id")
-    from app.services.crm.inbox.listing import load_inbox_list
-
-    safe_limit = max(int(limit or 150), 1)
-    safe_page = max(int(page or 1), 1)
-    safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
-
-    listing = await load_inbox_list(
-        db,
-        channel=channel,
-        status=status,
-        outbox_status=outbox_status,
-        search=search,
-        assignment=assignment,
-        assigned_person_id=assigned_person_id,
-        target_id=target_id,
-        offset=safe_offset,
-        limit=safe_limit,
-        include_thread=False,
-        fetch_comments=False,
-    )
-    conversations = [
-        format_conversation_for_template(
-            conv,
-            db,
-            latest_message=latest_message,
-            unread_count=unread_count,
-            include_inbox_label=True,
-        )
-        for conv, latest_message, unread_count, _failed_outbox in listing.conversations_raw
-    ]
-    if outbox_status and str(outbox_status).strip().lower() == "failed":
-        for idx, (_conv, _latest_message, _unread_count, failed_outbox) in enumerate(listing.conversations_raw):
-            if failed_outbox and idx < len(conversations):
-                conversations[idx]["failed_outbox"] = failed_outbox
-    if listing.comment_items and safe_offset == 0:
-        conversations = conversations + listing.comment_items
-        conversations.sort(
-            key=lambda item: item.get("last_message_at") or datetime.min.replace(tzinfo=UTC),
-            reverse=True,
-        )
-        conversations = conversations[:safe_limit]
-
-    template_name = "admin/crm/_conversation_list_page.html" if safe_offset > 0 else "admin/crm/_conversation_list.html"
-    return templates.TemplateResponse(
-        template_name,
-        {
-            "request": request,
-            "conversations": conversations,
-            "current_channel": channel,
-            "current_status": status,
-            "current_outbox_status": outbox_status,
-            "current_assignment": assignment,
-            "current_target_id": target_id,
-            "search": search,
-            "conversations_has_more": listing.has_more,
-            "conversations_next_offset": listing.next_offset,
-            "conversations_limit": listing.limit,
-            "conversations_page": (safe_offset // safe_limit) + 1,
-            "conversations_prev_page": (safe_page - 1) if safe_page > 1 else None,
-            "conversations_next_page": (safe_page + 1) if listing.has_more else None,
-        },
-    )
-
-
-@router.get("/inbox/conversation/{conversation_id}", response_class=HTMLResponse)
-async def inbox_conversation_detail(
-    request: Request,
-    conversation_id: str,
-    db: Session = Depends(get_db),
-):
-    """Partial template for conversation thread (HTMX)."""
-    from app.services.crm.inbox.thread import load_conversation_thread
-    from app.web.admin import get_current_user
-
-    current_user = get_current_user(request)
-    thread = load_conversation_thread(
-        db,
-        conversation_id,
-        actor_person_id=current_user.get("person_id"),
-        mark_read=True,
-    )
-    if thread.kind != "success":
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>")
-    if not thread.conversation:
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>")
-
-    conversation = format_conversation_for_template(thread.conversation, db, include_inbox_label=True)
-    messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
-    current_roles = _get_current_roles(request)
-    current_agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
-    messages = filter_messages_for_user(
-        messages,
-        current_user.get("person_id"),
-        current_roles,
-    )
-    from app.logic import private_note_logic
-    from app.services.crm.inbox.agents import list_active_agents_for_mentions
-    from app.services.crm.inbox.templates import message_templates
-
-    templates_list = message_templates.list(
-        db,
-        channel_type=None,
-        is_active=True,
-        limit=200,
-        offset=0,
-    )
-    mention_agents = list_active_agents_for_mentions(db)
-
-    return templates.TemplateResponse(
-        "admin/crm/_message_thread.html",
-        {
-            "request": request,
-            "conversation": conversation,
-            "messages": messages,
-            "current_user": current_user,
-            "current_agent_id": current_agent_id,
-            "current_roles": current_roles,
-            "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
-            "message_templates": templates_list,
-            "mention_agents": mention_agents,
-        },
-    )
-
-
-@router.get("/inbox/attachment/{message_id}/{attachment_index}")
-def inbox_attachment(
-    message_id: str,
-    attachment_index: int,
-    db: Session = Depends(get_db),
-):
-    from app.services.crm.inbox.attachments import fetch_inbox_attachment
-
-    result = fetch_inbox_attachment(db, message_id, attachment_index)
-    if result.kind == "redirect" and result.redirect_url:
-        return RedirectResponse(result.redirect_url)
-    if result.kind == "content" and result.content is not None:
-        return Response(
-            content=result.content,
-            media_type=result.content_type or "application/octet-stream",
-            headers={"Content-Disposition": "inline"},
-        )
-    return Response(status_code=404)
-
-
-@router.get("/inbox/contact/{contact_id}", response_class=HTMLResponse)
-async def inbox_contact_detail(
-    request: Request,
-    contact_id: str,
-    conversation_id: str | None = None,
-    db: Session = Depends(get_db),
-):
-    """Partial template for contact details sidebar (HTMX)."""
-    try:
-        contact_service.Contacts.get(db, contact_id)
-        contact = contact_service.get_person_with_relationships(db, contact_id)
-    except Exception:
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Contact not found</div>")
-
-    if not contact:
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Contact not found</div>")
-
-    contact_details = format_contact_for_template(contact, db)
-    private_notes = []
-    notes_query = (
-        db.query(Message)
-        .join(Conversation, Conversation.id == Message.conversation_id)
-        .filter(Conversation.person_id == coerce_uuid(contact_id))
-        .filter(Message.channel_type == ChannelType.note)
-        .order_by(
-            func.coalesce(
-                Message.received_at,
-                Message.sent_at,
-                Message.created_at,
-            ).desc()
-        )
-        .limit(10)
-        .all()
-    )
-    for note in notes_query:
-        payload = format_message_for_template(note, db)
-        if payload.get("is_private_note"):
-            private_notes.append(payload)
-        if len(private_notes) >= 5:
-            break
-    assignment_options = _load_crm_agent_team_options(db)
-    from app.logic import private_note_logic
-
-    return templates.TemplateResponse(
-        "admin/crm/_contact_details.html",
-        {
-            "request": request,
-            "contact": contact_details,
-            "conversation_id": conversation_id,
-            "agents": assignment_options["agents"],
-            "teams": assignment_options["teams"],
-            "agent_labels": assignment_options["agent_labels"],
-            "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
-            "private_notes": private_notes,
         },
     )
 
@@ -1546,6 +1326,8 @@ async def update_conversation_status(
 
     if request.headers.get("HX-Target") == "message-thread":
         return _render_thread_or_error(request, db, conversation_id, current_user)
+
+    from app.web.admin.crm_inbox_conversations import inbox_conversations_partial
 
     return await inbox_conversations_partial(request, db)
 
