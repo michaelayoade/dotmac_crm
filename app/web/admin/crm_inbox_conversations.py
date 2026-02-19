@@ -1,7 +1,5 @@
 """CRM inbox conversation/list/detail partial routes."""
 
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -63,17 +61,12 @@ async def inbox_conversations_partial(
     page: int | None = None,
 ):
     """Partial template for conversation list (HTMX)."""
-    from app.services.crm.inbox.listing import load_inbox_list
+    from app.services.crm.inbox.page_context import build_inbox_conversations_partial_context
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
     assigned_person_id = current_user.get("person_id")
-
-    safe_limit = max(int(limit or 150), 1)
-    safe_page = max(int(page or 1), 1)
-    safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
-
-    listing = await load_inbox_list(
+    template_name, context = await build_inbox_conversations_partial_context(
         db,
         channel=channel,
         status=status,
@@ -82,51 +75,15 @@ async def inbox_conversations_partial(
         assignment=assignment,
         assigned_person_id=assigned_person_id,
         target_id=target_id,
-        offset=safe_offset,
-        limit=safe_limit,
-        include_thread=False,
-        fetch_comments=False,
+        offset=offset,
+        limit=limit,
+        page=page,
     )
-    conversations = [
-        format_conversation_for_template(
-            conv,
-            db,
-            latest_message=latest_message,
-            unread_count=unread_count,
-            include_inbox_label=True,
-        )
-        for conv, latest_message, unread_count, _failed_outbox in listing.conversations_raw
-    ]
-    if outbox_status and str(outbox_status).strip().lower() == "failed":
-        for idx, (_conv, _latest_message, _unread_count, failed_outbox) in enumerate(listing.conversations_raw):
-            if failed_outbox and idx < len(conversations):
-                conversations[idx]["failed_outbox"] = failed_outbox
-    if listing.comment_items and safe_offset == 0:
-        conversations = conversations + listing.comment_items
-        conversations.sort(
-            key=lambda item: item.get("last_message_at") or datetime.min.replace(tzinfo=UTC),
-            reverse=True,
-        )
-        conversations = conversations[:safe_limit]
-
-    template_name = "admin/crm/_conversation_list_page.html" if safe_offset > 0 else "admin/crm/_conversation_list.html"
     return templates.TemplateResponse(
         template_name,
         {
             "request": request,
-            "conversations": conversations,
-            "current_channel": channel,
-            "current_status": status,
-            "current_outbox_status": outbox_status,
-            "current_assignment": assignment,
-            "current_target_id": target_id,
-            "search": search,
-            "conversations_has_more": listing.has_more,
-            "conversations_next_offset": listing.next_offset,
-            "conversations_limit": listing.limit,
-            "conversations_page": (safe_offset // safe_limit) + 1,
-            "conversations_prev_page": (safe_page - 1) if safe_page > 1 else None,
-            "conversations_next_page": (safe_page + 1) if listing.has_more else None,
+            **context,
         },
     )
 

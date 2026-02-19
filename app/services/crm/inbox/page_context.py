@@ -239,3 +239,87 @@ async def build_inbox_page_context(
         "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
         "message_templates": templates,
     }
+
+
+async def build_inbox_conversations_partial_context(
+    db: Session,
+    *,
+    channel: str | None = None,
+    status: str | None = None,
+    outbox_status: str | None = None,
+    search: str | None = None,
+    assignment: str | None = None,
+    assigned_person_id: str | None = None,
+    target_id: str | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+    page: int | None = None,
+) -> tuple[str, dict]:
+    page_limit = max(int(limit or 150), 1)
+    safe_page = max(int(page or 1), 1)
+    safe_offset = max(int(offset or ((safe_page - 1) * page_limit)), 0)
+    listing = await load_inbox_list(
+        db,
+        channel=channel,
+        status=status,
+        outbox_status=outbox_status,
+        search=search,
+        assignment=assignment,
+        assigned_person_id=assigned_person_id,
+        target_id=target_id,
+        offset=safe_offset,
+        limit=page_limit,
+        include_thread=False,
+        fetch_comments=False,
+    )
+    conversations = [
+        format_conversation_for_template(
+            conv,
+            db,
+            latest_message=latest_message,
+            unread_count=unread_count,
+            include_inbox_label=True,
+        )
+        for conv, latest_message, unread_count, _failed_outbox in listing.conversations_raw
+    ]
+    if outbox_status and str(outbox_status).strip().lower() == "failed":
+        for idx, (_conv, _latest_message, _unread_count, failed_outbox) in enumerate(listing.conversations_raw):
+            if failed_outbox and idx < len(conversations):
+                conversations[idx]["failed_outbox"] = failed_outbox
+    if listing.comment_items and safe_offset == 0:
+        conversations = conversations + listing.comment_items
+
+        def _sort_key(item: dict) -> datetime:
+            value = item.get("last_message_at")
+            if isinstance(value, str) and value:
+                try:
+                    parsed = datetime.fromisoformat(value)
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=UTC)
+                    return parsed
+                except ValueError:
+                    return datetime.min.replace(tzinfo=UTC)
+            if isinstance(value, datetime):
+                return value
+            return datetime.min.replace(tzinfo=UTC)
+
+        conversations.sort(key=_sort_key, reverse=True)
+        conversations = conversations[:page_limit]
+
+    template_name = "admin/crm/_conversation_list_page.html" if safe_offset > 0 else "admin/crm/_conversation_list.html"
+    context = {
+        "conversations": conversations,
+        "current_channel": channel,
+        "current_status": status,
+        "current_outbox_status": outbox_status,
+        "current_assignment": assignment,
+        "current_target_id": target_id,
+        "search": search,
+        "conversations_has_more": listing.has_more,
+        "conversations_next_offset": listing.next_offset,
+        "conversations_limit": listing.limit,
+        "conversations_page": (safe_offset // page_limit) + 1,
+        "conversations_prev_page": (safe_page - 1) if safe_page > 1 else None,
+        "conversations_next_page": (safe_page + 1) if listing.has_more else None,
+    }
+    return template_name, context
