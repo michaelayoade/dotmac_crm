@@ -3,19 +3,12 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.crm.conversation import Conversation, Message
-from app.models.crm.enums import ChannelType
-from app.services import crm as crm_service
-from app.services.common import coerce_uuid
-from app.services.crm import contact as contact_service
 from app.services.crm.inbox.agents import get_current_agent_id
 from app.services.crm.inbox.formatting import (
     filter_messages_for_user,
-    format_contact_for_template,
     format_conversation_for_template,
     format_message_for_template,
 )
@@ -39,11 +32,6 @@ def _get_current_roles(request: Request) -> list[str]:
         if isinstance(roles, list):
             return [str(role) for role in roles]
     return []
-
-
-def _load_crm_agent_team_options(db: Session) -> dict:
-    """Get agents and teams for assignment dropdowns (uses service layer)."""
-    return crm_service.get_agent_team_options(db)
 
 
 @router.get("/inbox/conversations", response_class=HTMLResponse)
@@ -176,51 +164,22 @@ async def inbox_contact_detail(
     db: Session = Depends(get_db),
 ):
     """Partial template for contact details sidebar (HTMX)."""
-    try:
-        contact_service.Contacts.get(db, contact_id)
-        contact = contact_service.get_person_with_relationships(db, contact_id)
-    except Exception:
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Contact not found</div>")
+    from app.services.crm.inbox.page_context import build_inbox_contact_detail_context
 
-    if not contact:
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Contact not found</div>")
-
-    contact_details = format_contact_for_template(contact, db)
-    private_notes = []
-    notes_query = (
-        db.query(Message)
-        .join(Conversation, Conversation.id == Message.conversation_id)
-        .filter(Conversation.person_id == coerce_uuid(contact_id))
-        .filter(Message.channel_type == ChannelType.note)
-        .order_by(
-            func.coalesce(
-                Message.received_at,
-                Message.sent_at,
-                Message.created_at,
-            ).desc()
-        )
-        .limit(10)
-        .all()
+    detail_context = build_inbox_contact_detail_context(
+        db,
+        contact_id=contact_id,
+        conversation_id=conversation_id,
     )
-    for note in notes_query:
-        payload = format_message_for_template(note, db)
-        if payload.get("is_private_note"):
-            private_notes.append(payload)
-        if len(private_notes) >= 5:
-            break
-    assignment_options = _load_crm_agent_team_options(db)
+    if not detail_context:
+        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Contact not found</div>")
     from app.logic import private_note_logic
 
     return templates.TemplateResponse(
         "admin/crm/_contact_details.html",
         {
             "request": request,
-            "contact": contact_details,
-            "conversation_id": conversation_id,
-            "agents": assignment_options["agents"],
-            "teams": assignment_options["teams"],
-            "agent_labels": assignment_options["agent_labels"],
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
-            "private_notes": private_notes,
+            **detail_context,
         },
     )
