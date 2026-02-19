@@ -47,7 +47,22 @@ services:
     image: redis:7-alpine
     container_name: dotmac_omni_redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MCP_REDIS_USERNAME: ${MCP_REDIS_USERNAME:-claude_readonly}
+      MCP_REDIS_PASSWORD: ${MCP_REDIS_PASSWORD:-}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        ACL_FILE=/tmp/users.acl
+        printf "user default on >%s ~* &* +@all\n" "$$REDIS_PASSWORD" > "$$ACL_FILE"
+        if [ -n "$${MCP_REDIS_PASSWORD:-}" ]; then
+          readonly_user="$${MCP_REDIS_USERNAME:-claude_readonly}"
+          printf "user %s on >%s ~* &* +@read +@connection +@pubsub -@write -@admin -@dangerous +info +ping +llen +type +ttl +keys +scan +dbsize +xrange +xlen +lrange +scard +smembers +zrange +zcard\n" "$$readonly_user" "$$MCP_REDIS_PASSWORD" >> "$$ACL_FILE"
+        fi
+        exec redis-server --appendonly yes --aclfile "$$ACL_FILE"
     ports:
       - "6379:6379"
     volumes:
