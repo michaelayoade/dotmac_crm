@@ -109,14 +109,17 @@ def invoke_analysis_async(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    task = invoke_persona_async.delay(
-        persona_key,
-        params=payload.params or {},
-        entity_type=payload.entity_type,
-        entity_id=payload.entity_id,
-        trigger="on_demand",
-        triggered_by_person_id=str(auth.get("person_id")) if auth else None,
-    )
+    try:
+        task = invoke_persona_async.delay(
+            persona_key,
+            params=payload.params or {},
+            entity_type=payload.entity_type,
+            entity_id=payload.entity_id,
+            trigger="on_demand",
+            triggered_by_person_id=str(auth.get("person_id")) if auth else None,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Async queue unavailable") from exc
     return {"task_id": task.id, "persona_key": persona_key}
 
 
