@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import CampaignChannel, CampaignType
-from app.models.person import Person
+from app.models.crm.sales import Pipeline, PipelineStage
+from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import CampaignCreate, CampaignStepCreate, CampaignStepUpdate, CampaignUpdate
 from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
@@ -420,4 +421,59 @@ def campaign_list_page_data(
         "search": search or "",
         "order_by": normalized_order_by,
         "order_dir": normalized_order_dir,
+    }
+
+
+def campaign_form_page_data(
+    db: Session,
+    *,
+    campaign,
+    errors: list[str],
+    region_options: list[str],
+) -> dict:
+    pipelines = db.query(Pipeline).filter(Pipeline.is_active.is_(True)).order_by(Pipeline.name.asc()).limit(200).all()
+    pipeline_stages = (
+        db.query(PipelineStage)
+        .join(Pipeline, PipelineStage.pipeline_id == Pipeline.id)
+        .filter(PipelineStage.is_active.is_(True))
+        .filter(Pipeline.is_active.is_(True))
+        .order_by(Pipeline.name.asc(), PipelineStage.order_index.asc(), PipelineStage.name.asc())
+        .limit(500)
+        .all()
+    )
+    campaign_senders_list = campaign_senders.list(
+        db=db,
+        is_active=None,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    campaign_smtp_profiles = campaign_smtp_configs.list(
+        db=db,
+        is_active=None,
+        order_by="name",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    whatsapp_connectors = (
+        db.query(ConnectorConfig)
+        .filter(ConnectorConfig.connector_type == ConnectorType.whatsapp)
+        .order_by(ConnectorConfig.name.asc())
+        .limit(500)
+        .all()
+    )
+    return {
+        "campaign": campaign,
+        "campaign_types": CampaignType,
+        "campaign_channels": CampaignChannel,
+        "party_statuses": PartyStatus,
+        "region_options": region_options,
+        "pipelines": pipelines,
+        "pipeline_stages": pipeline_stages,
+        "campaign_senders": campaign_senders_list,
+        "campaign_smtp_profiles": campaign_smtp_profiles,
+        "whatsapp_connectors": whatsapp_connectors,
+        "errors": errors,
     }
