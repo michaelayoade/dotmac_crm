@@ -8,10 +8,12 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import ConversationAssignment
+from app.models.crm.enums import ChannelType
 from app.models.crm.presence import AgentPresence
 from app.models.crm.sales import Lead
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.domain_settings import SettingDomain, SettingValueType
+from app.schemas.crm.message_template import MessageTemplateCreate, MessageTemplateUpdate
 from app.schemas.crm.team import AgentCreate, AgentTeamCreate, TeamCreate
 from app.schemas.settings import DomainSettingUpdate
 from app.services import crm as crm_service
@@ -321,3 +323,88 @@ def remove_agent_team(
         return ActionResult(ok=True)
     except Exception as exc:
         return ActionResult(ok=False, error_detail=str(exc) or "Failed to update agent team")
+
+
+def create_message_template(
+    db: Session,
+    *,
+    name: str,
+    channel_type: str,
+    subject: str | None,
+    body: str,
+    is_active: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    from app.services.crm.inbox.templates import message_templates
+
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Forbidden")
+        try:
+            channel_enum = ChannelType(channel_type)
+        except ValueError as exc:
+            raise ValueError("Invalid channel type") from exc
+        payload = MessageTemplateCreate(
+            name=name.strip(),
+            channel_type=channel_enum,
+            subject=subject.strip() if subject else None,
+            body=body.strip(),
+            is_active=bool(is_active),
+        )
+        message_templates.create(db, payload)
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to create template")
+
+
+def update_message_template(
+    db: Session,
+    *,
+    template_id: str,
+    name: str,
+    channel_type: str,
+    subject: str | None,
+    body: str,
+    is_active: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    from app.services.crm.inbox.templates import message_templates
+
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Forbidden")
+        try:
+            channel_enum = ChannelType(channel_type)
+        except ValueError as exc:
+            raise ValueError("Invalid channel type") from exc
+        payload = MessageTemplateUpdate(
+            name=name.strip(),
+            channel_type=channel_enum,
+            subject=subject.strip() if subject else None,
+            body=body.strip(),
+            is_active=bool(is_active),
+        )
+        message_templates.update(db, template_id, payload)
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to update template")
+
+
+def delete_message_template(
+    db: Session,
+    *,
+    template_id: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    from app.services.crm.inbox.templates import message_templates
+
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Forbidden")
+        message_templates.delete(db, template_id)
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to delete template")
