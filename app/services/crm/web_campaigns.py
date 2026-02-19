@@ -329,3 +329,18 @@ def campaign_preview_audience_data(db: Session, *, campaign_id: str) -> dict:
         "campaign": campaign,
         "audience_address_label": audience_address_label,
     }
+
+
+def campaign_whatsapp_templates_payload(db: Session, *, connector_id: str | None) -> tuple[dict, int]:
+    from app.services.crm.inbox.whatsapp_templates import list_whatsapp_templates
+
+    if not connector_id:
+        return {"templates": [], "error": "Connector is required"}, 400
+
+    try:
+        templates_payload = list_whatsapp_templates(db, connector_config_id=connector_id)
+    except HTTPException as exc:
+        return {"templates": [], "error": str(exc.detail)}, 400
+
+    approved = [template for template in templates_payload if str(template.get("status", "")).lower() == "approved"]
+    return {"templates": approved}, 200
