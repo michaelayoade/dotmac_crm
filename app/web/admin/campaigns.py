@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -35,6 +35,7 @@ from app.services.crm.web_campaigns import (
     campaign_detail_page_data,
     campaign_preview_audience_data,
     campaign_recipients_table_data,
+    campaign_whatsapp_templates_payload,
     resolve_campaign_upsert,
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
@@ -527,21 +528,10 @@ def campaign_whatsapp_templates(
     connector_id: str | None = Query(None),
     db: Session = Depends(_get_db),
 ):
-    from app.services.crm.inbox.whatsapp_templates import list_whatsapp_templates
-
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return JSONResponse({"templates": [], "error": "Forbidden"}, status_code=403)
-
-    if not connector_id:
-        return JSONResponse({"templates": [], "error": "Connector is required"}, status_code=400)
-
-    try:
-        templates_payload = list_whatsapp_templates(db, connector_config_id=connector_id)
-    except HTTPException as exc:
-        return JSONResponse({"templates": [], "error": str(exc.detail)}, status_code=400)
-
-    approved = [t for t in templates_payload if str(t.get("status", "")).lower() == "approved"]
-    return JSONResponse({"templates": approved})
+    payload, status_code = campaign_whatsapp_templates_payload(db, connector_id=connector_id)
+    return JSONResponse(payload, status_code=status_code)
 
 
 @router.get("/{campaign_id}/recipients", response_class=HTMLResponse)
