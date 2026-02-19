@@ -384,3 +384,12 @@ def build_campaign_step_update_payload(
         body_text=_form_str_opt(body_text),
         delay_days=delay_days,
     )
+
+
+def campaign_steps_page_data(db: Session, *, campaign_id: str) -> dict:
+    campaign = campaigns_service.get(db, campaign_id)
+    steps = steps_service.list(db, campaign_id)
+    return {
+        "campaign": campaign,
+        "steps": steps,
+    }
