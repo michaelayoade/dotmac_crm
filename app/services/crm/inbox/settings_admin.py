@@ -14,7 +14,7 @@ from app.models.crm.sales import Lead
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.domain_settings import SettingDomain, SettingValueType
 from app.schemas.crm.message_template import MessageTemplateCreate, MessageTemplateUpdate
-from app.schemas.crm.team import AgentCreate, AgentTeamCreate, TeamCreate
+from app.schemas.crm.team import AgentCreate, AgentTeamCreate, RoutingRuleCreate, RoutingRuleUpdate, TeamCreate
 from app.schemas.settings import DomainSettingUpdate
 from app.services import crm as crm_service
 from app.services import domain_settings as domain_settings_service
@@ -408,3 +408,92 @@ def delete_message_template(
         return ActionResult(ok=True)
     except Exception as exc:
         return ActionResult(ok=False, error_detail=str(exc) or "Failed to delete template")
+
+
+def create_routing_rule(
+    db: Session,
+    *,
+    team_id: str,
+    channel_type: str,
+    keywords: str | None,
+    target_id: str | None,
+    strategy: str | None,
+    is_active: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Forbidden")
+        try:
+            channel_enum = ChannelType(channel_type)
+        except ValueError as exc:
+            raise ValueError("Invalid channel type") from exc
+        keywords_list = [k.strip() for k in (keywords or "").split(",") if k.strip()]
+        rule_config = {
+            "keywords": keywords_list,
+            "target_id": target_id.strip() if target_id else None,
+            "strategy": (strategy or "round_robin").strip(),
+        }
+        payload = RoutingRuleCreate(
+            team_id=coerce_uuid(team_id),
+            channel_type=channel_enum,
+            rule_config=rule_config,
+            is_active=bool(is_active),
+        )
+        crm_service.routing_rules.create(db, payload)
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to create routing rule")
+
+
+def update_routing_rule(
+    db: Session,
+    *,
+    rule_id: str,
+    channel_type: str,
+    keywords: str | None,
+    target_id: str | None,
+    strategy: str | None,
+    is_active: str | None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Forbidden")
+        try:
+            channel_enum = ChannelType(channel_type)
+        except ValueError as exc:
+            raise ValueError("Invalid channel type") from exc
+        keywords_list = [k.strip() for k in (keywords or "").split(",") if k.strip()]
+        rule_config = {
+            "keywords": keywords_list,
+            "target_id": target_id.strip() if target_id else None,
+            "strategy": (strategy or "round_robin").strip(),
+        }
+        payload = RoutingRuleUpdate(
+            channel_type=channel_enum,
+            rule_config=rule_config,
+            is_active=bool(is_active),
+        )
+        crm_service.routing_rules.update(db, rule_id, payload)
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to update routing rule")
+
+
+def delete_routing_rule(
+    db: Session,
+    *,
+    rule_id: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    try:
+        if (roles is not None or scopes is not None) and not can_manage_inbox_settings(roles, scopes):
+            return ActionResult(ok=False, error_detail="Forbidden")
+        crm_service.routing_rules.delete(db, rule_id)
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to delete routing rule")

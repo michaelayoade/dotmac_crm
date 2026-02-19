@@ -8,17 +8,17 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.crm.enums import ChannelType
-from app.services import crm as crm_service
-from app.services.common import coerce_uuid
 from app.services.crm.inbox.settings_admin import (
     create_agent,
     create_agent_team,
     create_message_template,
+    create_routing_rule,
     create_team,
     delete_message_template,
+    delete_routing_rule,
     update_message_template,
     update_notification_settings,
+    update_routing_rule,
 )
 from app.services.crm.inbox.settings_view import build_inbox_settings_context
 
@@ -421,42 +421,27 @@ async def create_inbox_routing_rule(
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.schemas.crm.team import RoutingRuleCreate
-    from app.services.crm.inbox.permissions import can_manage_inbox_settings
-
-    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
-        return RedirectResponse(
-            url="/admin/crm/inbox/settings?routing_error=1&routing_error_detail=Forbidden",
-            status_code=303,
-        )
-    try:
-        try:
-            channel_enum = ChannelType(channel_type)
-        except ValueError as exc:
-            raise ValueError("Invalid channel type") from exc
-        keywords_list = [k.strip() for k in (keywords or "").split(",") if k.strip()]
-        rule_config = {
-            "keywords": keywords_list,
-            "target_id": target_id.strip() if target_id else None,
-            "strategy": (strategy or "round_robin").strip(),
-        }
-        payload = RoutingRuleCreate(
-            team_id=coerce_uuid(team_id),
-            channel_type=channel_enum,
-            rule_config=rule_config,
-            is_active=bool(is_active),
-        )
-        crm_service.routing_rules.create(db, payload)
+    result = create_routing_rule(
+        db,
+        team_id=team_id,
+        channel_type=channel_type,
+        keywords=keywords,
+        target_id=target_id,
+        strategy=strategy,
+        is_active=is_active,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?routing_setup=1",
             status_code=303,
         )
-    except Exception as exc:
-        detail = quote(str(exc) or "Failed to create routing rule", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox/settings?routing_error=1&routing_error_detail={detail}",
-            status_code=303,
-        )
+    detail = quote(result.error_detail or "Failed to create routing rule", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?routing_error=1&routing_error_detail={detail}",
+        status_code=303,
+    )
 
 
 @router.post("/inbox/routing-rules/{rule_id}", response_class=HTMLResponse)
@@ -471,41 +456,27 @@ async def update_inbox_routing_rule(
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.schemas.crm.team import RoutingRuleUpdate
-    from app.services.crm.inbox.permissions import can_manage_inbox_settings
-
-    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
-        return RedirectResponse(
-            url="/admin/crm/inbox/settings?routing_error=1&routing_error_detail=Forbidden",
-            status_code=303,
-        )
-    try:
-        try:
-            channel_enum = ChannelType(channel_type)
-        except ValueError as exc:
-            raise ValueError("Invalid channel type") from exc
-        keywords_list = [k.strip() for k in (keywords or "").split(",") if k.strip()]
-        rule_config = {
-            "keywords": keywords_list,
-            "target_id": target_id.strip() if target_id else None,
-            "strategy": (strategy or "round_robin").strip(),
-        }
-        payload = RoutingRuleUpdate(
-            channel_type=channel_enum,
-            rule_config=rule_config,
-            is_active=bool(is_active),
-        )
-        crm_service.routing_rules.update(db, rule_id, payload)
+    result = update_routing_rule(
+        db,
+        rule_id=rule_id,
+        channel_type=channel_type,
+        keywords=keywords,
+        target_id=target_id,
+        strategy=strategy,
+        is_active=is_active,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?routing_setup=1",
             status_code=303,
         )
-    except Exception as exc:
-        detail = quote(str(exc) or "Failed to update routing rule", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox/settings?routing_error=1&routing_error_detail={detail}",
-            status_code=303,
-        )
+    detail = quote(result.error_detail or "Failed to update routing rule", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?routing_error=1&routing_error_detail={detail}",
+        status_code=303,
+    )
 
 
 @router.post("/inbox/routing-rules/{rule_id}/delete", response_class=HTMLResponse)
@@ -514,22 +485,19 @@ async def delete_inbox_routing_rule(
     rule_id: str,
     db: Session = Depends(get_db),
 ):
-    from app.services.crm.inbox.permissions import can_manage_inbox_settings
-
-    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
-        return RedirectResponse(
-            url="/admin/crm/inbox/settings?routing_error=1&routing_error_detail=Forbidden",
-            status_code=303,
-        )
-    try:
-        crm_service.routing_rules.delete(db, rule_id)
+    result = delete_routing_rule(
+        db,
+        rule_id=rule_id,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?routing_setup=1",
             status_code=303,
         )
-    except Exception as exc:
-        detail = quote(str(exc) or "Failed to delete routing rule", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox/settings?routing_error=1&routing_error_detail={detail}",
-            status_code=303,
-        )
+    detail = quote(result.error_detail or "Failed to delete routing rule", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?routing_error=1&routing_error_detail={detail}",
+        status_code=303,
+    )
