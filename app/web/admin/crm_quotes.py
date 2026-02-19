@@ -1,13 +1,8 @@
 """CRM quote routes."""
-
-import os
-import re
-import tempfile
-from datetime import UTC, datetime
 from html import escape as html_escape
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -15,9 +10,6 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import SessionLocal
 from app.logging import get_logger
-from app.models.domain_settings import SettingDomain
-from app.models.person import Person
-from app.services import crm as crm_service
 from app.services.audit_helpers import build_changes_metadata, log_audit_event
 from app.services.crm.web_quotes import (
     QuoteUpsertInput,
@@ -30,11 +22,12 @@ from app.services.crm.web_quotes import (
     new_quote_form_data,
     quote_detail_data,
     quote_form_error_data,
+    quote_pdf_response,
+    quote_preview_response,
     send_quote_summary,
     update_quote,
     update_quote_status,
 )
-from app.services.settings_spec import resolve_value
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")
@@ -230,192 +223,20 @@ def crm_quote_send_summary(
 
 @router.get("/quotes/{quote_id}/pdf")
 def crm_quote_pdf(request: Request, quote_id: str, db: Session = Depends(get_db)):
-    quote = crm_service.quotes.get(db=db, quote_id=quote_id)
-    items = crm_service.quote_line_items.list(
-        db=db,
+    return quote_pdf_response(
+        db,
+        request=request,
         quote_id=quote_id,
-        order_by="created_at",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
-    lead = None
-    if quote.lead_id:
-        try:
-            lead = crm_service.leads.get(db=db, lead_id=str(quote.lead_id))
-        except Exception:
-            lead = None
-    contact = None
-    if quote.person_id:
-        contact = db.get(Person, quote.person_id)
-
-    stored_name = None
-    if isinstance(quote.metadata_, dict):
-        stored_name = quote.metadata_.get("quote_name")
-    quote_name = stored_name or (contact.display_name if contact and contact.display_name else None)
-    if not quote_name and contact:
-        quote_name = contact.email
-
-    template = templates.get_template("admin/crm/quote_pdf.html")
-    template_path = getattr(template, "filename", None)
-    if template_path:
-        template_path = os.path.abspath(template_path)
-    branding_payload = dict(getattr(request.state, "branding", None) or {})
-    if "quote_banking_details" not in branding_payload:
-        branding_payload["quote_banking_details"] = resolve_value(db, SettingDomain.comms, "quote_banking_details")
-    branding_payload["logo_src"] = _resolve_brand_logo_src(branding_payload, request)
-    html = template.render(
-        {
-            "request": request,
-            "quote": quote,
-            "items": items,
-            "lead": lead,
-            "contact": contact,
-            "quote_name": quote_name or "",
-            "branding": branding_payload,
-        }
-    )
-    if request.query_params.get("smoke") == "1":
-        html = f"""
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>PDF Smoke Test</title></head>
-<body style="font-family: Arial, sans-serif; font-size: 16px; line-height: 1.6;">
-  <p>PDF smoke test</p>
-  <p>Quote ID: {quote.id}</p>
-  <p>Line items: {len(items) if items else 0}</p>
-  <p>Subtotal: {quote.subtotal or 0}</p>
-  <p>Tax: {quote.tax_total or 0}</p>
-  <p>Total: {quote.total or 0}</p>
-  <p>End of test.</p>
-</body>
-</html>
-"""
-    if request.query_params.get("plain") == "1":
-        currency = quote.currency or ""
-        plain_rows = []
-        if items:
-            for item in items:
-                desc = html_escape(str(getattr(item, "description", "") or ""))
-                qty = getattr(item, "quantity", 0) or 0
-                unit_price = getattr(item, "unit_price", 0) or 0
-                amount = getattr(item, "amount", 0) or 0
-                plain_rows.append(
-                    f"<tr><td>{desc}</td><td style='text-align:right'>{qty}</td>"
-                    f"<td style='text-align:right'>{unit_price}</td>"
-                    f"<td style='text-align:right'>{amount}</td></tr>"
-                )
-        else:
-            plain_rows.append("<tr><td colspan='4'>No line items found.</td></tr>")
-        plain_html = f"""
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Quote {quote.id}</title></head>
-<body>
-  <h1>{html_escape(quote_name or f"Quote {str(quote.id)[:8]}")}</h1>
-  <div>Quote ID: {quote.id}</div>
-  <div>Status: {(quote.status.value if quote.status else "draft")}</div>
-  <div>Currency: {html_escape(currency)}</div>
-  <table border="1" cellpadding="6" cellspacing="0" width="100%%">
-    <thead>
-      <tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr>
-    </thead>
-    <tbody>
-      {"".join(plain_rows)}
-    </tbody>
-  </table>
-  <div>Subtotal: {quote.subtotal or 0}</div>
-  <div>Tax: {quote.tax_total or 0}</div>
-  <div>Total: {quote.total or 0}</div>
-</body>
-</html>
-"""
-        html = plain_html
-    logger.info(
-        "quote_pdf_template=%s quote_pdf_html_len=%s items=%s totals=subtotal:%s tax:%s total:%s currency=%s",
-        template_path or "unknown",
-        len(html),
-        len(items) if items else 0,
-        quote.subtotal,
-        quote.tax_total,
-        quote.total,
-        quote.currency,
-    )
-    if request.query_params.get("debug") == "1":
-        return HTMLResponse(content=html)
-    try:
-        from weasyprint import HTML
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="WeasyPrint is not installed on the server. Install it to generate PDFs.",
-        ) from exc
-    _ensure_pydyf_compat()
-    if request.query_params.get("nocss") == "1":
-        html = re.sub(r"<style[\\s\\S]*?</style>", "", html, flags=re.IGNORECASE)
-    html_doc = HTML(string=html, base_url=str(request.base_url))
-    pdf_bytes = html_doc.write_pdf()
-    logger.info(
-        "quote_pdf_len=%s",
-        len(pdf_bytes),
-    )
-    if request.query_params.get("save") == "1":
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                delete=False,
-                suffix=".html",
-                prefix=f"quote_{quote.id}_",
-            ) as html_handle:
-                html_handle.write(html)
-                tmp_html = html_handle.name
-            with tempfile.NamedTemporaryFile(
-                mode="wb",
-                delete=False,
-                suffix=".pdf",
-                prefix=f"quote_{quote.id}_",
-            ) as pdf_handle:
-                pdf_handle.write(pdf_bytes)
-                tmp_pdf = pdf_handle.name
-            logger.info("quote_pdf_saved html=%s pdf=%s", tmp_html, tmp_pdf)
-        except Exception:
-            logger.exception("quote_pdf_save_failed")
-    filename = f"quote_{quote.id}.pdf"
-    disposition = "inline" if request.query_params.get("inline") == "1" else "attachment"
-    return Response(
-        pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'{disposition}; filename="{filename}"',
-            "Cache-Control": "no-store, max-age=0",
-            "Pragma": "no-cache",
-        },
+        templates=templates,
+        logger=logger,
+        resolve_brand_logo_src=_resolve_brand_logo_src,
+        ensure_pydyf_compat=_ensure_pydyf_compat,
     )
 
 
 @router.get("/quotes/{quote_id}/preview", response_class=HTMLResponse)
 def crm_quote_preview(request: Request, quote_id: str):
-    extra = "&plain=1" if request.query_params.get("plain") == "1" else ""
-    cache_bust = int(datetime.now(UTC).timestamp())
-    pdf_url = f"/admin/crm/quotes/{quote_id}/pdf?inline=1{extra}&ts={cache_bust}"
-    html = f"""
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Quote PDF Preview</title>
-  <style>
-    html, body {{ height: 100%; margin: 0; }}
-    .frame {{ width: 100%; height: 100vh; border: none; }}
-  </style>
-</head>
-<body>
-  <iframe class="frame" src="{pdf_url}" title="Quote PDF Preview"></iframe>
-</body>
-</html>
-"""
-    return HTMLResponse(content=html)
+    return quote_preview_response(request, quote_id=quote_id)
 
 
 @router.post("/quotes", response_class=HTMLResponse)
