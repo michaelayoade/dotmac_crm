@@ -14,10 +14,8 @@ from app.models.crm.enums import CampaignChannel, CampaignType
 from app.models.crm.sales import Pipeline, PipelineStage
 from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import (
-    CampaignCreate,
     CampaignStepCreate,
     CampaignStepUpdate,
-    CampaignUpdate,
 )
 from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
 from app.services.crm.campaigns import (
@@ -37,6 +35,7 @@ from app.services.crm.web_campaigns import (
     build_campaign_create_payload,
     build_campaign_form_stub,
     build_campaign_update_payload,
+    campaign_detail_page_data,
     resolve_campaign_upsert,
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
@@ -314,26 +313,7 @@ def campaign_detail(
 ):
     if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    campaign = campaigns_service.get(db, campaign_id)
-    stats = Campaigns.analytics(db, campaign_id)
-    recipients = recipients_service.list(db, campaign_id, limit=20, offset=0)
-
-    # Load person names for recipients
-    person_ids = [r.person_id for r in recipients]
-    persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
-    person_map = {str(p.id): p for p in persons}
-
-    steps = steps_service.list(db, campaign_id) if campaign.campaign_type == CampaignType.nurture else []
-
-    ctx = _base_ctx(
-        request,
-        db,
-        campaign=campaign,
-        stats=stats,
-        recipients=recipients,
-        person_map=person_map,
-        steps=steps,
-    )
+    ctx = _base_ctx(request, db, **campaign_detail_page_data(db, campaign_id=campaign_id))
     return templates.TemplateResponse("admin/crm/campaign_detail.html", ctx)
 
 
