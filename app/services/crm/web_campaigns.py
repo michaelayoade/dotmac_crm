@@ -556,3 +556,47 @@ def update_campaign_step(
 
 def delete_campaign_step(db: Session, *, step_id: str) -> None:
     steps_service.delete(db, step_id)
+
+
+def create_campaign(
+    db: Session,
+    *,
+    name: str,
+    subject: str,
+    body_html: str,
+    body_text: str,
+    resolved: CampaignUpsertResolution,
+    created_by_id: str | None,
+):
+    payload = build_campaign_create_payload(
+        name=name,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
+        resolved=resolved,
+    )
+    return campaigns_service.create(db, payload, created_by_id=created_by_id)
+
+
+def update_campaign(
+    db: Session,
+    *,
+    campaign_id: str,
+    name: str,
+    subject: str,
+    body_html: str,
+    body_text: str,
+    resolved: CampaignUpsertResolution,
+) -> None:
+    payload = build_campaign_update_payload(
+        name=name,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
+        resolved=resolved,
+    )
+    campaigns_service.update(db, campaign_id, payload)
+
+
+def get_campaign(db: Session, *, campaign_id: str):
+    return campaigns_service.get(db, campaign_id)

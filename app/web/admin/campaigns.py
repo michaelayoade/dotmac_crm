@@ -7,14 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
-from app.services.crm.campaigns import (
-    campaigns as campaigns_service,
-)
 from app.services.crm.web_campaigns import (
     CampaignUpsertInput,
-    build_campaign_create_payload,
     build_campaign_form_stub,
-    build_campaign_update_payload,
     campaign_detail_page_data,
     campaign_form_page_data,
     campaign_list_page_data,
@@ -24,12 +19,15 @@ from app.services.crm.web_campaigns import (
     campaign_steps_page_data,
     campaign_whatsapp_templates_payload,
     cancel_campaign,
+    create_campaign,
     create_campaign_step,
     delete_campaign,
     delete_campaign_step,
+    get_campaign,
     resolve_campaign_upsert,
     schedule_campaign_from_form,
     send_campaign_now,
+    update_campaign,
     update_campaign_step,
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
@@ -209,14 +207,15 @@ def campaign_create(
             ),
         )
         return templates.TemplateResponse("admin/crm/campaign_form.html", ctx, status_code=400)
-    payload = build_campaign_create_payload(
+    campaign = create_campaign(
+        db,
         name=name,
         subject=subject,
         body_html=body_html,
         body_text=body_text,
         resolved=resolved,
+        created_by_id=created_by_id,
     )
-    campaign = campaigns_service.create(db, payload, created_by_id=created_by_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
 
 
@@ -251,7 +250,7 @@ def campaign_edit_form(
         db,
         **campaign_form_page_data(
             db,
-            campaign=campaigns_service.get(db, campaign_id),
+            campaign=get_campaign(db, campaign_id=campaign_id),
             errors=[],
             region_options=REGION_OPTIONS,
         ),
@@ -329,14 +328,15 @@ def campaign_update(
             ),
         )
         return templates.TemplateResponse("admin/crm/campaign_form.html", ctx, status_code=400)
-    payload = build_campaign_update_payload(
+    update_campaign(
+        db,
+        campaign_id=campaign_id,
         name=name,
         subject=subject,
         body_html=body_html,
         body_text=body_text,
         resolved=resolved,
     )
-    campaigns_service.update(db, campaign_id, payload)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 
