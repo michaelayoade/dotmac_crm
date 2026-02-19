@@ -8,10 +8,6 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.connector import ConnectorConfig, ConnectorType
-from app.models.crm.enums import CampaignChannel, CampaignType
-from app.models.crm.sales import Pipeline, PipelineStage
-from app.models.person import PartyStatus
 from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
 from app.services.crm.campaigns import (
     campaign_steps as steps_service,
@@ -27,6 +23,7 @@ from app.services.crm.web_campaigns import (
     build_campaign_step_update_payload,
     build_campaign_update_payload,
     campaign_detail_page_data,
+    campaign_form_page_data,
     campaign_list_page_data,
     campaign_preview_audience_data,
     campaign_recipients_table_data,
@@ -65,58 +62,6 @@ def _parse_datetime_opt(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
-
-
-def _load_campaign_senders(db: Session):
-    from app.services.crm.campaign_senders import campaign_senders
-
-    return campaign_senders.list(
-        db=db,
-        is_active=None,
-        order_by="name",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
-
-
-def _load_campaign_smtp_profiles(db: Session):
-    from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
-
-    return campaign_smtp_configs.list(
-        db=db,
-        is_active=None,
-        order_by="name",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
-
-
-def _load_whatsapp_connectors(db: Session):
-    return (
-        db.query(ConnectorConfig)
-        .filter(ConnectorConfig.connector_type == ConnectorType.whatsapp)
-        .order_by(ConnectorConfig.name.asc())
-        .limit(500)
-        .all()
-    )
-
-
-def _load_active_pipelines(db: Session):
-    return db.query(Pipeline).filter(Pipeline.is_active.is_(True)).order_by(Pipeline.name.asc()).limit(200).all()
-
-
-def _load_active_pipeline_stages(db: Session):
-    return (
-        db.query(PipelineStage)
-        .join(Pipeline, PipelineStage.pipeline_id == Pipeline.id)
-        .filter(PipelineStage.is_active.is_(True))
-        .filter(Pipeline.is_active.is_(True))
-        .order_by(Pipeline.name.asc(), PipelineStage.order_index.asc(), PipelineStage.name.asc())
-        .limit(500)
-        .all()
-    )
 
 
 def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
@@ -191,17 +136,12 @@ def campaign_create_form(request: Request, db: Session = Depends(_get_db)):
     ctx = _base_ctx(
         request,
         db,
-        campaign=None,
-        campaign_types=CampaignType,
-        campaign_channels=CampaignChannel,
-        party_statuses=PartyStatus,
-        region_options=REGION_OPTIONS,
-        pipelines=_load_active_pipelines(db),
-        pipeline_stages=_load_active_pipeline_stages(db),
-        campaign_senders=_load_campaign_senders(db),
-        campaign_smtp_profiles=_load_campaign_smtp_profiles(db),
-        whatsapp_connectors=_load_whatsapp_connectors(db),
-        errors=[],
+        **campaign_form_page_data(
+            db,
+            campaign=None,
+            errors=[],
+            region_options=REGION_OPTIONS,
+        ),
     )
     return templates.TemplateResponse("admin/crm/campaign_form.html", ctx)
 
@@ -269,17 +209,12 @@ def campaign_create(
         ctx = _base_ctx(
             request,
             db,
-            campaign=campaign_stub,
-            campaign_types=CampaignType,
-            campaign_channels=CampaignChannel,
-            party_statuses=PartyStatus,
-            region_options=REGION_OPTIONS,
-            pipelines=_load_active_pipelines(db),
-            pipeline_stages=_load_active_pipeline_stages(db),
-            campaign_senders=_load_campaign_senders(db),
-            campaign_smtp_profiles=_load_campaign_smtp_profiles(db),
-            whatsapp_connectors=_load_whatsapp_connectors(db),
-            errors=resolved.errors,
+            **campaign_form_page_data(
+                db,
+                campaign=campaign_stub,
+                errors=resolved.errors,
+                region_options=REGION_OPTIONS,
+            ),
         )
         return templates.TemplateResponse("admin/crm/campaign_form.html", ctx, status_code=400)
     payload = build_campaign_create_payload(
@@ -319,21 +254,15 @@ def campaign_edit_form(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    campaign = campaigns_service.get(db, campaign_id)
     ctx = _base_ctx(
         request,
         db,
-        campaign=campaign,
-        campaign_types=CampaignType,
-        campaign_channels=CampaignChannel,
-        party_statuses=PartyStatus,
-        region_options=REGION_OPTIONS,
-        pipelines=_load_active_pipelines(db),
-        pipeline_stages=_load_active_pipeline_stages(db),
-        campaign_senders=_load_campaign_senders(db),
-        campaign_smtp_profiles=_load_campaign_smtp_profiles(db),
-        whatsapp_connectors=_load_whatsapp_connectors(db),
-        errors=[],
+        **campaign_form_page_data(
+            db,
+            campaign=campaigns_service.get(db, campaign_id),
+            errors=[],
+            region_options=REGION_OPTIONS,
+        ),
     )
     return templates.TemplateResponse("admin/crm/campaign_form.html", ctx)
 
@@ -400,17 +329,12 @@ def campaign_update(
         ctx = _base_ctx(
             request,
             db,
-            campaign=campaign_stub,
-            campaign_types=CampaignType,
-            campaign_channels=CampaignChannel,
-            party_statuses=PartyStatus,
-            region_options=REGION_OPTIONS,
-            pipelines=_load_active_pipelines(db),
-            pipeline_stages=_load_active_pipeline_stages(db),
-            campaign_senders=_load_campaign_senders(db),
-            campaign_smtp_profiles=_load_campaign_smtp_profiles(db),
-            whatsapp_connectors=_load_whatsapp_connectors(db),
-            errors=resolved.errors,
+            **campaign_form_page_data(
+                db,
+                campaign=campaign_stub,
+                errors=resolved.errors,
+                region_options=REGION_OPTIONS,
+            ),
         )
         return templates.TemplateResponse("admin/crm/campaign_form.html", ctx, status_code=400)
     payload = build_campaign_update_payload(
