@@ -33,6 +33,7 @@ from app.services.crm.web_campaigns import (
     build_campaign_form_stub,
     build_campaign_update_payload,
     campaign_detail_page_data,
+    campaign_preview_audience_data,
     campaign_recipients_table_data,
     resolve_campaign_upsert,
 )
@@ -516,15 +517,7 @@ def campaign_preview_audience(
 ):
     if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    campaign = campaigns_service.get(db, campaign_id)
-    result = Campaigns.preview_audience(db, campaign.segment_filter, campaign.channel)
-    ctx = _base_ctx(
-        request,
-        db,
-        audience=result,
-        campaign=campaign,
-        audience_address_label="Phone" if campaign.channel == CampaignChannel.whatsapp else "Email",
-    )
+    ctx = _base_ctx(request, db, **campaign_preview_audience_data(db, campaign_id=campaign_id))
     return templates.TemplateResponse("admin/crm/_campaign_audience_preview.html", ctx)
 
 
