@@ -14,7 +14,10 @@ from app.services.common import coerce_uuid
 from app.services.crm.inbox.settings_admin import (
     create_agent,
     create_agent_team,
+    create_message_template,
     create_team,
+    delete_message_template,
+    update_message_template,
     update_notification_settings,
 )
 from app.services.crm.inbox.settings_view import build_inbox_settings_context
@@ -327,38 +330,26 @@ async def create_inbox_template(
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.schemas.crm.message_template import MessageTemplateCreate
-    from app.services.crm.inbox.permissions import can_manage_inbox_settings
-    from app.services.crm.inbox.templates import message_templates
-
-    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
-        return RedirectResponse(
-            url="/admin/crm/inbox/settings?template_error=1&template_error_detail=Forbidden",
-            status_code=303,
-        )
-    try:
-        try:
-            channel_enum = ChannelType(channel_type)
-        except ValueError as exc:
-            raise ValueError("Invalid channel type") from exc
-        payload = MessageTemplateCreate(
-            name=name.strip(),
-            channel_type=channel_enum,
-            subject=subject.strip() if subject else None,
-            body=body.strip(),
-            is_active=bool(is_active),
-        )
-        message_templates.create(db, payload)
+    result = create_message_template(
+        db,
+        name=name,
+        channel_type=channel_type,
+        subject=subject,
+        body=body,
+        is_active=is_active,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?template_setup=1",
             status_code=303,
         )
-    except Exception as exc:
-        detail = quote(str(exc) or "Failed to create template", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox/settings?template_error=1&template_error_detail={detail}",
-            status_code=303,
-        )
+    detail = quote(result.error_detail or "Failed to create template", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?template_error=1&template_error_detail={detail}",
+        status_code=303,
+    )
 
 
 @router.post("/inbox/templates/{template_id}", response_class=HTMLResponse)
@@ -372,38 +363,27 @@ async def update_inbox_template(
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.schemas.crm.message_template import MessageTemplateUpdate
-    from app.services.crm.inbox.permissions import can_manage_inbox_settings
-    from app.services.crm.inbox.templates import message_templates
-
-    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
-        return RedirectResponse(
-            url="/admin/crm/inbox/settings?template_error=1&template_error_detail=Forbidden",
-            status_code=303,
-        )
-    try:
-        try:
-            channel_enum = ChannelType(channel_type)
-        except ValueError as exc:
-            raise ValueError("Invalid channel type") from exc
-        payload = MessageTemplateUpdate(
-            name=name.strip(),
-            channel_type=channel_enum,
-            subject=subject.strip() if subject else None,
-            body=body.strip(),
-            is_active=bool(is_active),
-        )
-        message_templates.update(db, template_id, payload)
+    result = update_message_template(
+        db,
+        template_id=template_id,
+        name=name,
+        channel_type=channel_type,
+        subject=subject,
+        body=body,
+        is_active=is_active,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?template_setup=1",
             status_code=303,
         )
-    except Exception as exc:
-        detail = quote(str(exc) or "Failed to update template", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox/settings?template_error=1&template_error_detail={detail}",
-            status_code=303,
-        )
+    detail = quote(result.error_detail or "Failed to update template", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?template_error=1&template_error_detail={detail}",
+        status_code=303,
+    )
 
 
 @router.post("/inbox/templates/{template_id}/delete", response_class=HTMLResponse)
@@ -412,26 +392,22 @@ async def delete_inbox_template(
     template_id: str,
     db: Session = Depends(get_db),
 ):
-    from app.services.crm.inbox.permissions import can_manage_inbox_settings
-    from app.services.crm.inbox.templates import message_templates
-
-    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
-        return RedirectResponse(
-            url="/admin/crm/inbox/settings?template_error=1&template_error_detail=Forbidden",
-            status_code=303,
-        )
-    try:
-        message_templates.delete(db, template_id)
+    result = delete_message_template(
+        db,
+        template_id=template_id,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
         return RedirectResponse(
             url="/admin/crm/inbox/settings?template_setup=1",
             status_code=303,
         )
-    except Exception as exc:
-        detail = quote(str(exc) or "Failed to delete template", safe="")
-        return RedirectResponse(
-            url=f"/admin/crm/inbox/settings?template_error=1&template_error_detail={detail}",
-            status_code=303,
-        )
+    detail = quote(result.error_detail or "Failed to delete template", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?template_error=1&template_error_detail={detail}",
+        status_code=303,
+    )
 
 
 @router.post("/inbox/routing-rules", response_class=HTMLResponse)
