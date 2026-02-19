@@ -6,12 +6,6 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.services.crm.inbox.agents import get_current_agent_id
-from app.services.crm.inbox.formatting import (
-    filter_messages_for_user,
-    format_conversation_for_template,
-    format_message_for_template,
-)
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")
@@ -83,55 +77,27 @@ async def inbox_conversation_detail(
     db: Session = Depends(get_db),
 ):
     """Partial template for conversation thread (HTMX)."""
-    from app.services.crm.inbox.thread import load_conversation_thread
+    from app.services.crm.inbox.page_context import build_inbox_conversation_detail_context
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
-    thread = load_conversation_thread(
-        db,
-        conversation_id,
-        actor_person_id=current_user.get("person_id"),
-        mark_read=True,
-    )
-    if thread.kind != "success":
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>")
-    if not thread.conversation:
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>")
-
-    conversation = format_conversation_for_template(thread.conversation, db, include_inbox_label=True)
-    messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
     current_roles = _get_current_roles(request)
-    current_agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
-    messages = filter_messages_for_user(
-        messages,
-        current_user.get("person_id"),
-        current_roles,
-    )
-    from app.logic import private_note_logic
-    from app.services.crm.inbox.agents import list_active_agents_for_mentions
-    from app.services.crm.inbox.templates import message_templates
-
-    templates_list = message_templates.list(
+    detail_context = build_inbox_conversation_detail_context(
         db,
-        channel_type=None,
-        is_active=True,
-        limit=200,
-        offset=0,
+        conversation_id=conversation_id,
+        current_user=current_user,
+        current_roles=current_roles,
     )
-    mention_agents = list_active_agents_for_mentions(db)
+    if not detail_context:
+        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>")
+    from app.logic import private_note_logic
 
     return templates.TemplateResponse(
         "admin/crm/_message_thread.html",
         {
             "request": request,
-            "conversation": conversation,
-            "messages": messages,
-            "current_user": current_user,
-            "current_agent_id": current_agent_id,
-            "current_roles": current_roles,
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
-            "message_templates": templates_list,
-            "mention_agents": mention_agents,
+            **detail_context,
         },
     )
 

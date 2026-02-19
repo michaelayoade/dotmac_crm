@@ -18,10 +18,11 @@ from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
-from app.services.crm.inbox.agents import get_current_agent_id
+from app.services.crm.inbox.agents import get_current_agent_id, list_active_agents_for_mentions
 from app.services.crm.inbox.comments_context import list_comment_inboxes, load_comments_context
 from app.services.crm.inbox.dashboard import load_inbox_stats
 from app.services.crm.inbox.formatting import (
+    filter_messages_for_user,
     format_contact_for_template,
     format_conversation_for_template,
     format_message_for_template,
@@ -376,4 +377,50 @@ def build_inbox_contact_detail_context(
         "teams": assignment_options.get("teams"),
         "agent_labels": assignment_options.get("agent_labels"),
         "private_notes": private_notes,
+    }
+
+
+def build_inbox_conversation_detail_context(
+    db: Session,
+    *,
+    conversation_id: str,
+    current_user: dict | None,
+    current_roles: list[str],
+) -> dict | None:
+    from app.services.crm.inbox.thread import load_conversation_thread
+
+    thread = load_conversation_thread(
+        db,
+        conversation_id,
+        actor_person_id=(current_user or {}).get("person_id"),
+        mark_read=True,
+    )
+    if thread.kind != "success" or not thread.conversation:
+        return None
+
+    conversation = format_conversation_for_template(thread.conversation, db, include_inbox_label=True)
+    messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
+    current_person_id = (current_user or {}).get("person_id")
+    current_agent_id = get_current_agent_id(db, current_person_id)
+    messages = filter_messages_for_user(
+        messages,
+        current_person_id,
+        current_roles,
+    )
+    templates_list = message_templates.list(
+        db,
+        channel_type=None,
+        is_active=True,
+        limit=200,
+        offset=0,
+    )
+    mention_agents = list_active_agents_for_mentions(db)
+    return {
+        "conversation": conversation,
+        "messages": messages,
+        "current_user": current_user,
+        "current_agent_id": current_agent_id,
+        "current_roles": current_roles,
+        "message_templates": templates_list,
+        "mention_agents": mention_agents,
     }
