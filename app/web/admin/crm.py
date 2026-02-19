@@ -9,7 +9,7 @@ from typing import Literal
 from urllib.parse import urljoin, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -46,6 +46,7 @@ from app.web.admin.crm_leads import router as crm_leads_router
 from app.web.admin.crm_presence import router as crm_presence_router
 from app.web.admin.crm_quotes import router as crm_quotes_router
 from app.web.admin.crm_sales import router as crm_sales_router
+from app.web.admin.crm_widget import router as crm_widget_router
 
 
 # Simple tax rate stub for quotes (billing service was removed)
@@ -678,6 +679,7 @@ router.include_router(crm_contacts_router)
 router.include_router(crm_leads_router)
 router.include_router(crm_quotes_router)
 router.include_router(crm_sales_router)
+router.include_router(crm_widget_router)
 
 
 @router.get("/inbox", response_class=HTMLResponse)
@@ -729,234 +731,3 @@ async def inbox(
             **context,
         },
     )
-
-
-# --------------------------------------------------------------------------
-# Chat Widget Management
-# --------------------------------------------------------------------------
-
-
-@router.get("/widget", response_class=HTMLResponse)
-def crm_widget_list(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """List all chat widget configurations."""
-    from app.models.crm.chat_widget import ChatWidgetConfig
-
-    widgets = db.query(ChatWidgetConfig).order_by(ChatWidgetConfig.created_at.desc()).all()
-
-    context = _crm_base_context(request, db, "widget")
-    context.update(
-        {
-            "widgets": widgets,
-            "success_message": request.query_params.get("success"),
-            "error_message": request.query_params.get("error"),
-        }
-    )
-    return templates.TemplateResponse("admin/crm/widget_list.html", context)
-
-
-@router.get("/widget/new", response_class=HTMLResponse)
-def crm_widget_new(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Show widget creation form."""
-    context = _crm_base_context(request, db, "widget")
-    context.update(
-        {
-            "widget": None,
-        }
-    )
-    return templates.TemplateResponse("admin/crm/widget_detail.html", context)
-
-
-@router.post("/widget", response_class=HTMLResponse)
-async def crm_widget_create(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Create a new widget configuration."""
-    from app.schemas.crm.chat_widget import ChatWidgetConfigCreate
-    from app.services.crm.chat_widget import widget_configs
-
-    form = await request.form()
-
-    try:
-        prechat_fields_raw = _form_str(form, "prechat_fields_json")
-        prechat_fields = None
-        if prechat_fields_raw.strip():
-            try:
-                import json
-
-                prechat_fields = json.loads(prechat_fields_raw)
-            except Exception as exc:
-                raise ValueError("Invalid pre-chat field configuration") from exc
-        # Parse allowed domains
-        allowed_domains_str = _form_str(form, "allowed_domains")
-        allowed_domains = (
-            [d.strip() for d in allowed_domains_str.split(",") if d.strip()] if allowed_domains_str else []
-        )
-
-        payload = ChatWidgetConfigCreate(
-            name=_form_str(form, "name"),
-            allowed_domains=allowed_domains,
-            primary_color=_form_str(form, "primary_color", "#3B82F6"),
-            bubble_position=_coerce_bubble_position(_form_str_opt(form, "bubble_position")),
-            widget_title=_form_str(form, "widget_title", "Chat with us"),
-            welcome_message=_form_str_opt(form, "welcome_message"),
-            placeholder_text=_form_str(form, "placeholder_text", "Type a message..."),
-            rate_limit_messages_per_minute=_as_int(_form_str_opt(form, "rate_limit_messages_per_minute"), 10) or 10,
-            rate_limit_sessions_per_ip=_as_int(_form_str_opt(form, "rate_limit_sessions_per_ip"), 5) or 5,
-            prechat_form_enabled="prechat_form_enabled" in form,
-            prechat_fields=prechat_fields,
-        )
-
-        widget = widget_configs.create(db, payload)
-        return RedirectResponse(
-            url=f"/admin/crm/widget/{widget.id}?success=Widget created successfully",
-            status_code=303,
-        )
-    except Exception as e:
-        context = _crm_base_context(request, db, "widget")
-        context.update(
-            {
-                "widget": None,
-                "error_message": str(e),
-            }
-        )
-        return templates.TemplateResponse("admin/crm/widget_detail.html", context)
-
-
-@router.get("/widget/{widget_id}", response_class=HTMLResponse)
-def crm_widget_detail(
-    widget_id: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Widget detail with settings and embed code."""
-    from app.models.crm.chat_widget import WidgetVisitorSession
-    from app.services.crm.chat_widget import widget_configs
-
-    widget = widget_configs.get(db, widget_id)
-    if not widget:
-        return RedirectResponse(
-            url="/admin/crm/widget?error=Widget not found",
-            status_code=303,
-        )
-
-    # Get base URL for embed code
-    host = request.headers.get("host", "localhost:8000")
-    scheme = request.headers.get("x-forwarded-proto", "http")
-    base_url = f"{scheme}://{host}"
-
-    embed_code = widget_configs.generate_embed_code(widget, base_url)
-
-    # Get stats
-    session_count = db.query(WidgetVisitorSession).filter(WidgetVisitorSession.widget_config_id == widget.id).count()
-    conversation_count = (
-        db.query(WidgetVisitorSession)
-        .filter(WidgetVisitorSession.widget_config_id == widget.id)
-        .filter(WidgetVisitorSession.conversation_id.isnot(None))
-        .count()
-    )
-
-    context = _crm_base_context(request, db, "widget")
-    context.update(
-        {
-            "widget": widget,
-            "embed_code": embed_code,
-            "session_count": session_count,
-            "conversation_count": conversation_count,
-            "success_message": request.query_params.get("success"),
-            "error_message": request.query_params.get("error"),
-        }
-    )
-    return templates.TemplateResponse("admin/crm/widget_detail.html", context)
-
-
-@router.post("/widget/{widget_id}", response_class=HTMLResponse)
-async def crm_widget_update(
-    widget_id: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Update widget configuration."""
-    from app.schemas.crm.chat_widget import ChatWidgetConfigUpdate
-    from app.services.crm.chat_widget import widget_configs
-
-    form = await request.form()
-
-    try:
-        prechat_fields_raw = _form_str(form, "prechat_fields_json")
-        prechat_fields = None
-        if prechat_fields_raw.strip():
-            try:
-                import json
-
-                prechat_fields = json.loads(prechat_fields_raw)
-            except Exception as exc:
-                raise ValueError("Invalid pre-chat field configuration") from exc
-        # Parse allowed domains
-        allowed_domains_str = _form_str(form, "allowed_domains")
-        allowed_domains = (
-            [d.strip() for d in allowed_domains_str.split(",") if d.strip()] if allowed_domains_str else []
-        )
-
-        payload = ChatWidgetConfigUpdate(
-            name=_form_str_opt(form, "name"),
-            allowed_domains=allowed_domains,
-            primary_color=_form_str_opt(form, "primary_color"),
-            bubble_position=(
-                _coerce_bubble_position(bubble_position_value)
-                if (bubble_position_value := _form_str_opt(form, "bubble_position"))
-                else None
-            ),
-            widget_title=_form_str_opt(form, "widget_title"),
-            welcome_message=_form_str_opt(form, "welcome_message"),
-            placeholder_text=_form_str_opt(form, "placeholder_text"),
-            rate_limit_messages_per_minute=_as_int(_form_str_opt(form, "rate_limit_messages_per_minute"), 10) or 10,
-            rate_limit_sessions_per_ip=_as_int(_form_str_opt(form, "rate_limit_sessions_per_ip"), 5) or 5,
-            is_active="is_active" in form,
-            prechat_form_enabled="prechat_form_enabled" in form,
-            prechat_fields=prechat_fields,
-        )
-
-        widget = widget_configs.update(db, widget_id, payload)
-        if not widget:
-            return RedirectResponse(
-                url="/admin/crm/widget?error=Widget not found",
-                status_code=303,
-            )
-
-        return RedirectResponse(
-            url=f"/admin/crm/widget/{widget_id}?success=Widget updated successfully",
-            status_code=303,
-        )
-    except Exception as e:
-        return RedirectResponse(
-            url=f"/admin/crm/widget/{widget_id}?error={e!s}",
-            status_code=303,
-        )
-
-
-@router.post("/widget/{widget_id}/delete", response_class=HTMLResponse)
-def crm_widget_delete(
-    widget_id: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Delete a widget configuration."""
-    from app.services.crm.chat_widget import widget_configs
-
-    if widget_configs.delete(db, widget_id):
-        return RedirectResponse(
-            url="/admin/crm/widget?success=Widget deleted successfully",
-            status_code=303,
-        )
-    else:
-        return RedirectResponse(
-            url="/admin/crm/widget?error=Widget not found",
-            status_code=303,
-        )
