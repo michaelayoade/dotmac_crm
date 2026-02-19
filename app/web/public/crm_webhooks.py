@@ -2,6 +2,7 @@ import json
 import random
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TypedDict
 
@@ -76,6 +77,35 @@ def _record_channel_stat(channel: str, ok: bool, events: int | None = None) -> N
         stats["count"] = 0.0
         stats["errors"] = 0.0
         stats["last_log"] = now
+
+
+def _enqueue_webhook_task(
+    delay_fn: Callable[..., object],
+    *,
+    channel: str,
+    payload: dict,
+    trace_id: str,
+    message_id: str | None = None,
+) -> bool:
+    try:
+        delay_fn(payload, trace_id=trace_id)
+        return True
+    except Exception as exc:
+        logger.warning(
+            "webhook_enqueue_failed channel=%s trace_id=%s message_id=%s error=%s",
+            channel,
+            trace_id,
+            message_id or "",
+            exc,
+        )
+        write_dead_letter(
+            channel=channel,
+            raw_payload=payload,
+            error=exc,
+            trace_id=trace_id,
+            message_id=message_id,
+        )
+        return False
 
 
 def _get_verify_token(db: Session, channel: str = "meta") -> str | None:
@@ -281,8 +311,15 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # First try normalized payload
         try:
             parsed = WhatsAppWebhookPayload.model_validate_json(body)
-            webhook_tasks.process_whatsapp_webhook.delay(parsed.model_dump(), trace_id=trace_id)
-            _record_channel_stat("whatsapp", ok=True)
+            parsed_payload = parsed.model_dump()
+            enqueued = _enqueue_webhook_task(
+                webhook_tasks.process_whatsapp_webhook.delay,
+                channel="whatsapp",
+                payload=parsed_payload,
+                trace_id=trace_id,
+                message_id=parsed.message_id,
+            )
+            _record_channel_stat("whatsapp", ok=enqueued)
             if _should_sample():
                 body_len = len(parsed.body) if parsed.body else 0
                 attachments = len(parsed.metadata.get("attachments", [])) if isinstance(parsed.metadata, dict) else 0
@@ -293,7 +330,9 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                     attachments,
                     int((time.monotonic() - start_time) * 1000),
                 )
-            return {"status": "ok", "processed": 1}
+            if enqueued:
+                return {"status": "ok", "processed": 1}
+            return {"status": "accepted", "processed": 0, "failed": 1}
         except Exception:
             logger.debug("Failed to parse normalized WhatsApp webhook body.", exc_info=True)
 
@@ -347,19 +386,41 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             _record_channel_stat("whatsapp", ok=True, events=0)
             return {"status": "ok", "processed": 0}
 
+        enqueued_count = 0
+        failed_count = 0
         for msg in messages:
-            webhook_tasks.process_whatsapp_webhook.delay(msg.model_dump(), trace_id=trace_id)
+            msg_payload = msg.model_dump()
+            enqueued = _enqueue_webhook_task(
+                webhook_tasks.process_whatsapp_webhook.delay,
+                channel="whatsapp",
+                payload=msg_payload,
+                trace_id=trace_id,
+                message_id=msg.message_id,
+            )
+            if enqueued:
+                enqueued_count += 1
+            else:
+                failed_count += 1
 
-        logger.info("whatsapp_webhook_enqueued events=%d", len(messages))
-        _record_channel_stat("whatsapp", ok=True, events=len(messages))
+        logger.info(
+            "whatsapp_webhook_enqueued events=%d enqueued=%d failed=%d",
+            len(messages),
+            enqueued_count,
+            failed_count,
+        )
+        _record_channel_stat("whatsapp", ok=failed_count == 0, events=len(messages))
         if _should_sample():
             logger.info(
-                "webhook_enqueued channel=whatsapp trace_id=%s events=%s latency_ms=%s",
+                "webhook_enqueued channel=whatsapp trace_id=%s events=%s enqueued=%s failed=%s latency_ms=%s",
                 trace_id,
                 len(messages),
+                enqueued_count,
+                failed_count,
                 int((time.monotonic() - start_time) * 1000),
             )
-        return {"status": "ok", "processed": len(messages)}
+        if failed_count:
+            return {"status": "accepted", "processed": enqueued_count, "failed": failed_count}
+        return {"status": "ok", "processed": enqueued_count}
     except Exception:
         logger.exception("whatsapp_webhook_unhandled")
         _record_channel_stat("whatsapp", ok=False)
@@ -381,9 +442,17 @@ def email_webhook(payload: EmailWebhookPayload, db: Session = Depends(get_db)):
             body_len,
             attachments,
         )
-    webhook_tasks.process_email_webhook.delay(payload.model_dump(), trace_id=trace_id)
-    _record_channel_stat("email", ok=True)
-    return {"status": "ok"}
+    enqueued = _enqueue_webhook_task(
+        webhook_tasks.process_email_webhook.delay,
+        channel="email",
+        payload=payload.model_dump(),
+        trace_id=trace_id,
+        message_id=payload.message_id,
+    )
+    _record_channel_stat("email", ok=enqueued)
+    if enqueued:
+        return {"status": "ok"}
+    return {"status": "accepted", "processed": 0, "failed": 1}
 
 
 # --------------------------------------------------------------------------
@@ -478,18 +547,26 @@ async def meta_webhook(
             )
 
         event_count = sum(len(entry.messaging or []) + len(entry.changes or []) for entry in payload.entry)
-        webhook_tasks.process_meta_webhook.delay(payload.model_dump(), trace_id=trace_id)
-        logger.info("meta_webhook_enqueued type=%s events=%d", payload.object, event_count)
-        _record_channel_stat("meta", ok=True, events=event_count)
+        enqueued = _enqueue_webhook_task(
+            webhook_tasks.process_meta_webhook.delay,
+            channel="meta",
+            payload=payload.model_dump(),
+            trace_id=trace_id,
+        )
+        logger.info("meta_webhook_enqueued type=%s events=%d enqueued=%s", payload.object, event_count, enqueued)
+        _record_channel_stat("meta", ok=enqueued, events=event_count)
         if _should_sample():
             logger.info(
-                "webhook_enqueued channel=meta trace_id=%s object=%s events=%s latency_ms=%s",
+                "webhook_enqueued channel=meta trace_id=%s object=%s events=%s enqueued=%s latency_ms=%s",
                 trace_id,
                 payload.object,
                 event_count,
+                enqueued,
                 int((time.monotonic() - start_time) * 1000),
             )
-        return {"status": "ok", "processed": event_count}
+        if enqueued:
+            return {"status": "ok", "processed": event_count}
+        return {"status": "accepted", "processed": 0, "failed": event_count}
     except Exception:
         logger.exception("meta_webhook_unhandled")
         _record_channel_stat("meta", ok=False)
