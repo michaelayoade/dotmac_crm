@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -483,3 +484,22 @@ def campaign_form_page_data(
         "whatsapp_connectors": whatsapp_connectors,
         "errors": errors,
     }
+
+
+def schedule_campaign_from_form(db: Session, *, campaign_id: str, scheduled_at: str) -> bool:
+    if not scheduled_at:
+        return False
+    try:
+        scheduled_dt = datetime.fromisoformat(scheduled_at)
+    except ValueError:
+        return False
+    campaigns_service.schedule(db, campaign_id, scheduled_dt)
+    return True
+
+
+def send_campaign_now(db: Session, *, campaign_id: str) -> None:
+    campaigns_service.send_now(db, campaign_id)
+
+
+def cancel_campaign(db: Session, *, campaign_id: str) -> None:
+    campaigns_service.cancel(db, campaign_id)
