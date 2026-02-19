@@ -8,17 +8,12 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
 from app.services.crm.campaigns import (
-    campaign_steps as steps_service,
-)
-from app.services.crm.campaigns import (
     campaigns as campaigns_service,
 )
 from app.services.crm.web_campaigns import (
     CampaignUpsertInput,
     build_campaign_create_payload,
     build_campaign_form_stub,
-    build_campaign_step_create_payload,
-    build_campaign_step_update_payload,
     build_campaign_update_payload,
     campaign_detail_page_data,
     campaign_form_page_data,
@@ -29,9 +24,13 @@ from app.services.crm.web_campaigns import (
     campaign_steps_page_data,
     campaign_whatsapp_templates_payload,
     cancel_campaign,
+    create_campaign_step,
+    delete_campaign,
+    delete_campaign_step,
     resolve_campaign_upsert,
     schedule_campaign_from_form,
     send_campaign_now,
+    update_campaign_step,
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.admin.crm import REGION_OPTIONS
@@ -352,7 +351,7 @@ def campaign_delete(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    campaigns_service.delete(db, campaign_id)
+    delete_campaign(db, campaign_id=campaign_id)
     return RedirectResponse(url="/admin/crm/campaigns", status_code=303)
 
 
@@ -495,7 +494,8 @@ def campaign_step_create(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    payload = build_campaign_step_create_payload(
+    create_campaign_step(
+        db,
         campaign_id=campaign_id,
         name=name,
         subject=subject,
@@ -504,7 +504,6 @@ def campaign_step_create(
         delay_days=delay_days,
         step_index=step_index,
     )
-    steps_service.create(db, payload)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 
@@ -523,7 +522,9 @@ def campaign_step_update(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    payload = build_campaign_step_update_payload(
+    update_campaign_step(
+        db,
+        step_id=step_id,
         name=name,
         subject=subject,
         body_html=body_html,
@@ -531,7 +532,6 @@ def campaign_step_update(
         delay_days=delay_days,
         step_index=step_index,
     )
-    steps_service.update(db, step_id, payload)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 
@@ -544,5 +544,5 @@ def campaign_step_delete(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    steps_service.delete(db, step_id)
+    delete_campaign_step(db, step_id=step_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)

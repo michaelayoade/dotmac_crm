@@ -503,3 +503,56 @@ def send_campaign_now(db: Session, *, campaign_id: str) -> None:
 
 def cancel_campaign(db: Session, *, campaign_id: str) -> None:
     campaigns_service.cancel(db, campaign_id)
+
+
+def delete_campaign(db: Session, *, campaign_id: str) -> None:
+    campaigns_service.delete(db, campaign_id)
+
+
+def create_campaign_step(
+    db: Session,
+    *,
+    campaign_id: str,
+    name: str,
+    subject: str,
+    body_html: str,
+    body_text: str,
+    delay_days: int,
+    step_index: int,
+) -> None:
+    payload = build_campaign_step_create_payload(
+        campaign_id=campaign_id,
+        name=name,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
+        delay_days=delay_days,
+        step_index=step_index,
+    )
+    steps_service.create(db, payload)
+
+
+def update_campaign_step(
+    db: Session,
+    *,
+    step_id: str,
+    name: str,
+    subject: str,
+    body_html: str,
+    body_text: str,
+    delay_days: int,
+    step_index: int,
+) -> None:
+    payload = build_campaign_step_update_payload(
+        name=name,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
+        delay_days=delay_days,
+        step_index=step_index,
+    )
+    steps_service.update(db, step_id, payload)
+
+
+def delete_campaign_step(db: Session, *, step_id: str) -> None:
+    steps_service.delete(db, step_id)
