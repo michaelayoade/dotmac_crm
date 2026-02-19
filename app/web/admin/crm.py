@@ -3,33 +3,26 @@
 import base64
 import mimetypes
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 from urllib.parse import urljoin, urlparse
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.models.crm.conversation import Message
-from app.models.crm.sales import Lead, Pipeline, PipelineStage, Quote
+from app.models.crm.sales import Lead, PipelineStage, Quote
 from app.models.person import Person
 from app.models.projects import ProjectType
 from app.models.subscriber import Organization, Subscriber
 from app.schemas.crm.conversation import (
     MessageAttachmentCreate,
-)
-from app.schemas.crm.sales import (
-    PipelineCreate,
-    PipelineStageCreate,
-    PipelineStageUpdate,
-    PipelineUpdate,
 )
 from app.services import crm as crm_service
 from app.services import person as person_service
@@ -52,6 +45,7 @@ from app.web.admin.crm_inbox_status import router as crm_inbox_status_router
 from app.web.admin.crm_leads import router as crm_leads_router
 from app.web.admin.crm_presence import router as crm_presence_router
 from app.web.admin.crm_quotes import router as crm_quotes_router
+from app.web.admin.crm_sales import router as crm_sales_router
 
 
 # Simple tax rate stub for quotes (billing service was removed)
@@ -683,6 +677,7 @@ router.include_router(crm_inbox_status_router)
 router.include_router(crm_contacts_router)
 router.include_router(crm_leads_router)
 router.include_router(crm_quotes_router)
+router.include_router(crm_sales_router)
 
 
 @router.get("/inbox", response_class=HTMLResponse)
@@ -733,394 +728,6 @@ async def inbox(
             "request": request,
             **context,
         },
-    )
-
-
-@router.get("/sales", response_class=HTMLResponse)
-def crm_sales_dashboard(
-    request: Request,
-    pipeline_id: str | None = None,
-    period_days: int = Query(30, ge=7, le=365),
-    db: Session = Depends(get_db),
-):
-    """Sales dashboard with metrics, charts, and leaderboard."""
-    from app.services.crm import reports as reports_service
-
-    # Get pipelines for filter dropdown
-    pipelines = crm_service.pipelines.list(
-        db=db,
-        is_active=True,
-        order_by="name",
-        order_dir="asc",
-        limit=100,
-        offset=0,
-    )
-
-    start_at = datetime.now(UTC) - timedelta(days=period_days)
-    end_at = datetime.now(UTC)
-
-    # Get pipeline metrics
-    metrics = reports_service.sales_pipeline_metrics(
-        db,
-        pipeline_id=pipeline_id,
-        start_at=start_at,
-        end_at=end_at,
-        owner_agent_id=None,
-    )
-
-    # Get forecast data
-    forecast = reports_service.sales_forecast(
-        db,
-        pipeline_id=pipeline_id,
-        months_ahead=6,
-    )
-
-    # Get agent leaderboard
-    agent_performance = reports_service.agent_sales_performance(
-        db,
-        start_at=start_at,
-        end_at=end_at,
-        pipeline_id=pipeline_id,
-    )
-
-    # Get recent leads
-    recent_leads = crm_service.leads.list(
-        db=db,
-        pipeline_id=pipeline_id,
-        stage_id=None,
-        owner_agent_id=None,
-        status=None,
-        is_active=True,
-        order_by="updated_at",
-        order_dir="desc",
-        limit=10,
-        offset=0,
-    )
-
-    # Build person map for recent leads
-    person_ids = [lead.person_id for lead in recent_leads if lead.person_id]
-    persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
-    person_map = {str(p.id): p for p in persons}
-
-    context = _crm_base_context(request, db, "sales")
-    context.update(
-        {
-            "pipelines": pipelines,
-            "selected_pipeline_id": pipeline_id or "",
-            "selected_period_days": period_days,
-            "metrics": metrics,
-            "forecast": forecast,
-            "agent_performance": agent_performance[:10],  # Top 10
-            "recent_leads": recent_leads,
-            "person_map": person_map,
-        }
-    )
-    return templates.TemplateResponse("admin/crm/sales_dashboard.html", context)
-
-
-@router.get("/sales/pipeline", response_class=HTMLResponse)
-def crm_sales_pipeline(
-    request: Request,
-    pipeline_id: str | None = None,
-    db: Session = Depends(get_db),
-):
-    """Sales pipeline kanban board."""
-    # Get pipelines for filter dropdown
-    pipelines = crm_service.pipelines.list(
-        db=db,
-        is_active=True,
-        order_by="name",
-        order_dir="asc",
-        limit=100,
-        offset=0,
-    )
-
-    # Select first pipeline if none specified
-    if not pipeline_id and pipelines:
-        pipeline_id = str(pipelines[0].id)
-
-    context = _crm_base_context(request, db, "sales")
-    context.update(
-        {
-            "pipelines": pipelines,
-            "selected_pipeline_id": pipeline_id or "",
-        }
-    )
-    return templates.TemplateResponse("admin/crm/sales_pipeline.html", context)
-
-
-# ---------------------------------------------------------------------------
-# Pipeline Settings
-# ---------------------------------------------------------------------------
-
-
-@router.get("/settings/pipelines/new", response_class=HTMLResponse)
-def crm_pipeline_new(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    pipeline = {
-        "name": "",
-        "is_active": True,
-        "create_default_stages": True,
-    }
-    context = _crm_base_context(request, db, "sales")
-    context.update(
-        {
-            "pipeline": pipeline,
-            "form_title": "New Pipeline",
-            "submit_label": "Create Pipeline",
-            "action_url": "/admin/crm/settings/pipelines",
-            "error": None,
-        }
-    )
-    return templates.TemplateResponse("admin/crm/pipeline_form.html", context)
-
-
-@router.post("/settings/pipelines", response_class=HTMLResponse)
-def crm_pipeline_create(
-    request: Request,
-    name: str | None = Form(None),
-    is_active: str | None = Form(None),
-    create_default_stages: str | None = Form(None),
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    error = None
-    pipeline_data: dict[str, str | bool] = {
-        "name": (name or "").strip(),
-        "is_active": _as_bool(is_active) if is_active is not None else True,
-        "create_default_stages": _as_bool(create_default_stages),
-    }
-    try:
-        if not pipeline_data["name"]:
-            raise ValueError("Pipeline name is required.")
-        payload = PipelineCreate(
-            name=str(pipeline_data["name"]),
-            is_active=bool(pipeline_data["is_active"]),
-        )
-        pipeline = crm_service.pipelines.create(db=db, payload=payload)
-        if pipeline_data["create_default_stages"]:
-            for index, stage in enumerate(_DEFAULT_PIPELINE_STAGES):
-                probability_value = stage.get("probability")
-                default_probability = int(probability_value) if isinstance(probability_value, int | str) else 0
-                stage_payload = PipelineStageCreate(
-                    pipeline_id=pipeline.id,
-                    name=str(stage["name"]),
-                    order_index=index,
-                    default_probability=default_probability,
-                    is_active=True,
-                )
-                crm_service.pipeline_stages.create(db=db, payload=stage_payload)
-        return RedirectResponse(
-            url=f"/admin/crm/sales/pipeline?pipeline_id={pipeline.id}",
-            status_code=303,
-        )
-    except (ValidationError, ValueError) as exc:
-        error = str(exc)
-    except Exception as exc:
-        error = exc.detail if hasattr(exc, "detail") else str(exc)
-
-    context = _crm_base_context(request, db, "sales")
-    context.update(
-        {
-            "pipeline": pipeline_data,
-            "form_title": "New Pipeline",
-            "submit_label": "Create Pipeline",
-            "action_url": "/admin/crm/settings/pipelines",
-            "error": error,
-        }
-    )
-    return templates.TemplateResponse("admin/crm/pipeline_form.html", context)
-
-
-@router.get("/settings/pipelines", response_class=HTMLResponse)
-def crm_pipeline_settings(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    pipelines = db.query(Pipeline).order_by(Pipeline.is_active.desc(), Pipeline.created_at.desc()).limit(200).all()
-    stages = (
-        db.query(PipelineStage)
-        .order_by(PipelineStage.pipeline_id.asc(), PipelineStage.order_index.asc(), PipelineStage.created_at.asc())
-        .limit(1000)
-        .all()
-    )
-    stage_map: dict[str, list[PipelineStage]] = {}
-    for stage in stages:
-        stage_map.setdefault(str(stage.pipeline_id), []).append(stage)
-
-    bulk_result = request.query_params.get("bulk_result", "").strip()
-    bulk_count = request.query_params.get("bulk_count", "").strip()
-
-    context = _crm_base_context(request, db, "sales")
-    context.update(
-        {
-            "pipelines": pipelines,
-            "stage_map": stage_map,
-            "bulk_result": bulk_result,
-            "bulk_count": bulk_count,
-            "default_pipeline_stages": _DEFAULT_PIPELINE_STAGES,
-        }
-    )
-    return templates.TemplateResponse("admin/crm/pipeline_settings.html", context)
-
-
-@router.get("/settings/pipelines/{pipeline_id}/edit", response_class=HTMLResponse)
-def crm_pipeline_edit(
-    request: Request,
-    pipeline_id: str,
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    pipeline = crm_service.pipelines.get(db, pipeline_id)
-    context = _crm_base_context(request, db, "sales")
-    context.update(
-        {
-            "pipeline": pipeline,
-            "form_title": "Edit Pipeline",
-            "submit_label": "Update Pipeline",
-            "action_url": f"/admin/crm/settings/pipelines/{pipeline_id}",
-            "error": None,
-        }
-    )
-    return templates.TemplateResponse("admin/crm/pipeline_form.html", context)
-
-
-@router.post("/settings/pipelines/{pipeline_id}", response_class=HTMLResponse)
-def crm_pipeline_update(
-    request: Request,
-    pipeline_id: str,
-    name: str | None = Form(None),
-    is_active: str | None = Form(None),
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    try:
-        payload = PipelineUpdate(
-            name=(name or "").strip() or None,
-            is_active=_as_bool(is_active) if is_active is not None else None,
-        )
-        crm_service.pipelines.update(db=db, pipeline_id=pipeline_id, payload=payload)
-        return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
-    except (ValidationError, ValueError) as exc:
-        error = str(exc)
-    except Exception as exc:
-        error = exc.detail if hasattr(exc, "detail") else str(exc)
-
-    context = _crm_base_context(request, db, "sales")
-    context.update(
-        {
-            "pipeline": {
-                "id": pipeline_id,
-                "name": (name or "").strip(),
-                "is_active": _as_bool(is_active) if is_active is not None else True,
-                "create_default_stages": False,
-            },
-            "form_title": "Edit Pipeline",
-            "submit_label": "Update Pipeline",
-            "action_url": f"/admin/crm/settings/pipelines/{pipeline_id}",
-            "error": error,
-        }
-    )
-    return templates.TemplateResponse("admin/crm/pipeline_form.html", context, status_code=400)
-
-
-@router.post("/settings/pipelines/{pipeline_id}/delete")
-def crm_pipeline_delete(
-    request: Request,
-    pipeline_id: str,
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    crm_service.pipelines.delete(db, pipeline_id)
-    return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
-
-
-@router.post("/settings/pipelines/{pipeline_id}/stages")
-def crm_pipeline_stage_create(
-    request: Request,
-    pipeline_id: str,
-    name: str = Form(...),
-    order_index: int = Form(0),
-    default_probability: int = Form(50),
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    payload = PipelineStageCreate(
-        pipeline_id=coerce_uuid(pipeline_id),
-        name=name.strip(),
-        order_index=order_index,
-        default_probability=default_probability,
-        is_active=True,
-    )
-    crm_service.pipeline_stages.create(db=db, payload=payload)
-    return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
-
-
-@router.post("/settings/pipelines/stages/{stage_id}")
-def crm_pipeline_stage_update(
-    request: Request,
-    stage_id: str,
-    name: str = Form(...),
-    order_index: int = Form(0),
-    default_probability: int = Form(50),
-    is_active: str | None = Form(None),
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    payload = PipelineStageUpdate(
-        name=name.strip(),
-        order_index=order_index,
-        default_probability=default_probability,
-        is_active=_as_bool(is_active) if is_active is not None else False,
-    )
-    crm_service.pipeline_stages.update(db=db, stage_id=stage_id, payload=payload)
-    return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
-
-
-@router.post("/settings/pipelines/stages/{stage_id}/delete")
-def crm_pipeline_stage_delete(
-    request: Request,
-    stage_id: str,
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    payload = PipelineStageUpdate(is_active=False)
-    crm_service.pipeline_stages.update(db=db, stage_id=stage_id, payload=payload)
-    return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
-
-
-@router.post("/settings/pipelines/{pipeline_id}/bulk-assign-leads")
-def crm_pipeline_bulk_assign_leads(
-    request: Request,
-    pipeline_id: str,
-    stage_id: str | None = Form(None),
-    scope: str = Form("unassigned"),
-    db: Session = Depends(get_db),
-):
-    if not _can_write_sales(request):
-        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
-    count = crm_service.leads.bulk_assign_pipeline(
-        db,
-        pipeline_id=pipeline_id,
-        stage_id=(stage_id or "").strip() or None,
-        scope=scope,
-    )
-    return RedirectResponse(
-        url=f"/admin/crm/settings/pipelines?bulk_result=ok&bulk_count={count}",
-        status_code=303,
     )
 
 
