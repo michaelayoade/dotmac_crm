@@ -3,7 +3,6 @@
 import os
 import re
 import tempfile
-import uuid
 from datetime import UTC, datetime
 from html import escape as html_escape
 
@@ -16,17 +15,10 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import SessionLocal
 from app.logging import get_logger
-from app.models.crm.enums import ChannelType, MessageStatus
 from app.models.domain_settings import SettingDomain
-from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person
-from app.schemas.crm.conversation import ConversationCreate
-from app.schemas.crm.inbox import InboxSendRequest
 from app.services import crm as crm_service
 from app.services.audit_helpers import build_changes_metadata, log_audit_event
-from app.services.crm import contact as contact_service
-from app.services.crm import conversation as conversation_service
-from app.services.crm import inbox as inbox_service
 from app.services.crm.web_quotes import (
     QuoteUpsertInput,
     bulk_delete,
@@ -36,7 +28,9 @@ from app.services.crm.web_quotes import (
     edit_quote_form_data,
     list_quotes_page_data,
     new_quote_form_data,
+    quote_detail_data,
     quote_form_error_data,
+    send_quote_summary,
     update_quote,
     update_quote_status,
 )
@@ -168,59 +162,8 @@ def crm_quote_new(
 
 @router.get("/quotes/{quote_id}", response_class=HTMLResponse)
 def crm_quote_detail(request: Request, quote_id: str, db: Session = Depends(get_db)):
-    quote = crm_service.quotes.get(db=db, quote_id=quote_id)
-    items = crm_service.quote_line_items.list(
-        db=db,
-        quote_id=quote_id,
-        order_by="created_at",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
-    lead = None
-    if quote.lead_id:
-        try:
-            lead = crm_service.leads.get(db=db, lead_id=str(quote.lead_id))
-        except Exception:
-            lead = None
-    contact = None
-    if quote.person_id:
-        contact = contact_service.get_person_with_relationships(db, str(quote.person_id))
-
-    has_email = False
-    has_whatsapp = False
-    if contact and contact.channels:
-        for channel in contact.channels:
-            if not channel.address:
-                continue
-            if channel.channel_type == PersonChannelType.email:
-                has_email = True
-            if channel.channel_type == PersonChannelType.whatsapp:
-                has_whatsapp = True
-
-    company_name_raw = resolve_value(db, SettingDomain.comms, "company_name")
-    company_name = (
-        company_name_raw.strip() if isinstance(company_name_raw, str) and company_name_raw.strip() else "Dotmac"
-    )
-    support_email_raw = resolve_value(db, SettingDomain.comms, "support_email")
-    support_email = (
-        support_email_raw.strip() if isinstance(support_email_raw, str) and support_email_raw.strip() else None
-    )
-    summary_text = _format_project_summary(quote, lead, contact, company_name, support_email=support_email)
-
     context = _crm_base_context(request, db, "quotes")
-    context.update(
-        {
-            "quote": quote,
-            "items": items,
-            "lead": lead,
-            "contact": contact,
-            "summary_text": summary_text,
-            "has_email": has_email,
-            "has_whatsapp": has_whatsapp,
-            "today": datetime.now(UTC),
-        }
-    )
+    context.update(quote_detail_data(db, quote_id=quote_id, format_project_summary=_format_project_summary))
     return templates.TemplateResponse("admin/crm/quote_detail.html", context)
 
 
@@ -259,156 +202,25 @@ def crm_quote_send_summary(
 ):
     from app.web.admin import get_current_user
 
-    quote = crm_service.quotes.get(db=db, quote_id=quote_id)
-    items = crm_service.quote_line_items.list(
-        db=db,
-        quote_id=quote_id,
-        order_by="created_at",
-        order_dir="asc",
-        limit=500,
-        offset=0,
-    )
-    lead = None
-    if quote.lead_id:
-        try:
-            lead = crm_service.leads.get(db=db, lead_id=str(quote.lead_id))
-        except Exception:
-            lead = None
-
-    if not quote.person_id:
-        return RedirectResponse(
-            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
-            status_code=303,
-        )
-
-    contact = contact_service.get_person_with_relationships(db, str(quote.person_id))
-    if not contact:
-        return RedirectResponse(
-            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
-            status_code=303,
-        )
-
-    try:
-        channel_enum = ChannelType(channel_type)
-    except ValueError:
-        return RedirectResponse(
-            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
-            status_code=303,
-        )
-
-    if channel_enum not in (ChannelType.email, ChannelType.whatsapp):
-        return RedirectResponse(
-            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
-            status_code=303,
-        )
-
-    person_channel = conversation_service.resolve_person_channel(db, str(contact.id), channel_enum)
-    if not person_channel:
-        return RedirectResponse(
-            url=f"/admin/crm/quotes/{quote_id}?send_error=1",
-            status_code=303,
-        )
-
-    company_name_raw = resolve_value(db, SettingDomain.comms, "company_name")
-    company_name = (
-        company_name_raw.strip() if isinstance(company_name_raw, str) and company_name_raw.strip() else "Dotmac"
-    )
-    support_email_raw = resolve_value(db, SettingDomain.comms, "support_email")
-    _support_email = (
-        support_email_raw.strip() if isinstance(support_email_raw, str) and support_email_raw.strip() else None
-    )
-    body = (message or "").strip()
-    if not body:
-        body = _format_project_summary(quote, lead, contact, company_name, support_email=_support_email)
-
-    quote_label = None
-    if isinstance(quote.metadata_, dict):
-        quote_label = quote.metadata_.get("quote_name")
-    subject = None
-    attachments_payload: list[dict] | None = None
-    if channel_enum == ChannelType.email:
-        subject = "Installation Quote"
-        stored_name = None
-        try:
-            branding_payload = dict(getattr(request.state, "branding", None) or {})
-            if "quote_banking_details" not in branding_payload:
-                branding_payload["quote_banking_details"] = resolve_value(
-                    db, SettingDomain.comms, "quote_banking_details"
-                )
-            pdf_bytes = _build_quote_pdf_bytes(
-                request=request,
-                quote=quote,
-                items=items,
-                lead=lead,
-                contact=contact,
-                quote_name=quote_label,
-                branding=branding_payload,
-            )
-            max_size = settings.message_attachment_max_size_bytes
-            if max_size and len(pdf_bytes) > max_size:
-                return RedirectResponse(
-                    url=f"/admin/crm/quotes/{quote_id}?send_error=1",
-                    status_code=303,
-                )
-            stored_name = f"{uuid.uuid4().hex}.pdf"
-            from app.services.crm.conversations import message_attachments as message_attachment_service
-
-            saved = message_attachment_service.save(
-                [
-                    {
-                        "stored_name": stored_name,
-                        "file_name": f"quote_{quote.id}.pdf",
-                        "file_size": len(pdf_bytes),
-                        "mime_type": "application/pdf",
-                        "content": pdf_bytes,
-                    }
-                ]
-            )
-            attachments_payload = saved or None
-        except Exception:
-            return RedirectResponse(
-                url=f"/admin/crm/quotes/{quote_id}?send_error=1",
-                status_code=303,
-            )
-
-    conversation = conversation_service.resolve_open_conversation_for_channel(db, str(contact.id), channel_enum)
-    if not conversation:
-        conversation = conversation_service.Conversations.create(
-            db,
-            ConversationCreate(
-                person_id=contact.id,
-                subject=subject if channel_enum == ChannelType.email else None,
-            ),
-        )
-
     current_user = get_current_user(request)
     author_id = current_user.get("person_id") if current_user else None
-
-    try:
-        result_msg = inbox_service.send_message(
-            db,
-            InboxSendRequest(
-                conversation_id=conversation.id,
-                channel_type=channel_enum,
-                subject=subject,
-                body=body,
-                attachments=attachments_payload,
-            ),
-            author_id=author_id,
-        )
-        if result_msg and result_msg.status == MessageStatus.failed:
-            return RedirectResponse(
-                url=f"/admin/crm/quotes/{quote_id}?send_error=1",
-                status_code=303,
-            )
-    except Exception:
+    sent = send_quote_summary(
+        db,
+        request=request,
+        quote_id=quote_id,
+        channel_type=channel_type,
+        message=message,
+        author_id=author_id,
+        message_attachment_max_size_bytes=settings.message_attachment_max_size_bytes,
+        format_project_summary=_format_project_summary,
+        build_quote_pdf_bytes=_build_quote_pdf_bytes,
+        apply_message_attachments=_apply_message_attachments,
+    )
+    if not sent:
         return RedirectResponse(
             url=f"/admin/crm/quotes/{quote_id}?send_error=1",
             status_code=303,
         )
-
-    if attachments_payload and result_msg:
-        _apply_message_attachments(db, result_msg, attachments_payload)
 
     return RedirectResponse(
         url=f"/admin/crm/quotes/{quote_id}?send=1",

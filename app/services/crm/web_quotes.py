@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -11,12 +12,20 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.models.crm.enums import QuoteStatus
+from app.models.crm.enums import ChannelType, MessageStatus, QuoteStatus
+from app.models.domain_settings import SettingDomain
+from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person
 from app.models.projects import ProjectType
+from app.schemas.crm.conversation import ConversationCreate
+from app.schemas.crm.inbox import InboxSendRequest
 from app.schemas.crm.sales import QuoteCreate, QuoteLineItemCreate, QuoteLineItemUpdate, QuoteUpdate
 from app.services import crm as crm_service
 from app.services.common import coerce_uuid
+from app.services.crm import contact as contact_service
+from app.services.crm import conversation as conversation_service
+from app.services.crm import inbox as inbox_service
+from app.services.settings_spec import resolve_value
 
 
 @dataclass(slots=True)
@@ -417,6 +426,57 @@ def edit_quote_form_data(db: Session, *, quote_id: str, contacts: list) -> dict[
     }
 
 
+def quote_detail_data(db: Session, *, quote_id: str, format_project_summary) -> dict[str, Any]:
+    quote = crm_service.quotes.get(db=db, quote_id=quote_id)
+    items = crm_service.quote_line_items.list(
+        db=db,
+        quote_id=quote_id,
+        order_by="created_at",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    lead = None
+    if quote.lead_id:
+        try:
+            lead = crm_service.leads.get(db=db, lead_id=str(quote.lead_id))
+        except Exception:
+            lead = None
+    contact = contact_service.get_person_with_relationships(db, str(quote.person_id)) if quote.person_id else None
+
+    has_email = False
+    has_whatsapp = False
+    if contact and contact.channels:
+        for channel in contact.channels:
+            if not channel.address:
+                continue
+            if channel.channel_type == PersonChannelType.email:
+                has_email = True
+            if channel.channel_type == PersonChannelType.whatsapp:
+                has_whatsapp = True
+
+    company_name_raw = resolve_value(db, SettingDomain.comms, "company_name")
+    company_name = (
+        company_name_raw.strip() if isinstance(company_name_raw, str) and company_name_raw.strip() else "Dotmac"
+    )
+    support_email_raw = resolve_value(db, SettingDomain.comms, "support_email")
+    support_email = (
+        support_email_raw.strip() if isinstance(support_email_raw, str) and support_email_raw.strip() else None
+    )
+    summary_text = format_project_summary(quote, lead, contact, company_name, support_email=support_email)
+
+    return {
+        "quote": quote,
+        "items": items,
+        "lead": lead,
+        "contact": contact,
+        "summary_text": summary_text,
+        "has_email": has_email,
+        "has_whatsapp": has_whatsapp,
+        "today": datetime.now(UTC),
+    }
+
+
 def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput) -> tuple[Any, Any]:
     quote = _normalized_form(form, quote_id=quote_id)
     quote_items = _as_quote_items(form)
@@ -510,6 +570,136 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput) -> tuple
     return before, updated
 
 
+def send_quote_summary(
+    db: Session,
+    *,
+    request,
+    quote_id: str,
+    channel_type: str,
+    message: str,
+    author_id: str | None,
+    message_attachment_max_size_bytes: int | None,
+    format_project_summary,
+    build_quote_pdf_bytes,
+    apply_message_attachments,
+) -> bool:
+    quote = crm_service.quotes.get(db=db, quote_id=quote_id)
+    items = crm_service.quote_line_items.list(
+        db=db,
+        quote_id=quote_id,
+        order_by="created_at",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    lead = None
+    if quote.lead_id:
+        try:
+            lead = crm_service.leads.get(db=db, lead_id=str(quote.lead_id))
+        except Exception:
+            lead = None
+
+    if not quote.person_id:
+        return False
+    contact = contact_service.get_person_with_relationships(db, str(quote.person_id))
+    if not contact:
+        return False
+
+    try:
+        channel_enum = ChannelType(channel_type)
+    except ValueError:
+        return False
+    if channel_enum not in (ChannelType.email, ChannelType.whatsapp):
+        return False
+
+    person_channel = conversation_service.resolve_person_channel(db, str(contact.id), channel_enum)
+    if not person_channel:
+        return False
+
+    company_name_raw = resolve_value(db, SettingDomain.comms, "company_name")
+    company_name = (
+        company_name_raw.strip() if isinstance(company_name_raw, str) and company_name_raw.strip() else "Dotmac"
+    )
+    support_email_raw = resolve_value(db, SettingDomain.comms, "support_email")
+    support_email = (
+        support_email_raw.strip() if isinstance(support_email_raw, str) and support_email_raw.strip() else None
+    )
+    body = (message or "").strip()
+    if not body:
+        body = format_project_summary(quote, lead, contact, company_name, support_email=support_email)
+
+    quote_label = quote.metadata_.get("quote_name") if isinstance(quote.metadata_, dict) else None
+    subject = None
+    attachments_payload: list[dict] | None = None
+    if channel_enum == ChannelType.email:
+        subject = "Installation Quote"
+        try:
+            branding_payload = dict(getattr(request.state, "branding", None) or {})
+            if "quote_banking_details" not in branding_payload:
+                branding_payload["quote_banking_details"] = resolve_value(
+                    db, SettingDomain.comms, "quote_banking_details"
+                )
+            pdf_bytes = build_quote_pdf_bytes(
+                request=request,
+                quote=quote,
+                items=items,
+                lead=lead,
+                contact=contact,
+                quote_name=quote_label,
+                branding=branding_payload,
+            )
+            if message_attachment_max_size_bytes and len(pdf_bytes) > message_attachment_max_size_bytes:
+                return False
+            stored_name = f"{uuid.uuid4().hex}.pdf"
+            from app.services.crm.conversations import message_attachments as message_attachment_service
+
+            saved = message_attachment_service.save(
+                [
+                    {
+                        "stored_name": stored_name,
+                        "file_name": f"quote_{quote.id}.pdf",
+                        "file_size": len(pdf_bytes),
+                        "mime_type": "application/pdf",
+                        "content": pdf_bytes,
+                    }
+                ]
+            )
+            attachments_payload = saved or None
+        except Exception:
+            return False
+
+    conversation = conversation_service.resolve_open_conversation_for_channel(db, str(contact.id), channel_enum)
+    if not conversation:
+        conversation = conversation_service.Conversations.create(
+            db,
+            ConversationCreate(
+                person_id=contact.id,
+                subject=subject if channel_enum == ChannelType.email else None,
+            ),
+        )
+
+    try:
+        result_msg = inbox_service.send_message(
+            db,
+            InboxSendRequest(
+                conversation_id=conversation.id,
+                channel_type=channel_enum,
+                subject=subject,
+                body=body,
+                attachments=attachments_payload,
+            ),
+            author_id=author_id,
+        )
+        if result_msg and result_msg.status == MessageStatus.failed:
+            return False
+    except Exception:
+        return False
+
+    if attachments_payload and result_msg:
+        apply_message_attachments(db, result_msg, attachments_payload)
+    return True
+
+
 def quote_form_error_data(
     db: Session,
     *,
@@ -598,7 +788,9 @@ __all__ = [
     "edit_quote_form_data",
     "list_quotes_page_data",
     "new_quote_form_data",
+    "quote_detail_data",
     "quote_form_error_data",
+    "send_quote_summary",
     "update_quote",
     "update_quote_status",
 ]
