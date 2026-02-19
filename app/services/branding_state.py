@@ -38,9 +38,13 @@ def load_branding_settings(db: Session, *, force: bool = False) -> dict:
             return cache
 
     with _BRANDING_LOCK:
-        if not force and _BRANDING_CACHE is not None and _BRANDING_CACHE_AT is not None:
-            if now - _BRANDING_CACHE_AT < _BRANDING_CACHE_TTL_SECONDS:
-                return _BRANDING_CACHE
+        if (
+            not force
+            and _BRANDING_CACHE is not None
+            and _BRANDING_CACHE_AT is not None
+            and now - _BRANDING_CACHE_AT < _BRANDING_CACHE_TTL_SECONDS
+        ):
+            return _BRANDING_CACHE
 
         try:
             branding_keys = [
@@ -75,4 +79,3 @@ def load_branding_settings(db: Session, *, force: bool = False) -> dict:
         _BRANDING_CACHE = result
         _BRANDING_CACHE_AT = now
         return result
-

@@ -1017,6 +1017,7 @@ def system_overview(request: Request, db: Session = Depends(get_db)):
 def system_configuration(request: Request, db: Session = Depends(get_db)):
     """System configuration overview."""
     from app.models.connector import ConnectorConfig
+    from app.models.crm.sales import Pipeline
     from app.models.crm.team import CrmAgent
     from app.models.projects import ProjectTemplate
     from app.models.webhook import WebhookEndpoint
@@ -1027,6 +1028,7 @@ def system_configuration(request: Request, db: Session = Depends(get_db)):
     webhooks_count = db.query(WebhookEndpoint).filter(WebhookEndpoint.is_active.is_(True)).count()
     project_templates_count = db.query(ProjectTemplate).filter(ProjectTemplate.is_active.is_(True)).count()
     crm_agents_count = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).count()
+    pipelines_count = db.query(Pipeline).filter(Pipeline.is_active.is_(True)).count()
 
     return templates.TemplateResponse(
         "admin/system/configuration/index.html",
@@ -1041,6 +1043,7 @@ def system_configuration(request: Request, db: Session = Depends(get_db)):
             "webhooks_count": webhooks_count,
             "project_templates_count": project_templates_count,
             "crm_agents_count": crm_agents_count,
+            "pipelines_count": pipelines_count,
         },
     )
 
@@ -1402,17 +1405,6 @@ async def user_edit_submit(
         value for value in (_form_str(item).strip() for item in form_data.getlist("direct_permission_ids")) if value
     ]
 
-    status_value = "active" if _form_bool(is_active) else "inactive"
-    payload = PersonUpdate(
-        first_name=first_name.strip(),
-        last_name=last_name.strip(),
-        display_name=display_name,
-        email=email.strip(),
-        phone=phone,
-        is_active=_form_bool(is_active),
-        status=status_value,
-    )
-
     roles = rbac_service.roles.list(
         db=db,
         is_active=True,
@@ -1431,6 +1423,17 @@ async def user_edit_submit(
     )
 
     try:
+        status_value = "active" if _form_bool(is_active) else "inactive"
+        payload = PersonUpdate(
+            first_name=first_name.strip(),
+            last_name=last_name.strip(),
+            display_name=display_name,
+            email=email.strip(),
+            phone=phone,
+            is_active=_form_bool(is_active),
+            status=status_value,
+        )
+
         person_service.people.update(db, user_id, payload)
         db.query(UserCredential).filter(
             UserCredential.person_id == person.id,
@@ -1463,8 +1466,75 @@ async def user_edit_submit(
         if new_password or confirm_password:
             raise ValueError("Password updates are disabled on this page.")
         db.commit()
+    except ValidationError:
+        db.rollback()
+        current_roles = db.query(PersonRole).filter(PersonRole.person_id == person.id).all()
+        current_role_ids = {str(pr.role_id) for pr in current_roles}
+        direct_permissions = rbac_service.person_permissions.list_for_person(db, str(person.id))
+        direct_permission_ids_set = {str(pp.permission_id) for pp in direct_permissions}
+        return templates.TemplateResponse(
+            "admin/system/users/edit.html",
+            {
+                "request": request,
+                "user": person,
+                "roles": roles,
+                "current_role_ids": current_role_ids,
+                "all_permissions": all_permissions,
+                "direct_permission_ids": direct_permission_ids_set,
+                "can_update_password": False,  # nosec B105
+                "active_page": "users",
+                "active_menu": "system",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+                "error": "Please provide valid first name, last name, and email.",
+            },
+            status_code=400,
+        )
+    except IntegrityError:
+        # Most common failure mode here is unique username collision when we sync credential.username = email.
+        db.rollback()
+        logger.exception(
+            "user_edit_submit_integrity_error user_id=%s email=%s role_ids=%s direct_permission_ids=%s actor_id=%s request_id=%s",
+            user_id,
+            email,
+            role_ids,
+            direct_permission_ids,
+            getattr(request.state, "actor_id", None),
+            getattr(request.state, "request_id", None),
+        )
+        current_roles = db.query(PersonRole).filter(PersonRole.person_id == person.id).all()
+        current_role_ids = {str(pr.role_id) for pr in current_roles}
+        direct_permissions = rbac_service.person_permissions.list_for_person(db, str(person.id))
+        direct_permission_ids_set = {str(pp.permission_id) for pp in direct_permissions}
+        return templates.TemplateResponse(
+            "admin/system/users/edit.html",
+            {
+                "request": request,
+                "user": person,
+                "roles": roles,
+                "current_role_ids": current_role_ids,
+                "all_permissions": all_permissions,
+                "direct_permission_ids": direct_permission_ids_set,
+                "can_update_password": False,  # nosec B105
+                "active_page": "users",
+                "active_menu": "system",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+                "error": "Unable to save changes (email/username already in use).",
+            },
+            status_code=400,
+        )
     except Exception as exc:
         db.rollback()
+        logger.exception(
+            "user_edit_submit_failed user_id=%s email=%s role_ids=%s direct_permission_ids=%s actor_id=%s request_id=%s",
+            user_id,
+            email,
+            role_ids,
+            direct_permission_ids,
+            getattr(request.state, "actor_id", None),
+            getattr(request.state, "request_id", None),
+        )
         current_roles = db.query(PersonRole).filter(PersonRole.person_id == person.id).all()
         current_role_ids = {str(pr.role_id) for pr in current_roles}
         direct_permissions = rbac_service.person_permissions.list_for_person(db, str(person.id))

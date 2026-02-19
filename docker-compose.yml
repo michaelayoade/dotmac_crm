@@ -84,6 +84,12 @@ services:
       API_RATE_LIMIT: ${API_RATE_LIMIT}
       API_RATE_WINDOW: ${API_RATE_WINDOW}
       NOMINATIM_URL: ${NOMINATIM_URL}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
       OPENBAO_ADDR: ${OPENBAO_ADDR}
       OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN}
     env_file:
@@ -132,6 +138,12 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY}
       WIREGUARD_KEY_ENCRYPTION_KEY: ${WIREGUARD_KEY_ENCRYPTION_KEY}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
       OPENBAO_ADDR: ${OPENBAO_ADDR}
       OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN}
     env_file:
@@ -145,12 +157,10 @@ services:
       - ./app:/app/app
       - uploads_data:/app/static/uploads
     command:
-      - celery
-      - -A
-      - app.celery_app.celery_app
-      - worker
-      - --loglevel=info
-      - --concurrency=4
+      - /bin/sh
+      - -lc
+      - |
+        exec celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=4
 
   # =============================================================================
   # Celery Beat (Scheduler)
@@ -177,12 +187,60 @@ services:
       - ./app:/app/app
       - celerybeat_data:/app/celerybeat
     command:
-      - celery
-      - -A
-      - app.celery_app.celery_app
-      - beat
-      - --loglevel=info
-      - --schedule=/app/celerybeat/celerybeat-schedule
+      - /bin/sh
+      - -lc
+      - |
+        exec celery -A app.celery_app.celery_app beat --loglevel=info --schedule=/app/celerybeat/celerybeat-schedule
+
+  # =============================================================================
+  # MinIO - S3-compatible Object Storage
+  # =============================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: dotmac_omni_minio
+    restart: unless-stopped
+    profiles:
+      - s3
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Initialize MinIO: create bucket (idempotent) and allow anonymous downloads.
+  # The app returns direct URLs (not presigned URLs), so public read is required
+  # if you want links in UI/emails to work without auth.
+  minio-init:
+    image: minio/mc:latest
+    container_name: dotmac_omni_minio_init
+    profiles:
+      - s3
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-dotmac-uploads}
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        mc alias set dotmac "${S3_ENDPOINT_URL}" "${S3_ACCESS_KEY}" "${S3_SECRET_KEY}"
+        mc mb --ignore-existing "dotmac/${S3_BUCKET}"
+        mc anonymous set download "dotmac/${S3_BUCKET}"
+        echo "minio-init complete"
 
   # =============================================================================
   # Nominatim (Geocoding - Nigeria)
@@ -212,6 +270,7 @@ volumes:
   openbao_data:
   uploads_data:
   celerybeat_data:
+  minio_data:
   nominatim_data:
   nominatim_flatnode:
 

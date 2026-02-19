@@ -11,12 +11,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from html import escape as html_escape
-from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ValidationError
@@ -35,7 +35,7 @@ from app.models.crm.enums import (
     MessageStatus,
     QuoteStatus,
 )
-from app.models.crm.sales import Lead, Quote
+from app.models.crm.sales import Lead, Pipeline, PipelineStage, Quote
 from app.models.domain_settings import SettingDomain
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import PartyStatus, Person
@@ -52,8 +52,11 @@ from app.schemas.crm.sales import (
     LeadUpdate,
     PipelineCreate,
     PipelineStageCreate,
+    PipelineStageUpdate,
+    PipelineUpdate,
     QuoteCreate,
     QuoteLineItemCreate,
+    QuoteLineItemUpdate,
     QuoteUpdate,
 )
 from app.schemas.person import PartyStatusEnum
@@ -64,6 +67,7 @@ from app.services.audit_helpers import (
     log_audit_event,
     recent_activity_for_paths,
 )
+from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
@@ -110,11 +114,14 @@ _DEFAULT_TAX_RATES = [
 _TAX_RATES_BY_ID = {r.id: r for r in _DEFAULT_TAX_RATES}
 
 _DEFAULT_PIPELINE_STAGES = [
-    {"name": "New", "probability": 10},
-    {"name": "Qualified", "probability": 25},
-    {"name": "Proposal", "probability": 50},
-    {"name": "Negotiation", "probability": 75},
+    {"name": "Lead Identified", "probability": 10},
+    {"name": "Qualification Call Completed", "probability": 20},
+    {"name": "Needs Assessment / Demo", "probability": 35},
+    {"name": "Proposal Sent", "probability": 50},
+    {"name": "Commercial Negotiation", "probability": 70},
+    {"name": "Decision Pending", "probability": 85},
     {"name": "Closed Won", "probability": 100},
+    {"name": "Closed Lost", "probability": 0},
 ]
 
 
@@ -431,6 +438,41 @@ def _load_crm_sales_options(db: Session) -> dict:
         limit=200,
         offset=0,
     )
+    # Lead "Owner" dropdown uses CrmAgent IDs. In addition to active agents, include
+    # any agents tied to active members of the Sales service team so those contacts
+    # are assignable as lead owners.
+    #
+    # NOTE: This does not create missing CrmAgent rows; if a service team member has
+    # no CrmAgent record yet, they won't appear until one is created.
+    try:
+        from app.models.crm.team import CrmAgent
+        from app.models.service_team import ServiceTeamMember
+
+        sales_team_id = coerce_uuid("7ba88183-1f51-438c-b81c-02f90cbd5287")
+        member_person_ids = {
+            person_id
+            for (person_id,) in (
+                db.query(ServiceTeamMember.person_id)
+                .filter(ServiceTeamMember.team_id == sales_team_id)
+                .filter(ServiceTeamMember.is_active.is_(True))
+                .all()
+            )
+            if person_id
+        }
+        if member_person_ids:
+            team_agents = (
+                db.query(CrmAgent)
+                .filter(CrmAgent.person_id.in_(member_person_ids))
+                .order_by(CrmAgent.created_at.desc())
+                .limit(500)
+                .all()
+            )
+            by_id = {str(agent.id): agent for agent in (agents or [])}
+            for agent in team_agents:
+                by_id[str(agent.id)] = agent
+            agents = list(by_id.values())
+    except Exception:
+        logger.debug("Failed to include Sales service team members in lead owner agent options.", exc_info=True)
     # Use service function for efficient bulk agent label fetch
     agent_labels = crm_service.get_agent_labels(db, agents)
     return {
@@ -441,6 +483,22 @@ def _load_crm_sales_options(db: Session) -> dict:
         "agents": agents,
         "agent_labels": agent_labels,
     }
+
+
+def _load_pipeline_stages_for_pipeline(db: Session, pipeline_id: str | None) -> list[PipelineStage]:
+    if not pipeline_id:
+        return []
+    try:
+        pipeline_uuid = coerce_uuid(pipeline_id)
+    except Exception:
+        return []
+    return (
+        db.query(PipelineStage)
+        .filter(PipelineStage.pipeline_id == pipeline_uuid)
+        .filter(PipelineStage.is_active.is_(True))
+        .order_by(PipelineStage.order_index.asc(), PipelineStage.name.asc())
+        .all()
+    )
 
 
 def _format_project_summary(
@@ -568,41 +626,28 @@ def _is_safe_url(url: str) -> bool:
 
 def _resolve_brand_logo_src(branding: dict, request: Request) -> str | None:
     logo_url = branding.get("logo_url") if isinstance(branding, dict) else None
-    if not logo_url:
+    if not logo_url or not isinstance(logo_url, str):
         return None
-    if isinstance(logo_url, str) and logo_url.startswith("data:"):
+    if logo_url.startswith("data:"):
         return logo_url
 
-    prefix = settings.branding_url_prefix.rstrip("/") + "/"
+    # Prefer embedding branding assets as data URIs so PDF rendering works
+    # even without outbound HTTPS (missing CA certs, no egress, etc.).
+    marker = "uploads/branding/"
+    idx = logo_url.find(marker)
+    if idx >= 0:
+        key = logo_url[idx:]
+        try:
+            from app.services.storage import storage
 
-    # Prefer embedding branding assets as data URLs when they point at our local upload dir.
-    # This makes PDF rendering resilient even when outbound HTTPS fetches fail (missing CA certs, no egress, etc).
-    candidate_path: str | None = None
-    if isinstance(logo_url, str):
-        if logo_url.startswith(prefix):
-            candidate_path = logo_url
-        else:
-            try:
-                parsed = urlparse(logo_url)
-            except ValueError:
-                parsed = None
-            if parsed and parsed.path and parsed.path.startswith(prefix):
-                candidate_path = parsed.path
+            data = storage.get(key)
+            mime, _ = mimetypes.guess_type(key)
+            encoded = base64.b64encode(data).decode("ascii")
+            return f"data:{mime or 'image/png'};base64,{encoded}"
+        except Exception:
+            pass  # Fall through to URL-based return
 
-    if candidate_path:
-        filename = candidate_path.replace(prefix, "", 1)
-        if filename:
-            file_path = Path(settings.branding_upload_dir) / filename
-            if not file_path.resolve().is_relative_to(Path(settings.branding_upload_dir).resolve()):
-                return None
-            if file_path.exists():
-                data = file_path.read_bytes()
-                mime, _ = mimetypes.guess_type(file_path.name)
-                mime = mime or "image/png"
-                encoded = base64.b64encode(data).decode("ascii")
-                return f"data:{mime};base64,{encoded}"
-
-    if isinstance(logo_url, str) and logo_url.startswith("/"):
+    if logo_url.startswith("/"):
         return urljoin(str(request.base_url), logo_url.lstrip("/"))
     return logo_url
 
@@ -630,10 +675,29 @@ def _is_admin_request(request: Request) -> bool:
     return any(role.strip().lower() == "admin" for role in roles)
 
 
+def _is_manager_request(request: Request) -> bool:
+    roles = _get_current_roles(request)
+    return any(role.strip().lower() == "manager" for role in roles)
+
+
+def _can_view_live_location_map(request: Request) -> bool:
+    if _is_admin_request(request) or _is_manager_request(request):
+        return True
+    scopes = {scope.strip().lower() for scope in _get_current_scopes(request)}
+    return "crm:location:read" in scopes
+
+
 def _require_admin_role(request: Request) -> None:
     if _is_admin_request(request):
         return
     raise HTTPException(status_code=403, detail="Only admin users can delete quotes.")
+
+
+def _can_write_sales(request: Request) -> bool:
+    if _is_admin_request(request):
+        return True
+    scopes = set(_get_current_scopes(request))
+    return bool({"crm:lead:write", "crm:lead", "crm"} & scopes)
 
 
 @router.post("/agents/presence", response_class=JSONResponse)
@@ -657,8 +721,200 @@ async def update_current_agent_presence(
     if status is not None and status not in {s.value for s in AgentPresenceStatus}:
         raise HTTPException(status_code=400, detail="Invalid status")
 
-    crm_service.agent_presence.upsert(db, agent_id, status=status)
+    crm_service.agent_presence.upsert(db, agent_id, status=status, source="auto")
     return JSONResponse({"ok": True})
+
+
+@router.post("/agents/presence/location", response_class=JSONResponse)
+async def update_current_agent_location_presence(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Update location heartbeat for current CRM agent."""
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
+    if not agent_id:
+        return Response(status_code=204)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    payload = payload if isinstance(payload, dict) else {}
+    status = payload.get("status")
+    if status is not None and status not in {s.value for s in AgentPresenceStatus}:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    sharing_enabled = bool(payload.get("sharing_enabled"))
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+    accuracy_m = payload.get("accuracy_m")
+    captured_at_raw = payload.get("captured_at")
+    captured_at = None
+    if isinstance(captured_at_raw, str) and captured_at_raw.strip():
+        try:
+            captured_at = datetime.fromisoformat(captured_at_raw.replace("Z", "+00:00"))
+        except Exception:
+            captured_at = None
+
+    presence = crm_service.agent_presence.upsert_location(
+        db,
+        agent_id=agent_id,
+        sharing_enabled=sharing_enabled,
+        latitude=(float(latitude) if latitude is not None else None),
+        longitude=(float(longitude) if longitude is not None else None),
+        accuracy_m=(float(accuracy_m) if accuracy_m is not None else None),
+        captured_at=captured_at,
+        status=status,
+        source="browser",
+    )
+    effective_status = crm_service.agent_presence.effective_status(presence)
+    return JSONResponse(
+        {
+            "ok": True,
+            "agent_id": agent_id,
+            "effective_status": effective_status.value if effective_status else None,
+            "location_sharing_enabled": bool(getattr(presence, "location_sharing_enabled", False)),
+            "last_location_at": (
+                presence.last_location_at.isoformat() if getattr(presence, "last_location_at", None) else None
+            ),
+        }
+    )
+
+
+@router.get("/agents/presence/self", response_class=JSONResponse)
+async def get_current_agent_presence(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Get presence for the current CRM agent (derived from logged-in user)."""
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
+    if not agent_id:
+        return JSONResponse({"ok": True, "agent_id": None, "status": None, "effective_status": None})
+
+    presence = crm_service.agent_presence.get_or_create(db, agent_id)
+    effective_status = crm_service.agent_presence.effective_status(presence)
+    # Shift-aware work timer: Online + Away count as working time within current shift window.
+    from app.services.crm.shifts import current_shift_window, resolve_company_timezone
+
+    tz_name = resolve_company_timezone(db)
+    shift = current_shift_window(tz_name=tz_name)
+    seconds_by_status = crm_service.agent_presence.seconds_by_status(
+        db,
+        agent_id=agent_id,
+        start_at=shift.start_utc,
+        end_at=shift.end_utc,
+    )
+    work_seconds = float(seconds_by_status.get(AgentPresenceStatus.online.value, 0.0)) + float(
+        seconds_by_status.get(AgentPresenceStatus.away.value, 0.0)
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "agent_id": agent_id,
+            "status": presence.status.value if presence.status else None,
+            "effective_status": effective_status.value if effective_status else None,
+            "location_sharing_enabled": bool(getattr(presence, "location_sharing_enabled", False)),
+            "last_latitude": getattr(presence, "last_latitude", None),
+            "last_longitude": getattr(presence, "last_longitude", None),
+            "last_location_accuracy_m": getattr(presence, "last_location_accuracy_m", None),
+            "last_location_at": (
+                presence.last_location_at.isoformat() if getattr(presence, "last_location_at", None) else None
+            ),
+            "manual_override_status": (
+                presence.manual_override_status.value if getattr(presence, "manual_override_status", None) else None
+            ),
+            "manual_override_set_at": (
+                presence.manual_override_set_at.isoformat()
+                if getattr(presence, "manual_override_set_at", None)
+                else None
+            ),
+            "shift": {
+                "name": shift.name,
+                "timezone": shift.tz,
+                "start_at": shift.start_utc.isoformat(),
+                "end_at": shift.end_utc.isoformat(),
+                "work_seconds": int(work_seconds),
+                "break_seconds": int(seconds_by_status.get(AgentPresenceStatus.on_break.value, 0.0)),
+            },
+        }
+    )
+
+
+@router.post("/agents/presence/override", response_class=JSONResponse)
+async def set_current_agent_presence_override(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Manually override presence for current agent (on_break/offline) or clear override."""
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
+    if not agent_id:
+        return Response(status_code=204)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    status = payload.get("status") if isinstance(payload, dict) else None
+    status = (str(status).strip().lower() if status is not None else None) or None
+
+    if status in {None, "", "clear", "auto", "online", "available"}:
+        crm_service.agent_presence.clear_manual_override(db, agent_id)
+        return JSONResponse({"ok": True, "manual_override": None})
+
+    if status not in {"on_break", "offline"}:
+        raise HTTPException(status_code=400, detail="Invalid override status")
+
+    crm_service.agent_presence.set_manual_override(db, agent_id, status=status)
+    return JSONResponse({"ok": True, "manual_override": status})
+
+
+@router.get("/agents/presence/live-map", response_class=JSONResponse)
+async def list_live_map_presence(
+    request: Request,
+    stale_after_seconds: int = Query(default=120, ge=30, le=3600),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """List active location sharing agents for live map rendering."""
+    if not _can_view_live_location_map(request):
+        raise HTTPException(status_code=403, detail="Not authorized to view live locations")
+    items = crm_service.agent_presence.list_live_locations(
+        db,
+        stale_after_seconds=stale_after_seconds,
+        limit=limit,
+    )
+    return JSONResponse(jsonable_encoder({"items": items, "count": len(items), "limit": limit, "offset": 0}))
+
+
+@router.get("/live-map", response_class=HTMLResponse)
+async def crm_live_map(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Live location map for CRM agents that opted into browser sharing."""
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    if not _can_view_live_location_map(request):
+        raise HTTPException(status_code=403, detail="Not authorized to view live locations")
+    return templates.TemplateResponse(
+        "admin/crm/live-map.html",
+        {
+            "request": request,
+            "active_page": "crm-live-map",
+            "active_menu": "crm",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+        },
+    )
 
 
 @router.get("/inbox", response_class=HTMLResponse)
@@ -2234,18 +2490,32 @@ async def start_new_conversation(
     contact_id: str | None = Form(None),
     contact_address: str = Form(...),
     contact_name: str | None = Form(None),
+    cc_addresses: str | None = Form(None),
     subject: str | None = Form(None),
     message: str | None = Form(None),
+    attachments: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | None = File(None),
     whatsapp_template_name: str | None = Form(None),
     whatsapp_template_language: str | None = Form(None),
     whatsapp_template_components: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Start a new outbound conversation."""
+    from app.services.crm.conversations import message_attachments as message_attachment_service
     from app.services.crm.inbox.admin_ui import start_new_conversation
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
+    attachments_payload: list[dict] | None = None
+    try:
+        prepared = await message_attachment_service.prepare(attachments)
+        saved = message_attachment_service.save(prepared)
+        attachments_payload = saved or None
+    except Exception as exc:
+        detail = quote(str(getattr(exc, "detail", None) or str(exc) or "Attachment upload failed"), safe="")
+        return RedirectResponse(
+            url=f"/admin/crm/inbox?new_error=1&new_error_detail={detail}",
+            status_code=303,
+        )
 
     result = start_new_conversation(
         db,
@@ -2254,8 +2524,10 @@ async def start_new_conversation(
         contact_id=contact_id,
         contact_address=contact_address,
         contact_name=contact_name,
+        cc_addresses_raw=cc_addresses,
         subject=subject,
         message_text=message,
+        attachments_payload=attachments_payload,
         whatsapp_template_name=whatsapp_template_name,
         whatsapp_template_language=whatsapp_template_language,
         whatsapp_template_components=whatsapp_template_components,
@@ -2763,6 +3035,7 @@ def crm_contacts_list(
         order_by = "created_at"
     if order_dir not in {"asc", "desc"}:
         order_dir = "desc"
+
     def _parse_bool_filter(value: str | None) -> bool | None:
         if value is None or value == "":
             return None
@@ -3146,10 +3419,28 @@ def crm_contact_create(
         return RedirectResponse(url="/admin/crm/contacts", status_code=303)
     except (ValidationError, ValueError) as exc:
         db.rollback()
-        error = str(exc)
+        error = str(exc) or "Unable to save contact."
+        logger.exception(
+            "contact_create_validation_failed display_name=%s phones=%s whatsapp_phones=%s emails=%s request_id=%s",
+            (display_name or "").strip(),
+            phones,
+            whatsapp_phones,
+            emails,
+            getattr(request.state, "request_id", None),
+        )
     except Exception as exc:
         db.rollback()
         error = exc.detail if hasattr(exc, "detail") else str(exc)
+        if not error:
+            error = "Unable to save contact."
+        logger.exception(
+            "contact_create_failed display_name=%s phones=%s whatsapp_phones=%s emails=%s request_id=%s",
+            (display_name or "").strip(),
+            phones,
+            whatsapp_phones,
+            emails,
+            getattr(request.state, "request_id", None),
+        )
 
     # Get organization label for typeahead if organization_id was submitted
     organization_label = None
@@ -3469,7 +3760,11 @@ async def contact_detail_page(
     )
 
 
-@router.get("/leads", response_class=HTMLResponse)
+@router.get(
+    "/leads",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:lead:read"))],
+)
 def crm_leads_list(
     request: Request,
     status: str | None = None,
@@ -3541,7 +3836,7 @@ def crm_leads_list(
     lead_stats["by_status"] = status_counts
     lead_stats["total_value"] = total_value
 
-    context = _crm_base_context(request, db, "contacts")
+    context = _crm_base_context(request, db, "leads")
     context.update(
         {
             "leads": leads,
@@ -3563,12 +3858,17 @@ def crm_leads_list(
             "pipeline_map": pipeline_map,
             "stage_map": stage_map,
             "lead_stats": lead_stats,
+            "can_write_leads": _can_write_sales(request),
         }
     )
     return templates.TemplateResponse("admin/crm/leads.html", context)
 
 
-@router.get("/leads/new", response_class=HTMLResponse)
+@router.get(
+    "/leads/new",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 def crm_lead_new(request: Request, db: Session = Depends(get_db)):
     from app.models.crm.team import CrmAgent
     from app.web.admin import get_current_user
@@ -3579,6 +3879,9 @@ def crm_lead_new(request: Request, db: Session = Depends(get_db)):
     if not person_id and contact_id:
         person_id = contact_id
     options = _load_crm_sales_options(db)
+    if not pipeline_id and options["pipelines"]:
+        pipeline_id = str(options["pipelines"][0].id)
+    stages_for_pipeline = _load_pipeline_stages_for_pipeline(db, pipeline_id)
     if person_id:
         from app.services.person import people as person_svc
 
@@ -3593,7 +3896,7 @@ def crm_lead_new(request: Request, db: Session = Depends(get_db)):
         "person_id": person_id,
         "contact_id": contact_id,
         "pipeline_id": pipeline_id,
-        "stage_id": "",
+        "stage_id": str(stages_for_pipeline[0].id) if stages_for_pipeline else "",
         "owner_agent_id": "",
         "title": "",
         "status": LeadStatus.new.value,
@@ -3620,7 +3923,7 @@ def crm_lead_new(request: Request, db: Session = Depends(get_db)):
         )
         if agent:
             lead["owner_agent_id"] = str(agent.id)
-    context = _crm_base_context(request, db, "contacts")
+    context = _crm_base_context(request, db, "leads")
     context.update(
         {
             "lead": lead,
@@ -3640,7 +3943,11 @@ def crm_lead_new(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/crm/lead_form.html", context)
 
 
-@router.get("/leads/{lead_id}", response_class=HTMLResponse)
+@router.get(
+    "/leads/{lead_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:lead:read"))],
+)
 def crm_lead_detail(request: Request, lead_id: str, db: Session = Depends(get_db)):
     lead = crm_service.leads.get(db=db, lead_id=lead_id)
     options = _load_crm_sales_options(db)
@@ -3660,7 +3967,7 @@ def crm_lead_detail(request: Request, lead_id: str, db: Session = Depends(get_db
     owner_label = options["agent_labels"].get(str(lead.owner_agent_id)) if lead.owner_agent_id else "—"
     status_val = lead.status.value if lead.status else LeadStatus.new.value
 
-    context = _crm_base_context(request, db, "contacts")
+    context = _crm_base_context(request, db, "leads")
     context.update(
         {
             "lead": lead,
@@ -3669,12 +3976,17 @@ def crm_lead_detail(request: Request, lead_id: str, db: Session = Depends(get_db
             "stage": stage,
             "owner_label": owner_label,
             "status_val": status_val,
+            "can_write_leads": _can_write_sales(request),
         }
     )
     return templates.TemplateResponse("admin/crm/lead_detail.html", context)
 
 
-@router.post("/leads/{lead_id}/status", response_class=HTMLResponse)
+@router.post(
+    "/leads/{lead_id}/status",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 async def crm_lead_status_update(
     request: Request,
     lead_id: str,
@@ -3703,7 +4015,11 @@ async def crm_lead_status_update(
         return RedirectResponse(f"/admin/crm/leads/{lead_id}", status_code=303)
 
 
-@router.post("/leads", response_class=HTMLResponse)
+@router.post(
+    "/leads",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 def crm_lead_create(
     request: Request,
     person_id: str | None = Form(None),
@@ -3778,6 +4094,10 @@ def crm_lead_create(
                 )
                 if agent:
                     owner_agent_id_value = str(agent.id)
+        if pipeline_id_value and not stage_id_value:
+            pipeline_stages = _load_pipeline_stages_for_pipeline(db, pipeline_id_value)
+            if pipeline_stages:
+                stage_id_value = str(pipeline_stages[0].id)
         value = _parse_decimal(estimated_value_value, "estimated_value")
         prob_value = int(probability_value) if probability_value else None
         close_date = None
@@ -3816,7 +4136,7 @@ def crm_lead_create(
         error = exc.detail if hasattr(exc, "detail") else str(exc)
 
     options = _load_crm_sales_options(db)
-    context = _crm_base_context(request, db, "contacts")
+    context = _crm_base_context(request, db, "leads")
     context.update(
         {
             "lead": lead,
@@ -3837,7 +4157,11 @@ def crm_lead_create(
     return templates.TemplateResponse("admin/crm/lead_form.html", context, status_code=400)
 
 
-@router.get("/leads/{lead_id}/edit", response_class=HTMLResponse)
+@router.get(
+    "/leads/{lead_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 def crm_lead_edit(request: Request, lead_id: str, db: Session = Depends(get_db)):
     lead_obj = crm_service.leads.get(db=db, lead_id=lead_id)
     lead = {
@@ -3860,6 +4184,12 @@ def crm_lead_edit(request: Request, lead_id: str, db: Session = Depends(get_db))
         "is_active": lead_obj.is_active,
     }
     options = _load_crm_sales_options(db)
+    if not lead["pipeline_id"] and options["pipelines"]:
+        lead["pipeline_id"] = str(options["pipelines"][0].id)
+    if not lead["stage_id"] and lead["pipeline_id"]:
+        stages_for_pipeline = _load_pipeline_stages_for_pipeline(db, lead["pipeline_id"])
+        if stages_for_pipeline:
+            lead["stage_id"] = str(stages_for_pipeline[0].id)
     if lead_obj.person_id and not any(str(person.id) == str(lead_obj.person_id) for person in options["people"]):
         from app.services.person import people as person_svc
 
@@ -3868,7 +4198,7 @@ def crm_lead_edit(request: Request, lead_id: str, db: Session = Depends(get_db))
             options["people"] = [person] + options["people"]
         except Exception:
             logger.debug("Failed to pre-load person for CRM lead edit form.", exc_info=True)
-    context = _crm_base_context(request, db, "contacts")
+    context = _crm_base_context(request, db, "leads")
     context.update(
         {
             "lead": lead,
@@ -3888,7 +4218,11 @@ def crm_lead_edit(request: Request, lead_id: str, db: Session = Depends(get_db))
     return templates.TemplateResponse("admin/crm/lead_form.html", context)
 
 
-@router.post("/leads/{lead_id}/edit", response_class=HTMLResponse)
+@router.post(
+    "/leads/{lead_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 def crm_lead_update(
     request: Request,
     lead_id: str,
@@ -3948,6 +4282,10 @@ def crm_lead_update(
         region_value = lead["region"] if isinstance(lead["region"], str) else ""
         address_value = lead["address"] if isinstance(lead["address"], str) else ""
         notes_value = lead["notes"] if isinstance(lead["notes"], str) else ""
+        if pipeline_id_value and not stage_id_value:
+            pipeline_stages = _load_pipeline_stages_for_pipeline(db, pipeline_id_value)
+            if pipeline_stages:
+                stage_id_value = str(pipeline_stages[0].id)
         value = _parse_decimal(estimated_value_value, "estimated_value")
         prob_value = int(probability_value) if probability_value else None
         close_date = None
@@ -3985,7 +4323,7 @@ def crm_lead_update(
         error = exc.detail if hasattr(exc, "detail") else str(exc)
 
     options = _load_crm_sales_options(db)
-    context = _crm_base_context(request, db, "contacts")
+    context = _crm_base_context(request, db, "leads")
     context.update(
         {
             "lead": lead,
@@ -4006,7 +4344,11 @@ def crm_lead_update(
     return templates.TemplateResponse("admin/crm/lead_form.html", context, status_code=400)
 
 
-@router.post("/leads/{lead_id}/delete", response_class=HTMLResponse)
+@router.post(
+    "/leads/{lead_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 def crm_lead_delete(request: Request, lead_id: str, db: Session = Depends(get_db)):
     _ = request
     crm_service.leads.delete(db=db, lead_id=lead_id)
@@ -4773,6 +5115,23 @@ def crm_quote_create(
 @router.get("/quotes/{quote_id}/edit", response_class=HTMLResponse)
 def crm_quote_edit(request: Request, quote_id: str, db: Session = Depends(get_db)):
     quote_obj = crm_service.quotes.get(db=db, quote_id=quote_id)
+    items = crm_service.quote_line_items.list(
+        db=db,
+        quote_id=quote_id,
+        order_by="created_at",
+        order_dir="asc",
+        limit=200,
+        offset=0,
+    )
+    quote_items = [
+        {
+            "description": item.description or "",
+            "quantity": str(item.quantity or Decimal("1.000")),
+            "unit_price": str(item.unit_price or Decimal("0.00")),
+            "inventory_item_id": str(item.inventory_item_id) if item.inventory_item_id else "",
+        }
+        for item in items
+    ]
     metadata = quote_obj.metadata_ if isinstance(quote_obj.metadata_, dict) else {}
     quote = {
         "id": str(quote_obj.id),
@@ -4801,15 +5160,18 @@ def crm_quote_edit(request: Request, quote_id: str, db: Session = Depends(get_db
         limit=500,
         offset=0,
     )
+    inventory_items = []
     project_types = [item.value for item in ProjectType]
     context = _crm_base_context(request, db, "quotes")
     context.update(
         {
             "quote": quote,
+            "quote_items": quote_items,
             "quote_statuses": [item.value for item in QuoteStatus],
             "project_types": project_types,
             "leads": leads,
             "contacts": options["contacts"],
+            "inventory_items": inventory_items,
             "form_title": "Edit Quote",
             "submit_label": "Save Quote",
             "action_url": f"/admin/crm/quotes/{quote_id}/edit",
@@ -4833,6 +5195,10 @@ def crm_quote_update(
     expires_at: str | None = Form(None),
     notes: str | None = Form(None),
     is_active: str | None = Form(None),
+    item_description: list[str] = Form([]),
+    item_quantity: list[str] = Form([]),
+    item_unit_price: list[str] = Form([]),
+    item_inventory_item_id: list[str] = Form([]),
     db: Session = Depends(get_db),
 ):
     error = None
@@ -4850,17 +5216,25 @@ def crm_quote_update(
         "notes": (notes or "").strip(),
         "is_active": is_active == "true",
     }
+    quote_items = _collect_quote_item_inputs(
+        item_description,
+        item_quantity,
+        item_unit_price,
+        item_inventory_item_id,
+    )
     try:
         lead_id_value = quote["lead_id"] if isinstance(quote["lead_id"], str) else ""
         contact_id_value = quote["contact_id"] if isinstance(quote["contact_id"], str) else ""
         status_value = quote["status"] if isinstance(quote["status"], str) else ""
         project_type_value = quote["project_type"] if isinstance(quote["project_type"], str) else ""
         currency_value = quote["currency"] if isinstance(quote["currency"], str) else ""
-        subtotal_value = quote["subtotal"] if isinstance(quote["subtotal"], str) else ""
         tax_total_value = quote["tax_total"] if isinstance(quote["tax_total"], str) else ""
-        total_value = quote["total"] if isinstance(quote["total"], str) else ""
         expires_at_value = quote["expires_at"] if isinstance(quote["expires_at"], str) else ""
         notes_value = quote["notes"] if isinstance(quote["notes"], str) else ""
+        parsed_items = _parse_quote_line_items(quote_items)
+        subtotal_from_items = sum((item["quantity"] * item["unit_price"] for item in parsed_items), Decimal("0.00"))
+        tax_value = _parse_decimal(tax_total_value, "tax_total") or Decimal("0.00")
+        total_from_items = subtotal_from_items + tax_value
         quote_obj = crm_service.quotes.get(db=db, quote_id=quote_id)
         resolved_person_id = contact_id_value or None
         if not resolved_person_id and lead_id_value:
@@ -4883,9 +5257,9 @@ def crm_quote_update(
             person_id=person_id_value,
             status=status_enum,
             currency=currency_value or None,
-            subtotal=_parse_decimal(subtotal_value, "subtotal"),
-            tax_total=_parse_decimal(tax_total_value, "tax_total"),
-            total=_parse_decimal(total_value, "total"),
+            subtotal=subtotal_from_items,
+            tax_total=tax_value,
+            total=total_from_items,
             expires_at=_parse_optional_datetime(expires_at_value),
             notes=notes_value or None,
             metadata_=metadata if metadata else None,
@@ -4893,6 +5267,40 @@ def crm_quote_update(
         )
         before = quote_obj
         updated = crm_service.quotes.update(db=db, quote_id=quote_id, payload=payload)
+        existing_items = crm_service.quote_line_items.list(
+            db=db,
+            quote_id=quote_id,
+            order_by="created_at",
+            order_dir="asc",
+            limit=500,
+            offset=0,
+        )
+        for index, item in enumerate(parsed_items):
+            if index < len(existing_items):
+                crm_service.quote_line_items.update(
+                    db=db,
+                    item_id=str(existing_items[index].id),
+                    payload=QuoteLineItemUpdate(
+                        description=item["description"],
+                        quantity=item["quantity"],
+                        unit_price=item["unit_price"],
+                        inventory_item_id=item["inventory_item_id"],
+                    ),
+                )
+            else:
+                crm_service.quote_line_items.create(
+                    db=db,
+                    payload=QuoteLineItemCreate(
+                        quote_id=updated.id,
+                        description=item["description"],
+                        quantity=item["quantity"],
+                        unit_price=item["unit_price"],
+                        inventory_item_id=item["inventory_item_id"],
+                    ),
+                )
+        for stale_item in existing_items[len(parsed_items) :]:
+            db.delete(stale_item)
+        db.commit()
         metadata_payload = build_changes_metadata(before, updated)
         from app.web.admin import get_current_user
 
@@ -4927,15 +5335,18 @@ def crm_quote_update(
         limit=500,
         offset=0,
     )
+    inventory_items: list = []
     project_types = [item.value for item in ProjectType]
     context = _crm_base_context(request, db, "quotes")
     context.update(
         {
             "quote": quote,
+            "quote_items": quote_items,
             "quote_statuses": [item.value for item in QuoteStatus],
             "project_types": project_types,
             "leads": leads,
             "contacts": options["contacts"],
+            "inventory_items": inventory_items,
             "form_title": "Edit Quote",
             "submit_label": "Save Quote",
             "action_url": f"/admin/crm/quotes/{quote_id}/edit",
@@ -5143,6 +5554,8 @@ def crm_pipeline_new(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
     pipeline = {
         "name": "",
         "is_active": True,
@@ -5169,6 +5582,8 @@ def crm_pipeline_create(
     create_default_stages: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
     error = None
     pipeline_data: dict[str, str | bool] = {
         "name": (name or "").strip(),
@@ -5215,6 +5630,193 @@ def crm_pipeline_create(
         }
     )
     return templates.TemplateResponse("admin/crm/pipeline_form.html", context)
+
+
+@router.get("/settings/pipelines", response_class=HTMLResponse)
+def crm_pipeline_settings(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    pipelines = db.query(Pipeline).order_by(Pipeline.is_active.desc(), Pipeline.created_at.desc()).limit(200).all()
+    stages = (
+        db.query(PipelineStage)
+        .order_by(PipelineStage.pipeline_id.asc(), PipelineStage.order_index.asc(), PipelineStage.created_at.asc())
+        .limit(1000)
+        .all()
+    )
+    stage_map: dict[str, list[PipelineStage]] = {}
+    for stage in stages:
+        stage_map.setdefault(str(stage.pipeline_id), []).append(stage)
+
+    bulk_result = request.query_params.get("bulk_result", "").strip()
+    bulk_count = request.query_params.get("bulk_count", "").strip()
+
+    context = _crm_base_context(request, db, "sales")
+    context.update(
+        {
+            "pipelines": pipelines,
+            "stage_map": stage_map,
+            "bulk_result": bulk_result,
+            "bulk_count": bulk_count,
+            "default_pipeline_stages": _DEFAULT_PIPELINE_STAGES,
+        }
+    )
+    return templates.TemplateResponse("admin/crm/pipeline_settings.html", context)
+
+
+@router.get("/settings/pipelines/{pipeline_id}/edit", response_class=HTMLResponse)
+def crm_pipeline_edit(
+    request: Request,
+    pipeline_id: str,
+    db: Session = Depends(get_db),
+):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    pipeline = crm_service.pipelines.get(db, pipeline_id)
+    context = _crm_base_context(request, db, "sales")
+    context.update(
+        {
+            "pipeline": pipeline,
+            "form_title": "Edit Pipeline",
+            "submit_label": "Update Pipeline",
+            "action_url": f"/admin/crm/settings/pipelines/{pipeline_id}",
+            "error": None,
+        }
+    )
+    return templates.TemplateResponse("admin/crm/pipeline_form.html", context)
+
+
+@router.post("/settings/pipelines/{pipeline_id}", response_class=HTMLResponse)
+def crm_pipeline_update(
+    request: Request,
+    pipeline_id: str,
+    name: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    try:
+        payload = PipelineUpdate(
+            name=(name or "").strip() or None,
+            is_active=_as_bool(is_active) if is_active is not None else None,
+        )
+        crm_service.pipelines.update(db=db, pipeline_id=pipeline_id, payload=payload)
+        return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
+    except (ValidationError, ValueError) as exc:
+        error = str(exc)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+
+    context = _crm_base_context(request, db, "sales")
+    context.update(
+        {
+            "pipeline": {
+                "id": pipeline_id,
+                "name": (name or "").strip(),
+                "is_active": _as_bool(is_active) if is_active is not None else True,
+                "create_default_stages": False,
+            },
+            "form_title": "Edit Pipeline",
+            "submit_label": "Update Pipeline",
+            "action_url": f"/admin/crm/settings/pipelines/{pipeline_id}",
+            "error": error,
+        }
+    )
+    return templates.TemplateResponse("admin/crm/pipeline_form.html", context, status_code=400)
+
+
+@router.post("/settings/pipelines/{pipeline_id}/delete")
+def crm_pipeline_delete(
+    request: Request,
+    pipeline_id: str,
+    db: Session = Depends(get_db),
+):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    crm_service.pipelines.delete(db, pipeline_id)
+    return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
+
+
+@router.post("/settings/pipelines/{pipeline_id}/stages")
+def crm_pipeline_stage_create(
+    request: Request,
+    pipeline_id: str,
+    name: str = Form(...),
+    order_index: int = Form(0),
+    default_probability: int = Form(50),
+    db: Session = Depends(get_db),
+):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    payload = PipelineStageCreate(
+        pipeline_id=coerce_uuid(pipeline_id),
+        name=name.strip(),
+        order_index=order_index,
+        default_probability=default_probability,
+        is_active=True,
+    )
+    crm_service.pipeline_stages.create(db=db, payload=payload)
+    return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
+
+
+@router.post("/settings/pipelines/stages/{stage_id}")
+def crm_pipeline_stage_update(
+    request: Request,
+    stage_id: str,
+    name: str = Form(...),
+    order_index: int = Form(0),
+    default_probability: int = Form(50),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    payload = PipelineStageUpdate(
+        name=name.strip(),
+        order_index=order_index,
+        default_probability=default_probability,
+        is_active=_as_bool(is_active) if is_active is not None else False,
+    )
+    crm_service.pipeline_stages.update(db=db, stage_id=stage_id, payload=payload)
+    return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
+
+
+@router.post("/settings/pipelines/stages/{stage_id}/delete")
+def crm_pipeline_stage_delete(
+    request: Request,
+    stage_id: str,
+    db: Session = Depends(get_db),
+):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    payload = PipelineStageUpdate(is_active=False)
+    crm_service.pipeline_stages.update(db=db, stage_id=stage_id, payload=payload)
+    return RedirectResponse(url="/admin/crm/settings/pipelines", status_code=303)
+
+
+@router.post("/settings/pipelines/{pipeline_id}/bulk-assign-leads")
+def crm_pipeline_bulk_assign_leads(
+    request: Request,
+    pipeline_id: str,
+    stage_id: str | None = Form(None),
+    scope: str = Form("unassigned"),
+    db: Session = Depends(get_db),
+):
+    if not _can_write_sales(request):
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    count = crm_service.leads.bulk_assign_pipeline(
+        db,
+        pipeline_id=pipeline_id,
+        stage_id=(stage_id or "").strip() or None,
+        scope=scope,
+    )
+    return RedirectResponse(
+        url=f"/admin/crm/settings/pipelines?bulk_result=ok&bulk_count={count}",
+        status_code=303,
+    )
 
 
 # --------------------------------------------------------------------------
