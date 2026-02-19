@@ -26,6 +26,7 @@ from app.services.crm.web_campaigns import (
     campaign_form_page_data,
     campaign_list_page_data,
     campaign_preview_audience_data,
+    campaign_preview_page_data,
     campaign_recipients_table_data,
     campaign_steps_page_data,
     campaign_whatsapp_templates_payload,
@@ -417,8 +418,7 @@ def campaign_preview(
 ):
     if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    campaign = campaigns_service.get(db, campaign_id)
-    ctx = _base_ctx(request, db, campaign=campaign)
+    ctx = _base_ctx(request, db, **campaign_preview_page_data(db, campaign_id=campaign_id))
     return templates.TemplateResponse("admin/crm/campaign_preview.html", ctx)
 
 
