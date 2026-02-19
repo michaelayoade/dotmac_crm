@@ -1,7 +1,5 @@
 """Admin campaign management web routes."""
 
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -30,7 +28,10 @@ from app.services.crm.web_campaigns import (
     campaign_recipients_table_data,
     campaign_steps_page_data,
     campaign_whatsapp_templates_payload,
+    cancel_campaign,
     resolve_campaign_upsert,
+    schedule_campaign_from_form,
+    send_campaign_now,
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.admin.crm import REGION_OPTIONS
@@ -54,15 +55,6 @@ def _form_str(value: object | None) -> str:
 def _form_str_opt(value: object | None) -> str | None:
     value_str = _form_str(value).strip()
     return value_str or None
-
-
-def _parse_datetime_opt(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        return None
 
 
 def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
@@ -376,10 +368,12 @@ def campaign_schedule(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    dt = _parse_datetime_opt(scheduled_at)
-    if not dt:
+    if not schedule_campaign_from_form(
+        db,
+        campaign_id=campaign_id,
+        scheduled_at=scheduled_at,
+    ):
         return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
-    campaigns_service.schedule(db, campaign_id, dt)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 
@@ -391,7 +385,7 @@ def campaign_send_now(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    campaigns_service.send_now(db, campaign_id)
+    send_campaign_now(db, campaign_id=campaign_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 
@@ -403,7 +397,7 @@ def campaign_cancel(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
-    campaigns_service.cancel(db, campaign_id)
+    cancel_campaign(db, campaign_id=campaign_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 
