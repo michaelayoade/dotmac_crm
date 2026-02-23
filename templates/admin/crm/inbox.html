@@ -55,8 +55,7 @@
 
     <div class="pointer-events-none fixed bottom-6 right-6 z-50 flex w-[22rem] flex-col gap-3">
         <template x-for="notification in notifications" :key="notification.id">
-            <div @click="openNotification(notification)"
-                 class="pointer-events-auto group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-xl shadow-slate-900/10 backdrop-blur transition hover:-translate-y-0.5 hover:border-amber-200 dark:border-slate-700/60 dark:bg-slate-900/90 dark:hover:border-amber-500/40">
+            <div class="pointer-events-auto group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-xl shadow-slate-900/10 backdrop-blur transition hover:-translate-y-0.5 hover:border-amber-200 dark:border-slate-700/60 dark:bg-slate-900/90 dark:hover:border-amber-500/40">
                 <div class="absolute left-0 top-0 h-full w-1.5"
                      :class="notification.kind === 'reminder' ? 'bg-gradient-to-b from-amber-500 to-orange-500' : 'bg-gradient-to-b from-emerald-500 to-teal-500'"></div>
                 <div class="flex items-start gap-3 pl-2.5">
@@ -67,7 +66,8 @@
                             <path x-show="notification.kind !== 'reminder'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 4h4m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                         </svg>
                     </div>
-                    <div class="flex-1">
+                    <div class="flex-1 cursor-pointer"
+                         @click="openNotification(notification)">
                         <div class="flex items-start justify-between gap-2">
                             <div>
                                 <div class="text-sm font-semibold text-slate-900 dark:text-white" x-text="notification.title"></div>
@@ -84,8 +84,9 @@
                         </div>
                     </div>
                     <button type="button"
-                            @click.stop="dismissNotification(notification.id)"
-                            class="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200">
+                            @click.prevent.stop="dismissNotification(notification.id)"
+                            class="relative z-10 ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                            aria-label="Dismiss notification">
                         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                         </svg>
@@ -455,7 +456,10 @@
             </div>
             {% endif %}
 
-            <form method="POST" action="/admin/crm/inbox/conversation/new" class="mt-6 space-y-4">
+            <form method="POST"
+                  action="/admin/crm/inbox/conversation/new"
+                  enctype="multipart/form-data"
+                  class="mt-6 space-y-4">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                 <div class="grid gap-4 sm:grid-cols-2">
                     <div>
@@ -629,6 +633,14 @@
                            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
                 </div>
 
+                <div x-show="newConversationChannel === 'email'">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">CC</label>
+                    <input name="cc_addresses"
+                           type="text"
+                           placeholder="name@company.com, another@company.com"
+                           class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
+                </div>
+
                 <div>
                     <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message</label>
                     <textarea name="message"
@@ -637,6 +649,30 @@
                               placeholder="Write your message..."
                               :readonly="newConversationChannel === 'whatsapp' && selectedWhatsappTemplateName"
                               class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500"></textarea>
+                </div>
+
+                <div data-new-conversation-attachments
+                     class="rounded-xl border border-slate-200/80 bg-slate-50/60 px-3 py-2 dark:border-slate-700/60 dark:bg-slate-800/40">
+                    <div class="flex items-center justify-between gap-3">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Attachments
+                        </p>
+                        <button type="button"
+                                onclick="const root=this.closest('[data-new-conversation-attachments]'); const i=root ? root.querySelector('input[type=file][name=attachments]') : null; if(i){i.click();}"
+                                class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                            </svg>
+                            Attach file
+                        </button>
+                    </div>
+                    <input type="file"
+                           name="attachments"
+                           multiple
+                           accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
+                           class="hidden">
+                    <p data-attachments-selected
+                       class="mt-1 text-[11px] text-slate-500 dark:text-slate-400"></p>
                 </div>
 
                 <div class="flex items-center justify-end gap-3 pt-2">
@@ -691,8 +727,10 @@
                 Cancel
             </button>
             <button x-show="sidePanel === 'ticket'"
-                    type="submit"
-                    form="ticket-create-form"
+                    type="button"
+                    :disabled="!ticketFormLoaded"
+                    @click="submitTicketForm()"
+                    :class="!ticketFormLoaded ? 'opacity-60 cursor-not-allowed' : ''"
                     class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900">
                 Create Ticket
             </button>
@@ -750,6 +788,8 @@ function inboxController() {
         isTyping: false,
         typingConversationId: null,
         typingTimer: null,
+        // Ticket form in the right-side panel is loaded via HTMX; don't allow submits until it's present.
+        ticketFormLoaded: false,
         typingSendTimer: null,
         wsConnected: false,
         wsDisconnectedPermanently: false,
@@ -805,10 +845,26 @@ function inboxController() {
                 if (e.detail.target.id === 'conversation-list') {
                     this.storeConversationCache();
                     this.subscribeVisibleConversations();
+                    // Re-apply selected highlight after list refresh
+                    if (this.selectedConversation) {
+                        const row = document.querySelector(
+                            `[data-conversation-id="${this.selectedConversation}"]`
+                        );
+                        if (row) row.classList.add('active');
+                    }
+                }
+                if (e.detail.target && e.detail.target.id === 'ticket-create-panel-body') {
+                    this.ticketFormLoaded = !!document.getElementById('ticket-create-form');
+                    const titleEl = document.querySelector('#ticket-create-panel-body input[name="title"]');
+                    if (titleEl) {
+                        // Defer slightly so the element is focusable after swap.
+                        setTimeout(() => titleEl.focus(), 0);
+                    }
                 }
             });
             document.body.addEventListener('htmx:beforeRequest', (e) => {
                 if (e.detail.target && e.detail.target.id === 'ticket-create-panel-body') {
+                    this.ticketFormLoaded = false;
                     this.openTicketPanel();
                 }
             });
@@ -834,16 +890,16 @@ function inboxController() {
                 if (summary && summary.conversation_id) {
                     this.queueConversationSummary(summary);
                 } else if (!this.updateConversationRow(summary)) {
-                    this.listStale = true;
+                    this.refreshConversations();
                 }
                 if (payload.conversation_id && this.selectedConversation === payload.conversation_id) {
-                    this.threadStale = true;
+                    this.scheduleRefresh('thread');
                 }
             });
             window.addEventListener('inbox-message-status', (e) => {
                 const payload = e.detail || {};
                 if (payload.conversation_id && this.selectedConversation === payload.conversation_id) {
-                    this.threadStale = true;
+                    this.scheduleRefresh('thread');
                 }
             });
             window.addEventListener('inbox-conversation-updated', (e) => {
@@ -852,7 +908,7 @@ function inboxController() {
                 if (summary && summary.conversation_id) {
                     this.queueConversationSummary(summary);
                 } else if (!this.updateConversationRow(summary)) {
-                    this.listStale = true;
+                    this.refreshConversations();
                 }
             });
             window.addEventListener('inbox-conversation-summary', (e) => {
@@ -860,7 +916,7 @@ function inboxController() {
                 if (summary && summary.conversation_id) {
                     this.queueConversationSummary(summary);
                 } else if (!this.updateConversationRow(summary)) {
-                    this.listStale = true;
+                    this.refreshConversations();
                 }
             });
             window.addEventListener('inbox-ws-connected', () => {
@@ -872,7 +928,7 @@ function inboxController() {
                 this.subscribeVisibleConversations();
             });
             window.addEventListener('inbox-ws-reconnected', () => {
-                this.listStale = true;
+                this.refreshConversations();
             });
             window.addEventListener('inbox-ws-disconnected', () => {
                 this.wsConnected = false;
@@ -903,7 +959,7 @@ function inboxController() {
                 }
             });
             window.addEventListener('inbox-list-refresh', () => {
-                this.listStale = true;
+                this.refreshConversations();
             });
 
             // Fallback polling when websocket is unavailable.
@@ -1711,7 +1767,7 @@ function inboxController() {
         },
 
         syncMessageAttachmentField() {
-            const hidden = document.querySelector('input[name="attachments"]');
+            const hidden = document.querySelector('input[type="hidden"][name="attachments"]');
             if (hidden) {
                 hidden.value = JSON.stringify(this.pendingMessageAttachments);
             }
@@ -1965,11 +2021,7 @@ function inboxController() {
             clearTimeout(this.refreshTimer);
             this.refreshTimer = setTimeout(() => {
                 if (scope === 'list' || scope === 'both') {
-                    if (this.selectedConversation) {
-                        this.listStale = true;
-                    } else {
-                        this.refreshConversations();
-                    }
+                    this.refreshConversations();
                 }
                 if (scope === 'thread' || scope === 'both') {
                     if (this.selectedConversation) {
@@ -2081,6 +2133,25 @@ function inboxController() {
             this.showContactPanel = false;
         },
 
+        submitTicketForm() {
+            const panel = document.getElementById('ticket-create-panel-body');
+            const form = panel ? panel.querySelector('#ticket-create-form') : null;
+            if (!form) return;
+            const titleInput = form.querySelector('input[name="title"]');
+            if (titleInput && typeof titleInput.value === 'string') {
+                titleInput.value = titleInput.value.trim();
+            }
+            if (typeof form.reportValidity === 'function' && !form.reportValidity()) {
+                return;
+            }
+            const submitter = form.querySelector('button[type="submit"], input[type="submit"]');
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit(submitter || undefined);
+                return;
+            }
+            form.submit();
+        },
+
         closeSidePanel() {
             this.sidePanel = null;
         },
@@ -2093,11 +2164,10 @@ function inboxController() {
             if (this.currentChannel === 'comments') {
                 return;
             }
-            // Avoid re-rendering the list while a thread is open.
-            if (this.selectedConversation && !force) {
-                this.listStale = true;
-                return;
-            }
+            // When a thread is open, refresh the list silently in the
+            // background so new conversations appear without losing the
+            // agent's current view.  Previously this only set listStale
+            // which required a manual click.
             this.listStale = false;
             this.filterConversations();
         },
@@ -2292,15 +2362,22 @@ function inboxController() {
             const entries = Array.from(this.summaryQueue.values());
             this.summaryQueue.clear();
             let applied = 0;
+            let needsListRefresh = false;
             for (const summary of entries) {
                 if (this.updateConversationRow(summary)) {
                     applied += 1;
                 } else {
-                    this.listStale = true;
+                    // Conversation not in DOM (new conversation) — trigger
+                    // a background list refresh so it appears automatically
+                    // instead of just showing the stale banner.
+                    needsListRefresh = true;
                 }
                 if (applied >= this.maxSummaryFlushPerTick) {
                     break;
                 }
+            }
+            if (needsListRefresh) {
+                this.refreshConversations();
             }
             if (entries.length > applied) {
                 for (const summary of entries.slice(applied)) {

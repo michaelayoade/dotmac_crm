@@ -2,21 +2,15 @@ from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.schemas.crm.inbox import InboxSendRequest
 from app.services.crm import inbox as inbox_service
-from app.services.crm.inbox.notifications import send_reply_reminders
 from app.services.crm.inbox.outbound import TransientOutboundError
 from app.services.crm.inbox.outbox import cleanup_old_outbox, list_due_outbox_ids, process_outbox_item
 
 
 @celery_app.task(name="app.tasks.crm_inbox.send_reply_reminders")
 def send_reply_reminders_task():
-    session = SessionLocal()
-    try:
-        send_reply_reminders(session)
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+    # Temporary operational safety switch: disable heavy reminder scanning.
+    # Keep this task as a no-op while inbox ingestion backlog is being cleared.
+    return 0
 
 
 @celery_app.task(
