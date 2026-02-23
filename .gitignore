@@ -46,12 +46,16 @@ logs/
 *.pem
 *.key
 secrets/
+config/redis-users.acl
 
 # Coverage
 htmlcov/
 .coverage
 .pytest_cache/
-.claude/
+# Claude Code (keep skills/rules, ignore user-specific data)
+.claude/projects/
+.claude/settings.local.json
 
 # Reports (may contain PII)
 docs/reports/
+reports/

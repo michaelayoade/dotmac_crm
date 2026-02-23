@@ -57,6 +57,19 @@ class Settings:
         f"https://graph.facebook.com/{os.getenv('META_GRAPH_API_VERSION', 'v19.0')}",
     )
 
+    # Storage backend
+    storage_backend: str = os.getenv("STORAGE_BACKEND", "local")  # "local" or "s3"
+    storage_local_root: str = os.getenv("STORAGE_LOCAL_ROOT", "static")
+    storage_local_url_prefix: str = os.getenv("STORAGE_LOCAL_URL_PREFIX", "/static")
+
+    # S3 / MinIO settings (only used when storage_backend = "s3")
+    s3_endpoint_url: str = os.getenv("S3_ENDPOINT_URL", "http://minio:9000")
+    s3_access_key: str = os.getenv("S3_ACCESS_KEY", "")
+    s3_secret_key: str = os.getenv("S3_SECRET_KEY", "")
+    s3_bucket: str = os.getenv("S3_BUCKET", "dotmac-uploads")
+    s3_region: str = os.getenv("S3_REGION", "us-east-1")
+    s3_public_url: str = os.getenv("S3_PUBLIC_URL", "http://localhost:9000")
+
     # ERPNext integration settings
     erpnext_url: str | None = os.getenv("ERPNEXT_URL")
     erpnext_api_key: str | None = os.getenv("ERPNEXT_API_KEY")

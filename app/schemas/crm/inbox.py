@@ -4,9 +4,11 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.models.crm.enums import ChannelType
+
+MAX_CC_ADDRESSES = 20
 
 
 class InboxSendRequest(BaseModel):
@@ -20,6 +22,7 @@ class InboxSendRequest(BaseModel):
     whatsapp_template_language: str | None = None
     whatsapp_template_components: list[dict] | None = None
     subject: str | None = Field(default=None, max_length=200)
+    cc_addresses: list[EmailStr] | None = Field(default=None, max_length=MAX_CC_ADDRESSES)
     body: str | None = None
     scheduled_at: datetime | None = None
     personalization: dict | None = None

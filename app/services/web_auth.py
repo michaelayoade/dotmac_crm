@@ -5,7 +5,7 @@ import logging
 from urllib.parse import quote, urlparse, urlunparse
 
 from fastapi import Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -69,6 +69,109 @@ def login_page(request: Request, error: str | None = None, next_url: str | None 
         "auth/login.html",
         {"request": request, "error": error, "next": next_url or ""},
     )
+
+
+def register_page(request: Request, account_type: str | None = None, error: str | None = None):
+    account_type_norm = (account_type or "").strip().lower() or None
+    return templates.TemplateResponse(
+        "auth/register.html",
+        {"request": request, "error": error, "account_type": account_type_norm or ""},
+    )
+
+
+def _is_htmx(request: Request) -> bool:
+    return bool(request.headers.get("HX-Request"))
+
+
+def register_submit(
+    request: Request,
+    db: Session,
+    *,
+    first_name: str,
+    last_name: str,
+    email: str,
+    phone: str | None,
+    password: str,
+    account_type: str | None,
+    organization_name: str | None,
+):
+    account_type_norm = (account_type or "").strip().lower()
+    is_reseller_application = account_type_norm == "reseller"
+
+    # Server-side password validation (mirrors client-side checks in register.html)
+    if len(password) < 8:
+        error_msg = "Password must be at least 8 characters"
+        if _is_htmx(request):
+            return HTMLResponse(
+                content=(
+                    '<div class="mt-4 rounded-lg bg-red-50 border border-red-200 p-4 dark:bg-red-900/30 dark:border-red-800">'
+                    f'<p class="text-sm text-red-700 dark:text-red-200">{error_msg}</p>'
+                    "</div>"
+                ),
+                status_code=400,
+            )
+        return register_page(request, account_type=account_type, error=error_msg)
+
+    try:
+        # Controlled reseller model: public signups do not create reseller organizations.
+        # /signup?account_type=reseller is treated as an application request flag only.
+        from app.models.auth import AuthProvider, UserCredential
+        from app.models.person import Person
+        from app.services.auth_flow import hash_password
+
+        email_norm = (email or "").strip().lower()
+        if not email_norm or "@" not in email_norm:
+            raise ValueError("Invalid email")
+        if db.query(Person).filter(Person.email == email_norm).first():
+            raise ValueError("Email already registered")
+
+        metadata: dict[str, object] = {"explicit_signup": True}
+        if is_reseller_application:
+            metadata.update(
+                {
+                    "requested_account_type": "reseller",
+                    "requested_organization_name": (organization_name or "").strip() or None,
+                }
+            )
+
+        person = Person(
+            first_name=(first_name or "").strip() or "User",
+            last_name=(last_name or "").strip() or "Account",
+            email=email_norm,
+            phone=(phone or "").strip() or None,
+            metadata_=metadata,
+        )
+        db.add(person)
+        db.flush()
+        db.add(
+            UserCredential(
+                person_id=person.id,
+                provider=AuthProvider.local,
+                username=email_norm,
+                password_hash=hash_password(password),
+                is_active=True,
+            )
+        )
+        db.commit()
+        redirect_url = "/auth/login?registered=1"
+        if _is_htmx(request):
+            return HTMLResponse(content="", headers={"HX-Redirect": redirect_url})
+        return RedirectResponse(url=redirect_url, status_code=303)
+    except Exception as exc:
+        error_msg = "Registration failed"
+        detail = str(exc).strip()
+        if detail:
+            error_msg = detail
+        if _is_htmx(request):
+            return HTMLResponse(
+                content=(
+                    '<div class="mt-4 rounded-lg bg-red-50 border border-red-200 p-4 dark:bg-red-900/30 dark:border-red-800">'
+                    f'<p class="text-sm text-red-700 dark:text-red-200">{error_msg}</p>'
+                    "</div>"
+                ),
+                status_code=400,
+            )
+        return register_page(request, account_type=account_type, error=error_msg)
 
 
 def login_submit(

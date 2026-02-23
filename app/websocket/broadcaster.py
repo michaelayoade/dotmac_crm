@@ -1,18 +1,60 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from typing import TYPE_CHECKING
 
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.services import nextcloud_talk_notifications as talk_notifications_service
 from app.websocket.events import EventType, WebSocketEvent
-from app.websocket.manager import get_connection_manager
+from app.websocket.manager import CHANNEL_PREFIX, get_connection_manager
 
 if TYPE_CHECKING:
     from app.models.crm.conversation import Conversation, Message
 
 logger = get_logger(__name__)
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+# ── Sync-safe Redis publisher ─────────────────────────────────
+# When called from Celery workers (no running event loop), the async
+# ConnectionManager path silently fails because ``asyncio.run()`` creates
+# a throwaway loop that doesn't share state with the FastAPI process.
+# This helper publishes directly to Redis via a synchronous client so the
+# FastAPI WebSocket listener picks up the event regardless of caller context.
+
+_sync_redis = None
+
+
+def _get_sync_redis():
+    """Lazy-initialise a synchronous Redis client (one per process)."""
+    global _sync_redis
+    if _sync_redis is None:
+        try:
+            import redis as sync_redis_lib
+
+            _sync_redis = sync_redis_lib.from_url(REDIS_URL, decode_responses=True)
+        except Exception as exc:
+            logger.warning("sync_redis_init_error error=%s", exc)
+    return _sync_redis
+
+
+def _publish_sync(channel: str, payload: dict) -> bool:
+    """Publish a message to Redis using the synchronous client."""
+    client = _get_sync_redis()
+    if client is None:
+        return False
+    try:
+        client.publish(channel, json.dumps(payload))
+        return True
+    except Exception as exc:
+        logger.warning("sync_redis_publish_error channel=%s error=%s", channel, exc)
+        return False
+
+
+# ── Async helpers ──────────────────────────────────────────────
 
 
 def _handle_task_exception(task: asyncio.Task):
@@ -23,6 +65,15 @@ def _handle_task_exception(task: asyncio.Task):
             logger.error("websocket_task_error error=%s", exc, exc_info=exc)
     except asyncio.CancelledError:
         pass
+
+
+def _has_running_loop() -> bool:
+    """Return True if an asyncio event loop is already running."""
+    try:
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
+        return False
 
 
 def _run_async(coro):
@@ -44,6 +95,34 @@ def _ensure_manager_connected(manager) -> None:
             _run_async(manager.connect())
     except Exception as exc:
         logger.warning("websocket_manager_connect_error error=%s", exc)
+
+
+def _broadcast_event_to_conversation(conversation_id: str, event: WebSocketEvent) -> None:
+    """Broadcast to a conversation, using sync Redis when no event loop is running."""
+    event_data = event.model_dump(mode="json")
+    payload = {"conversation_id": conversation_id, "event": event_data}
+
+    # Sync context (Celery worker) — publish directly via sync Redis
+    if not _has_running_loop() and _publish_sync(f"{CHANNEL_PREFIX}{conversation_id}", payload):
+        return
+    # Async context (FastAPI) or sync fallback — use the ConnectionManager
+    manager = get_connection_manager()
+    _ensure_manager_connected(manager)
+    _run_async(manager.broadcast_to_conversation(conversation_id, event))
+
+
+def _broadcast_event_to_user(user_id: str, event: WebSocketEvent) -> None:
+    """Broadcast to a user, using sync Redis when no event loop is running."""
+    event_data = event.model_dump(mode="json")
+    payload = {"user_id": user_id, "event": event_data}
+
+    # Sync context (Celery worker) — publish directly via sync Redis
+    if not _has_running_loop() and _publish_sync(f"{CHANNEL_PREFIX}user:{user_id}", payload):
+        return
+    # Async context (FastAPI) or sync fallback — use the ConnectionManager
+    manager = get_connection_manager()
+    _ensure_manager_connected(manager)
+    _run_async(manager.broadcast_to_user(user_id, event))
 
 
 def broadcast_new_message(message: Message, conversation: Conversation):
@@ -68,9 +147,7 @@ def broadcast_new_message(message: Message, conversation: Conversation):
                 "person_id": str(conversation.person_id) if conversation.person_id else None,
             },
         )
-        manager = get_connection_manager()
-        _ensure_manager_connected(manager)
-        _run_async(manager.broadcast_to_conversation(str(conversation.id), event))
+        _broadcast_event_to_conversation(str(conversation.id), event)
         logger.debug(
             "broadcast_new_message conversation_id=%s message_id=%s",
             conversation.id,
@@ -95,9 +172,7 @@ def broadcast_message_status(message_id: str, conversation_id: str, status: str)
                 "status": status,
             },
         )
-        manager = get_connection_manager()
-        _ensure_manager_connected(manager)
-        _run_async(manager.broadcast_to_conversation(str(conversation_id), event))
+        _broadcast_event_to_conversation(str(conversation_id), event)
         logger.debug(
             "broadcast_message_status conversation_id=%s message_id=%s status=%s",
             conversation_id,
@@ -124,9 +199,7 @@ def broadcast_conversation_updated(conversation: Conversation):
                 "person_id": str(conversation.person_id) if conversation.person_id else None,
             },
         )
-        manager = get_connection_manager()
-        _ensure_manager_connected(manager)
-        _run_async(manager.broadcast_to_conversation(str(conversation.id), event))
+        _broadcast_event_to_conversation(str(conversation.id), event)
         logger.debug("broadcast_conversation_updated conversation_id=%s", conversation.id)
     except Exception as exc:
         logger.warning("broadcast_conversation_updated_error error=%s", exc)
@@ -135,15 +208,13 @@ def broadcast_conversation_updated(conversation: Conversation):
 def broadcast_conversation_summary(conversation_id: str, summary: dict):
     """Broadcast a lightweight conversation summary update."""
     try:
-        payload = dict(summary)
-        payload["conversation_id"] = str(conversation_id)
+        summary_payload = dict(summary)
+        summary_payload["conversation_id"] = str(conversation_id)
         event = WebSocketEvent(
             event=EventType.CONVERSATION_SUMMARY,
-            data=payload,
+            data=summary_payload,
         )
-        manager = get_connection_manager()
-        _ensure_manager_connected(manager)
-        _run_async(manager.broadcast_to_conversation(str(conversation_id), event))
+        _broadcast_event_to_conversation(str(conversation_id), event)
     except Exception as exc:
         logger.warning("broadcast_conversation_summary_error error=%s", exc)
 
@@ -172,10 +243,7 @@ def broadcast_to_widget_visitor(session_id: str, message: Message):
                 "created_at": message.created_at.isoformat() if message.created_at else None,
             },
         )
-        manager = get_connection_manager()
-        _ensure_manager_connected(manager)
-        # Widget connections are registered with "widget:{session_id}" prefix
-        _run_async(manager.broadcast_to_user(f"widget:{session_id}", event))
+        _broadcast_event_to_user(f"widget:{session_id}", event)
         logger.debug(
             "broadcast_to_widget_visitor session_id=%s message_id=%s",
             session_id,
@@ -190,6 +258,8 @@ def subscribe_widget_to_conversation(session_id: str, conversation_id: str):
     Subscribe widget visitor to their conversation and notify them.
 
     Called when a conversation is created for a widget session.
+    Note: subscribe_conversation is a local-only operation (no Redis pub),
+    so we still go through the manager for that part.
     """
     try:
         manager = get_connection_manager()
@@ -199,7 +269,7 @@ def subscribe_widget_to_conversation(session_id: str, conversation_id: str):
             event=EventType.CONVERSATION_CREATED,
             data={"conversation_id": conversation_id},
         )
-        _run_async(manager.broadcast_to_user(f"widget:{session_id}", event))
+        _broadcast_event_to_user(f"widget:{session_id}", event)
         logger.debug(
             "widget_auto_subscribed session_id=%s conversation_id=%s",
             session_id,
@@ -216,17 +286,22 @@ def broadcast_agent_notification(user_id: str, payload: dict):
             event=EventType.AGENT_NOTIFICATION,
             data=payload,
         )
-        manager = get_connection_manager()
-        _ensure_manager_connected(manager)
         logger.info(
             "agent_notification_broadcast user_id=%s conversation_id=%s kind=%s",
             user_id,
             payload.get("conversation_id"),
             payload.get("kind"),
         )
-        _run_async(manager.broadcast_to_user(str(user_id), event))
+        _broadcast_event_to_user(str(user_id), event)
         # Best-effort mirror to Nextcloud Talk for users with Talk notification enabled.
-        _run_async(asyncio.to_thread(_forward_agent_notification_to_talk, str(user_id), dict(payload)))
+        if _has_running_loop():
+            _run_async(asyncio.to_thread(_forward_agent_notification_to_talk, str(user_id), dict(payload)))
+        else:
+            # Already in a sync context (Celery) — call directly
+            try:
+                _forward_agent_notification_to_talk(str(user_id), dict(payload))
+            except Exception as exc:
+                logger.warning("talk_notification_forward_error error=%s", exc)
         logger.debug("broadcast_agent_notification user_id=%s", user_id)
     except Exception as exc:
         logger.warning("broadcast_agent_notification_error error=%s", exc)
@@ -239,9 +314,7 @@ def broadcast_inbox_updated(user_id: str, payload: dict):
             event=EventType.INBOX_UPDATED,
             data=payload,
         )
-        manager = get_connection_manager()
-        _ensure_manager_connected(manager)
-        _run_async(manager.broadcast_to_user(str(user_id), event))
+        _broadcast_event_to_user(str(user_id), event)
         logger.info("broadcast_inbox_updated user_id=%s", user_id)
     except Exception as exc:
         logger.warning("broadcast_inbox_updated_error error=%s", exc)
