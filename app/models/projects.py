@@ -21,6 +21,7 @@ from app.db import Base
 
 
 class ProjectStatus(enum.Enum):
+    open = "open"
     planned = "planned"
     active = "active"
     on_hold = "on_hold"
@@ -43,6 +44,7 @@ class ProjectType(enum.Enum):
     air_fiber_relocation = "air_fiber_relocation"
     fiber_optics_installation = "fiber_optics_installation"
     air_fiber_installation = "air_fiber_installation"
+    cross_connect = "cross_connect"
 
 
 class TaskStatus(enum.Enum):
@@ -102,7 +104,7 @@ class Project(Base):
     project_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("project_templates.id")
     )
-    status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), default=ProjectStatus.planned)
+    status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), default=ProjectStatus.open)
     priority: Mapped[ProjectPriority] = mapped_column(Enum(ProjectPriority), default=ProjectPriority.normal)
     subscriber_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("subscribers.id"))
     lead_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_leads.id"))

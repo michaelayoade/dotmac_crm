@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -29,6 +29,15 @@ from app.web.admin import get_current_user, get_sidebar_stats
 
 router = APIRouter(prefix="/performance", tags=["web-admin-performance"])
 templates = Jinja2Templates(directory="templates")
+
+
+def _parse_deadline(value: str | None) -> date | None:
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    return date.fromisoformat(raw)
 
 
 def _get_db():
@@ -545,7 +554,7 @@ def goals_create(
             label=label.strip(),
             target_value=target_value,
             comparison=comparison.strip(),
-            deadline=deadline,
+            deadline=_parse_deadline(deadline) or date.today(),
         )
         performance_goals.create(db, payload, created_by_person_id=user.get("person_id"))
         return RedirectResponse(url="/admin/performance/goals", status_code=303)
@@ -575,7 +584,7 @@ def goals_update(
             label=(label.strip() if isinstance(label, str) else None) or None,
             target_value=target_value,
             comparison=(comparison.strip() if isinstance(comparison, str) else None) or None,
-            deadline=(deadline.strip() if isinstance(deadline, str) else None) or None,
+            deadline=_parse_deadline(deadline),
             status=GoalStatus(status) if status and status in GoalStatus._value2member_map_ else None,
         )
         performance_goals.update(db, goal_id, payload)

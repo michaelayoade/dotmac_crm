@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from fastapi import HTTPException
 
@@ -36,6 +38,16 @@ class TestMaterialRequestCRUD:
         assert mr.submitted_at is not None
         assert mr.ticket_id == ticket.id
         assert mr.requested_by_person_id == person.id
+
+    def test_create_assigns_generated_number(self, db_session, person, ticket):
+        with patch("app.services.material_requests.generate_number", return_value="MR-0001"):
+            mr = _make_mr(db_session, person, ticket)
+        assert mr.number == "MR-0001"
+
+    def test_create_without_number_when_disabled(self, db_session, person, ticket):
+        with patch("app.services.material_requests.generate_number", return_value=None):
+            mr = _make_mr(db_session, person, ticket)
+        assert mr.number is None
 
     def test_create_with_items(self, db_session, person, ticket, inventory_item):
         mr = _make_mr(
@@ -106,6 +118,18 @@ class TestMaterialRequestStatusTransitions:
         db_session.commit()
         db_session.refresh(mr)
         with pytest.raises(HTTPException) as exc:
+            material_requests.approve(db_session, str(mr.id), str(person.id))
+        assert exc.value.status_code == 400
+
+    def test_approve_blocks_when_erp_item_code_missing(self, db_session, person, ticket):
+        mr = _make_mr(db_session, person, ticket)
+        with (
+            patch(
+                "app.services.material_requests._validate_items_exist_in_erp",
+                side_effect=HTTPException(status_code=400, detail="Item code not found in ERP"),
+            ),
+            pytest.raises(HTTPException) as exc,
+        ):
             material_requests.approve(db_session, str(mr.id), str(person.id))
         assert exc.value.status_code == 400
 

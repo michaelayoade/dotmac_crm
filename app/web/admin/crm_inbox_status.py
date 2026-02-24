@@ -1,14 +1,17 @@
 """CRM inbox conversation status and resolve-gate routes."""
 
+import json
+from datetime import datetime
 from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
+from app.services.crm.inbox.csat import get_conversation_csat_event
 from app.services.crm.inbox.formatting import (
     filter_messages_for_user,
     format_conversation_for_template,
@@ -65,6 +68,25 @@ def _render_thread_or_error(
 
     conversation = format_conversation_for_template(thread.conversation, db, include_inbox_label=True)
     messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
+    csat_event = get_conversation_csat_event(db, conversation_id=conversation_id)
+    if csat_event and csat_event.timestamp is not None:
+        messages.append(
+            {
+                "id": f"csat-{csat_event.id}",
+                "direction": "system",
+                "timestamp": csat_event.timestamp,
+                "is_private_note": False,
+                "is_csat": True,
+                "sender": {"name": "CSAT", "initials": "CS"},
+                "content": "Customer satisfaction submitted",
+                "csat": {
+                    "survey_name": csat_event.survey_name,
+                    "rating": csat_event.rating,
+                    "feedback": csat_event.feedback,
+                },
+            }
+        )
+    messages.sort(key=lambda msg: msg["timestamp"].isoformat() if isinstance(msg.get("timestamp"), datetime) else "")
     current_roles = _get_current_roles(request)
     messages = filter_messages_for_user(
         messages,
@@ -137,6 +159,86 @@ async def update_conversation_status(
         return _render_thread_or_error(request, db, conversation_id, current_user)
 
     return await inbox_conversations_partial(request, db)
+
+
+@router.post("/inbox/conversation/{conversation_id}/priority", response_class=HTMLResponse)
+async def update_conversation_priority_route(
+    request: Request,
+    conversation_id: str,
+    priority: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Update conversation priority."""
+    from app.services.crm.inbox.conversation_status import update_conversation_priority
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    result = update_conversation_priority(
+        db,
+        conversation_id=conversation_id,
+        priority=priority,
+        actor_id=(current_user or {}).get("person_id"),
+    )
+    if result.kind == "invalid_priority":
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Invalid priority</div>", status_code=400)
+    if result.kind == "not_found":
+        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>", status_code=404)
+    return _render_thread_or_error(request, db, conversation_id, current_user)
+
+
+@router.post("/inbox/conversation/{conversation_id}/mute", response_class=HTMLResponse)
+async def toggle_conversation_mute_route(
+    request: Request,
+    conversation_id: str,
+    db: Session = Depends(get_db),
+):
+    """Toggle mute on a conversation."""
+    from app.services.crm.inbox.conversation_status import toggle_conversation_mute
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    result = toggle_conversation_mute(
+        db,
+        conversation_id=conversation_id,
+        actor_id=(current_user or {}).get("person_id"),
+    )
+    if result.kind == "not_found":
+        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>", status_code=404)
+    return _render_thread_or_error(request, db, conversation_id, current_user)
+
+
+@router.post("/inbox/conversation/{conversation_id}/transcript", response_class=HTMLResponse)
+async def send_conversation_transcript(
+    request: Request,
+    conversation_id: str,
+    to_email: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Send conversation transcript via email."""
+    import re
+
+    from app.services.crm.inbox.transcript import send_conversation_transcript as send_transcript
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    email_pattern = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    if not email_pattern.match(to_email.strip()):
+        headers = {"HX-Trigger": json.dumps({"showToast": {"message": "Invalid email address", "type": "error"}})}
+        return HTMLResponse("", headers=headers)
+
+    success, error = send_transcript(
+        db,
+        conversation_id=conversation_id,
+        to_email=to_email.strip(),
+        actor_id=(current_user or {}).get("person_id"),
+    )
+    if not success:
+        msg = error or "Failed to send transcript"
+        headers = {"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})}
+        return HTMLResponse("", headers=headers)
+
+    headers = {"HX-Trigger": json.dumps({"showToast": {"message": "Transcript sent!", "type": "success"}})}
+    return HTMLResponse("", headers=headers)
 
 
 @router.post("/inbox/conversation/{conversation_id}/resolve-with-lead", response_class=HTMLResponse)
@@ -223,3 +325,30 @@ async def inbox_link_and_resolve(
         detail = html_escape(result.error_detail or "Unknown error")
         return HTMLResponse(f"<div class='p-6 text-center text-slate-500'>Error: {detail}</div>", status_code=400)
     return _render_thread_or_error(request, db, conversation_id, current_user)
+
+
+@router.get("/inbox/templates/search")
+async def search_inbox_templates(
+    request: Request,
+    q: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """Search message templates for shortcode autocomplete."""
+    from app.services.crm.inbox.templates import message_templates
+
+    query = q.strip()
+    if not query:
+        return JSONResponse([])
+
+    results = message_templates.search(db, query, limit=10)
+    return JSONResponse(
+        [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "body": t.body or "",
+                "channel_type": t.channel_type.value if t.channel_type else None,
+            }
+            for t in results
+        ]
+    )

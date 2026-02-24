@@ -5,6 +5,8 @@
 
 {% block head %}
 <script src="/static/js/inbox-websocket.js"></script>
+<script src="/static/js/inbox-shortcuts.js"></script>
+<script src="/static/js/inbox-shortcodes.js"></script>
 <script>
     // Disable view transitions for inbox to prevent refresh flicker
     document.addEventListener('DOMContentLoaded', function() {
@@ -280,7 +282,7 @@
         <div class="px-4 pb-3 border-b border-slate-200/60 dark:border-slate-700/60">
             <div class="flex flex-col gap-2">
                 {% if current_channel != 'comments' %}
-                <div class="flex gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
+                <div class="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
                     <button @click="setAssignment(null)"
                             :class="!currentAssignment ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-200' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
                             class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
@@ -301,6 +303,36 @@
                             class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
                         Unassigned
                     </button>
+                    <button @click="setAssignment('agent')"
+                            :class="currentAssignment === 'agent' ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-700 dark:text-violet-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                        By Agent
+                    </button>
+                </div>
+                <div x-show="currentAssignment === 'agent'" x-transition x-cloak
+                     class="flex flex-col gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200/60 dark:bg-slate-800/50 dark:border-slate-700/60">
+                    <select x-model="currentFilterAgentId"
+                            @change="filterConversations()"
+                            class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        <option value="">Select agent...</option>
+                        {% for agent in (agents or []) %}
+                        <option value="{{ agent.id }}">{{ (agent_labels or {}).get(agent.id | string, agent.id | string) }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="flex gap-2">
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">From</label>
+                            <input type="date" x-model="currentAssignedFrom"
+                                   @change="filterConversations()"
+                                   class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">To</label>
+                            <input type="date" x-model="currentAssignedTo"
+                                   @change="filterConversations()"
+                                   class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        </div>
+                    </div>
                 </div>
                 {% endif %}
 
@@ -736,6 +768,8 @@
             </button>
         </div>
     </aside>
+
+    {% include "admin/crm/_keyboard_shortcuts_modal.html" %}
 </div>
 
 <script>
@@ -746,6 +780,9 @@ function inboxController() {
         currentStatus: {{ current_status | tojson }},
         currentOutboxStatus: {{ (current_outbox_status or "") | tojson }} || null,
         currentAssignment: {{ (current_assignment or "") | tojson }} || null,
+        currentFilterAgentId: {{ (current_filter_agent_id or "") | tojson }} || '',
+        currentAssignedFrom: {{ (current_assigned_from or "") | tojson }} || '',
+        currentAssignedTo: {{ (current_assigned_to or "") | tojson }} || '',
         currentInboxTargetId: {{ (current_target_id or "") | tojson }} || null,
         selectedConversation: {{ (selected_conversation.id if selected_conversation else None) | tojson }},
         selectedContactId: {{ (selected_conversation.contact.id if selected_conversation else None) | tojson }},
@@ -810,7 +847,9 @@ function inboxController() {
         notifications: [],
         notificationAutoDismissSeconds: {{ (notification_auto_dismiss_seconds or 12) | tojson }},
         notificationSoundEnabled: true,
-        notificationAudioContext: null,
+        notificationAudio: null,
+        showShortcutsHelp: false,
+        _inboxShortcuts: null,
         replyTo: null,
         searchInteracted: false,
         isNarrowViewport: false,
@@ -894,6 +933,10 @@ function inboxController() {
                 }
                 if (payload.conversation_id && this.selectedConversation === payload.conversation_id) {
                     this.scheduleRefresh('thread');
+                }
+                // Play notification sound for inbound messages
+                if (payload.direction === 'inbound' || !payload.direction) {
+                    this.playNotificationSound();
                 }
             });
             window.addEventListener('inbox-message-status', (e) => {
@@ -979,6 +1022,40 @@ function inboxController() {
                     this.refreshThread(true);
                 });
             }
+
+            // Initialize keyboard shortcuts
+            this._inboxShortcuts = new InboxShortcuts();
+            document.addEventListener('inbox-shortcut-reply', () => {
+                const textarea = document.getElementById('reply-textarea');
+                if (textarea) textarea.focus();
+            });
+            document.addEventListener('inbox-shortcut-resolve', () => {
+                if (!this.selectedConversation) return;
+                const resolveBtn = document.querySelector('[data-action="resolve-conversation"]');
+                if (resolveBtn) resolveBtn.click();
+            });
+            document.addEventListener('inbox-shortcut-navigate', (e) => {
+                this.navigateConversation(e.detail.direction);
+            });
+            document.addEventListener('inbox-shortcut-help', () => {
+                this.showShortcutsHelp = !this.showShortcutsHelp;
+            });
+            document.addEventListener('inbox-shortcut-escape', () => {
+                if (this.showShortcutsHelp) this.showShortcutsHelp = false;
+            });
+
+            // Initialize shortcodes on reply textarea after thread loads
+            document.body.addEventListener('htmx:afterSwap', (e) => {
+                if (e.detail.target.id === 'message-thread') {
+                    this.$nextTick(() => {
+                        const textarea = document.getElementById('reply-textarea');
+                        if (textarea && !textarea._shortcodesInitialized) {
+                            new InboxShortcodes(textarea);
+                            textarea._shortcodesInitialized = true;
+                        }
+                    });
+                }
+            });
         },
         initViewportMode() {
             this.viewportMediaQuery = window.matchMedia('(max-width: 639px)');
@@ -1533,11 +1610,9 @@ function inboxController() {
 
         primeNotificationSound() {
             try {
-                if (!this.notificationAudioContext) {
-                    this.notificationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                }
-                if (this.notificationAudioContext.state === 'suspended') {
-                    this.notificationAudioContext.resume();
+                if (!this.notificationAudio) {
+                    this.notificationAudio = new Audio('/static/audio/inbox-notification.wav');
+                    this.notificationAudio.volume = 0.5;
                 }
             } catch (error) {
                 console.warn('[Inbox] Notification sound unavailable', error);
@@ -1546,26 +1621,15 @@ function inboxController() {
 
         playNotificationSound() {
             if (!this.notificationSoundEnabled) return;
+            // Only play when tab is not focused
+            if (!document.hidden) return;
             try {
-                if (!this.notificationAudioContext) {
-                    this.notificationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (!this.notificationAudio) {
+                    this.notificationAudio = new Audio('/static/audio/inbox-notification.wav');
+                    this.notificationAudio.volume = 0.5;
                 }
-                const context = this.notificationAudioContext;
-                if (context.state === 'suspended') {
-                    context.resume();
-                }
-                const oscillator = context.createOscillator();
-                const gain = context.createGain();
-                oscillator.type = 'sine';
-                oscillator.frequency.value = 880;
-                gain.gain.value = 0.0001;
-                oscillator.connect(gain);
-                gain.connect(context.destination);
-                const now = context.currentTime;
-                gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
-                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-                oscillator.start(now);
-                oscillator.stop(now + 0.2);
+                this.notificationAudio.currentTime = 0;
+                this.notificationAudio.play().catch(() => {});
             } catch (error) {
                 console.warn('[Inbox] Notification sound error', error);
             }
@@ -1848,6 +1912,11 @@ function inboxController() {
             if (this.currentChannel === 'comments') {
                 return;
             }
+            if (assignment !== 'agent') {
+                this.currentFilterAgentId = '';
+                this.currentAssignedFrom = '';
+                this.currentAssignedTo = '';
+            }
             this.currentAssignment = assignment;
             this.filterConversations();
         },
@@ -1997,6 +2066,11 @@ function inboxController() {
             if (this.currentStatus) params.set('status', this.currentStatus);
             if (this.currentOutboxStatus) params.set('outbox_status', this.currentOutboxStatus);
             if (this.currentAssignment) params.set('assignment', this.currentAssignment);
+            if (this.currentAssignment === 'agent' && this.currentFilterAgentId) {
+                params.set('agent_id', this.currentFilterAgentId);
+            }
+            if (this.currentAssignedFrom) params.set('assigned_from', this.currentAssignedFrom);
+            if (this.currentAssignedTo) params.set('assigned_to', this.currentAssignedTo);
             if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
             const effectiveSearch = this.effectiveSearchQuery();
             if (effectiveSearch) params.set('search', effectiveSearch);
@@ -2395,6 +2469,23 @@ function inboxController() {
             if (container) {
                 container.scrollTop = container.scrollHeight;
             }
+        },
+
+        navigateConversation(direction) {
+            const items = document.querySelectorAll('[data-conversation-id]');
+            if (!items.length) return;
+            let currentIndex = -1;
+            items.forEach((el, i) => {
+                if (el.dataset.conversationId === this.selectedConversation) currentIndex = i;
+            });
+            let nextIndex;
+            if (direction === 'next') {
+                nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+            } else {
+                nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+            }
+            const nextItem = items[nextIndex];
+            if (nextItem) nextItem.click();
         },
 
         toggleContactPanel() {

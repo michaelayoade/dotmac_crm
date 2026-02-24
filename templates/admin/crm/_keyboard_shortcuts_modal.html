@@ -1,0 +1,58 @@
+<!-- Keyboard Shortcuts Help Modal -->
+<div x-show="showShortcutsHelp"
+     x-transition:enter="transition ease-out duration-200"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="transition ease-in duration-150"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0"
+     x-cloak
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="shortcuts-modal-title"
+     class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm"
+     @click.self="showShortcutsHelp = false"
+     @keydown.escape.window="showShortcutsHelp = false">
+    <div class="w-full max-w-md mx-4 bg-white rounded-2xl shadow-2xl border border-slate-200/60 dark:bg-slate-800 dark:border-slate-700/60"
+         @click.stop>
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+            <h3 id="shortcuts-modal-title" class="text-base font-display font-semibold text-slate-900 dark:text-white">Keyboard Shortcuts</h3>
+            <button @click="showShortcutsHelp = false"
+                    class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:text-slate-300 dark:hover:bg-slate-700"
+                    aria-label="Close shortcuts help">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="px-6 py-4 space-y-3">
+            <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-600 dark:text-slate-300">Focus reply composer</span>
+                <kbd class="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">r</kbd>
+            </div>
+            <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-600 dark:text-slate-300">Resolve conversation</span>
+                <kbd class="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">e</kbd>
+            </div>
+            <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-600 dark:text-slate-300">Next conversation</span>
+                <kbd class="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">j</kbd>
+            </div>
+            <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-600 dark:text-slate-300">Previous conversation</span>
+                <kbd class="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">k</kbd>
+            </div>
+            <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-600 dark:text-slate-300">Show this help</span>
+                <kbd class="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">?</kbd>
+            </div>
+            <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-600 dark:text-slate-300">Close modal / dismiss</span>
+                <kbd class="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Esc</kbd>
+            </div>
+        </div>
+        <div class="px-6 py-3 border-t border-slate-200 dark:border-slate-700">
+            <p class="text-[11px] text-slate-400 dark:text-slate-500">Shortcuts are disabled when typing in text fields.</p>
+        </div>
+    </div>
+</div>

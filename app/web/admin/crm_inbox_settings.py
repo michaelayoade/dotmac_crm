@@ -8,15 +8,19 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.services.crm.inbox.csat import update_inbox_toggle
 from app.services.crm.inbox.settings_admin import (
     bulk_update_agents,
     create_agent,
     create_agent_team,
+    create_macro,
     create_message_template,
     create_routing_rule,
     create_team,
+    delete_macro,
     delete_message_template,
     delete_routing_rule,
+    update_macro,
     update_message_template,
     update_notification_settings,
     update_routing_rule,
@@ -89,6 +93,8 @@ async def update_inbox_notification_settings(
     reminder_repeat_enabled: str | None = Form(None),
     reminder_repeat_interval_seconds: str = Form(""),
     notification_auto_dismiss_seconds: str = Form(""),
+    auto_resolve_enabled: str | None = Form(None),
+    auto_resolve_days: str = Form("7"),
     db: Session = Depends(get_db),
 ):
     result = update_notification_settings(
@@ -97,6 +103,8 @@ async def update_inbox_notification_settings(
         reminder_repeat_enabled=reminder_repeat_enabled,
         reminder_repeat_interval_seconds=reminder_repeat_interval_seconds,
         notification_auto_dismiss_seconds=notification_auto_dismiss_seconds,
+        auto_resolve_enabled=auto_resolve_enabled,
+        auto_resolve_days=auto_resolve_days,
         roles=_get_current_roles(request),
         scopes=_get_current_scopes(request),
     )
@@ -108,6 +116,32 @@ async def update_inbox_notification_settings(
         )
     return RedirectResponse(
         url="/admin/crm/inbox/settings?notification_setup=1",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/csat-toggle", response_class=HTMLResponse)
+async def update_inbox_csat_toggle(
+    request: Request,
+    target_id: str = Form(""),
+    enabled: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    result = update_inbox_toggle(
+        db,
+        target_id=target_id,
+        enabled=bool(enabled),
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if not result.ok:
+        detail = quote(result.error_detail or "Failed to save CSAT settings", safe="")
+        return RedirectResponse(
+            url=f"/admin/crm/inbox/settings?csat_error=1&csat_error_detail={detail}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        url="/admin/crm/inbox/settings?csat_setup=1",
         status_code=303,
     )
 
@@ -476,4 +510,152 @@ async def delete_inbox_routing_rule(
     return RedirectResponse(
         url=f"/admin/crm/inbox/settings?routing_error=1&routing_error_detail={detail}",
         status_code=303,
+    )
+
+
+# ── Macros ────────────────────────────────────────────────────
+
+
+def _get_current_agent_id(request: Request, db: Session) -> str | None:
+    from app.services.crm.inbox.agents import get_current_agent_id
+
+    auth = getattr(request.state, "auth", None)
+    person_id = auth.get("person_id") if isinstance(auth, dict) else None
+    if not person_id:
+        return None
+    return get_current_agent_id(db, person_id)
+
+
+@router.post("/inbox/macros", response_class=HTMLResponse)
+async def create_inbox_macro(
+    request: Request,
+    name: str = Form(...),
+    description: str | None = Form(None),
+    visibility: str = Form("personal"),
+    actions_json: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    agent_id = _get_current_agent_id(request, db)
+    if not agent_id:
+        return RedirectResponse(
+            url="/admin/crm/inbox/settings?macro_error=1&macro_error_detail=Agent+not+found",
+            status_code=303,
+        )
+    result = create_macro(
+        db,
+        name=name,
+        description=description,
+        visibility=visibility,
+        actions_json=actions_json,
+        created_by_agent_id=str(agent_id),
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?macro_setup=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to create macro", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?macro_error=1&macro_error_detail={detail}",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/macros/{macro_id}", response_class=HTMLResponse)
+async def update_inbox_macro(
+    request: Request,
+    macro_id: str,
+    name: str = Form(...),
+    description: str | None = Form(None),
+    visibility: str = Form("personal"),
+    actions_json: str = Form(...),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    agent_id = _get_current_agent_id(request, db)
+    result = update_macro(
+        db,
+        macro_id=macro_id,
+        name=name,
+        description=description,
+        visibility=visibility,
+        actions_json=actions_json,
+        is_active=bool(is_active),
+        actor_agent_id=str(agent_id) if agent_id else None,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?macro_setup=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to update macro", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?macro_error=1&macro_error_detail={detail}",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/macros/{macro_id}/delete", response_class=HTMLResponse)
+async def delete_inbox_macro(
+    request: Request,
+    macro_id: str,
+    db: Session = Depends(get_db),
+):
+    agent_id = _get_current_agent_id(request, db)
+    result = delete_macro(
+        db,
+        macro_id=macro_id,
+        actor_agent_id=str(agent_id) if agent_id else None,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?macro_setup=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to delete macro", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?macro_error=1&macro_error_detail={detail}",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/conversation/{conversation_id}/run-macro", response_class=HTMLResponse)
+async def run_macro_on_conversation(
+    request: Request,
+    conversation_id: str,
+    macro_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    import json
+
+    from app.services.crm.inbox.macro_executor import execute_macro
+    from app.services.crm.inbox.macros import conversation_macros
+
+    agent_id = _get_current_agent_id(request, db)
+    auth = getattr(request.state, "auth", None)
+    person_id = auth.get("person_id") if isinstance(auth, dict) else None
+
+    try:
+        macro = conversation_macros.get(db, macro_id)
+        result = execute_macro(
+            db,
+            macro_id=str(macro.id),
+            conversation_id=conversation_id,
+            actions=macro.actions,
+            actor_agent_id=str(agent_id) if agent_id else None,
+            actor_person_id=person_id,
+        )
+        if result.ok:
+            toast = json.dumps({"showToast": {"message": f"Macro '{macro.name}' executed", "type": "success"}})
+        else:
+            toast = json.dumps(
+                {"showToast": {"message": f"Macro partially failed: {result.error_detail}", "type": "warning"}}
+            )
+    except Exception as exc:
+        toast = json.dumps({"showToast": {"message": f"Macro error: {exc}", "type": "error"}})
+
+    return HTMLResponse(
+        content="",
+        status_code=200,
+        headers={
+            "HX-Trigger": toast,
+            "HX-Refresh": "true",
+        },
     )

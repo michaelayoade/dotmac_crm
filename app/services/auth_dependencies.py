@@ -52,7 +52,7 @@ def _has_audit_scope(payload: dict) -> bool:
 
 
 def require_audit_auth(
-    request: Request,
+    request: Request = None,  # type: ignore[assignment]
     authorization: str | None = Header(default=None),
     x_session_token: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
@@ -76,8 +76,9 @@ def require_audit_auth(
                 if expires_at and expires_at <= now:
                     raise HTTPException(status_code=401, detail="Session expired")
             actor_id = str(payload.get("sub"))
-            request.state.actor_id = actor_id
-            request.state.actor_type = "user"
+            if request is not None:
+                request.state.actor_id = actor_id
+                request.state.actor_type = "user"
             return {"actor_type": "user", "actor_id": actor_id}
         session = (
             db.query(AuthSession)
@@ -88,8 +89,9 @@ def require_audit_auth(
             .first()
         )
         if session:
-            request.state.actor_id = str(session.person_id)
-            request.state.actor_type = "user"
+            if request is not None:
+                request.state.actor_id = str(session.person_id)
+                request.state.actor_type = "user"
             return {"actor_type": "user", "actor_id": str(session.person_id)}
     if x_api_key:
         api_key = (
@@ -101,19 +103,20 @@ def require_audit_auth(
             .first()
         )
         if api_key:
-            request.state.actor_id = str(api_key.id)
-            request.state.actor_type = "api_key"
+            if request is not None:
+                request.state.actor_id = str(api_key.id)
+                request.state.actor_type = "api_key"
             return {"actor_type": "api_key", "actor_id": str(api_key.id)}
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def require_user_auth(
-    request: Request,
+    request: Request = None,  # type: ignore[assignment]
     authorization: str | None = Header(default=None),
     db: Session = Depends(_get_db),
 ):
     token = _extract_bearer_token(authorization)
-    if not token:
+    if not token and request is not None:
         token = request.cookies.get("session_token")
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -156,8 +159,9 @@ def require_user_auth(
             roles = roles or []
             scopes = scopes or []
             actor_id = str(person_id)
-            request.state.actor_id = actor_id
-            request.state.actor_type = "user"
+            if request is not None:
+                request.state.actor_id = actor_id
+                request.state.actor_type = "user"
             return {
                 "person_id": str(person_id),
                 "session_id": str(session_id),
@@ -195,8 +199,9 @@ def require_user_auth(
     )
 
     actor_id = str(person_id)
-    request.state.actor_id = actor_id
-    request.state.actor_type = "user"
+    if request is not None:
+        request.state.actor_id = actor_id
+        request.state.actor_type = "user"
     return {
         "person_id": str(person_id),
         "session_id": str(session_id),

@@ -17,7 +17,7 @@
                 <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/40">
                     <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Project</div>
                     <div class="font-semibold text-slate-900 dark:text-slate-100">
-                        {{ (proj.code or proj.number or proj.name) if proj else (project.project_id|string|truncate(8, True, '')) }}
+                        {{ (proj.name or proj.code or proj.number) if proj else (project.project_id|string|truncate(8, True, '')) }}
                     </div>
                 </div>
                 <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/40">

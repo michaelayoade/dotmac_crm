@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -27,7 +28,7 @@ class PerformanceReportsService:
             rows = db.query(Person.id).filter(Person.is_active.is_(True)).all()
             return AccessScope(person_id=person_id, managed_person_ids={str(row[0]) for row in rows})
 
-        managed_team_ids = set()
+        managed_team_ids: set[str] = set()
         managed_team_ids.update(
             str(row[0])
             for row in db.query(ServiceTeam.id)
@@ -104,7 +105,7 @@ class PerformanceReportsService:
             query = query.filter(AgentPerformanceSnapshot.score_period_start >= start_at)
         return query.order_by(AgentPerformanceSnapshot.score_period_start.desc()).limit(max(1, min(limit, 104))).all()
 
-    def leaderboard(self, db: Session, person_ids: set[str], period_start: datetime | None = None) -> list[dict]:
+    def leaderboard(self, db: Session, person_ids: set[str], period_start: datetime | None = None) -> list[dict[str, Any]]:
         if not person_ids:
             return []
         query = db.query(AgentPerformanceSnapshot).filter(
@@ -122,7 +123,7 @@ class PerformanceReportsService:
         people = db.query(Person).filter(Person.id.in_([s.person_id for s in snapshots])).all()
         person_map = {str(person.id): person for person in people}
 
-        rows = []
+        rows: list[dict[str, Any]] = []
         for snapshot in snapshots:
             person = person_map.get(str(snapshot.person_id))
             name = (
@@ -145,7 +146,7 @@ class PerformanceReportsService:
                 }
             )
 
-        rows.sort(key=lambda row: row["composite_score"], reverse=True)
+        rows.sort(key=lambda row: float(row.get("composite_score") or 0.0), reverse=True)
         return rows
 
     def leaderboard_for_scope(
@@ -155,7 +156,7 @@ class PerformanceReportsService:
         *,
         period_start: datetime | None = None,
         team_id: str | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         rows = self.leaderboard(db, scope.managed_person_ids, period_start=period_start)
         if team_id:
             rows = [row for row in rows if row.get("team_id") == team_id]
@@ -194,7 +195,16 @@ class PerformanceReportsService:
         mine = next((row for row in leaderboard if row.get("person_id") == scope.person_id), None)
         min_size_raw = resolve_value(db, SettingDomain.performance, "peer_comparison_min_team_size")
         try:
-            min_size = int(min_size_raw) if min_size_raw is not None else 3
+            if min_size_raw is None:
+                min_size = 3
+            elif isinstance(min_size_raw, bool):
+                min_size = int(min_size_raw)
+            elif isinstance(min_size_raw, int | float):
+                min_size = int(min_size_raw)
+            elif isinstance(min_size_raw, str):
+                min_size = int(min_size_raw.strip())
+            else:
+                min_size = 3
         except (TypeError, ValueError):
             min_size = 3
         if len(leaderboard) < max(min_size, 1):

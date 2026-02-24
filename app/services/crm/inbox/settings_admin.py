@@ -69,6 +69,8 @@ def update_notification_settings(
     reminder_repeat_enabled: str | None,
     reminder_repeat_interval_seconds: str,
     notification_auto_dismiss_seconds: str,
+    auto_resolve_enabled: str | None = None,
+    auto_resolve_days: str | None = None,
     roles: list[str] | None = None,
     scopes: list[str] | None = None,
 ) -> NotificationSettingsResult:
@@ -147,6 +149,37 @@ def update_notification_settings(
                     value_json=_coerce_value_json(value_json),
                 ),
             )
+
+        # Auto-resolve settings
+        ar_enabled = bool(auto_resolve_enabled)
+        spec = settings_spec.get_spec(SettingDomain.notification, "crm_inbox_auto_resolve_enabled")
+        if spec:
+            value_text, value_json = settings_spec.normalize_for_db(spec, ar_enabled)
+            settings_service.upsert_by_key(
+                db,
+                "crm_inbox_auto_resolve_enabled",
+                DomainSettingUpdate(
+                    value_type=SettingValueType.boolean,
+                    value_text=value_text,
+                    value_json=_coerce_value_json(value_json),
+                ),
+            )
+
+        if auto_resolve_days is not None:
+            ar_days = _coerce_int("crm_inbox_auto_resolve_days", auto_resolve_days)
+            spec = settings_spec.get_spec(SettingDomain.notification, "crm_inbox_auto_resolve_days")
+            if spec:
+                value_text, value_json = settings_spec.normalize_for_db(spec, ar_days)
+                settings_service.upsert_by_key(
+                    db,
+                    "crm_inbox_auto_resolve_days",
+                    DomainSettingUpdate(
+                        value_type=SettingValueType.integer,
+                        value_text=value_text,
+                        value_json=_coerce_value_json(value_json),
+                    ),
+                )
+
         return NotificationSettingsResult(ok=True)
     except Exception as exc:
         return NotificationSettingsResult(
@@ -537,3 +570,117 @@ def delete_routing_rule(
         return ActionResult(ok=True)
     except Exception as exc:
         return ActionResult(ok=False, error_detail=str(exc) or "Failed to delete routing rule")
+
+
+# ── Macros ────────────────────────────────────────────────────
+
+
+def create_macro(
+    db: Session,
+    *,
+    name: str,
+    description: str | None,
+    visibility: str,
+    actions_json: str,
+    created_by_agent_id: str,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    import json
+
+    from app.models.crm.enums import MacroVisibility
+    from app.services.crm.inbox.macros import conversation_macros
+    from app.services.crm.inbox.permissions import can_manage_macros
+
+    try:
+        vis = MacroVisibility(visibility)
+        if (
+            vis == MacroVisibility.shared
+            and (roles is not None or scopes is not None)
+            and not can_manage_macros(roles, scopes)
+        ):
+            return ActionResult(ok=False, error_detail="Not authorized to create shared macros")
+        actions = json.loads(actions_json) if isinstance(actions_json, str) else actions_json
+        if not isinstance(actions, list) or not actions:
+            return ActionResult(ok=False, error_detail="At least one action is required")
+        conversation_macros.create(
+            db,
+            name=name.strip(),
+            description=description.strip() if description else None,
+            visibility=vis,
+            actions=actions,
+            created_by_agent_id=created_by_agent_id,
+        )
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to create macro")
+
+
+def update_macro(
+    db: Session,
+    *,
+    macro_id: str,
+    name: str | None = None,
+    description: str | None = None,
+    visibility: str | None = None,
+    actions_json: str | None = None,
+    is_active: bool | None = None,
+    actor_agent_id: str | None = None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    import json
+
+    from app.models.crm.enums import MacroVisibility
+    from app.services.crm.inbox.macros import conversation_macros
+    from app.services.crm.inbox.permissions import can_manage_macros
+
+    try:
+        macro = conversation_macros.get(db, macro_id)
+        is_owner = actor_agent_id and str(macro.created_by_agent_id) == actor_agent_id
+        if not is_owner and (roles is not None or scopes is not None) and not can_manage_macros(roles, scopes):
+            return ActionResult(ok=False, error_detail="Not authorized to update this macro")
+        vis = MacroVisibility(visibility) if visibility else None
+        if (
+            vis == MacroVisibility.shared
+            and (roles is not None or scopes is not None)
+            and not can_manage_macros(roles, scopes)
+        ):
+            return ActionResult(ok=False, error_detail="Not authorized to set shared visibility")
+        actions = None
+        if actions_json:
+            actions = json.loads(actions_json) if isinstance(actions_json, str) else actions_json
+        conversation_macros.update(
+            db,
+            macro_id,
+            name=name.strip() if name else None,
+            description=description.strip() if description else None,
+            visibility=vis,
+            actions=actions,
+            is_active=is_active,
+        )
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to update macro")
+
+
+def delete_macro(
+    db: Session,
+    *,
+    macro_id: str,
+    actor_agent_id: str | None = None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> ActionResult:
+    from app.services.crm.inbox.macros import conversation_macros
+    from app.services.crm.inbox.permissions import can_manage_macros
+
+    try:
+        macro = conversation_macros.get(db, macro_id)
+        is_owner = actor_agent_id and str(macro.created_by_agent_id) == actor_agent_id
+        if not is_owner and (roles is not None or scopes is not None) and not can_manage_macros(roles, scopes):
+            return ActionResult(ok=False, error_detail="Not authorized to delete this macro")
+        conversation_macros.delete(db, macro_id)
+        return ActionResult(ok=True)
+    except Exception as exc:
+        return ActionResult(ok=False, error_detail=str(exc) or "Failed to delete macro")

@@ -1,4 +1,5 @@
 import contextlib
+import os
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
@@ -8,6 +9,7 @@ from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
 from app.config import settings
+from app.services.storage import storage
 
 
 def _allowed_types() -> set[str]:
@@ -86,19 +88,22 @@ def prepare_ticket_attachments(
 def save_ticket_attachments(prepared: list[dict]) -> list[dict]:
     if not prepared:
         return []
-    upload_dir = Path(settings.ticket_attachment_upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
     saved: list[dict] = []
+    # app.config.Settings doesn't currently expose APP_URL; fall back to env.
+    app_url = (getattr(settings, "app_url", None) or os.getenv("APP_URL") or "").rstrip("/")
     for item in prepared:
-        file_path = upload_dir / item["stored_name"]
-        with open(file_path, "wb") as handle:
-            handle.write(item["content"])
+        key = f"uploads/tickets/{item['stored_name']}"
+        storage.put(key, item["content"], item["mime_type"])
+        # Serve through the authenticated app route so we don't depend on MinIO
+        # being publicly reachable (and avoid localhost links in prod).
+        url = f"{app_url}/admin/storage/{settings.s3_bucket}/{key}" if app_url else f"/admin/storage/{settings.s3_bucket}/{key}"
         saved.append(
             {
                 "file_name": item["file_name"],
                 "file_size": item["file_size"],
                 "mime_type": item["mime_type"],
-                "url": f"{settings.ticket_attachment_url_prefix}/{item['stored_name']}",
+                "key": key,
+                "url": url,
             }
         )
     return saved
@@ -107,8 +112,6 @@ def save_ticket_attachments(prepared: list[dict]) -> list[dict]:
 def delete_ticket_attachments(prepared: list[dict]) -> None:
     if not prepared:
         return
-    upload_dir = Path(settings.ticket_attachment_upload_dir)
     for item in prepared:
-        file_path = upload_dir / item["stored_name"]
-        if file_path.exists():
-            file_path.unlink()
+        key = f"uploads/tickets/{item['stored_name']}"
+        storage.delete(key)

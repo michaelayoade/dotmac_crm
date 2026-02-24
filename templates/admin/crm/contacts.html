@@ -16,6 +16,27 @@
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage CRM contact records.</p>
         </div>
         <div class="flex items-center gap-2">
+            <form method="get" action="/admin/crm/contacts/export" class="inline-flex items-center gap-2">
+                <input type="hidden" name="search" value="{{ search }}">
+                <input type="hidden" name="party_status" value="{{ party_status }}">
+                <input type="hidden" name="is_active" value="{{ is_active }}">
+                <input type="hidden" name="has_channels" value="{{ has_channels }}">
+                <input type="hidden" name="linked_to_org" value="{{ linked_to_org }}">
+                <input type="hidden" name="order_by" value="{{ order_by }}">
+                <input type="hidden" name="order_dir" value="{{ order_dir }}">
+                <input type="number"
+                       name="export_days"
+                       min="1"
+                       max="3650"
+                       step="1"
+                       value="{{ export_days or '30' }}"
+                       placeholder="Days"
+                       class="w-28 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/60">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l4-4m-4 4l-4-4M4 21h16"/></svg>
+                    Export CSV
+                </button>
+            </form>
             <a href="/admin/crm/contacts/merge" class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700/60">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 10h8M5 12h14"/></svg>
                 Merge Contacts

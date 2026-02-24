@@ -495,6 +495,7 @@ def crm_performance_report_export(
             {
                 "Rank": i,
                 "Agent": agent["name"],
+                "Active Hours": agent.get("active_hours_display") or "",
                 "Total Conversations": agent["total_conversations"],
                 "Resolved": agent["resolved_conversations"],
                 "Resolution Rate (%)": round(resolution_rate, 1),

@@ -24,10 +24,21 @@ from app.services.settings_spec import resolve_value
 
 
 def _coerce_int(value: object | None, default: int) -> int:
-    try:
-        return int(value) if value is not None else default
-    except (TypeError, ValueError):
+    if value is None:
         return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int | float):
+        return int(value)
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 def _safe_json(text: str) -> dict[str, Any]:

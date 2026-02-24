@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.models.crm.team import CrmAgent
+from app.services.agent_mentions import list_active_users_for_mentions, resolve_mentioned_person_ids
 from app.services.common import coerce_uuid
+
+
+def list_ticket_mention_users(db: Session, *, limit: int = 200) -> list[dict]:
+    """Return active web-user options suitable for ticket @mention autocomplete.
+
+    Shape: [{"id": "person:<person_uuid>", "label": "<display name>"}]
+    """
+    return list_active_users_for_mentions(db, limit=limit)
 
 
 def notify_ticket_comment_mentions(
@@ -27,23 +35,9 @@ def notify_ticket_comment_mentions(
     if not mentioned_agent_ids:
         return
 
-    agent_uuids = []
-    for raw in mentioned_agent_ids:
-        try:
-            agent_uuids.append(coerce_uuid(raw))
-        except Exception:
-            continue
-    if not agent_uuids:
-        return
+    recipient_person_ids: list[str] = resolve_mentioned_person_ids(db, mentioned_agent_ids)
 
-    agents = (
-        db.query(CrmAgent)
-        .filter(CrmAgent.id.in_(agent_uuids))
-        .filter(CrmAgent.is_active.is_(True))
-        .filter(CrmAgent.person_id.isnot(None))
-        .all()
-    )
-    if not agents:
+    if not recipient_person_ids:
         return
 
     actor_uuid = None
@@ -53,16 +47,8 @@ def notify_ticket_comment_mentions(
         except Exception:
             actor_uuid = None
 
-    recipient_person_ids = []
-    seen = set()
-    for agent in agents:
-        pid = str(agent.person_id)
-        if actor_uuid and pid == actor_uuid:
-            continue
-        if pid in seen:
-            continue
-        seen.add(pid)
-        recipient_person_ids.append(pid)
+    if actor_uuid:
+        recipient_person_ids = [pid for pid in recipient_person_ids if pid != actor_uuid]
     if not recipient_person_ids:
         return
 

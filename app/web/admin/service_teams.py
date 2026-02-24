@@ -3,10 +3,13 @@
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
+from app.models.auth import UserCredential
+from app.models.person import Person
 from app.models.service_team import ServiceTeamMemberRole, ServiceTeamType
 from app.schemas.service_team import ServiceTeamCreate, ServiceTeamMemberCreate, ServiceTeamUpdate
 from app.services.audit_helpers import log_audit_event
@@ -41,6 +44,7 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
 @router.get("", response_class=HTMLResponse)
 def service_team_list(request: Request, search: str | None = None, db: Session = Depends(get_db)):
     teams = service_teams.list(db, order_by="name", order_dir="asc", limit=100, offset=0)
+    designation_groups = service_teams.list_designation_region_groups(db, search=search, limit=500, offset=0)
     search = (search or "").strip()
     if search:
         search_lower = search.lower()
@@ -51,7 +55,7 @@ def service_team_list(request: Request, search: str | None = None, db: Session =
             or search_lower in (t.region or "").lower()
             or search_lower in (t.team_type.value if t.team_type else "").lower()
         ]
-    context = _base_ctx(request, db, teams=teams, search=search)
+    context = _base_ctx(request, db, teams=teams, designation_groups=designation_groups, search=search)
     return templates.TemplateResponse("admin/system/service_teams/index.html", context)
 
 
@@ -101,7 +105,40 @@ def service_team_create(
 def service_team_detail(request: Request, team_id: str, db: Session = Depends(get_db)):
     team = service_teams.get(db, team_id)
     members = service_team_members.list_members(db, team_id)
-    context = _base_ctx(request, db, team=team, members=members, member_roles=[r.value for r in ServiceTeamMemberRole])
+    active_members = {str(member.person_id) for member in members if member.is_active}
+    people = (
+        db.query(Person)
+        .join(
+            UserCredential,
+            and_(
+                UserCredential.person_id == Person.id,
+                UserCredential.is_active.is_(True),
+            ),
+        )
+        .filter(Person.is_active.is_(True))
+        .order_by(Person.first_name.asc(), Person.last_name.asc(), Person.email.asc())
+        .all()
+    )
+    people_options = []
+    for person in people:
+        person_id = str(person.id)
+        if person_id in active_members:
+            continue
+        label = (
+            person.display_name
+            or f"{(person.first_name or '').strip()} {(person.last_name or '').strip()}".strip()
+            or person.email
+            or "User"
+        )
+        people_options.append({"id": person_id, "label": label, "email": person.email})
+    context = _base_ctx(
+        request,
+        db,
+        team=team,
+        members=members,
+        member_roles=[r.value for r in ServiceTeamMemberRole],
+        people_options=people_options,
+    )
     return templates.TemplateResponse("admin/system/service_teams/detail.html", context)
 
 

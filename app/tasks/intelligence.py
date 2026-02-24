@@ -35,7 +35,16 @@ def run_scheduled_analysis(persona_key: str | None = None) -> dict:
 
         max_per_run = resolve_value(session, SettingDomain.integration, "intelligence_max_insights_per_run")
         try:
-            max_per_run_int = int(max_per_run) if max_per_run is not None else 50
+            if max_per_run is None:
+                max_per_run_int = 50
+            elif isinstance(max_per_run, bool):
+                max_per_run_int = int(max_per_run)
+            elif isinstance(max_per_run, int | float):
+                max_per_run_int = int(max_per_run)
+            elif isinstance(max_per_run, str):
+                max_per_run_int = int(max_per_run.strip())
+            else:
+                max_per_run_int = 50
         except (TypeError, ValueError):
             max_per_run_int = 50
         max_per_run_int = max(1, min(max_per_run_int, 500))

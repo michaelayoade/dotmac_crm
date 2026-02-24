@@ -30,6 +30,6 @@ def parse_json_object(text: str) -> dict[str, Any]:
 
 
 def require_keys(data: dict[str, Any], keys: list[str]) -> None:
-    missing = [k for k in keys if k not in data or data.get(k) in {None, ""}]
+    missing = [k for k in keys if k not in data or data.get(k) is None or data.get(k) == ""]
     if missing:
         raise AIClientError(f"AI output missing required keys: {', '.join(missing)}")

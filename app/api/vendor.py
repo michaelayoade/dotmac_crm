@@ -200,6 +200,9 @@ def submit_route_revision(
     db: Session = Depends(get_db),
 ):
     context = require_vendor_context(request, db)
+    revision = vendor_service.proposed_route_revisions.get(db, revision_id)
+    if str(revision.quote_id) != str(quote_id):
+        raise HTTPException(status_code=400, detail="Route revision does not belong to quote")
     return vendor_service.proposed_route_revisions.submit(
         db,
         revision_id,

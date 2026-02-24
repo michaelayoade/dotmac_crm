@@ -101,6 +101,10 @@ DEFAULT_PERMISSIONS = [
     # Operations - Sales Orders
     ("operations:sales_order:delete", "Delete sales orders"),
 
+    # Operations - Material Requests
+    ("operations:material_request:read", "View material requests"),
+    ("operations:material_request:write", "Manage material requests"),
+
     # Operations - Technicians
     ("operations:technician:read", "View technicians"),
     ("operations:technician:write", "Manage technicians"),
@@ -117,8 +121,12 @@ DEFAULT_PERMISSIONS = [
     ("crm:contact:write", "Manage CRM contacts"),
     ("crm:conversation:read", "View conversations"),
     ("crm:conversation:write", "Manage conversations"),
+    ("crm:campaign:read", "View campaigns"),
+    ("crm:campaign:write", "Manage campaigns"),
     ("crm:lead:read", "View leads"),
     ("crm:lead:write", "Manage leads"),
+    ("crm:macro:read", "View conversation macros"),
+    ("crm:macro:write", "Manage conversation macros"),
 
     # Projects
     ("project:read", "View projects"),
@@ -225,6 +233,10 @@ ROLE_PERMISSIONS = {
         "crm:contact:read",
         "crm:conversation:read",
         "crm:conversation:write",
+        "crm:campaign:read",
+        "crm:campaign:write",
+        "crm:macro:read",
+        "crm:macro:write",
         "reports:subscribers",
     ],
 }

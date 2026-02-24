@@ -17,6 +17,16 @@
 
 {% block content %}
 <div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+    {% if custom_review_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200">
+        {{ custom_review_error }}
+    </div>
+    {% endif %}
+    {% if custom_review_success %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200">
+        {{ custom_review_success }}
+    </div>
+    {% endif %}
 
     {# Page Header #}
     {% set comp_score = latest.composite_score | float if latest else 0 %}
@@ -54,6 +64,22 @@
                 </form>
             </div>
         </div>
+        <form method="post" action="/admin/performance/agents/{{ person_id }}/generate-review-custom" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Start Date</label>
+                <input type="date" name="period_start_date" value="{{ default_period_start or '' }}" required class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">End Date</label>
+                <input type="date" name="period_end_date" value="{{ default_period_end or '' }}" required class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div class="sm:col-span-2 flex items-end">
+                <button type="submit" class="w-full rounded-lg border border-primary-300 bg-primary-50 px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 dark:border-primary-700/60 dark:bg-primary-900/20 dark:text-primary-300">
+                    Generate Custom Review
+                </button>
+            </div>
+        </form>
     </div>
 
     {# Score Cards (HTMX loaded) #}

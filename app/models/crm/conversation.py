@@ -20,7 +20,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
+from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus, MessageDirection, MessageStatus
 
 
 class Conversation(Base):
@@ -35,9 +35,13 @@ class Conversation(Base):
     person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
     ticket_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tickets.id"))
     status: Mapped[ConversationStatus] = mapped_column(Enum(ConversationStatus), default=ConversationStatus.open)
+    priority: Mapped[ConversationPriority | None] = mapped_column(
+        Enum(ConversationPriority), default=ConversationPriority.none
+    )
     subject: Mapped[str | None] = mapped_column(String(200))
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_muted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

@@ -14,6 +14,7 @@ from app.models.crm.conversation import Message
 from app.models.crm.enums import ChannelType
 from app.models.domain_settings import SettingDomain
 from app.services import meta_oauth
+from app.services.common import coerce_uuid
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,12 @@ def fetch_inbox_attachment(
     message_id: str,
     attachment_index: int,
 ) -> AttachmentFetchResult:
-    message = db.get(Message, message_id)
+    try:
+        message_uuid = coerce_uuid(message_id)
+    except Exception:
+        return AttachmentFetchResult(kind="not_found")
+
+    message = db.get(Message, message_uuid)
     if not message:
         return AttachmentFetchResult(kind="not_found")
 

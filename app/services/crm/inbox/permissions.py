@@ -114,6 +114,38 @@ def can_upload_attachments(roles: Iterable[str] | None = None, scopes: Iterable[
     return can_write_inbox(roles, scopes)
 
 
+def can_use_macros(roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None) -> bool:
+    if is_admin(roles, scopes):
+        return True
+    scope_set = _normalize(scopes)
+    return bool(
+        {
+            "crm:macro:read",
+            "crm:macro:write",
+            "crm:conversation:write",
+            "crm:inbox:write",
+            "crm:inbox:*",
+            "crm:conversation:*",
+        }
+        & scope_set
+    )
+
+
+def can_manage_macros(roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None) -> bool:
+    if is_admin(roles, scopes):
+        return True
+    scope_set = _normalize(scopes)
+    return bool(
+        {
+            "crm:macro:write",
+            "crm:inbox:settings:write",
+            "crm:inbox:settings:*",
+            "crm:inbox:*",
+        }
+        & scope_set
+    )
+
+
 def can_view_private_note(
     *,
     visibility: str | None,

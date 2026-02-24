@@ -6,6 +6,7 @@ from app.web.admin import router as admin_router
 from app.web.agent import router as agent_router
 from app.web.auth import router as auth_router
 from app.web.public import router as public_router
+from app.web.reseller import router as reseller_router
 from app.web.vendor import router as vendor_router
 
 router = APIRouter(tags=["web"])
@@ -15,6 +16,7 @@ router.include_router(auth_router)
 router.include_router(admin_router)
 router.include_router(agent_router)
 router.include_router(vendor_router)
+router.include_router(reseller_router)
 router.include_router(public_router)
 
 __all__ = ["router"]

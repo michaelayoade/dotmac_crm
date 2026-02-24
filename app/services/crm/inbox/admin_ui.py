@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -26,6 +27,7 @@ from app.services.crm.inbox.permissions import can_send_message, can_write_inbox
 from app.services.crm.inbox.status_flow import apply_status_transition
 
 logger = logging.getLogger(__name__)
+_BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,26 @@ def _apply_message_attachments(
     attachments: list[dict] | None,
 ) -> None:
     apply_message_attachments(db, message, attachments)
+
+
+def _parse_cc_addresses(raw: str | None) -> list[str] | None:
+    if not raw:
+        return None
+    normalized = str(raw).replace("\n", ",").replace(";", ",")
+    parts = [part.strip() for part in normalized.split(",") if part and part.strip()]
+    if not parts:
+        return None
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for email in parts:
+        candidate = email.lower()
+        if not _BASIC_EMAIL_RE.match(candidate):
+            raise ValueError(f"Invalid CC email: {email}")
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return deduped or None
 
 
 def send_conversation_message(
@@ -315,8 +337,10 @@ def start_new_conversation(
     contact_id: str | None,
     contact_address: str,
     contact_name: str | None,
+    cc_addresses_raw: str | None,
     subject: str | None,
     message_text: str | None,
+    attachments_payload: list[dict] | None = None,
     whatsapp_template_name: str | None = None,
     whatsapp_template_language: str | None = None,
     whatsapp_template_components: str | None = None,
@@ -348,6 +372,7 @@ def start_new_conversation(
             )
 
     body = (message_text or "").strip()
+    new_attachments = attachments_payload or []
     template_name = (whatsapp_template_name or "").strip() or None
     template_language = (whatsapp_template_language or "").strip() or None
     template_components: list[dict] | None = None
@@ -375,11 +400,21 @@ def start_new_conversation(
                 kind="missing_body",
                 error_detail="WhatsApp template parameters are invalid",
             )
-    elif not body:
+    elif not body and not new_attachments:
         return StartConversationResult(
             kind="missing_body",
-            error_detail="Message body is required",
+            error_detail="Message body or attachment is required",
         )
+
+    cc_addresses: list[str] | None = None
+    if channel_enum == ChannelType.email:
+        try:
+            cc_addresses = _parse_cc_addresses(cc_addresses_raw)
+        except ValueError as exc:
+            return StartConversationResult(
+                kind="error",
+                error_detail=str(exc),
+            )
 
     contact = None
     selected_person_channel = None
@@ -460,7 +495,9 @@ def start_new_conversation(
                 channel_target_id=resolved_channel_target_id,
                 person_channel_id=selected_person_channel.id if selected_person_channel else None,
                 subject=subject.strip() if subject and channel_enum == ChannelType.email else None,
+                cc_addresses=cc_addresses,
                 body=body,
+                attachments=new_attachments or None,
                 whatsapp_template_name=template_name,
                 whatsapp_template_language=template_language,
                 whatsapp_template_components=template_components,
@@ -479,6 +516,8 @@ def start_new_conversation(
             kind="error",
             error_detail=detail,
         )
+    if result_msg and new_attachments:
+        _apply_message_attachments(db, result_msg, new_attachments)
 
     if author_person_id:
         agent = (

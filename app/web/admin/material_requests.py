@@ -95,11 +95,6 @@ def material_request_new(
     project_id: str | None = None,
     db: Session = Depends(get_db),
 ):
-    from app.services import inventory as inventory_service
-
-    inventory_items = inventory_service.inventory_items.list(
-        db=db, is_active=True, search=None, order_by="name", order_dir="asc", limit=500, offset=0
-    )
     context = _base_ctx(
         request,
         db,
@@ -107,7 +102,6 @@ def material_request_new(
         ticket_id=ticket_id,
         project_id=project_id,
         priorities=[p.value for p in MaterialRequestPriority],
-        inventory_items=inventory_items,
     )
     return templates.TemplateResponse("admin/material_requests/form.html", context)
 
@@ -177,11 +171,6 @@ def material_request_edit(request: Request, mr_id: str, db: Session = Depends(ge
     mr = material_requests.get(db, mr_id)
     if mr.status and mr.status.value != "draft":
         return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)
-    from app.services import inventory as inventory_service
-
-    inventory_items = inventory_service.inventory_items.list(
-        db=db, is_active=True, search=None, order_by="name", order_dir="asc", limit=500, offset=0
-    )
     context = _base_ctx(
         request,
         db,
@@ -189,7 +178,6 @@ def material_request_edit(request: Request, mr_id: str, db: Session = Depends(ge
         priorities=[p.value for p in MaterialRequestPriority],
         ticket_id=mr.ticket.number if mr.ticket and mr.ticket.number else mr.ticket_id,
         project_id=mr.project.number if mr.project and mr.project.number else mr.project_id,
-        inventory_items=inventory_items,
     )
     return templates.TemplateResponse("admin/material_requests/form.html", context)
 

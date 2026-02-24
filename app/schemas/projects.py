@@ -16,7 +16,7 @@ class ProjectBase(BaseModel):
     customer_address: str | None = None
     project_type: ProjectType | None = None
     project_template_id: UUID | None = None
-    status: ProjectStatus = ProjectStatus.planned
+    status: ProjectStatus = ProjectStatus.open
     priority: ProjectPriority = ProjectPriority.normal
     subscriber_id: UUID | None = None
     lead_id: UUID | None = None

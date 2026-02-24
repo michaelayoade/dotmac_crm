@@ -46,6 +46,16 @@ async def vendor_fiber_map_update_position(request: Request, db: Session = Depen
     return await web_vendor_routes_service.vendor_fiber_map_update_position(request, db)
 
 
+@router.post("/fiber-map/update-olt-role")
+async def vendor_fiber_map_update_olt_role(request: Request, db: Session = Depends(get_db)):
+    return await web_vendor_routes_service.vendor_fiber_map_update_olt_role(request, db)
+
+
+@router.post("/fiber-map/save-plan")
+async def vendor_fiber_map_save_plan(request: Request, db: Session = Depends(get_db)):
+    return await web_vendor_routes_service.vendor_fiber_map_save_plan(request, db)
+
+
 @router.get("/fiber-map/nearest-cabinet")
 async def vendor_fiber_map_nearest_cabinet(request: Request, lat: float, lng: float, db: Session = Depends(get_db)):
     return await web_vendor_routes_service.vendor_fiber_map_nearest_cabinet(request, lat, lng, db)
@@ -61,6 +71,31 @@ async def vendor_fiber_map_route(
     request: Request, lat: float, lng: float, cabinet_id: str, db: Session = Depends(get_db)
 ):
     return await web_vendor_routes_service.vendor_fiber_map_route(request, lat, lng, cabinet_id, db)
+
+
+@router.get("/fiber-map/asset-details")
+async def vendor_fiber_map_asset_details(
+    request: Request,
+    asset_type: str,
+    asset_id: str,
+    db: Session = Depends(get_db),
+):
+    return await web_vendor_routes_service.vendor_fiber_map_asset_details(request, asset_type, asset_id, db)
+
+
+@router.post("/fiber-map/merge")
+async def vendor_fiber_map_merge(request: Request, db: Session = Depends(get_db)):
+    return await web_vendor_routes_service.vendor_fiber_map_merge(request, db)
+
+
+@router.get("/fiber-map/closure-duplicates.pdf")
+def vendor_fiber_map_closure_duplicates_pdf(request: Request, db: Session = Depends(get_db)):
+    return web_vendor_routes_service.vendor_fiber_map_closure_duplicates_pdf(request, db)
+
+
+@router.get("/fiber-map/segments/geometry")
+def vendor_fiber_map_segment_geometry(request: Request, segment_id: str, db: Session = Depends(get_db)):
+    return web_vendor_routes_service.vendor_fiber_map_segment_geometry(request, segment_id, db)
 
 
 @router.get("/quotes/builder", response_class=HTMLResponse)

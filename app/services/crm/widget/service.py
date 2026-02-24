@@ -411,7 +411,10 @@ class WidgetVisitorManager:
                 from app.schemas.crm.sales import LeadCreate
                 from app.services.crm import leads as leads_service
 
-                leads_service.create(db=db, payload=LeadCreate(person_id=person.id, title="Website chat"))
+                leads_service.create(
+                    db=db,
+                    payload=LeadCreate(person_id=person.id, lead_source="Website"),
+                )
                 # Keep new widget visitors as leads; leads_service upgrades to contact by default.
                 person.party_status = PartyStatus.lead
                 db.commit()

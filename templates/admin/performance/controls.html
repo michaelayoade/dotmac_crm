@@ -1,0 +1,129 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Performance Controls - Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/reports" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Reports</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/performance/team" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Team Performance</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">Controls</span>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Performance Controls</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage auto-review settings and run score/review jobs now.</p>
+        </div>
+        <a href="/admin/performance/team" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Back to Team</a>
+    </div>
+
+    {% if controls_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200">
+        {{ controls_error }}
+    </div>
+    {% endif %}
+    {% if controls_success %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200">
+        {{ controls_success }}
+    </div>
+    {% endif %}
+    {% if run_feedback %}
+    <div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-200">
+        {{ run_feedback }}{% if run_task_id %} (task_id: {{ run_task_id }}){% endif %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/admin/performance/controls/settings" class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <h2 class="text-base font-semibold text-slate-900 dark:text-white">Auto Review Settings</h2>
+        <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label class="inline-flex items-center gap-3 text-sm font-medium text-slate-700 dark:text-slate-300 sm:col-span-2">
+                <input type="checkbox" name="review_generation_enabled" value="true" {% if controls.review_generation_enabled %}checked{% endif %}
+                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                Enable Auto Review Generation
+            </label>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Flagged Threshold (0-100)</label>
+                <input type="number" min="0" max="100" name="flagged_threshold" value="{{ controls.flagged_threshold }}" required
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Max Reviews Per Run (1-500)</label>
+                <input type="number" min="1" max="500" name="max_reviews_per_run" value="{{ controls.max_reviews_per_run }}" required
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Manual Daily Limit Per Manager (1-500)</label>
+                <input type="number" min="1" max="500" name="review_manual_daily_limit_per_manager" value="{{ controls.review_manual_daily_limit_per_manager }}" required
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Cooldown Hours (0-720)</label>
+                <input type="number" min="0" max="720" name="review_cooldown_hours" value="{{ controls.review_cooldown_hours }}" required
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+        </div>
+        <div class="mt-4 flex justify-end">
+            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Save Settings</button>
+        </div>
+    </form>
+
+    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <h2 class="text-base font-semibold text-slate-900 dark:text-white">Run Now</h2>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Queue background jobs immediately.</p>
+        <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+            <form method="post" action="/admin/performance/controls/run" class="w-full sm:w-auto">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="compute_scores">
+                <button type="submit" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Run Weekly Scoring</button>
+            </form>
+            <form method="post" action="/admin/performance/controls/run" class="w-full sm:w-auto">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="generate_flagged_reviews">
+                <button type="submit" class="w-full rounded-lg border border-primary-300 bg-primary-50 px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 dark:border-primary-700/60 dark:bg-primary-900/20 dark:text-primary-300">Run Flagged Review Generation</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <h2 class="text-base font-semibold text-slate-900 dark:text-white">Last Run Status</h2>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Recent scheduler and queue status for performance jobs.</p>
+        <div class="mt-4 overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-900/40">
+                    <tr>
+                        <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Job</th>
+                        <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scheduler Enabled</th>
+                        <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Run At</th>
+                        <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Task ID</th>
+                        <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Current State</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {% set compute = run_status.compute_scores %}
+                    <tr>
+                        <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">Weekly Scoring</td>
+                        <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{{ 'Yes' if compute.enabled else 'No' }}</td>
+                        <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{{ compute.last_run_at.strftime('%b %d, %Y %H:%M') if compute.last_run_at else 'Never' }}</td>
+                        <td class="px-3 py-2 text-xs font-mono text-slate-700 dark:text-slate-200">{{ compute.task_id or '—' }}</td>
+                        <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{{ compute.state or 'unknown' }}</td>
+                    </tr>
+                    {% set flagged = run_status.generate_flagged_reviews %}
+                    <tr>
+                        <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">Flagged Review Generation</td>
+                        <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{{ 'Yes' if flagged.enabled else 'No' }}</td>
+                        <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{{ flagged.last_run_at.strftime('%b %d, %Y %H:%M') if flagged.last_run_at else 'Never' }}</td>
+                        <td class="px-3 py-2 text-xs font-mono text-slate-700 dark:text-slate-200">{{ flagged.task_id or '—' }}</td>
+                        <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{{ flagged.state or 'unknown' }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

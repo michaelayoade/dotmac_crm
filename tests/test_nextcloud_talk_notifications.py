@@ -84,6 +84,13 @@ def test_forward_agent_notification_reuses_room(db_session, person, monkeypatch)
 
 
 def test_forward_agent_notification_skips_when_disabled(db_session, person, monkeypatch):
+    # Explicitly disable to override any Redis-cached settings from prior tests.
+    settings_api.upsert_notification_setting(
+        db_session,
+        "nextcloud_talk_notifications_enabled",
+        DomainSettingUpdate(value_json=False),
+    )
+
     called = {"create": 0, "post": 0}
 
     def _fake_create_room(self, invite, room_type=1):

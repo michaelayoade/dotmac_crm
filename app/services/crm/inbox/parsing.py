@@ -145,14 +145,17 @@ def _find_conversation_by_token(db: Session, token: str) -> Conversation | None:
     # 2. Purely numeric token -> search in subject (must check BEFORE hex pattern)
     # This handles ticket numbers like "98765432" that would otherwise match hex
     if re.fullmatch(r"[0-9]+", lowered) and len(lowered) >= 4:
-        return (
+        result = (
             db.query(Conversation)
             .filter(Conversation.subject.ilike(f"%{lowered}%"))
             .order_by(Conversation.updated_at.desc())
             .first()
         )
+        if result:
+            return result
+        # Fall through to UUID prefix match for all-numeric hex prefixes
 
-    # 3. Hex prefix match (must contain at least one a-f to distinguish from numeric)
+    # 3. Hex prefix match (8+ hex chars, < 32)
     # Use replace() to strip dashes from UUID string for prefix matching
     if len(lowered) >= 8 and len(lowered) < 32 and re.fullmatch(r"[0-9a-f]+", lowered):
         return (

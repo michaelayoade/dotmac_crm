@@ -59,23 +59,24 @@ def list_projects(
         filters_payload = parse_filter_payload_json(filters)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return projects_service.projects.list_response(
-        db,
-        subscriber_id=subscriber_id,
-        status=status,
-        project_type=project_type,
-        priority=priority,
-        owner_person_id=owner_person_id,
-        manager_person_id=manager_person_id,
-        project_manager_person_id=project_manager_person_id,
-        assistant_manager_person_id=assistant_manager_person_id,
-        is_active=is_active,
-        order_by=order_by,
-        order_dir=order_dir,
-        limit=limit,
-        offset=offset,
-        filters_payload=filters_payload,
+    args = (
+        subscriber_id,
+        status,
+        project_type,
+        priority,
+        owner_person_id,
+        manager_person_id,
+        project_manager_person_id,
+        assistant_manager_person_id,
+        is_active,
+        order_by,
+        order_dir,
+        limit,
+        offset,
     )
+    if filters_payload is None:
+        return projects_service.projects.list_response(db, *args)
+    return projects_service.projects.list_response(db, *args, filters_payload=filters_payload)
 
 
 @router.patch(
@@ -223,20 +224,21 @@ def list_project_tasks(
         filters_payload = parse_filter_payload_json(filters)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return projects_service.project_tasks.list_response(
-        db,
-        project_id=project_id,
-        status=status,
-        priority=priority,
-        assigned_to_person_id=assigned_to_person_id,
-        parent_task_id=parent_task_id,
-        is_active=is_active,
-        order_by=order_by,
-        order_dir=order_dir,
-        limit=limit,
-        offset=offset,
-        filters_payload=filters_payload,
+    args = (
+        project_id,
+        status,
+        priority,
+        assigned_to_person_id,
+        parent_task_id,
+        is_active,
+        order_by,
+        order_dir,
+        limit,
+        offset,
     )
+    if filters_payload is None:
+        return projects_service.project_tasks.list_response(db, *args)
+    return projects_service.project_tasks.list_response(db, *args, filters_payload=filters_payload)
 
 
 @router.patch(

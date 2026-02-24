@@ -130,9 +130,113 @@
         box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
         animation: pulse 2s infinite;
     }
+    .merge-mode-badge {
+        background: linear-gradient(135deg, #06b6d4, #0891b2);
+        color: white;
+        padding: 6px 16px;
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(6, 182, 212, 0.4);
+        animation: pulse 2s infinite;
+    }
     @keyframes pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.7; }
+    }
+    /* Merge marker highlights */
+    .merge-source-highlight > div {
+        outline: 3px solid #ef4444 !important;
+        outline-offset: 2px;
+        border-radius: 50%;
+    }
+    .merge-target-highlight > div {
+        outline: 3px solid #22c55e !important;
+        outline-offset: 2px;
+        border-radius: 50%;
+    }
+    /* Merge panel */
+    .merge-panel {
+        background: white;
+        border-radius: 1rem;
+        border: 1px solid rgba(226, 232, 240, 0.6);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        padding: 20px;
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+    .dark .merge-panel {
+        background: #1e293b;
+        border-color: rgba(51, 65, 85, 0.6);
+        color: #f1f5f9;
+    }
+    .merge-field-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 4px;
+        margin-bottom: 4px;
+        font-size: 13px;
+    }
+    .merge-field-label {
+        padding: 8px;
+        font-weight: 600;
+        color: #64748b;
+        display: flex;
+        align-items: center;
+    }
+    .dark .merge-field-label {
+        color: #94a3b8;
+    }
+    .merge-field-value {
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.15s;
+        word-break: break-word;
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+    }
+    .merge-field-value:hover {
+        border-color: #cbd5e1;
+    }
+    .dark .merge-field-value:hover {
+        border-color: #475569;
+    }
+    .merge-field-value.selected {
+        border-color: #06b6d4;
+        background: rgba(6, 182, 212, 0.08);
+    }
+    .dark .merge-field-value.selected {
+        border-color: #06b6d4;
+        background: rgba(6, 182, 212, 0.15);
+    }
+    .merge-field-value.empty {
+        color: #94a3b8;
+        font-style: italic;
+    }
+    .merge-source-label {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+    }
+    .merge-target-label {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: rgba(34, 197, 94, 0.1);
+        color: #22c55e;
     }
     /* Planning panel */
     .planning-panel {
@@ -369,6 +473,11 @@
         <div class="flex flex-wrap items-center gap-2">
             <span id="edit-mode-indicator" class="edit-mode-badge hidden">Edit Mode</span>
             <span id="plan-mode-indicator" class="plan-mode-badge hidden">Planning Mode</span>
+            <span id="merge-mode-indicator" class="merge-mode-badge hidden">Merge Mode</span>
+            <button id="btn-merge" class="group inline-flex items-center gap-2 rounded-xl border border-cyan-200 bg-white px-4 py-2.5 text-sm font-medium text-cyan-700 shadow-sm transition-all hover:bg-cyan-50 hover:border-cyan-300 hover:shadow-md dark:border-cyan-700 dark:bg-slate-800 dark:text-cyan-300 dark:hover:bg-cyan-900/30" title="Merge duplicate assets">
+                <svg class="h-4 w-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                Merge
+            </button>
             <button id="btn-plan" class="group inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-4 py-2.5 text-sm font-medium text-violet-700 shadow-sm transition-all hover:bg-violet-50 hover:border-violet-300 hover:shadow-md dark:border-violet-700 dark:bg-slate-800 dark:text-violet-300 dark:hover:bg-violet-900/30" title="Plan new installation">
                 <svg class="h-4 w-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                 Plan
@@ -385,6 +494,18 @@
                 <svg class="h-4 w-4 transition-transform group-hover:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 Refresh
             </button>
+            <a href="/admin/network/fiber-map/closure-duplicates.pdf" class="group inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 hover:shadow-md dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700" title="Download duplicate splice-closure report (PDF)">
+                <svg class="h-4 w-4 transition-transform group-hover:-translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l4-4m-4 4l-4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
+                </svg>
+                Export PDF
+            </a>
+            <a href="/admin/network/qa/remediations" class="group inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 hover:shadow-md dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700" title="Review QA remediation drafts (approval required)">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m-6-8h6M5 7h.01M5 12h.01M5 17h.01"/>
+                </svg>
+                QA Review
+            </a>
             <a href="/admin/network/fiber-change-requests" class="group inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2.5 text-sm font-medium text-amber-800 shadow-sm transition-all hover:shadow-md dark:border-amber-700 dark:from-amber-900/30 dark:to-orange-900/20 dark:text-amber-200">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m-6-8h6M5 7h.01M5 12h.01M5 17h.01"/></svg>
                 Change Requests
@@ -400,10 +521,26 @@
         <span class="inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold {{ 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300' if qa_stats.total_issues == 0 else 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-300' }}">
             QA Issues: {{ qa_stats.total_issues }}
         </span>
-        <span class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">FDH <span id="top-count-fdh">0</span></span>
-        <span class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">Closures <span id="top-count-closures">0</span></span>
-        <span class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">Access Points <span id="top-count-access-points">0</span></span>
-        <span class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">Segments <span id="top-count-segments">0</span></span>
+        <button id="top-chip-fdh" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">FDH <span id="top-count-fdh">0</span></button>
+        <button id="top-chip-olt" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">OLT <span id="top-count-olt">0</span></button>
+        <button id="top-chip-closures" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Closures <span id="top-count-closures">0</span></button>
+        <button id="top-chip-access-points" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Access Points <span id="top-count-access-points">0</span></button>
+        <button id="top-chip-buildings" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Buildings <span id="top-count-buildings">0</span></button>
+        <button id="top-chip-segments" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Segments <span id="top-count-segments">0</span></button>
+        <span class="mx-1 h-5 w-px bg-slate-200 dark:bg-slate-700"></span>
+        <label class="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            View
+            <select id="group-filter"
+                    class="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                <option value="">Custom</option>
+                <option value="osp">OSP Nodes</option>
+                <option value="backbone">Backbone</option>
+                <option value="edge">Customer Edge</option>
+                <option value="pop">PoP / Sites</option>
+                <option value="all">All Layers</option>
+                <option value="clear">Hide All</option>
+            </select>
+        </label>
     </div>
 
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
@@ -428,6 +565,26 @@
 
         <!-- Sidebar -->
         <div class="space-y-6 animate-fade-in-up" style="animation-delay: 100ms;">
+            <!-- Merge Panel -->
+            <div id="merge-panel" class="merge-panel hidden">
+                <div class="flex items-center justify-between">
+                    <h3 class="flex items-center gap-2 text-slate-900 dark:text-white font-semibold">
+                        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 shadow-sm shadow-cyan-500/25">
+                            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                        </div>
+                        Merge Duplicates
+                    </h3>
+                    <button id="btn-merge-close" type="button" class="rounded-lg p-2 text-slate-400 transition-all hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200" title="Close merge">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="merge-content" class="mt-4">
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Click a marker on the map to select the <span class="merge-source-label">Source</span> (will be archived), then click a second marker of the same type to select the <span class="merge-target-label">Target</span> (will be kept).</p>
+                </div>
+            </div>
+
             <!-- Planning Panel -->
             <div id="planning-panel" class="planning-panel hidden">
                 <div class="flex items-center justify-between">
@@ -464,6 +621,10 @@
                         <span class="text-sm font-semibold text-slate-900 dark:text-white px-2 py-0.5 rounded-lg bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">{{ stats.fdh_with_location }} / {{ stats.fdh_cabinets }}</span>
                     </div>
                     <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-500 dark:text-slate-400">OLT Devices</span>
+                        <span class="text-sm font-semibold text-slate-900 dark:text-white px-2 py-0.5 rounded-lg bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">{{ stats.olt_with_location | default(0) }} / {{ stats.olt_devices }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
                         <span class="text-sm text-slate-500 dark:text-slate-400">Splice Closures</span>
                         <span class="text-sm font-semibold text-slate-900 dark:text-white px-2 py-0.5 rounded-lg bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">{{ stats.closures_with_location }} / {{ stats.splice_closures }}</span>
                     </div>
@@ -482,6 +643,10 @@
                     <div class="flex justify-between items-center">
                         <span class="text-sm text-slate-500 dark:text-slate-400">Access Points</span>
                         <span class="text-sm font-semibold text-slate-900 dark:text-white px-2 py-0.5 rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">{{ stats.access_points_with_location }} / {{ stats.access_points }}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-slate-500 dark:text-slate-400">Buildings</span>
+                        <span class="text-sm font-semibold text-slate-900 dark:text-white px-2 py-0.5 rounded-lg bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400">{{ stats.buildings_with_location | default(0) }} / {{ stats.buildings | default(0) }}</span>
                     </div>
                 </div>
             </div>
@@ -529,49 +694,101 @@
                 </div>
             </div>
 
-            <!-- Legend -->
-            <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <!-- Legend, Layers & Usage Guide -->
+            <div x-data="{ legendTab: 'legend' }" class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
                 <div class="border-b border-slate-200/60 bg-gradient-to-r from-slate-50 to-slate-100/50 px-6 py-4 dark:border-slate-700/60 dark:from-slate-800 dark:to-slate-800/50">
                     <h2 class="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                         <svg class="h-5 w-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
                         </svg>
-                        Legend
+                        Map Guide
                     </h2>
                 </div>
-                <div class="p-6 space-y-3">
+                <!-- Tabs -->
+                <div class="flex border-b border-slate-200/60 dark:border-slate-700/60">
+                    <button @click="legendTab = 'legend'" :class="legendTab === 'legend' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'" class="flex-1 border-b-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors cursor-pointer">Legend</button>
+                    <button @click="legendTab = 'layers'" :class="legendTab === 'layers' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'" class="flex-1 border-b-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors cursor-pointer">Layers</button>
+                    <button @click="legendTab = 'help'" :class="legendTab === 'help' ? 'border-orange-500 text-orange-600 dark:text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'" class="flex-1 border-b-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors cursor-pointer">How to Use</button>
+                </div>
+
+                <!-- Legend Tab -->
+                <div x-show="legendTab === 'legend'" x-cloak class="p-6 space-y-3">
+                    <!-- Point assets -->
+                    <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Point Assets</div>
                     <div class="legend-item">
                         <div class="legend-icon bg-gradient-to-br from-orange-500 to-amber-600">
                             <svg class="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/></svg>
                         </div>
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">FDH Cabinet</span>
+                        <div class="flex-1 min-w-0">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">FDH Cabinet</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Fiber Distribution Hub &mdash; houses splitters that fan out to customers</p>
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-icon bg-gradient-to-br from-rose-500 to-red-600">
+                            <svg class="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616L18 9.5a1 1 0 01-.894 1.789l-1.819-.91L11 12.323V17a1 1 0 01-2 0v-4.677l-4.287-1.944-1.819.91A1 1 0 012 9.5l1.786-.989-1.233-.616a1 1 0 01.894-1.79l1.599.8L9 5.323V3a1 1 0 011-1z"/></svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">OLT Device</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Optical Line Terminal &mdash; headend equipment at a POP/tower site</p>
+                        </div>
                     </div>
                     <div class="legend-item">
                         <div class="legend-icon bg-gradient-to-br from-teal-500 to-emerald-600">
                             <svg class="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6"/></svg>
                         </div>
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Splice Closure</span>
+                        <div class="flex-1 min-w-0">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Splice Closure</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Sealed enclosure where fiber cores are spliced together</p>
+                        </div>
                     </div>
                     <div class="legend-item">
                         <div class="legend-icon bg-gradient-to-br from-purple-500 to-violet-600">
                             <svg class="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"/></svg>
                         </div>
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Access Point</span>
+                        <div class="flex-1 min-w-0">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Access Point</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">NAP/FAT where drop cables connect to the distribution network</p>
+                        </div>
                     </div>
+                    <div class="legend-item">
+                        <div class="legend-icon bg-gradient-to-br from-sky-500 to-blue-600">
+                            <svg class="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 01-1 1v1h-1v-1H6v1H5v-1a1 1 0 01-1-1V4zm3 1h2v2H7V5zm4 0h2v2h-2V5zM7 9h2v2H7V9zm4 0h2v2h-2V9z" clip-rule="evenodd"/></svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Service Building</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Customer premises or MDU eligible for service delivery</p>
+                        </div>
+                    </div>
+
+                    <!-- Cable types -->
                     <hr class="border-slate-200 dark:border-slate-700">
+                    <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Cable Types</div>
                     <div class="legend-item">
                         <div class="h-1 w-6 rounded-full bg-gradient-to-r from-red-500 to-rose-600"></div>
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Feeder Cable</span>
+                        <div class="flex-1 min-w-0">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Feeder Cable</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">High-count backbone from OLT to FDH cabinets</p>
+                        </div>
                     </div>
                     <div class="legend-item">
                         <div class="h-0.5 w-6 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600"></div>
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Distribution Cable</span>
+                        <div class="flex-1 min-w-0">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Distribution Cable</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Mid-count cable from FDH to access points</p>
+                        </div>
                     </div>
                     <div class="legend-item">
                         <div class="h-0.5 w-6 rounded-full bg-gradient-to-r from-green-500 to-emerald-600"></div>
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Drop Cable</span>
+                        <div class="flex-1 min-w-0">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Drop Cable</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Last-mile cable from access point to customer premises</p>
+                        </div>
                     </div>
+
+                    <!-- Fiber core styles -->
                     <hr class="border-slate-200 dark:border-slate-700">
+                    <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Core Count Styles</div>
                     <div class="legend-item">
                         <div class="legend-line" style="height:0;border-top:2px dashed #64748b"></div>
                         <span class="text-sm text-slate-600 dark:text-slate-400">8-core Fiber</span>
@@ -585,19 +802,51 @@
                         <span class="text-sm text-slate-600 dark:text-slate-400">48-core Fiber</span>
                     </div>
                 </div>
-            </div>
 
-            <!-- Layer Controls -->
-            <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-                <div class="border-b border-slate-200/60 bg-gradient-to-r from-slate-50 to-slate-100/50 px-6 py-4 dark:border-slate-700/60 dark:from-slate-800 dark:to-slate-800/50">
-                    <h2 class="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                        <svg class="h-5 w-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-                        </svg>
-                        Layers
-                    </h2>
-                </div>
-                <div class="p-6 space-y-3">
+                <!-- Layers Tab -->
+                <div x-show="legendTab === 'layers'" x-cloak class="p-6 space-y-3">
+                    <!-- Group Toggles (UI-only) -->
+                    <div class="rounded-xl border border-slate-200 bg-white/60 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/20">
+                        <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">Groups</div>
+                        <div class="space-y-2">
+                            <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                                <span class="flex items-center gap-3">
+                                <input type="checkbox" id="group-pop" class="h-4 w-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500/20">
+                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">PoP / Sites</span>
+                                </span>
+                                <span class="text-xs text-slate-500 dark:text-slate-400">Base Stations</span>
+                            </label>
+                            <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                                <span class="flex items-center gap-3">
+                                <input type="checkbox" id="group-osp" class="h-4 w-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500/20">
+                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">OSP Nodes</span>
+                                </span>
+                                <span class="text-xs text-slate-500 dark:text-slate-400">FDH, Closures, OLT</span>
+                            </label>
+                            <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                                <span class="flex items-center gap-3">
+                                <input type="checkbox" id="group-backbone" class="h-4 w-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500/20">
+                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Backbone</span>
+                                </span>
+                                <span class="text-xs text-slate-500 dark:text-slate-400">Feeder Cables</span>
+                            </label>
+                            <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                                <span class="flex items-center gap-3">
+                                <input type="checkbox" id="group-edge" class="h-4 w-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500/20">
+                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Customer Edge</span>
+                                </span>
+                                <span class="text-xs text-slate-500 dark:text-slate-400">AP, Buildings, Drop</span>
+                            </label>
+                            <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                                <span class="flex items-center gap-3">
+                                <input type="checkbox" id="group-overlays" class="h-4 w-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500/20">
+                                <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Overlays</span>
+                                </span>
+                                <span class="text-xs text-slate-500 dark:text-slate-400">Distance Labels</span>
+                            </label>
+                        </div>
+                    </div>
+
                     <div class="flex justify-between items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                         <span>Visible Features</span>
                         <span id="layer-visible-total" class="rounded-md bg-slate-200 px-2 py-0.5 dark:bg-slate-700">0</span>
@@ -608,6 +857,20 @@
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">FDH Cabinets</span>
                         </span>
                         <span id="layer-count-fdh" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
+                        <input type="checkbox" id="layer-olt" checked class="h-4 w-4 rounded border-slate-300 text-rose-500 focus:ring-rose-500/20">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">OLT Devices</span>
+                        </span>
+                        <span id="layer-count-olt" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
+                        <input type="checkbox" id="layer-base-stations" checked class="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-600/20">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-cyan-700 dark:group-hover:text-cyan-300 transition-colors">Base Stations</span>
+                        </span>
+                        <span id="layer-count-base-stations" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
                     <label class="flex items-center justify-between gap-3 cursor-pointer group">
                         <span class="flex items-center gap-3">
@@ -623,6 +886,14 @@
                         </span>
                         <span id="layer-count-access-points" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
+                        <input type="checkbox" id="layer-buildings" checked class="h-4 w-4 rounded border-slate-300 text-sky-500 focus:ring-sky-500/20">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">Buildings</span>
+                        </span>
+                        <span id="layer-count-buildings" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <hr class="my-1 border-slate-200 dark:border-slate-700">
                     <label class="flex items-center justify-between gap-3 cursor-pointer group">
                         <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-feeder" checked class="h-4 w-4 rounded border-slate-300 text-red-500 focus:ring-red-500/20">
@@ -644,7 +915,7 @@
                         </span>
                         <span id="layer-count-drop" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
-                    <hr class="my-2 border-slate-200 dark:border-slate-700">
+                    <hr class="my-1 border-slate-200 dark:border-slate-700">
                     <label class="flex items-center justify-between gap-3 cursor-pointer group">
                         <span class="flex items-center gap-3">
                         <input type="checkbox" id="layer-distances" class="h-4 w-4 rounded border-slate-300 text-slate-500 focus:ring-slate-500/20">
@@ -652,6 +923,70 @@
                         </span>
                         <span id="layer-count-distances" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
+                </div>
+
+                <!-- How to Use Tab -->
+                <div x-show="legendTab === 'help'" x-cloak class="p-6 space-y-4 text-sm text-slate-600 dark:text-slate-400">
+                    <div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"/></svg>
+                            Navigation
+                        </div>
+                        <p>Scroll to zoom in and out. Click and drag to pan. Double-click to zoom into a specific area. Pinch to zoom on touch devices.</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                            Search
+                        </div>
+                        <p>Type in the search box (or press <kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs font-mono">Ctrl+K</kbd>) to find assets by name or code. Use arrow keys to navigate results, press <kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs font-mono">Enter</kbd> to jump. You can also type coordinates (e.g. <code class="text-xs">9.05, 7.49</code>) to fly to a location.</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                            Layers
+                        </div>
+                        <p>Switch to the <strong>Layers</strong> tab above to toggle asset types on or off. The count badge shows how many features are in each layer. The <em>Visible Features</em> total updates as you toggle.</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                            Measure Distance
+                        </div>
+                        <p>Click <strong>Measure</strong> in the toolbar, then click successive points on the map to draw a path. A running total distance is shown. Double-click to finish the measurement.</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            <svg class="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                            Installation Planning
+                        </div>
+                        <p>Click <strong>Plan</strong>, then click any spot on the map. The system finds the nearest FDH cabinets, lets you pick one, then choose <em>Auto Route</em> (follows existing fiber) or <em>Trace Route</em> (click a custom path). A cost estimate is calculated from distance, materials, and labor rates.</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                            Edit Mode
+                        </div>
+                        <p>Click <strong>Edit</strong> to unlock all markers for drag-and-drop repositioning. Drag a marker to its new location; the updated coordinates save automatically. Click <strong>Edit</strong> again (or press <kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs font-mono">Esc</kbd>) to lock markers back in place.</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                            Keyboard Shortcuts
+                        </div>
+                        <div class="space-y-1">
+                            <p><kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs font-mono">Esc</kbd> &mdash; Cancel active mode (measure, plan, or edit)</p>
+                            <p><kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs font-mono">Ctrl+K</kbd> / <kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs font-mono">&#8984;K</kbd> &mdash; Focus the search box</p>
+                            <p><kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs font-mono">+</kbd> / <kbd class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs font-mono">&minus;</kbd> &mdash; Zoom in / out</p>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                            Popups &amp; Details
+                        </div>
+                        <p>Click any marker or cable to open a popup with its name, code, and metadata. Where available, a <strong>View Details</strong> link opens the full asset page for editing.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -681,6 +1016,12 @@
     let editMode = false;
     let measureMode = false;
     let planMode = false;
+    let mergeMode = false;
+    let mergeSource = null;       // marker object
+    let mergeTarget = null;       // marker object
+    let mergeSourceData = null;   // API response
+    let mergeTargetData = null;   // API response
+    let mergeFieldChoices = {};   // {field: "source"|"target"}
     let measurePoints = [];
     let measureLine = null;
     let measureMarkers = [];
@@ -708,6 +1049,11 @@
         L.DomEvent.disableClickPropagation(planPanel);
         L.DomEvent.disableScrollPropagation(planPanel);
     }
+    const mergePanel = document.getElementById('merge-panel');
+    if (mergePanel) {
+        L.DomEvent.disableClickPropagation(mergePanel);
+        L.DomEvent.disableScrollPropagation(mergePanel);
+    }
 
     // Add tile layer (OpenStreetMap)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -718,8 +1064,11 @@
     // Layer groups
     const layers = {
         fdh: L.layerGroup().addTo(map),
+        olt: L.layerGroup().addTo(map),
+        baseStations: L.layerGroup().addTo(map),
         closures: L.layerGroup().addTo(map),
         accessPoints: L.layerGroup().addTo(map),
+        buildings: L.layerGroup().addTo(map),
         feeder: L.layerGroup().addTo(map),
         distribution: L.layerGroup().addTo(map),
         drop: L.layerGroup().addTo(map),
@@ -727,8 +1076,11 @@
     };
     const layerCounts = {
         fdh: 0,
+        olt: 0,
+        baseStations: 0,
         closures: 0,
         accessPoints: 0,
+        buildings: 0,
         feeder: 0,
         distribution: 0,
         drop: 0,
@@ -737,8 +1089,11 @@
 
     function updateLayerCountBadges() {
         layerCounts.fdh = layers.fdh.getLayers().length;
+        layerCounts.olt = layers.olt.getLayers().length;
+        layerCounts.baseStations = layers.baseStations.getLayers().length;
         layerCounts.closures = layers.closures.getLayers().length;
         layerCounts.accessPoints = layers.accessPoints.getLayers().length;
+        layerCounts.buildings = layers.buildings.getLayers().length;
         layerCounts.feeder = layers.feeder.getLayers().length;
         layerCounts.distribution = layers.distribution.getLayers().length;
         layerCounts.drop = layers.drop.getLayers().length;
@@ -746,15 +1101,20 @@
 
         const mappings = [
             ['layer-count-fdh', layerCounts.fdh],
+            ['layer-count-olt', layerCounts.olt],
+            ['layer-count-base-stations', layerCounts.baseStations],
             ['layer-count-closures', layerCounts.closures],
             ['layer-count-access-points', layerCounts.accessPoints],
+            ['layer-count-buildings', layerCounts.buildings],
             ['layer-count-feeder', layerCounts.feeder],
             ['layer-count-distribution', layerCounts.distribution],
             ['layer-count-drop', layerCounts.drop],
             ['layer-count-distances', layerCounts.distances],
             ['top-count-fdh', layerCounts.fdh],
+            ['top-count-olt', layerCounts.olt + layerCounts.baseStations],
             ['top-count-closures', layerCounts.closures],
             ['top-count-access-points', layerCounts.accessPoints],
+            ['top-count-buildings', layerCounts.buildings],
             ['top-count-segments', layerCounts.feeder + layerCounts.distribution + layerCounts.drop]
         ];
         mappings.forEach(([id, value]) => {
@@ -766,13 +1126,57 @@
     function updateVisibleFeatureCount() {
         const visibleTotal =
             (document.getElementById('layer-fdh')?.checked ? layerCounts.fdh : 0) +
+            (document.getElementById('layer-olt')?.checked ? layerCounts.olt : 0) +
+            (document.getElementById('layer-base-stations')?.checked ? layerCounts.baseStations : 0) +
             (document.getElementById('layer-closures')?.checked ? layerCounts.closures : 0) +
             (document.getElementById('layer-access-points')?.checked ? layerCounts.accessPoints : 0) +
+            (document.getElementById('layer-buildings')?.checked ? layerCounts.buildings : 0) +
             (document.getElementById('layer-feeder')?.checked ? layerCounts.feeder : 0) +
             (document.getElementById('layer-distribution')?.checked ? layerCounts.distribution : 0) +
             (document.getElementById('layer-drop')?.checked ? layerCounts.drop : 0);
         const el = document.getElementById('layer-visible-total');
         if (el) el.textContent = String(visibleTotal);
+    }
+
+    function setLayerCheckboxChecked(checkboxId, checked, force) {
+        const checkbox = document.getElementById(checkboxId);
+        const shouldForce = Boolean(force);
+        if (!checkbox) return;
+        if (!shouldForce && checkbox.checked === checked) return;
+        checkbox.checked = checked;
+        checkbox.dispatchEvent(new Event('change'));
+    }
+
+    function updateTopChipStates() {
+        const chipConfigs = [
+            { chipId: 'top-chip-fdh', layerIds: ['layer-fdh'] },
+            { chipId: 'top-chip-olt', layerIds: ['layer-olt', 'layer-base-stations'] },
+            { chipId: 'top-chip-closures', layerIds: ['layer-closures'] },
+            { chipId: 'top-chip-access-points', layerIds: ['layer-access-points'] },
+            { chipId: 'top-chip-buildings', layerIds: ['layer-buildings'] },
+            { chipId: 'top-chip-segments', layerIds: ['layer-feeder', 'layer-distribution', 'layer-drop'] }
+        ];
+
+        chipConfigs.forEach(({ chipId, layerIds }) => {
+            const chip = document.getElementById(chipId);
+            if (!chip) return;
+            const allEnabled = layerIds.every((layerId) => document.getElementById(layerId)?.checked);
+            chip.classList.toggle('opacity-50', !allEnabled);
+            chip.classList.toggle('ring-2', allEnabled);
+            chip.classList.toggle('ring-orange-300', allEnabled);
+            chip.classList.toggle('dark:ring-orange-700', allEnabled);
+        });
+    }
+
+    function bindTopChipFilter(chipId, layerIds) {
+        const chip = document.getElementById(chipId);
+        if (!chip) return;
+        chip.addEventListener('click', function() {
+            const allEnabled = layerIds.every((layerId) => document.getElementById(layerId)?.checked);
+            const nextChecked = !allEnabled;
+            layerIds.forEach((layerId) => setLayerCheckboxChecked(layerId, nextChecked));
+            updateTopChipStates();
+        });
     }
 
     // Custom icons
@@ -797,6 +1201,27 @@
             iconSize: [22, 22],
             iconAnchor: [11, 11],
             popupAnchor: [0, -11]
+        }),
+        olt_device: L.divIcon({
+            html: '<div style="background:linear-gradient(135deg,#f43f5e,#dc2626);width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 4px 8px rgba(244,63,94,0.4)"><svg style="width:14px;height:14px;color:white" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616L18 9.5a1 1 0 01-.894 1.789l-1.819-.91L11 12.323V17a1 1 0 01-2 0v-4.677l-4.287-1.944-1.819.91A1 1 0 012 9.5l1.786-.989-1.233-.616a1 1 0 01.894-1.79l1.599.8L9 5.323V3a1 1 0 011-1z"/></svg></div>',
+            className: '',
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+            popupAnchor: [0, -13]
+        }),
+        base_station: L.divIcon({
+            html: '<div style="background:linear-gradient(135deg,#0f766e,#0ea5e9);width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 4px 8px rgba(14,165,233,0.35)"><svg style="width:14px;height:14px;color:white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2a1 1 0 011 1v2.06a7.002 7.002 0 015.94 5.94H21a1 1 0 110 2h-2.06A7.002 7.002 0 0113 18.94V21a1 1 0 11-2 0v-2.06A7.002 7.002 0 015.06 13H3a1 1 0 110-2h2.06A7.002 7.002 0 0111 5.06V3a1 1 0 011-1zm0 5a5 5 0 100 10 5 5 0 000-10zm0 2a1 1 0 011 1v2.586l1.707 1.707a1 1 0 11-1.414 1.414l-2-2A1 1 0 0111 12V10a1 1 0 011-1z"/></svg></div>',
+            className: '',
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+            popupAnchor: [0, -13]
+        }),
+        service_building: L.divIcon({
+            html: '<div style="background:linear-gradient(135deg,#0ea5e9,#2563eb);width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 4px 8px rgba(14,165,233,0.4)"><svg style="width:10px;height:10px;color:white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 01-1 1v1h-1v-1H6v1H5v-1a1 1 0 01-1-1V4zm3 1h2v2H7V5zm4 0h2v2h-2V5zM7 9h2v2H7V9zm4 0h2v2h-2V9z" clip-rule="evenodd"/></svg></div>',
+            className: '',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10],
+            popupAnchor: [0, -10]
         })
     };
 
@@ -854,7 +1279,8 @@
     // Generate popup content
     function getPopupContent(feature, marker) {
         const p = feature.properties;
-        let content = `<div class="fiber-popup-type">${escapeHtml(p.type).replace(/_/g, ' ')}</div>`;
+        const displayType = (p.type === 'olt_device' && String(p.site_role || '') === 'base_station') ? 'base_station' : p.type;
+        let content = `<div class="fiber-popup-type">${escapeHtml(displayType).replace(/_/g, ' ')}</div>`;
         content += `<div class="fiber-popup-title">${escapeHtml(p.name || 'Unnamed')}</div>`;
 
         if (p.code) content += `<div class="fiber-popup-detail"><strong>Code:</strong> ${escapeHtml(p.code)}</div>`;
@@ -863,6 +1289,10 @@
         if (p.tray_count !== undefined) content += `<div class="fiber-popup-detail"><strong>Trays:</strong> ${p.tray_count}</div>`;
         if (p.ap_type) content += `<div class="fiber-popup-detail"><strong>Type:</strong> ${escapeHtml(p.ap_type)}</div>`;
         if (p.placement) content += `<div class="fiber-popup-detail"><strong>Placement:</strong> ${escapeHtml(p.placement)}</div>`;
+        if (p.type === 'olt_device') content += `<div class="fiber-popup-detail"><strong>Role:</strong> ${escapeHtml(String(p.site_role || 'olt').replace(/_/g, ' '))}</div>`;
+        if (p.street) content += `<div class="fiber-popup-detail"><strong>Street:</strong> ${escapeHtml(p.street)}</div>`;
+        if (p.city) content += `<div class="fiber-popup-detail"><strong>City:</strong> ${escapeHtml(p.city)}</div>`;
+        if (p.notes) content += `<div class="fiber-popup-detail"><strong>Notes:</strong> ${escapeHtml(p.notes)}</div>`;
         if (p.segment_type) content += `<div class="fiber-popup-detail"><strong>Type:</strong> ${escapeHtml(p.segment_type)}</div>`;
         if (p.fiber_count) content += `<div class="fiber-popup-detail"><strong>Fiber Count:</strong> ${p.fiber_count} cores</div>`;
         if (p.length_m) content += `<div class="fiber-popup-detail"><strong>Length:</strong> ${formatDistance(p.length_m)}</div>`;
@@ -875,11 +1305,19 @@
 
         // Detail link
         let detailUrl = null;
+        // Only show links for assets with implemented admin detail routes.
         if (p.type === 'fdh_cabinet') detailUrl = `/admin/network/fdh-cabinets/${p.id}`;
-        else if (p.type === 'splice_closure') detailUrl = `/admin/network/splice-closures/${p.id}`;
 
         if (detailUrl) {
             content += `<a href="${detailUrl}" class="fiber-popup-link">View Details &rarr;</a>`;
+        }
+
+        if (p.type === 'olt_device') {
+            const current = String(p.site_role || 'olt');
+            const next = current === 'base_station' ? 'olt' : 'base_station';
+            const label = next === 'base_station' ? 'Mark As Base Station' : 'Mark As OLT';
+            const safeId = encodeURIComponent(String(p.id || ''));
+            content += `<button type="button" class="fiber-popup-link" style="margin-top:8px" onclick="window.dotmacSetOltRole('${safeId}','${next}')">${escapeHtml(label)}</button>`;
         }
 
         return content;
@@ -999,6 +1437,7 @@
             // Disable other modes
             if (measureMode) toggleMeasureMode();
             if (editMode) toggleEditMode();
+            if (mergeMode) toggleMergeMode(false);
 
             btn.classList.add('bg-violet-100', 'border-violet-300', 'text-violet-700');
             btn.classList.remove('bg-white', 'text-violet-700', 'dark:bg-slate-800', 'dark:text-violet-300');
@@ -1015,6 +1454,357 @@
             clearPlanMarkers();
         }
     }
+
+    // ── Merge mode ────────────────────────────────────────────────────────
+    function toggleMergeMode(force) {
+        mergeMode = typeof force === 'boolean' ? force : !mergeMode;
+        const btn = document.getElementById('btn-merge');
+        const indicator = document.getElementById('merge-mode-indicator');
+        const panel = document.getElementById('merge-panel');
+
+        if (mergeMode) {
+            if (measureMode) toggleMeasureMode();
+            if (editMode) toggleEditMode();
+            if (planMode) togglePlanMode(false);
+
+            btn.classList.add('bg-cyan-100', 'border-cyan-300', 'text-cyan-700');
+            btn.classList.remove('bg-white', 'text-cyan-700', 'dark:bg-slate-800', 'dark:text-cyan-300');
+            indicator.classList.remove('hidden');
+            panel.classList.remove('hidden');
+            map.getContainer().style.cursor = 'crosshair';
+            clearMergeSelection();
+            renderMergeIntro();
+        } else {
+            btn.classList.remove('bg-cyan-100', 'border-cyan-300', 'text-cyan-700');
+            btn.classList.add('bg-white', 'text-cyan-700', 'dark:bg-slate-800', 'dark:text-cyan-300');
+            indicator.classList.add('hidden');
+            panel.classList.add('hidden');
+            map.getContainer().style.cursor = '';
+            clearMergeSelection();
+        }
+    }
+
+    function clearMergeSelection() {
+        if (mergeSource) {
+            const el = mergeSource.getElement ? mergeSource.getElement() : null;
+            if (el) el.classList.remove('merge-source-highlight');
+        }
+        if (mergeTarget) {
+            const el = mergeTarget.getElement ? mergeTarget.getElement() : null;
+            if (el) el.classList.remove('merge-target-highlight');
+        }
+        mergeSource = null;
+        mergeTarget = null;
+        mergeSourceData = null;
+        mergeTargetData = null;
+        mergeFieldChoices = {};
+    }
+
+    function renderMergeIntro() {
+        const content = document.getElementById('merge-content');
+        content.innerHTML = '<p class="text-sm text-slate-500 dark:text-slate-400">Click a marker on the map to select the <span class="merge-source-label">Source</span> (will be archived), then click a second marker of the same type to select the <span class="merge-target-label">Target</span> (will be kept).</p>';
+    }
+
+    function handleMergeMarkerClick(marker) {
+        if (!mergeMode) return false;
+
+        const feature = marker.featureData;
+        if (!feature) return false;
+        const p = feature.properties;
+
+        // Close popup so it doesn't cover the panel
+        marker.closePopup();
+
+        if (!mergeSource) {
+            // Select source
+            mergeSource = marker;
+            const el = marker.getElement ? marker.getElement() : null;
+            if (el) el.classList.add('merge-source-highlight');
+            renderMergeSourceSelected(p);
+            return true;
+        }
+
+        if (marker === mergeSource) {
+            // Clicking same marker deselects
+            const el = marker.getElement ? marker.getElement() : null;
+            if (el) el.classList.remove('merge-source-highlight');
+            mergeSource = null;
+            renderMergeIntro();
+            return true;
+        }
+
+        // Select target — must be same type
+        const sourceType = mergeSource.featureData.properties.type;
+        if (p.type !== sourceType) {
+            Alpine.store('toast').show('Both assets must be the same type', 'error');
+            return true;
+        }
+        if (p.id === mergeSource.featureData.properties.id) {
+            Alpine.store('toast').show('Source and target must be different', 'error');
+            return true;
+        }
+
+        mergeTarget = marker;
+        const el = marker.getElement ? marker.getElement() : null;
+        if (el) el.classList.add('merge-target-highlight');
+
+        loadMergeComparison(sourceType, mergeSource.featureData.properties.id, p.id);
+        return true;
+    }
+
+    function renderMergeSourceSelected(p) {
+        const content = document.getElementById('merge-content');
+        const typeName = (p.type || '').replace(/_/g, ' ');
+        content.innerHTML = `
+            <div class="rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
+                <div class="flex items-center gap-2">
+                    <span class="merge-source-label">Source</span>
+                    <span class="text-xs text-slate-500 dark:text-slate-400 uppercase">${escapeHtml(typeName)}</span>
+                </div>
+                <p class="mt-1 font-semibold text-slate-900 dark:text-white">${escapeHtml(p.name || 'Unnamed')}</p>
+                ${p.code ? `<p class="text-xs text-slate-500 dark:text-slate-400">${escapeHtml(p.code)}</p>` : ''}
+            </div>
+            <p class="mt-3 text-sm text-slate-500 dark:text-slate-400">Now click a second <strong>${escapeHtml(typeName)}</strong> marker to select the <span class="merge-target-label">Target</span>.</p>
+        `;
+    }
+
+    async function loadMergeComparison(assetType, sourceId, targetId) {
+        const content = document.getElementById('merge-content');
+        content.innerHTML = '<div class="flex items-center justify-center py-8"><div class="h-6 w-6 animate-spin rounded-full border-2 border-cyan-500 border-t-transparent"></div><span class="ml-3 text-sm text-slate-500">Loading details...</span></div>';
+
+        try {
+            const [srcRes, tgtRes] = await Promise.all([
+                fetch(`/admin/network/fiber-map/asset-details?asset_type=${assetType}&asset_id=${sourceId}`),
+                fetch(`/admin/network/fiber-map/asset-details?asset_type=${assetType}&asset_id=${targetId}`)
+            ]);
+
+            if (!srcRes.ok || !tgtRes.ok) throw new Error('Failed to load asset details');
+
+            mergeSourceData = await srcRes.json();
+            mergeTargetData = await tgtRes.json();
+
+            // Default field choices: prefer target, fall back to source when target is empty
+            mergeFieldChoices = {};
+            const srcFields = mergeSourceData.fields || {};
+            const tgtFields = mergeTargetData.fields || {};
+            for (const key of Object.keys(srcFields)) {
+                const tgtVal = tgtFields[key];
+                const srcVal = srcFields[key];
+                if (tgtVal !== null && tgtVal !== '' && tgtVal !== undefined) {
+                    mergeFieldChoices[key] = 'target';
+                } else if (srcVal !== null && srcVal !== '' && srcVal !== undefined) {
+                    mergeFieldChoices[key] = 'source';
+                } else {
+                    mergeFieldChoices[key] = 'target';
+                }
+            }
+
+            renderMergeComparison();
+        } catch (e) {
+            console.error('Merge comparison load failed:', e);
+            content.innerHTML = '<p class="text-sm text-red-600">Failed to load asset details. Please try again.</p>';
+        }
+    }
+
+    function renderMergeComparison() {
+        const content = document.getElementById('merge-content');
+        if (!mergeSourceData || !mergeTargetData) return;
+
+        const srcFields = mergeSourceData.fields || {};
+        const tgtFields = mergeTargetData.fields || {};
+        const srcCounts = mergeSourceData.child_counts || {};
+        const tgtCounts = mergeTargetData.child_counts || {};
+        const typeName = (mergeSourceData.asset_type || '').replace(/_/g, ' ');
+
+        // Header cards
+        let html = `
+            <div class="grid grid-cols-2 gap-2 mb-4">
+                <div class="rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
+                    <span class="merge-source-label">Source</span>
+                    <p class="mt-1 font-semibold text-sm text-slate-900 dark:text-white truncate">${escapeHtml(srcFields.name || 'Unnamed')}</p>
+                    <p class="text-xs text-slate-400">Will be archived</p>
+                </div>
+                <div class="rounded-xl border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-900/20">
+                    <span class="merge-target-label">Target</span>
+                    <p class="mt-1 font-semibold text-sm text-slate-900 dark:text-white truncate">${escapeHtml(tgtFields.name || 'Unnamed')}</p>
+                    <p class="text-xs text-slate-400">Will be kept</p>
+                </div>
+            </div>
+        `;
+
+        // Column headers
+        html += `<div class="merge-field-row" style="margin-bottom:8px">
+            <div class="merge-field-label text-xs uppercase tracking-wide">Field</div>
+            <div class="text-center"><span class="merge-source-label">Source</span></div>
+            <div class="text-center"><span class="merge-target-label">Target</span></div>
+        </div>`;
+
+        // Field rows
+        for (const key of Object.keys(srcFields)) {
+            const srcVal = srcFields[key];
+            const tgtVal = tgtFields[key];
+            const srcDisplay = (srcVal !== null && srcVal !== undefined && srcVal !== '') ? String(srcVal) : '';
+            const tgtDisplay = (tgtVal !== null && tgtVal !== undefined && tgtVal !== '') ? String(tgtVal) : '';
+            const srcSelected = mergeFieldChoices[key] === 'source' ? 'selected' : '';
+            const tgtSelected = mergeFieldChoices[key] === 'target' ? 'selected' : '';
+            const srcEmptyClass = srcDisplay ? '' : 'empty';
+            const tgtEmptyClass = tgtDisplay ? '' : 'empty';
+            const label = key.replace(/_/g, ' ').replace(/\bid\b/g, 'ID');
+
+            html += `<div class="merge-field-row">
+                <div class="merge-field-label">${escapeHtml(label)}</div>
+                <div class="merge-field-value ${srcSelected} ${srcEmptyClass}" data-field="${escapeHtml(key)}" data-side="source" onclick="selectMergeField(this)">${srcDisplay ? escapeHtml(srcDisplay) : '—'}</div>
+                <div class="merge-field-value ${tgtSelected} ${tgtEmptyClass}" data-field="${escapeHtml(key)}" data-side="target" onclick="selectMergeField(this)">${tgtDisplay ? escapeHtml(tgtDisplay) : '—'}</div>
+            </div>`;
+        }
+
+        // Child migration summary
+        const allChildKeys = new Set([...Object.keys(srcCounts), ...Object.keys(tgtCounts)]);
+        if (allChildKeys.size > 0) {
+            html += `<div class="mt-4 rounded-xl bg-slate-50 p-3 dark:bg-slate-700/50">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Children to Migrate</p>`;
+            for (const childKey of allChildKeys) {
+                const srcCount = srcCounts[childKey] || 0;
+                const tgtCount = tgtCounts[childKey] || 0;
+                const childName = childKey.replace(/_/g, ' ');
+                html += `<div class="flex justify-between text-sm py-1">
+                    <span class="text-slate-600 dark:text-slate-300">${escapeHtml(childName)}</span>
+                    <span class="font-medium text-slate-900 dark:text-white">${srcCount} → ${tgtCount + srcCount}</span>
+                </div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Action buttons
+        html += `
+            <div class="mt-4 flex gap-2">
+                <button id="btn-merge-execute" onclick="executeMerge()" class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/25 transition-all hover:shadow-xl hover:-translate-y-0.5">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                    Merge Assets
+                </button>
+                <button onclick="cancelMerge()" class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                    Cancel
+                </button>
+            </div>
+        `;
+
+        content.innerHTML = html;
+    }
+
+    // Must be global for onclick
+    window.selectMergeField = function(el) {
+        const field = el.dataset.field;
+        const side = el.dataset.side;
+        mergeFieldChoices[field] = side;
+
+        // Update visual selection for this row
+        const row = el.parentElement;
+        row.querySelectorAll('.merge-field-value').forEach(cell => {
+            cell.classList.toggle('selected', cell.dataset.side === side);
+        });
+    };
+
+    window.executeMerge = async function() {
+        if (!mergeSource || !mergeTarget || !mergeSourceData || !mergeTargetData) return;
+
+        const btn = document.getElementById('btn-merge-execute');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<div class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div> Merging...';
+        }
+
+        try {
+            const res = await fetch('/admin/network/fiber-map/merge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    asset_type: mergeSourceData.asset_type,
+                    source_id: mergeSourceData.id,
+                    target_id: mergeTargetData.id,
+                    field_choices: mergeFieldChoices
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Merge failed');
+
+            // Remove source marker from map
+            const sourceFeature = mergeSource.featureData;
+            const sourceType = sourceFeature.properties.type;
+
+            // Remove from layer group
+            const layerMap = {
+                fdh_cabinet: layers.fdh,
+                splice_closure: layers.closures,
+                access_point: layers.accessPoints,
+                olt_device: layers.olt,
+                service_building: layers.buildings
+            };
+            const layerGroup = layerMap[sourceType];
+            if (layerGroup) layerGroup.removeLayer(mergeSource);
+
+            // Remove from allMarkers / allFeatures arrays
+            const srcIdx = allMarkers.indexOf(mergeSource);
+            if (srcIdx > -1) allMarkers.splice(srcIdx, 1);
+            const featIdx = allFeatures.findIndex(f => f.marker === mergeSource);
+            if (featIdx > -1) allFeatures.splice(featIdx, 1);
+
+            // Update target marker properties + position
+            if (data.target && data.target.fields) {
+                const tgt = data.target;
+                const targetFeature = mergeTarget.featureData;
+                // Update properties
+                for (const [k, v] of Object.entries(tgt.fields)) {
+                    targetFeature.properties[k] = v;
+                }
+                targetFeature.properties.name = tgt.fields.name || targetFeature.properties.name;
+                // Update position if lat/lng changed
+                if (tgt.fields.latitude != null && tgt.fields.longitude != null) {
+                    mergeTarget.setLatLng([tgt.fields.latitude, tgt.fields.longitude]);
+                    mergeTarget._lastSavedLatLng = { lat: tgt.fields.latitude, lng: tgt.fields.longitude };
+                }
+                // Rebind popup
+                mergeTarget.unbindPopup();
+                mergeTarget.bindPopup(() => getPopupContent(targetFeature, mergeTarget));
+
+                // Update child counts in properties if available
+                if (tgt.child_counts) {
+                    for (const [k, v] of Object.entries(tgt.child_counts)) {
+                        if (k === 'splitters') targetFeature.properties.splitter_count = v;
+                        if (k === 'fiber_splices') targetFeature.properties.splice_count = v;
+                        if (k === 'fiber_splice_trays') targetFeature.properties.tray_count = v;
+                    }
+                }
+            }
+
+            // Refresh count badges
+            updateLayerCountBadges();
+            updateVisibleFeatureCount();
+
+            // Clear merge highlights
+            clearMergeSelection();
+            renderMergeIntro();
+
+            // Show success toast
+            if (typeof Alpine !== 'undefined' && Alpine.store('toast')) {
+                Alpine.store('toast').show('Assets merged successfully', 'success');
+            }
+        } catch (e) {
+            console.error('Merge failed:', e);
+            if (typeof Alpine !== 'undefined' && Alpine.store('toast')) {
+                Alpine.store('toast').show(e.message || 'Merge failed', 'error');
+            }
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg> Merge Assets';
+            }
+        }
+    };
+
+    window.cancelMerge = function() {
+        clearMergeSelection();
+        renderMergeIntro();
+    };
 
     function clearPlanMarkers() {
         if (planMarker) { map.removeLayer(planMarker); planMarker = null; }
@@ -1383,6 +2173,68 @@
     const geojsonData = {{ geojson_data | tojson | safe }};
     const bounds = [];
     const dragCoords = document.getElementById('drag-coords');
+    const markerByAssetKey = new Map();
+
+    function assetKey(type, id) {
+        return String(type || '') + ':' + String(id || '');
+    }
+
+    function pickPointIcon(p) {
+        if (!p) return icons.splice_closure;
+        if (p.type === 'olt_device' && String(p.site_role || '') === 'base_station') return icons.base_station;
+        return icons[p.type] || icons.splice_closure;
+    }
+
+    async function setOltRoleOnServer(id, siteRole) {
+        const response = await fetch('/admin/network/fiber-map/update-olt-role', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, site_role: siteRole }),
+            credentials: 'same-origin'
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            const msg = (data && data.error) ? data.error : ('HTTP ' + response.status);
+            throw new Error(msg);
+        }
+        return data;
+    }
+
+    window.dotmacSetOltRole = async function(encodedId, siteRole) {
+        try {
+            const id = decodeURIComponent(String(encodedId || ''));
+            const role = String(siteRole || '').toLowerCase();
+            if (!id) throw new Error('Missing id');
+            if (role !== 'olt' && role !== 'base_station') throw new Error('Invalid role');
+
+            await setOltRoleOnServer(id, role);
+            const key = assetKey('olt_device', id);
+            const marker = markerByAssetKey.get(key);
+            if (marker && marker.featureData && marker.featureData.properties) {
+                marker.featureData.properties.site_role = role;
+                // Move between layer groups so toggles/counts behave correctly.
+                try { layers.olt.removeLayer(marker); } catch (e) {}
+                try { layers.baseStations.removeLayer(marker); } catch (e) {}
+                if (role === 'base_station') layers.baseStations.addLayer(marker);
+                else layers.olt.addLayer(marker);
+                marker.setIcon(pickPointIcon(marker.featureData.properties));
+                try { marker.closePopup(); } catch (e) {}
+                try { marker.openPopup(); } catch (e) {}
+                updateLayerCountBadges();
+                updateVisibleFeatureCount();
+                updateTopChipStates();
+            }
+            if (window.Alpine && Alpine.store && Alpine.store('toast')) {
+                Alpine.store('toast').show('Updated OLT role', 'success');
+            }
+        } catch (e) {
+            if (window.Alpine && Alpine.store && Alpine.store('toast')) {
+                Alpine.store('toast').show(String(e && e.message ? e.message : e), 'error');
+            } else {
+                alert('Failed to update OLT role');
+            }
+        }
+    };
 
     if (geojsonData.features && geojsonData.features.length > 0) {
         geojsonData.features.forEach(feature => {
@@ -1393,7 +2245,7 @@
                 const coords = [geom.coordinates[1], geom.coordinates[0]];
                 bounds.push(coords);
 
-                const icon = icons[p.type] || icons.splice_closure;
+                const icon = pickPointIcon(p);
                 const marker = L.marker(coords, {
                     icon: icon,
                     draggable: false  // Start non-draggable
@@ -1404,6 +2256,14 @@
                 marker.featureData = feature;
 
                 marker.bindPopup(() => getPopupContent(feature, marker));
+
+                // Merge mode click interceptor
+                marker.on('click', function(e) {
+                    if (mergeMode) {
+                        L.DomEvent.stopPropagation(e);
+                        handleMergeMarkerClick(marker);
+                    }
+                });
 
                 // Drag events
                 marker.on('dragstart', function() {
@@ -1428,6 +2288,7 @@
                 });
 
                 allMarkers.push(marker);
+                markerByAssetKey.set(assetKey(p.type, p.id), marker);
 
                 // Add to searchable features
                 const searchText = [
@@ -1443,43 +2304,65 @@
                     polyline: null,
                     name: p.name || '',
                     code: p.code || '',
-                    type: p.type,
+                    type: (p.type === 'olt_device' && String(p.site_role || '') === 'base_station') ? 'base_station' : p.type,
                     searchText
                 });
 
                 if (p.type === 'fdh_cabinet') layers.fdh.addLayer(marker);
                 else if (p.type === 'splice_closure') layers.closures.addLayer(marker);
                 else if (p.type === 'access_point') layers.accessPoints.addLayer(marker);
+                else if (p.type === 'olt_device') {
+                    if (String(p.site_role || '') === 'base_station') layers.baseStations.addLayer(marker);
+                    else layers.olt.addLayer(marker);
+                }
+                else if (p.type === 'service_building') layers.buildings.addLayer(marker);
 
-            } else if (geom.type === 'LineString') {
-                const coords = geom.coordinates.map(c => [c[1], c[0]]);
-                bounds.push(...coords);
-
+            } else if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
                 const segType = p.segment_type || 'distribution';
                 const style = buildSegmentStyle(segType, p.fiber_count);
 
-                const polyline = L.polyline(coords, style)
-                    .bindPopup(getPopupContent(feature));
+                // Leaflet supports both LineString and MultiLineString via nested coordinate arrays.
+                let latlngs;
+                let flatCoords = [];
+                if (geom.type === 'LineString') {
+                    latlngs = geom.coordinates.map(c => [c[1], c[0]]);
+                    flatCoords = latlngs;
+                } else {
+                    latlngs = geom.coordinates.map(line => line.map(c => [c[1], c[0]]));
+                    flatCoords = latlngs.flat();
+                }
+                bounds.push(...flatCoords);
+
+                const polyline = L.polyline(latlngs, style).bindPopup(getPopupContent(feature));
 
                 // Add hover tooltip with distance
-                const dist = p.length_m || calculateLineDistance(coords);
+                let dist = p.length_m;
+                if (!dist) {
+                    if (geom.type === 'LineString') {
+                        dist = calculateLineDistance(flatCoords);
+                    } else {
+                        dist = latlngs.reduce((sum, part) => sum + calculateLineDistance(part), 0);
+                    }
+                }
                 polyline.bindTooltip(formatDistance(dist), {
                     sticky: true,
                     direction: 'auto'
                 });
 
-                // Add distance label at midpoint
-                const midIdx = Math.floor(coords.length / 2);
-                const labelPos = coords[midIdx];
-                const distLabel = L.marker(labelPos, {
-                    icon: L.divIcon({
-                        className: 'distance-label',
-                        html: formatDistance(dist),
-                        iconSize: [60, 16],
-                        iconAnchor: [30, 8]
-                    })
-                });
-                layers.distances.addLayer(distLabel);
+                // Add distance label at midpoint (best-effort for both single and multi-part)
+                if (flatCoords.length > 0) {
+                    const midIdx = Math.floor(flatCoords.length / 2);
+                    const labelPos = flatCoords[midIdx];
+                    const distLabel = L.marker(labelPos, {
+                        icon: L.divIcon({
+                            className: 'distance-label',
+                            html: formatDistance(dist),
+                            iconSize: [60, 16],
+                            iconAnchor: [30, 8]
+                        })
+                    });
+                    layers.distances.addLayer(distLabel);
+                }
 
                 // Add fiber segments to searchable features
                 const searchText = [p.name || '', p.segment_type || ''].filter(Boolean).join(' ').toLowerCase();
@@ -1507,57 +2390,442 @@
     updateLayerCountBadges();
     updateVisibleFeatureCount();
 
+    // Deep-link support for focusing a specific segment by UUID.
+    // Example: /admin/network/map?segment_id=<uuid>
+    function focusSegmentById(segmentId) {
+        if (!segmentId) return false;
+        const id = String(segmentId).trim().toLowerCase();
+        const match = allFeatures.find((f) => f && f.type === 'fiber_segment' && f.feature && String(f.feature.properties?.id || '').toLowerCase() === id);
+        if (!match || !match.polyline) {
+            // Fallback #1: find directly in the inlined GeoJSON (covers cases where we failed to build the polyline object).
+            if (focusSegmentFromGeojsonData(segmentId)) return true;
+            // Fallback #2: fetch geometry for this one segment and focus it even if it wasn't loaded into GeoJSON.
+            focusSegmentByFetch(segmentId);
+            return true;
+        }
+
+        // Ensure the segment layer is visible.
+        const segType = match.segmentType || match.feature.properties?.segment_type || 'distribution';
+        if (segType === 'feeder') setLayerCheckboxChecked('layer-feeder', true);
+        else if (segType === 'drop') setLayerCheckboxChecked('layer-drop', true);
+        else setLayerCheckboxChecked('layer-distribution', true);
+
+        clearCoordMarker();
+        // Some layouts can change map size after initial render; invalidate before focusing.
+        const bounds = match.polyline.getBounds();
+        requestAnimationFrame(() => {
+            try { map.invalidateSize(false); } catch (e) {}
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+            setTimeout(() => { try { match.polyline.openPopup(); } catch (e) {} }, 150);
+        });
+        return true;
+    }
+
+    let focusedSegmentOverlay = null;
+    function clearFocusedSegmentOverlay() {
+        if (focusedSegmentOverlay) {
+            try { map.removeLayer(focusedSegmentOverlay); } catch (e) {}
+            focusedSegmentOverlay = null;
+        }
+    }
+
+    function latlngsFromGeometry(geom) {
+        if (!geom || !geom.type || !geom.coordinates) return null;
+        if (geom.type === 'LineString') {
+            return geom.coordinates.map(c => [c[1], c[0]]);
+        }
+        if (geom.type === 'MultiLineString') {
+            return geom.coordinates.map(line => line.map(c => [c[1], c[0]]));
+        }
+        return null;
+    }
+
+    function focusSegmentFromGeojsonData(segmentId) {
+        try {
+            const id = String(segmentId || '').trim().toLowerCase();
+            if (!id) return false;
+            const feature = (geojsonData.features || []).find((f) => {
+                const p = (f && f.properties) ? f.properties : null;
+                if (!p) return false;
+                if (String(p.type || '').toLowerCase() !== 'fiber_segment') return false;
+                return String(p.id || '').toLowerCase() === id;
+            });
+            if (!feature || !feature.geometry) return false;
+            const latlngs = latlngsFromGeometry(feature.geometry);
+            if (!latlngs) return false;
+
+            clearCoordMarker();
+            clearFocusedSegmentOverlay();
+            focusedSegmentOverlay = L.polyline(latlngs, {
+                color: '#f97316',
+                weight: 8,
+                opacity: 0.95,
+                dashArray: '10 8'
+            }).addTo(map);
+
+            const p = feature.properties || {};
+            focusedSegmentOverlay.bindPopup('<div class="fiber-popup-title">' + escapeHtml(p.name || 'Fiber Segment') + '</div>'
+                + '<div class="fiber-popup-detail"><span class="text-slate-500">ID:</span> ' + escapeHtml(String(p.id || segmentId)) + '</div>'
+            );
+
+            const b = focusedSegmentOverlay.getBounds();
+            requestAnimationFrame(() => {
+                try { map.invalidateSize(false); } catch (e) {}
+                map.fitBounds(b, { padding: [50, 50], maxZoom: 19 });
+                setTimeout(() => { try { focusedSegmentOverlay.openPopup(); } catch (e) {} }, 150);
+            });
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function focusSegmentByFetch(segmentId) {
+        const raw = String(segmentId || '').trim();
+        if (!raw) return;
+        fetch('/admin/network/fiber-map/segments/geometry?segment_id=' + encodeURIComponent(raw), {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' }
+        }).then(async (res) => {
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            if (!ct.includes('application/json')) return null;
+            const data = await res.json().catch(() => null);
+            if (!res.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+            return data;
+        }).then((data) => {
+            if (!data || !data.geometry) return;
+            const latlngs = latlngsFromGeometry(data.geometry);
+            if (!latlngs) return;
+
+            clearCoordMarker();
+            clearFocusedSegmentOverlay();
+
+            // Ensure the segment layer is visible, best-effort.
+            const segType = data.segment_type || 'distribution';
+            if (segType === 'feeder') setLayerCheckboxChecked('layer-feeder', true);
+            else if (segType === 'drop') setLayerCheckboxChecked('layer-drop', true);
+            else setLayerCheckboxChecked('layer-distribution', true);
+
+            focusedSegmentOverlay = L.polyline(latlngs, {
+                color: '#f97316',
+                weight: 8,
+                opacity: 0.95,
+                dashArray: '10 8'
+            }).addTo(map);
+
+            focusedSegmentOverlay.bindPopup('<div class="fiber-popup-title">' + escapeHtml(data.name || 'Fiber Segment') + '</div>'
+                + '<div class="fiber-popup-detail"><span class="text-slate-500">ID:</span> ' + escapeHtml(String(data.id || segmentId)) + '</div>'
+            );
+
+            const b = focusedSegmentOverlay.getBounds();
+            requestAnimationFrame(() => {
+                try { map.invalidateSize(false); } catch (e) {}
+                map.fitBounds(b, { padding: [50, 50], maxZoom: 19 });
+                setTimeout(() => { try { focusedSegmentOverlay.openPopup(); } catch (e) {} }, 150);
+            });
+        }).catch(() => {
+            // Silent: deep-link should not break map.
+        });
+    }
+
+    try {
+        const params = new URLSearchParams(window.location.search || '');
+        const segmentId = params.get('segment_id');
+        if (segmentId) {
+            focusSegmentById(segmentId);
+        }
+    } catch (e) {
+        // Ignore URL parsing issues.
+    }
+
     // Layer toggle handlers
     document.getElementById('layer-fdh').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.fdh);
         else map.removeLayer(layers.fdh);
         updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
     });
     document.getElementById('layer-closures').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.closures);
         else map.removeLayer(layers.closures);
         updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
     });
     document.getElementById('layer-access-points').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.accessPoints);
         else map.removeLayer(layers.accessPoints);
         updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
+    });
+    document.getElementById('layer-olt').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.olt);
+        else map.removeLayer(layers.olt);
+        updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
+    });
+    document.getElementById('layer-base-stations').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.baseStations);
+        else map.removeLayer(layers.baseStations);
+        updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
+    });
+    document.getElementById('layer-buildings').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.buildings);
+        else map.removeLayer(layers.buildings);
+        updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
     });
     document.getElementById('layer-feeder').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.feeder);
         else map.removeLayer(layers.feeder);
         updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
     });
     document.getElementById('layer-distribution').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.distribution);
         else map.removeLayer(layers.distribution);
         updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
     });
     document.getElementById('layer-drop').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.drop);
         else map.removeLayer(layers.drop);
         updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
     });
     document.getElementById('layer-distances').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.distances);
         else map.removeLayer(layers.distances);
+        updateGroupCheckboxStates();
     });
 
     // Button handlers
     document.getElementById('btn-edit').addEventListener('click', toggleEditMode);
     document.getElementById('btn-measure').addEventListener('click', toggleMeasureMode);
     document.getElementById('btn-plan').addEventListener('click', togglePlanMode);
+    document.getElementById('btn-merge').addEventListener('click', function() { toggleMergeMode(); });
     const planCloseBtn = document.getElementById('btn-plan-close');
     if (planCloseBtn) {
         planCloseBtn.addEventListener('click', () => togglePlanMode(false));
+    }
+    const mergeCloseBtn = document.getElementById('btn-merge-close');
+    if (mergeCloseBtn) {
+        mergeCloseBtn.addEventListener('click', () => toggleMergeMode(false));
     }
     document.getElementById('btn-refresh').addEventListener('click', function() {
         window.location.reload();
     });
 
+    // Top chips act as quick layer filters.
+    bindTopChipFilter('top-chip-fdh', ['layer-fdh']);
+    bindTopChipFilter('top-chip-olt', ['layer-olt', 'layer-base-stations']);
+    bindTopChipFilter('top-chip-closures', ['layer-closures']);
+    bindTopChipFilter('top-chip-access-points', ['layer-access-points']);
+    bindTopChipFilter('top-chip-buildings', ['layer-buildings']);
+    bindTopChipFilter('top-chip-segments', ['layer-feeder', 'layer-distribution', 'layer-drop']);
+    updateTopChipStates();
+
+    // ========== Group toggles (UI-only) ==========
+    const GROUP_DEFS = [
+        { id: 'group-pop', layerIds: ['layer-base-stations'] },
+        { id: 'group-osp', layerIds: ['layer-fdh', 'layer-closures', 'layer-olt'] },
+        { id: 'group-backbone', layerIds: ['layer-feeder'] },
+        { id: 'group-edge', layerIds: ['layer-access-points', 'layer-buildings', 'layer-drop'] },
+        { id: 'group-overlays', layerIds: ['layer-distances'] }
+    ];
+    const managedLayerIds = Array.from(new Set(GROUP_DEFS.flatMap(g => g.layerIds)));
+    let groupApplyInProgress = false;
+
+    function getActiveGroupDefs() {
+        return GROUP_DEFS.filter((g) => document.getElementById(g.id)?.checked);
+    }
+
+    function applyGroupsToLayers() {
+        if (groupApplyInProgress) return;
+        groupApplyInProgress = true;
+        try {
+            const desired = new Set();
+            getActiveGroupDefs().forEach((g) => g.layerIds.forEach((id) => desired.add(id)));
+            managedLayerIds.forEach((layerId) => setLayerCheckboxChecked(layerId, desired.has(layerId)));
+        } finally {
+            groupApplyInProgress = false;
+        }
+    }
+
+    function updateGroupCheckboxStates() {
+        if (groupApplyInProgress) return;
+        GROUP_DEFS.forEach((g) => {
+            const el = document.getElementById(g.id);
+            if (!el) return;
+            const allOn = g.layerIds.every((layerId) => document.getElementById(layerId)?.checked);
+            el.checked = Boolean(allOn);
+        });
+        updateGroupFilterFromLayers();
+    }
+
+    GROUP_DEFS.forEach((g) => {
+        const el = document.getElementById(g.id);
+        if (!el) return;
+        el.addEventListener('change', function() {
+            applyGroupsToLayers();
+        });
+    });
+
+    function setGroupCheckboxes(next) {
+        Object.entries(next).forEach(([groupId, checked]) => {
+            const el = document.getElementById(groupId);
+            if (!el) return;
+            el.checked = Boolean(checked);
+        });
+        applyGroupsToLayers();
+    }
+
+    function setLayersExplicit(next) {
+        // Force dispatch so the map always reflects the preset, even if checkboxes were out of sync.
+        Object.entries(next).forEach(([layerId, checked]) => setLayerCheckboxChecked(layerId, Boolean(checked), true));
+    }
+
+    function layerStateSnapshot() {
+        const ids = [
+            'layer-fdh',
+            'layer-olt',
+            'layer-base-stations',
+            'layer-closures',
+            'layer-access-points',
+            'layer-buildings',
+            'layer-feeder',
+            'layer-distribution',
+            'layer-drop',
+            'layer-distances'
+        ];
+        const state = {};
+        ids.forEach((id) => {
+            state[id] = Boolean(document.getElementById(id)?.checked);
+        });
+        return state;
+    }
+
+    const GROUP_FILTER_PRESETS = {
+        osp: {
+            'layer-fdh': true,
+            'layer-olt': true,
+            'layer-base-stations': false,
+            'layer-closures': true,
+            'layer-access-points': false,
+            'layer-buildings': false,
+            'layer-feeder': false,
+            'layer-distribution': false,
+            'layer-drop': false,
+            'layer-distances': false
+        },
+        backbone: {
+            'layer-fdh': false,
+            'layer-olt': false,
+            'layer-base-stations': false,
+            'layer-closures': false,
+            'layer-access-points': false,
+            'layer-buildings': false,
+            'layer-feeder': true,
+            'layer-distribution': false,
+            'layer-drop': false,
+            'layer-distances': false
+        },
+        edge: {
+            'layer-fdh': false,
+            'layer-olt': false,
+            'layer-base-stations': false,
+            'layer-closures': false,
+            'layer-access-points': true,
+            'layer-buildings': true,
+            'layer-feeder': false,
+            'layer-distribution': false,
+            'layer-drop': true,
+            'layer-distances': false
+        },
+        pop: {
+            'layer-fdh': false,
+            'layer-olt': false,
+            'layer-base-stations': true,
+            'layer-closures': false,
+            'layer-access-points': false,
+            'layer-buildings': false,
+            'layer-feeder': false,
+            'layer-distribution': false,
+            'layer-drop': false,
+            'layer-distances': false
+        },
+        all: {
+            'layer-fdh': true,
+            'layer-olt': true,
+            'layer-base-stations': true,
+            'layer-closures': true,
+            'layer-access-points': true,
+            'layer-buildings': true,
+            'layer-feeder': true,
+            'layer-distribution': true,
+            'layer-drop': true,
+            'layer-distances': false
+        },
+        clear: {
+            'layer-fdh': false,
+            'layer-olt': false,
+            'layer-base-stations': false,
+            'layer-closures': false,
+            'layer-access-points': false,
+            'layer-buildings': false,
+            'layer-feeder': false,
+            'layer-distribution': false,
+            'layer-drop': false,
+            'layer-distances': false
+        }
+    };
+
+    function matchesPreset(state, preset) {
+        return Object.keys(preset).every((id) => Boolean(state[id]) === Boolean(preset[id]));
+    }
+
+    function updateGroupFilterFromLayers() {
+        const el = document.getElementById('group-filter');
+        if (!el) return;
+        const state = layerStateSnapshot();
+        const candidates = ['osp', 'backbone', 'edge', 'pop', 'all', 'clear'];
+        const match = candidates.find((key) => matchesPreset(state, GROUP_FILTER_PRESETS[key]));
+        el.value = match || '';
+    }
+
+    // Group filter dropdown (top row)
+    const groupFilter = document.getElementById('group-filter');
+    if (groupFilter) {
+        groupFilter.addEventListener('change', function() {
+            const value = String(groupFilter.value || '');
+            if (!value) return; // Custom: don't force anything.
+
+            const preset = GROUP_FILTER_PRESETS[value];
+            if (preset) {
+                // Apply an explicit layer preset, then sync group checkboxes.
+                setLayersExplicit(preset);
+                updateGroupCheckboxStates();
+            }
+        });
+    }
+
+    // Initialize group checkbox states from whatever layers are currently on.
+    // (Must run after GROUP_FILTER_PRESETS / updateGroupFilterFromLayers are defined.)
+    updateGroupCheckboxStates();
+
     // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
+            if (mergeMode) toggleMergeMode(false);
             if (measureMode) toggleMeasureMode();
             if (editMode) toggleEditMode();
             if (planMode) togglePlanMode();
@@ -1577,6 +2845,8 @@
         fdh_cabinet: { label: 'FDH Cabinet', color: '#f97316' },
         splice_closure: { label: 'Splice Closure', color: '#14b8a6' },
         access_point: { label: 'Access Point', color: '#a855f7' },
+        olt_device: { label: 'OLT Device', color: '#f43f5e' },
+        service_building: { label: 'Building', color: '#0ea5e9' },
         fiber_segment: { label: 'Fiber Segment', color: '#3b82f6' },
         coordinate: { label: 'Coordinates', color: '#0f766e' }
     };
@@ -1606,6 +2876,19 @@
         coordMarker = L.marker(latlng).addTo(map);
         coordMarker.bindPopup(`Coordinates: ${lat.toFixed(6)}, ${lng.toFixed(6)}`).openPopup();
         map.setView(latlng, 17);
+    }
+
+    // Support deep-link focusing from other admin pages.
+    // Example: /admin/network/map?focus=9.079678,7.382676
+    try {
+        const params = new URLSearchParams(window.location.search || '');
+        const focus = params.get('focus');
+        const coords = parseLatLng(focus);
+        if (coords) {
+            goToCoordinates(coords.lat, coords.lng);
+        }
+    } catch (e) {
+        // Ignore URL parsing issues.
     }
 
     function showSearchResults(matches, query) {

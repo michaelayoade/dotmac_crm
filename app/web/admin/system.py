@@ -59,7 +59,7 @@ from app.services import (
 from app.services import (
     auth_flow as auth_flow_service,
 )
-from app.services import branding_assets, branding_state, settings_spec
+from app.services import branding_assets, branding_state, settings_spec, time_preferences
 from app.services import (
     email as email_service,
 )
@@ -1178,6 +1178,26 @@ def user_profile(request: Request, db: Session = Depends(get_db)):
                 .count()
             )
 
+    member_since_label = (
+        time_preferences.format_datetime_for_user(
+            person.created_at,
+            db=db,
+            person_timezone=person.timezone,
+            include_timezone=False,
+        )
+        if person and person.created_at
+        else "-"
+    )
+    last_login_label = (
+        time_preferences.format_datetime_for_user(
+            credential.last_login_at,
+            db=db,
+            person_timezone=person.timezone if person else None,
+            include_timezone=False,
+        )
+        if credential and credential.last_login_at
+        else "Never"
+    )
     context: dict[str, object] = {
         "request": request,
         "active_page": "users",
@@ -1185,9 +1205,12 @@ def user_profile(request: Request, db: Session = Depends(get_db)):
         "current_user": current_user,
         "sidebar_stats": get_sidebar_stats(db),
         "person": person,
+        "company_timezone": time_preferences.resolve_company_timezone(db),
         "credential": credential,
         "mfa_enabled": mfa_enabled,
         "api_key_count": api_key_count,
+        "member_since_label": member_since_label,
+        "last_login_label": last_login_label,
         "error": None,
         "success": None,
     }
@@ -1225,7 +1248,7 @@ def user_profile_update(
                 person = db.get(Person, person.id)  # Refresh
                 success = "Profile updated successfully."
             except Exception as e:
-                error = str(e)
+                error = e.detail if isinstance(e, HTTPException) else str(e)
 
     # Get related data
     credential = None
@@ -1245,6 +1268,26 @@ def user_profile_update(
             .count()
         )
 
+    member_since_label = (
+        time_preferences.format_datetime_for_user(
+            person.created_at,
+            db=db,
+            person_timezone=person.timezone,
+            include_timezone=False,
+        )
+        if person and person.created_at
+        else "-"
+    )
+    last_login_label = (
+        time_preferences.format_datetime_for_user(
+            credential.last_login_at,
+            db=db,
+            person_timezone=person.timezone if person else None,
+            include_timezone=False,
+        )
+        if credential and credential.last_login_at
+        else "Never"
+    )
     context: dict[str, object] = {
         "request": request,
         "active_page": "users",
@@ -1252,9 +1295,12 @@ def user_profile_update(
         "current_user": current_user,
         "sidebar_stats": get_sidebar_stats(db),
         "person": person,
+        "company_timezone": time_preferences.resolve_company_timezone(db),
         "credential": credential,
         "mfa_enabled": mfa_enabled,
         "api_key_count": api_key_count,
+        "member_since_label": member_since_label,
+        "last_login_label": last_login_label,
         "error": error,
         "success": success,
     }
@@ -1866,17 +1912,59 @@ def role_new(request: Request, db: Session = Depends(get_db)):
 @router.post("/roles", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:roles:write"))])
 def role_create(
     request: Request,
-    name: str = Form(...),
+    name: str | None = Form(None),
     description: str | None = Form(None),
     is_active: str | None = Form(None),
     permission_ids: list[str] = Form([]),
     db: Session = Depends(get_db),
 ):
+    name_value = (name or "").strip()
+    is_active_value = True if is_active is None else _form_bool(is_active)
+    if not name_value:
+        permissions = rbac_service.permissions.list(
+            db=db,
+            is_active=None,
+            order_by="key",
+            order_dir="asc",
+            limit=1000,
+            offset=0,
+        )
+        selected_permission_ids = set()
+        for permission_id in permission_ids:
+            try:
+                selected_permission_ids.add(str(UUID(permission_id)))
+            except ValueError:
+                continue
+        from app.web.admin import get_current_user, get_sidebar_stats
+
+        return templates.TemplateResponse(
+            "admin/system/roles_form.html",
+            {
+                "request": request,
+                "role": {
+                    "name": "",
+                    "description": description.strip() if description else "",
+                    "is_active": is_active_value,
+                },
+                "permissions": permissions,
+                "selected_permission_ids": selected_permission_ids,
+                "action_url": "/admin/system/roles",
+                "form_title": "New Role",
+                "submit_label": "Create Role",
+                "error": "Role name is required.",
+                "active_page": "roles",
+                "active_menu": "system",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+            },
+            status_code=400,
+        )
+
     description_value = description.strip() if description else None
     payload = RoleCreate(
-        name=name.strip(),
+        name=name_value,
         description=description_value or None,
-        is_active=_form_bool(is_active),
+        is_active=is_active_value,
     )
     try:
         role = rbac_service.roles.create(db, payload)
@@ -1976,17 +2064,69 @@ def role_edit(request: Request, role_id: str, db: Session = Depends(get_db)):
 def role_update(
     request: Request,
     role_id: str,
-    name: str = Form(...),
+    name: str | None = Form(None),
     description: str | None = Form(None),
     is_active: str | None = Form(None),
     permission_ids: list[str] = Form([]),
     db: Session = Depends(get_db),
 ):
+    try:
+        current_role = rbac_service.roles.get(db, role_id)
+    except Exception:
+        return templates.TemplateResponse(
+            "admin/errors/404.html",
+            {"request": request, "message": "Role not found"},
+            status_code=404,
+        )
+
+    name_value = (name or "").strip() or current_role.name
+    is_active_value = current_role.is_active if is_active is None else _form_bool(is_active)
+    if not name_value:
+        permissions = rbac_service.permissions.list(
+            db=db,
+            is_active=None,
+            order_by="key",
+            order_dir="asc",
+            limit=1000,
+            offset=0,
+        )
+        selected_permission_ids = set()
+        for permission_id in permission_ids:
+            try:
+                selected_permission_ids.add(str(UUID(permission_id)))
+            except ValueError:
+                continue
+        from app.web.admin import get_current_user, get_sidebar_stats
+
+        return templates.TemplateResponse(
+            "admin/system/roles_form.html",
+            {
+                "request": request,
+                "role": {
+                    "id": role_id,
+                    "name": "",
+                    "description": description.strip() if description else "",
+                    "is_active": is_active_value,
+                },
+                "permissions": permissions,
+                "selected_permission_ids": selected_permission_ids,
+                "action_url": f"/admin/system/roles/{role_id}",
+                "form_title": "Edit Role",
+                "submit_label": "Save Changes",
+                "error": "Role name is required.",
+                "active_page": "roles",
+                "active_menu": "system",
+                "current_user": get_current_user(request),
+                "sidebar_stats": get_sidebar_stats(db),
+            },
+            status_code=400,
+        )
+
     description_value = description.strip() if description else None
     payload = RoleUpdate(
-        name=name.strip(),
+        name=name_value,
         description=description_value or None,
-        is_active=_form_bool(is_active),
+        is_active=is_active_value,
     )
     try:
         role = rbac_service.roles.update(db, role_id, payload)
@@ -2053,6 +2193,8 @@ def role_update(
 )
 def role_delete(request: Request, role_id: str, db: Session = Depends(get_db)):
     rbac_service.roles.delete(db, role_id)
+    if request.headers.get("HX-Request"):
+        return Response(status_code=200, headers={"HX-Redirect": "/admin/system/roles"})
     return RedirectResponse(url="/admin/system/roles", status_code=303)
 
 
@@ -3232,6 +3374,14 @@ async def settings_update(
                                 value_setting = raw_value
                 if spec.allowed and value_setting is not None and value_setting not in spec.allowed:
                     errors.append(f"{spec.key}: Value must be one of {', '.join(sorted(spec.allowed))}.")
+                    continue
+                if (
+                    selected_domain == SettingDomain.scheduler
+                    and spec.key == "timezone"
+                    and isinstance(value_setting, str)
+                    and not time_preferences.is_valid_timezone(value_setting)
+                ):
+                    errors.append("timezone: Value must be a valid IANA timezone (e.g. UTC or Africa/Lagos).")
                     continue
                 if isinstance(value_setting, int):
                     if spec.min_value is not None and value_setting < spec.min_value:

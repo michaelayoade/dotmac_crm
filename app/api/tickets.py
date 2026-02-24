@@ -72,22 +72,23 @@ def list_tickets(
         filters_payload = parse_filter_payload_json(filters)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return tickets_service.tickets.list_response(
-        db,
-        subscriber_id=subscriber_id,
-        status=status,
-        priority=priority,
-        channel=channel,
-        search=search,
-        created_by_person_id=created_by_person_id,
-        assigned_to_person_id=assigned_to_person_id,
-        is_active=is_active,
-        order_by=order_by,
-        order_dir=order_dir,
-        limit=limit,
-        offset=offset,
-        filters_payload=filters_payload,
+    args = (
+        subscriber_id,
+        status,
+        priority,
+        channel,
+        search,
+        created_by_person_id,
+        assigned_to_person_id,
+        is_active,
+        order_by,
+        order_dir,
+        limit,
+        offset,
     )
+    if filters_payload is None:
+        return tickets_service.tickets.list_response(db, *args)
+    return tickets_service.tickets.list_response(db, *args, filters_payload=filters_payload)
 
 
 @router.patch(

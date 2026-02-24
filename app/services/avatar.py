@@ -1,10 +1,10 @@
-import os
 import uuid
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 
 from app.config import settings
+from app.services.storage import storage
 
 
 def get_allowed_types() -> set[str]:
@@ -23,12 +23,9 @@ def validate_avatar(file: UploadFile) -> None:
 async def save_avatar(file: UploadFile, person_id: str) -> str:
     validate_avatar(file)
 
-    upload_dir = Path(settings.avatar_upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
     ext = _get_extension(file.content_type)
     filename = f"{person_id}_{uuid.uuid4().hex[:8]}{ext}"
-    file_path = upload_dir / filename
+    key = f"avatars/{filename}"
 
     content = await file.read()
     if len(content) > settings.avatar_max_size_bytes:
@@ -37,21 +34,39 @@ async def save_avatar(file: UploadFile, person_id: str) -> str:
             detail=f"File too large. Maximum size: {settings.avatar_max_size_bytes // 1024 // 1024}MB",
         )
 
-    with open(file_path, "wb") as f:
-        f.write(content)
+    upload_dir = getattr(settings, "avatar_upload_dir", None)
+    url_prefix = (getattr(settings, "avatar_url_prefix", "") or "").rstrip("/")
+    if upload_dir and url_prefix:
+        dest = Path(upload_dir) / filename
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+        return f"{url_prefix}/{filename}"
 
-    return f"{settings.avatar_url_prefix}/{filename}"
+    return storage.put(key, content, file.content_type or "")
 
 
 def delete_avatar(avatar_url: str | None) -> None:
     if not avatar_url:
         return
 
-    if avatar_url.startswith(settings.avatar_url_prefix):
-        filename = avatar_url.replace(settings.avatar_url_prefix + "/", "")
-        file_path = Path(settings.avatar_upload_dir) / filename
-        if file_path.exists():
-            os.remove(file_path)
+    url_prefix = (getattr(settings, "avatar_url_prefix", "") or "").rstrip("/")
+    upload_dir = getattr(settings, "avatar_upload_dir", None)
+    if upload_dir and url_prefix and avatar_url.startswith(f"{url_prefix}/"):
+        filename = avatar_url[len(url_prefix) + 1 :].strip()
+        if filename:
+            path = Path(upload_dir) / filename
+            if path.exists():
+                path.unlink()
+        return
+
+    # Extract key from URL — works for both local (/static/uploads/avatars/...)
+    # and S3 (.../bucket/avatars/...) URLs
+    marker = "avatars/"
+    idx = avatar_url.find(marker)
+    if idx == -1:
+        return
+    key = avatar_url[idx:]
+    storage.delete(key)
 
 
 def _get_extension(content_type: str | None) -> str:

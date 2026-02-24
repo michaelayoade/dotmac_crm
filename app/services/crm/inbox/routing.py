@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
-from app.models.crm.enums import ConversationStatus
+from app.models.crm.enums import AgentPresenceStatus, ConversationStatus
+from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmRoutingRule, CrmTeam
 from app.services.crm import conversation as conversation_service
+from app.services.crm.presence import DEFAULT_STALE_MINUTES
 
 
 @dataclass(frozen=True)
@@ -50,12 +53,20 @@ def _message_matches_target(message: Message, rule_config: dict) -> bool:
 
 
 def _list_active_agents(db: Session, team_id: str) -> list[CrmAgent]:
+    cutoff = datetime.now(UTC) - timedelta(minutes=DEFAULT_STALE_MINUTES)
+
     return (
         db.query(CrmAgent)
         .join(CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id)
+        .join(AgentPresence, AgentPresence.agent_id == CrmAgent.id)
         .filter(CrmAgentTeam.team_id == team_id)
         .filter(CrmAgentTeam.is_active.is_(True))
         .filter(CrmAgent.is_active.is_(True))
+        # Only agents with current heartbeat and available status can be auto-routed.
+        .filter(AgentPresence.manual_override_status.is_(None))
+        .filter(AgentPresence.status.in_([AgentPresenceStatus.online, AgentPresenceStatus.away]))
+        .filter(AgentPresence.last_seen_at.isnot(None))
+        .filter(AgentPresence.last_seen_at >= cutoff)
         .order_by(CrmAgent.created_at.asc())
         .all()
     )
@@ -146,7 +157,7 @@ def apply_routing_rules(
         if not team or not team.is_active:
             continue
         agent_id = _resolve_agent_for_rule(db, team, rule)
-        conversation_service.assign_conversation(
+        assignment = conversation_service.assign_conversation(
             db,
             conversation_id=str(conversation.id),
             agent_id=agent_id,
@@ -157,6 +168,6 @@ def apply_routing_rules(
         return RoutingDecision(
             rule_id=str(rule.id),
             team_id=str(team.id),
-            agent_id=agent_id,
+            agent_id=str(assignment.agent_id) if assignment and assignment.agent_id else None,
         )
     return None

@@ -15,6 +15,26 @@
         color="amber",
         color2="orange"
     ) %}
+        <form method="get" action="/admin/subscribers/export" class="inline-flex items-center gap-2">
+            <input type="hidden" name="search" value="{{ search or '' }}">
+            <input type="hidden" name="external_system" value="{{ external_system or '' }}">
+            <input type="hidden" name="status" value="{{ status or '' }}">
+            <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}">
+            <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}">
+            <input type="number"
+                   name="export_days"
+                   min="1"
+                   max="3650"
+                   step="1"
+                   value="{{ export_days or '30' }}"
+                   placeholder="Days"
+                   class="w-28 rounded-xl border border-amber-200 bg-white/95 px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:border-amber-900/60 dark:bg-slate-900/90 dark:text-slate-200">
+            <button type="submit"
+                    class="group inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700/60">
+                <svg class="h-4 w-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l4-4m-4 4l-4-4M4 21h16"/></svg>
+                Export CSV
+            </button>
+        </form>
         {{ action_button("Add Subscriber", "/admin/subscribers/new", icon_plus(), "primary", "amber", "orange") }}
     {% endcall %}
 

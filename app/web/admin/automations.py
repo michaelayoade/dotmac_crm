@@ -4,7 +4,7 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -246,10 +246,13 @@ def automation_update(
 
 @router.post("/{rule_id}/delete", dependencies=[Depends(require_permission("system:automation:write"))])
 def automation_delete(
+    request: Request,
     rule_id: str,
     db: Session = Depends(_get_db),
 ):
     automation_rules_service.delete(db, rule_id)
+    if request.headers.get("HX-Request"):
+        return Response(status_code=200, headers={"HX-Redirect": "/admin/system/automations"})
     return RedirectResponse(url="/admin/system/automations", status_code=303)
 
 

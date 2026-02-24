@@ -1,0 +1,58 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}My Goals{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a href="/agent/my-performance" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">My Performance</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">My Goals</span>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">My Goals</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track your active and completed performance goals.</p>
+        </div>
+        <a href="/agent/my-performance" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Back to My Performance</a>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-900/40">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Domain</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Metric</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Goal</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Target</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Current</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Deadline</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {% for goal in goals %}
+                    <tr>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.domain.value | replace('_', ' ') | title }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.metric_key }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.label }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.comparison }} {{ "%.2f"|format(goal.target_value|float) }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ "%.2f"|format(goal.current_value|float) if goal.current_value is not none else "—" }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.deadline }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.status.value | replace('_', ' ') | title }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">No goals assigned yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

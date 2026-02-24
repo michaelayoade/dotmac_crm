@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -8,7 +8,8 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
-from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection
+from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection
+from app.models.crm.presence import AgentPresenceEvent
 from app.models.crm.sales import Lead, PipelineStage
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.person import Person
@@ -44,6 +45,56 @@ def _agent_person_ids(
         )
         return [str(agent.person_id) for agent in agents]
     return None
+
+
+def agent_presence_summary(
+    db: Session,
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    agent_id: str,
+) -> dict[str, float]:
+    """Return presence duration hours by status for a single agent over a time window.
+
+    Uses crm_agent_presence_events. Events are clipped to [start_at, end_at].
+    """
+    start = start_at
+    end = end_at
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=UTC)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
+    if end <= start:
+        return {s.value: 0.0 for s in AgentPresenceStatus}
+
+    agent_uuid = coerce_uuid(agent_id)
+    rows = (
+        db.query(AgentPresenceEvent)
+        .filter(AgentPresenceEvent.agent_id == agent_uuid)
+        .filter(AgentPresenceEvent.started_at < end)
+        .filter(func.coalesce(AgentPresenceEvent.ended_at, end) > start)
+        .order_by(AgentPresenceEvent.started_at.asc())
+        .all()
+    )
+
+    seconds_by_status: dict[str, float] = {s.value: 0.0 for s in AgentPresenceStatus}
+    for ev in rows:
+        ev_start = ev.started_at
+        ev_end = ev.ended_at or end
+        if ev_start.tzinfo is None:
+            ev_start = ev_start.replace(tzinfo=UTC)
+        if ev_end.tzinfo is None:
+            ev_end = ev_end.replace(tzinfo=UTC)
+        overlap_start = max(start, ev_start)
+        overlap_end = min(end, ev_end)
+        if overlap_end <= overlap_start:
+            continue
+        seconds_by_status[ev.status.value] = (
+            seconds_by_status.get(ev.status.value, 0.0) + (overlap_end - overlap_start).total_seconds()
+        )
+
+    # Convert to hours for display.
+    return {k: round(v / 3600.0, 2) for k, v in seconds_by_status.items()}
 
 
 def ticket_support_metrics(
@@ -436,8 +487,32 @@ def agent_performance_metrics(
     persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
     person_map = {person.id: person for person in persons}
 
+    # Presence seconds (online + away) for the same report window.
+    presence_seconds_by_agent: dict[str, dict[str, float]] = {}
+    if start_at and end_at and agents:
+        from app.services.crm.presence import agent_presence
+
+        presence_seconds_by_agent = agent_presence.seconds_by_status_bulk(
+            db,
+            agent_ids=[str(a.id) for a in agents],
+            start_at=start_at,
+            end_at=end_at,
+        )
+
     agent_stats: list[dict[str, Any]] = []
     for agent in agents:
+        by_status = presence_seconds_by_agent.get(str(agent.id), {})
+        active_seconds = float(by_status.get("online", 0.0) + by_status.get("away", 0.0))
+        active_hours = active_seconds / 3600.0 if active_seconds else 0.0
+        active_hours_display: str | None
+        if start_at and end_at:
+            total_minutes = round(active_seconds / 60.0)
+            hours = total_minutes // 60
+            minutes = total_minutes % 60
+            active_hours_display = f"{hours}h {minutes:02d}m"
+        else:
+            active_hours_display = None
+
         # Get conversations assigned to this agent
         assignment_query = db.query(ConversationAssignment.conversation_id).filter(
             ConversationAssignment.agent_id == agent.id
@@ -459,6 +534,9 @@ def agent_performance_metrics(
                     "resolved_conversations": 0,
                     "avg_first_response_minutes": None,
                     "avg_resolution_minutes": None,
+                    "active_seconds": int(active_seconds),
+                    "active_hours": round(active_hours, 2),
+                    "active_hours_display": active_hours_display,
                 }
             )
             continue
@@ -529,6 +607,9 @@ def agent_performance_metrics(
                 "resolved_conversations": resolved,
                 "avg_first_response_minutes": round(avg_frt, 1) if avg_frt is not None else None,
                 "avg_resolution_minutes": round(avg_resolution, 1) if avg_resolution is not None else None,
+                "active_seconds": int(active_seconds),
+                "active_hours": round(active_hours, 2),
+                "active_hours_display": active_hours_display,
             }
         )
 

@@ -28,6 +28,33 @@
         </form>
     </div>
 
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">Availability</h2>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Hours by status for the selected period</p>
+        </div>
+        <div class="p-6">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                    <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Online</p>
+                    <p class="mt-2 text-2xl font-semibold text-emerald-600 dark:text-emerald-400">{{ "%.2f" | format((presence_hours.get("online") or 0) | float) }}</p>
+                </div>
+                <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                    <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Away</p>
+                    <p class="mt-2 text-2xl font-semibold text-amber-600 dark:text-amber-400">{{ "%.2f" | format((presence_hours.get("away") or 0) | float) }}</p>
+                </div>
+                <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                    <p class="text-sm font-medium text-slate-500 dark:text-slate-400">On Break</p>
+                    <p class="mt-2 text-2xl font-semibold text-rose-600 dark:text-rose-400">{{ "%.2f" | format((presence_hours.get("on_break") or 0) | float) }}</p>
+                </div>
+                <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/30">
+                    <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Offline</p>
+                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ "%.2f" | format((presence_hours.get("offline") or 0) | float) }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {% set agent_section_title = "My Performance" %}
     {% include "shared/reports/_crm_performance_body.html" %}
 

@@ -2,6 +2,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.dispatch import TechnicianProfile
+from app.models.inventory import InventoryItem
 from app.models.person import Person
 from app.models.subscriber import Organization, Subscriber
 from app.models.vendor import Vendor
@@ -174,6 +175,32 @@ def organizations(db: Session, query: str, limit: int) -> list[dict]:
 
 def organizations_response(db: Session, query: str, limit: int) -> dict:
     return list_response(organizations(db, query, limit), limit, 0)
+
+
+def inventory_items(db: Session, query: str, limit: int) -> list[dict]:
+    """Search active inventory items by name or SKU."""
+    term = (query or "").strip()
+    query_builder = db.query(InventoryItem).filter(InventoryItem.is_active.is_(True))
+    if term:
+        like_term = f"%{term}%"
+        query_builder = query_builder.filter(
+            or_(
+                InventoryItem.name.ilike(like_term),
+                InventoryItem.sku.ilike(like_term),
+            )
+        )
+    results = query_builder.order_by(InventoryItem.name.asc()).limit(limit).all()
+    items: list[dict] = []
+    for inv in results:
+        label = inv.name or ""
+        if inv.sku:
+            label = f"{label} ({inv.sku})"
+        items.append({"id": inv.id, "label": label})
+    return items
+
+
+def inventory_items_response(db: Session, query: str, limit: int) -> dict:
+    return list_response(inventory_items(db, query, limit), limit, 0)
 
 
 def network_devices_response(db: Session, query: str, limit: int) -> dict:

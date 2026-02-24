@@ -1,5 +1,6 @@
 {% from "components/ui/macros.html" import typeahead_input %}
 {% set prefill = prefill or {} %}
+{% include "components/forms/csrf_input.html" %}
 <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
     <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
         <h2 class="font-semibold text-slate-900 dark:text-white">Ticket Information</h2>
@@ -24,7 +25,7 @@
                 <label for="description" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
                 <textarea name="description" id="description" rows="4"
                     placeholder="Detailed description of the issue..."
-                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ ticket.description if ticket else '' }}</textarea>
+                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ ticket.description if ticket else (prefill.description or '') }}</textarea>
             </div>
 
             <div>
@@ -43,11 +44,11 @@
                     accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
                     class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                 <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">PNG, JPG, GIF, WEBP, or PDF up to 5MB each.</p>
-                <p id="ticket-attachment-selected" class="mt-2 text-xs text-slate-500 dark:text-slate-400"></p>
+                <p id="ticket-attachment-selected" data-attachments-selected class="mt-2 text-xs text-slate-500 dark:text-slate-400"></p>
             </div>
 
             <div>
-                <label for="subscriber_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Subscriber</label>
+                <label for="subscriber_search" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Subscriber</label>
                 {% if ticket and ticket.subscriber %}
                     {% if ticket.subscriber.person %}
                         {% set subscriber_label = ticket.subscriber.person.first_name ~ ' ' ~ ticket.subscriber.person.last_name %}
@@ -62,7 +63,7 @@
                 {% else %}
                     {% set subscriber_label = prefill.subscriber_label or '' %}
                 {% endif %}
-                {{ typeahead_input("subscriber_id", "/api/v1/search/subscribers", value=(ticket.subscriber_id if ticket else (prefill.subscriber_id or '')), display_value=subscriber_label, placeholder="Search subscribers...", min_chars=0) }}
+                {{ typeahead_input("subscriber_id", "/api/v1/search/subscribers", value=(ticket.subscriber_id if ticket else (prefill.subscriber_id or '')), display_value=subscriber_label, placeholder="Search subscribers...", min_chars=0, id="subscriber_search") }}
             </div>
 
             <div class="sm:col-span-2">
@@ -139,7 +140,7 @@
             </div>
 
             <div>
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Technicians</label>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Technicians / User Group</label>
                 {% set assigned_ids = [] %}
                 {% if ticket %}
                     {% if ticket.assignees %}
@@ -147,9 +148,21 @@
                     {% elif ticket.assigned_to_person_id %}
                         {% set assigned_ids = [ticket.assigned_to_person_id|string] %}
                     {% endif %}
+                {% else %}
+                    {% set assigned_ids = prefill.assigned_to_person_ids or [] %}
+                {% endif %}
+                {% set selected_group_id = (ticket.service_team_id|string) if ticket and ticket.service_team_id else (prefill.service_team_id or '') %}
+                {% set selected_group_label = (ticket.service_team.name) if ticket and ticket.service_team else '' %}
+                {% if not selected_group_label and selected_group_id %}
+                    {% for grp in assignment_groups or [] %}
+                        {% if grp.id|string == selected_group_id|string %}
+                            {% set selected_group_label = grp.label %}
+                        {% endif %}
+                    {% endfor %}
                 {% endif %}
                 {% set tech_ids = [] %}
                 <div id="technician-typeahead"
+                     data-assignment-groups="{{ (assignment_groups or []) | tojson | forceescape }}"
                      class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-700">
                     <div class="flex flex-wrap gap-2" data-selected-wrap>
                         {% for tech in technicians %}
@@ -167,9 +180,16 @@
                             <input type="hidden" name="assigned_to_person_ids[]" value="{{ tech.person_id|string }}" data-hidden="{{ tech.person_id|string }}">
                             {% endif %}
                         {% endfor %}
+                        {% if selected_group_id %}
+                        <span class="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-1 text-xs text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" data-chip="group:{{ selected_group_id }}">
+                            {{ selected_group_label or 'User Group' }}
+                            <button type="button" class="ml-1 text-indigo-500 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-100" data-remove="group:{{ selected_group_id }}">x</button>
+                        </span>
+                        {% endif %}
                     </div>
+                    <input type="hidden" name="service_team_id" value="{{ selected_group_id }}" data-hidden-group>
                     <input type="text"
-                           placeholder="Search technicians..."
+                           placeholder="Search technicians or groups..."
                            class="mt-2 block w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
                            data-search-input>
                     <div class="mt-2" data-results></div>
@@ -188,7 +208,7 @@
                     {% else %}
                         {% set tech_label = 'Technician ' ~ tech.id|string|truncate(8, True, '') %}
                     {% endif %}
-                    <option value="{{ tech.person_id }}" {% if ticket and ticket.ticket_manager_person_id == tech.person_id %}selected{% endif %}>
+                    <option value="{{ tech.person_id }}" {% if (ticket and ticket.ticket_manager_person_id == tech.person_id) or (not ticket and prefill.ticket_manager_person_id == tech.person_id|string) %}selected{% endif %}>
                         {{ tech_label }}
                     </option>
                     {% endfor %}
@@ -207,7 +227,7 @@
                     {% else %}
                         {% set tech_label = 'Technician ' ~ tech.id|string|truncate(8, True, '') %}
                     {% endif %}
-                    <option value="{{ tech.person_id }}" {% if ticket and ticket.assistant_manager_person_id == tech.person_id %}selected{% endif %}>
+                    <option value="{{ tech.person_id }}" {% if (ticket and ticket.assistant_manager_person_id == tech.person_id) or (not ticket and prefill.assistant_manager_person_id == tech.person_id|string) %}selected{% endif %}>
                         {{ tech_label }}
                     </option>
                     {% endfor %}
@@ -221,7 +241,7 @@
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">Select a type</option>
                     {% for ttype in ticket_types or [] %}
-                    <option value="{{ ttype.name }}" {% if ticket and ticket.ticket_type == ttype.name %}selected{% endif %}>
+                    <option value="{{ ttype.name }}" {% if (ticket and ticket.ticket_type == ttype.name) or (not ticket and prefill.ticket_type == ttype.name) %}selected{% endif %}>
                         {{ ttype.name }}
                     </option>
                     {% endfor %}
@@ -234,12 +254,14 @@
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     {% if ticket and ticket.priority.value == 'normal' %}
                     <option value="normal" selected>Normal</option>
+                    {% elif not ticket and (prefill.priority or 'normal') == 'normal' %}
+                    <option value="normal" selected>Normal</option>
                     {% endif %}
-                    <option value="lower" {% if ticket and ticket.priority.value == 'lower' %}selected{% endif %}>Lower</option>
-                    <option value="low" {% if ticket and ticket.priority.value == 'low' %}selected{% endif %}>Low</option>
-                    <option value="medium" {% if not ticket or ticket.priority.value == 'medium' %}selected{% endif %}>Medium</option>
-                    <option value="high" {% if ticket and ticket.priority.value == 'high' %}selected{% endif %}>High</option>
-                    <option value="urgent" {% if ticket and ticket.priority.value == 'urgent' %}selected{% endif %}>Urgent</option>
+                    <option value="lower" {% if (ticket and ticket.priority.value == 'lower') or (not ticket and prefill.priority == 'lower') %}selected{% endif %}>Lower</option>
+                    <option value="low" {% if (ticket and ticket.priority.value == 'low') or (not ticket and prefill.priority == 'low') %}selected{% endif %}>Low</option>
+                    <option value="medium" {% if (ticket and ticket.priority.value == 'medium') or (not ticket and (prefill.priority or 'normal') == 'medium') %}selected{% endif %}>Medium</option>
+                    <option value="high" {% if (ticket and ticket.priority.value == 'high') or (not ticket and prefill.priority == 'high') %}selected{% endif %}>High</option>
+                    <option value="urgent" {% if (ticket and ticket.priority.value == 'urgent') or (not ticket and prefill.priority == 'urgent') %}selected{% endif %}>Urgent</option>
                 </select>
             </div>
 
@@ -259,29 +281,29 @@
                 <label for="status" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Status</label>
                 <select name="status" id="status"
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="new" {% if ticket and ticket.status.value == 'new' %}selected{% endif %}>New</option>
-                    <option value="open" {% if not ticket or ticket.status.value == 'open' %}selected{% endif %}>Open</option>
-                    <option value="pending" {% if ticket and ticket.status.value == 'pending' %}selected{% endif %}>Pending</option>
-                    <option value="waiting_on_customer" {% if ticket and ticket.status.value == 'waiting_on_customer' %}selected{% endif %}>Waiting on Customer</option>
-                    <option value="lastmile_rerun" {% if ticket and ticket.status.value == 'lastmile_rerun' %}selected{% endif %}>Lastmile Rerun</option>
-                    <option value="site_under_construction" {% if ticket and ticket.status.value == 'site_under_construction' %}selected{% endif %}>Site Under Construction</option>
-                    <option value="on_hold" {% if ticket and ticket.status.value == 'on_hold' %}selected{% endif %}>On Hold</option>
-                    <option value="resolved" {% if ticket and ticket.status.value == 'resolved' %}selected{% endif %}>Resolved</option>
-                    <option value="closed" {% if ticket and ticket.status.value == 'closed' %}selected{% endif %}>Closed</option>
+                    <option value="new" {% if (ticket and ticket.status.value == 'new') or (not ticket and prefill.status == 'new') %}selected{% endif %}>New</option>
+                    <option value="open" {% if (ticket and ticket.status.value == 'open') or (not ticket and (prefill.status or 'open') == 'open') %}selected{% endif %}>Open</option>
+                    <option value="pending" {% if (ticket and ticket.status.value == 'pending') or (not ticket and prefill.status == 'pending') %}selected{% endif %}>Pending</option>
+                    <option value="waiting_on_customer" {% if (ticket and ticket.status.value == 'waiting_on_customer') or (not ticket and prefill.status == 'waiting_on_customer') %}selected{% endif %}>Waiting on Customer</option>
+                    <option value="lastmile_rerun" {% if (ticket and ticket.status.value == 'lastmile_rerun') or (not ticket and prefill.status == 'lastmile_rerun') %}selected{% endif %}>Lastmile Rerun</option>
+                    <option value="site_under_construction" {% if (ticket and ticket.status.value == 'site_under_construction') or (not ticket and prefill.status == 'site_under_construction') %}selected{% endif %}>Site Under Construction</option>
+                    <option value="on_hold" {% if (ticket and ticket.status.value == 'on_hold') or (not ticket and prefill.status == 'on_hold') %}selected{% endif %}>On Hold</option>
+                    <option value="resolved" {% if (ticket and ticket.status.value == 'resolved') or (not ticket and prefill.status == 'resolved') %}selected{% endif %}>Resolved</option>
+                    <option value="closed" {% if (ticket and ticket.status.value == 'closed') or (not ticket and prefill.status == 'closed') %}selected{% endif %}>Closed</option>
                 </select>
             </div>
 
             <div>
                 <label for="due_at" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Due Date</label>
                 <input type="datetime-local" name="due_at" id="due_at"
-                    value="{{ ticket.due_at.strftime('%Y-%m-%dT%H:%M') if ticket and ticket.due_at else '' }}"
+                    value="{{ ticket.due_at.strftime('%Y-%m-%dT%H:%M') if ticket and ticket.due_at else (prefill.due_at or '') }}"
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
             </div>
 
             <div class="sm:col-span-2">
                 <label for="tags" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Tags</label>
                 <input type="text" name="tags" id="tags"
-                    value="{{ ticket.tags | join(', ') if ticket and ticket.tags else '' }}"
+                    value="{{ ticket.tags | join(', ') if ticket and ticket.tags else (prefill.tags or '') }}"
                     placeholder="Comma-separated tags (e.g., billing, technical, urgent)"
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                 <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Separate multiple tags with commas</p>
@@ -483,8 +505,16 @@
         const input = root.querySelector("[data-search-input]");
         const results = root.querySelector("[data-results]");
         const selectedWrap = root.querySelector("[data-selected-wrap]");
+        const groupHidden = root.querySelector("input[type='hidden'][name='service_team_id'][data-hidden-group]");
+        let assignmentGroups = [];
+        try {
+            assignmentGroups = JSON.parse(root.dataset.assignmentGroups || "[]");
+        } catch (e) {
+            assignmentGroups = [];
+        }
         const selected = new Map();
         const hiddenById = new Map();
+        let selectedGroup = null;
 
         const seedHidden = () => {
             const hiddenInputs = root.querySelectorAll("input[type='hidden'][name='assigned_to_person_ids[]']");
@@ -494,13 +524,23 @@
             });
         };
 
+        const seedGroup = () => {
+            if (!groupHidden || !groupHidden.value) return;
+            const id = String(groupHidden.value);
+            const matched = assignmentGroups.find((item) => String(item.id) === id);
+            selectedGroup = {
+                id,
+                label: (matched && matched.label) || "User Group",
+            };
+        };
+
         const bindRemoveButtons = () => {
             const buttons = selectedWrap.querySelectorAll("[data-remove]");
             buttons.forEach((btn) => {
                 if (btn.dataset.bound === "true") return;
                 btn.dataset.bound = "true";
                 const id = btn.dataset.remove;
-                btn.addEventListener("click", () => removeTech(id));
+                btn.addEventListener("click", () => removeEntry(id));
             });
         };
 
@@ -547,10 +587,41 @@
         };
 
         const addTech = (item) => {
+            if (item.kind === "group") {
+                setGroup(item);
+                return;
+            }
             if (selected.has(item.id)) return;
             selected.set(item.id, true);
             createChip(item);
             createHidden(item.id);
+            input.value = "";
+            renderResults();
+        };
+
+        const clearGroup = () => {
+            if (!selectedGroup) return;
+            removeChip(`group:${selectedGroup.id}`);
+            if (groupHidden) groupHidden.value = "";
+            selectedGroup = null;
+        };
+
+        const setGroup = (item) => {
+            const normalizedId = String(item.id || "").replace(/^group:/, "");
+            if (!normalizedId) return;
+            if (selectedGroup && selectedGroup.id === normalizedId) {
+                input.value = "";
+                renderResults();
+                return;
+            }
+            clearGroup();
+            selectedGroup = { id: normalizedId, label: item.label || "User Group" };
+            createChip({
+                id: `group:${normalizedId}`,
+                label: selectedGroup.label,
+                kind: "group",
+            });
+            if (groupHidden) groupHidden.value = normalizedId;
             input.value = "";
             renderResults();
         };
@@ -560,6 +631,15 @@
             removeChip(id);
             removeHidden(id);
             renderResults();
+        };
+
+        const removeEntry = (id) => {
+            if (String(id || "").startsWith("group:")) {
+                clearGroup();
+                renderResults();
+                return;
+            }
+            removeTech(id);
         };
 
         const renderResults = (items) => {
@@ -574,13 +654,32 @@
                 btn.type = "button";
                 btn.className = "w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700";
                 btn.textContent = item.label || item.name || "";
-                btn.addEventListener("click", () => addTech({ id: item.id || item.ref, label: item.label || item.name }));
+                btn.addEventListener("click", () => addTech({
+                    id: item.id || item.ref,
+                    label: item.label || item.name,
+                    kind: item.kind || "technician",
+                }));
                 menu.appendChild(btn);
             });
             results.appendChild(menu);
         };
 
         const fetchResults = (query) => {
+            const term = (query || "").trim().toLowerCase();
+            const groupMatches = assignmentGroups
+                .filter((item) => item && item.id && item.label)
+                .filter((item) => {
+                    const groupId = String(item.id);
+                    if (selectedGroup && selectedGroup.id === groupId) return false;
+                    if (!term) return true;
+                    return String(item.label).toLowerCase().includes(term);
+                })
+                .map((item) => ({
+                    id: `group:${item.id}`,
+                    label: `${item.label} (Group)`,
+                    kind: "group",
+                }))
+                .slice(0, 5);
             const url = `/api/v1/search/technicians?q=${encodeURIComponent(query)}&limit=10`;
             fetch(url)
                 .then((response) => {
@@ -593,10 +692,10 @@
                         const id = String(item.id || item.ref || "");
                         return id && !selected.has(id);
                     });
-                    renderResults(filtered);
+                    renderResults([...groupMatches, ...filtered]);
                 })
                 .catch(() => {
-                    results.innerHTML = "";
+                    renderResults(groupMatches);
                 });
         };
 
@@ -625,6 +724,7 @@
         });
 
         seedHidden();
+        seedGroup();
         bindRemoveButtons();
         results.innerHTML = "";
     })();

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.sales import Quote
 from app.models.person import Person
+from app.models.projects import Project, ProjectStatus, ProjectTemplate, ProjectType
 from app.models.sales_order import (
     SalesOrder,
     SalesOrderLine,
@@ -17,6 +18,8 @@ from app.models.sales_order import (
     SalesOrderStatus,
 )
 from app.models.sequence import DocumentSequence
+from app.schemas.projects import ProjectCreate
+from app.services import projects as projects_service
 from app.services.common import (
     apply_ordering,
     apply_pagination,
@@ -121,10 +124,118 @@ def _ensure_fulfillment(db: Session, sales_order: SalesOrder) -> None:
     return None
 
 
+def _resolve_project_type(value: str | None) -> ProjectType | None:
+    if not value:
+        return None
+    legacy_map = {
+        "radio_installation": ProjectType.air_fiber_installation,
+        "radio_fiber_relocation": ProjectType.air_fiber_relocation,
+    }
+    if value in legacy_map:
+        return legacy_map[value]
+    try:
+        return ProjectType(value)
+    except ValueError:
+        return None
+
+
+def _find_template_for_project_type(db: Session, project_type: ProjectType) -> ProjectTemplate | None:
+    return (
+        db.query(ProjectTemplate)
+        .filter(ProjectTemplate.is_active.is_(True))
+        .filter(ProjectTemplate.project_type == project_type)
+        .order_by(ProjectTemplate.created_at.desc())
+        .first()
+    )
+
+
+def _find_existing_project_for_sales_order(db: Session, sales_order_id: object) -> Project | None:
+    existing = (
+        db.query(Project)
+        .filter(Project.is_active.is_(True))
+        .filter(Project.metadata_["sales_order_id"].as_string() == str(sales_order_id))
+        .first()
+    )
+    if existing:
+        return existing
+
+    # SQLite JSON path comparisons are not reliable across SQLAlchemy/SQLite builds.
+    # Fall back to an in-Python metadata check to keep this idempotent in tests/dev.
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "sqlite":
+        rows = db.query(Project).filter(Project.is_active.is_(True)).all()
+        for row in rows:
+            metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+            if str(metadata.get("sales_order_id")) == str(sales_order_id):
+                return row
+    return None
+
+
+def _build_project_name_for_sales_order(
+    *,
+    base_name: str,
+    owner_label: str | None,
+    sales_order_id: object,
+    max_length: int = 160,
+) -> str:
+    if owner_label:
+        candidate = f"{base_name} - {owner_label}"
+    else:
+        candidate = f"{base_name} - SO {str(sales_order_id)[:8].upper()}"
+    cleaned = " ".join(candidate.split()).strip()
+    if len(cleaned) <= max_length:
+        return cleaned
+    return cleaned[:max_length].rstrip()
+
+
+def _ensure_project_for_manual_sales_order(db: Session, sales_order: SalesOrder) -> Project | None:
+    # Quote-driven flow already creates projects on quote acceptance.
+    if sales_order.quote_id:
+        return None
+
+    existing = _find_existing_project_for_sales_order(db, sales_order.id)
+    if existing:
+        return existing
+
+    metadata = sales_order.metadata_ if isinstance(sales_order.metadata_, dict) else {}
+    project_type_value = metadata.get("project_type") if isinstance(metadata, dict) else None
+    project_type = _resolve_project_type(project_type_value if isinstance(project_type_value, str) else None)
+    template = _find_template_for_project_type(db, project_type) if project_type else None
+
+    person = db.get(Person, sales_order.person_id)
+    owner_label = None
+    if person:
+        owner_label = person.display_name or person.email
+    base_name = project_type.value.replace("_", " ").title() if project_type else "Project"
+    project_name = _build_project_name_for_sales_order(
+        base_name=base_name,
+        owner_label=owner_label,
+        sales_order_id=sales_order.id,
+    )
+
+    project_metadata = {}
+    project_metadata["sales_order_id"] = str(sales_order.id)
+    if project_type:
+        project_metadata["project_type"] = project_type.value
+
+    payload = ProjectCreate(
+        name=project_name,
+        project_type=project_type,
+        project_template_id=template.id if template else None,
+        status=ProjectStatus.active,
+        owner_person_id=sales_order.person_id,
+        metadata_=project_metadata or None,
+    )
+    return projects_service.projects.create(db, payload)
+
+
 class SalesOrders(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload):
         data = payload.model_dump()
+        # Legacy schema still includes fields removed from the model.
+        data.pop("account_id", None)
+        data.pop("invoice_id", None)
         if data.get("status"):
             data["status"] = validate_enum(data["status"], SalesOrderStatus, "status")
         if data.get("payment_status"):
@@ -154,6 +265,7 @@ class SalesOrders(ListResponseMixin):
         db.commit()
         db.refresh(sales_order)
         _ensure_fulfillment(db, sales_order)
+        _ensure_project_for_manual_sales_order(db, sales_order)
         db.commit()
         db.refresh(sales_order)
         return sales_order
@@ -366,6 +478,9 @@ class SalesOrderLines(ListResponseMixin):
         _recalculate_order_totals(db, str(sales_order.id))
         db.commit()
         db.refresh(line)
+        from app.services.events.handlers.splynx_customer import ensure_installation_invoice_for_sales_order
+
+        ensure_installation_invoice_for_sales_order(db, sales_order.id)
         return line
 
     @staticmethod
@@ -382,6 +497,9 @@ class SalesOrderLines(ListResponseMixin):
         _recalculate_order_totals(db, str(line.sales_order_id))
         db.commit()
         db.refresh(line)
+        from app.services.events.handlers.splynx_customer import ensure_installation_invoice_for_sales_order
+
+        ensure_installation_invoice_for_sales_order(db, line.sales_order_id)
         return line
 
     @staticmethod

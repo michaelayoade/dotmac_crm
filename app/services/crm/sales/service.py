@@ -6,18 +6,63 @@ from sqlalchemy import String, cast, func, nullslast, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
-from app.models.crm.enums import LeadStatus, QuoteStatus
+from app.models.crm.enums import ChannelType, LeadStatus, MessageDirection, QuoteStatus
 from app.models.crm.sales import CrmQuoteLineItem, Lead, Pipeline, PipelineStage, Quote
 from app.models.crm.team import CrmAgent
 from app.models.domain_settings import SettingDomain
 from app.models.inventory import InventoryItem
-from app.models.person import PartyStatus, Person
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import PartyStatus, Person, PersonChannel
 from app.models.projects import Project, ProjectStatus, ProjectTemplate, ProjectType
 from app.schemas.projects import ProjectCreate
 from app.services import projects as projects_service
 from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
+
+LEAD_SOURCE_OPTIONS = (
+    "Facebook",
+    "Instagram",
+    "Whatsapp",
+    "Email",
+    "Referrer",
+    "Instagram Ads",
+    "Facebook Ads",
+    "Google",
+    "Website",
+)
+
+_LEAD_SOURCE_NORMALIZED_MAP = {
+    "facebook": "Facebook",
+    "facebook messenger": "Facebook",
+    "facebook_messenger": "Facebook",
+    "instagram": "Instagram",
+    "instagram dm": "Instagram",
+    "instagram_dm": "Instagram",
+    "whatsapp": "Whatsapp",
+    "wa": "Whatsapp",
+    "email": "Email",
+    "referrer": "Referrer",
+    "referral": "Referrer",
+    "instagram ads": "Instagram Ads",
+    "instagram ad": "Instagram Ads",
+    "ig ads": "Instagram Ads",
+    "ig ad": "Instagram Ads",
+    "facebook ads": "Facebook Ads",
+    "facebook ad": "Facebook Ads",
+    "fb ads": "Facebook Ads",
+    "fb ad": "Facebook Ads",
+    "meta ads": "Facebook Ads",
+    "meta ad": "Facebook Ads",
+    "google": "Google",
+    "google ads": "Google",
+    "google ad": "Google",
+    "adwords": "Google",
+    "website": "Website",
+    "web": "Website",
+    "chat widget": "Website",
+    "chat_widget": "Website",
+}
 
 
 def _resolve_owner_agent_id_for_person(db: Session, person_id):
@@ -70,6 +115,147 @@ def _lead_title_from_person(person: Person) -> str | None:
         return person.email.strip() or None
     if person.phone:
         return person.phone.strip() or None
+    return None
+
+
+def _is_placeholder_lead_title(value: str | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().lower()
+    return normalized in {"website chat", "website chat lead"}
+
+
+def _normalize_lead_source(value: str | None) -> str | None:
+    if value is None:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    mapped = _LEAD_SOURCE_NORMALIZED_MAP.get(candidate.lower())
+    if mapped:
+        return mapped
+    if candidate in LEAD_SOURCE_OPTIONS:
+        return candidate
+    return None
+
+
+def _normalize_lead_source_or_400(value: str | None) -> str | None:
+    normalized = _normalize_lead_source(value)
+    if value and value.strip() and not normalized:
+        raise HTTPException(status_code=400, detail="Invalid lead_source")
+    return normalized
+
+
+def _derive_lead_source_from_attribution(attribution: dict | None) -> str | None:
+    if not isinstance(attribution, dict):
+        return None
+
+    keys = (
+        "source",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "referer_uri",
+        "ref",
+        "campaign_id",
+        "ad_id",
+        "adgroup_id",
+        "adset_id",
+    )
+    values: list[str] = []
+    for key in keys:
+        raw = attribution.get(key)
+        if raw is None:
+            continue
+        if isinstance(raw, str):
+            candidate = raw.strip().lower()
+        else:
+            candidate = str(raw).strip().lower()
+        if candidate:
+            values.append(candidate)
+
+    combined = " ".join(values)
+    if not combined:
+        return None
+    if "google" in combined or "adwords" in combined or "gclid" in combined:
+        return "Google"
+    if "instagram" in combined or "ig_" in combined or " ig " in f" {combined} ":
+        return "Instagram Ads"
+    if "facebook" in combined or "fb" in combined or "meta" in combined:
+        return "Facebook Ads"
+    if "referrer" in combined or "referral" in combined or "referer" in combined or "ref=" in combined:
+        return "Referrer"
+    if "website" in combined or "web" in combined:
+        return "Website"
+    return None
+
+
+def _derive_lead_source_from_person_channels(db: Session, person_id) -> str | None:
+    channels = (
+        db.query(PersonChannel.channel_type)
+        .filter(PersonChannel.person_id == person_id)
+        .all()
+    )
+    channel_types = {row[0] for row in channels}
+    if PersonChannelType.instagram_dm in channel_types:
+        return "Instagram"
+    if PersonChannelType.facebook_messenger in channel_types:
+        return "Facebook"
+    if PersonChannelType.whatsapp in channel_types:
+        return "Whatsapp"
+    if PersonChannelType.email in channel_types:
+        return "Email"
+    if PersonChannelType.chat_widget in channel_types:
+        return "Website"
+    return None
+
+
+def _derive_lead_source_from_recent_inbound_messages(db: Session, person_id) -> str | None:
+    rows = (
+        db.query(Message.channel_type, Message.metadata_)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .filter(Conversation.person_id == person_id)
+        .filter(Message.direction == MessageDirection.inbound)
+        .order_by(Message.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    for channel_type, metadata in rows:
+        msg_meta = metadata if isinstance(metadata, dict) else {}
+        msg_attr = msg_meta.get("attribution") if isinstance(msg_meta, dict) else None
+        inferred = _derive_lead_source_from_attribution(msg_attr if isinstance(msg_attr, dict) else None)
+        if inferred:
+            return inferred
+        if channel_type == ChannelType.instagram_dm:
+            return "Instagram"
+        if channel_type == ChannelType.facebook_messenger:
+            return "Facebook"
+        if channel_type == ChannelType.whatsapp:
+            return "Whatsapp"
+        if channel_type == ChannelType.email:
+            return "Email"
+        if channel_type == ChannelType.chat_widget:
+            return "Website"
+    return None
+
+
+def _infer_lead_source(db: Session, person: Person | None, metadata: dict | None) -> str | None:
+    metadata_attr = metadata.get("attribution") if isinstance(metadata, dict) else None
+    inferred = _derive_lead_source_from_attribution(metadata_attr if isinstance(metadata_attr, dict) else None)
+    if inferred:
+        return inferred
+    person_meta = person.metadata_ if person and isinstance(person.metadata_, dict) else {}
+    person_attr = person_meta.get("attribution") if isinstance(person_meta, dict) else None
+    inferred = _derive_lead_source_from_attribution(person_attr if isinstance(person_attr, dict) else None)
+    if inferred:
+        return inferred
+    if person:
+        inferred = _derive_lead_source_from_recent_inbound_messages(db, person.id)
+        if inferred:
+            return inferred
+        inferred = _derive_lead_source_from_person_channels(db, person.id)
+        if inferred:
+            return inferred
     return None
 
 
@@ -154,6 +340,23 @@ def _find_template_for_project_type(db: Session, project_type: ProjectType) -> P
     )
 
 
+def _build_project_name_for_quote(
+    *,
+    base_name: str,
+    owner_label: str | None,
+    quote_id: object,
+    max_length: int = 160,
+) -> str:
+    if owner_label:
+        candidate = f"{base_name} - {owner_label}"
+    else:
+        candidate = f"{base_name} - Quote {str(quote_id)[:8].upper()}"
+    cleaned = " ".join(candidate.split()).strip()
+    if len(cleaned) <= max_length:
+        return cleaned
+    return cleaned[:max_length].rstrip()
+
+
 def _ensure_project_from_quote(db: Session, quote: Quote, sales_order_id: str | None) -> Project | None:
     existing = _find_existing_project_for_quote(db, quote.id)
     if existing:
@@ -170,7 +373,11 @@ def _ensure_project_from_quote(db: Session, quote: Quote, sales_order_id: str | 
     if person:
         owner_label = person.display_name or person.email
     base_name = project_type.value.replace("_", " ").title() if project_type else "Project"
-    project_name = f"{base_name} - {owner_label}" if owner_label else f"{base_name} - Quote {str(quote.id)[:8].upper()}"
+    project_name = _build_project_name_for_quote(
+        base_name=base_name,
+        owner_label=owner_label,
+        quote_id=quote.id,
+    )
 
     project_metadata = dict(metadata) if isinstance(metadata, dict) else {}
     project_metadata["quote_id"] = str(quote.id)
@@ -306,6 +513,8 @@ class Leads(ListResponseMixin):
         data = payload.model_dump()
         if data.get("status"):
             data["status"] = validate_enum(data["status"], LeadStatus, "status")
+        if "lead_source" in data:
+            data["lead_source"] = _normalize_lead_source_or_400(data.get("lead_source"))
 
         # Validate person_id is provided
         person_id = data.get("person_id")
@@ -321,7 +530,9 @@ class Leads(ListResponseMixin):
             person.party_status = PartyStatus.contact
 
         title_value = data.get("title")
-        if not title_value or (isinstance(title_value, str) and not title_value.strip()):
+        if not title_value or (isinstance(title_value, str) and not title_value.strip()) or _is_placeholder_lead_title(
+            title_value
+        ):
             data["title"] = _lead_title_from_person(person)
 
         if not data.get("owner_agent_id"):
@@ -330,6 +541,8 @@ class Leads(ListResponseMixin):
             default_currency = settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
             if default_currency:
                 data["currency"] = default_currency
+        if not data.get("lead_source"):
+            data["lead_source"] = _infer_lead_source(db, person, data.get("metadata_"))
         lead = Lead(**data)
         _apply_lead_closed_at(lead, lead.status)
         db.add(lead)
@@ -356,6 +569,7 @@ class Leads(ListResponseMixin):
         order_dir: str,
         limit: int,
         offset: int,
+        lead_source: str | None = None,
     ):
         query = db.query(Lead)
         if pipeline_id:
@@ -367,6 +581,8 @@ class Leads(ListResponseMixin):
         if status:
             status_value = validate_enum(status, LeadStatus, "status")
             query = query.filter(Lead.status == status_value)
+        if lead_source:
+            query = query.filter(func.lower(Lead.lead_source) == lead_source.strip().lower())
         if is_active is None:
             query = query.filter(Lead.is_active.is_(True))
         else:
@@ -388,6 +604,8 @@ class Leads(ListResponseMixin):
         data = payload.model_dump(exclude_unset=True)
         if "status" in data:
             data["status"] = validate_enum(data["status"], LeadStatus, "status")
+        if "lead_source" in data:
+            data["lead_source"] = _normalize_lead_source_or_400(data.get("lead_source"))
 
         # If person_id is being changed, validate it exists
         if data.get("person_id"):
@@ -399,7 +617,9 @@ class Leads(ListResponseMixin):
 
         if "title" in data:
             title_value = data.get("title")
-            if not title_value or (isinstance(title_value, str) and not title_value.strip()):
+            if not title_value or (isinstance(title_value, str) and not title_value.strip()) or _is_placeholder_lead_title(
+                title_value
+            ):
                 inferred = _lead_title_from_person(person) if person else None
                 data["title"] = inferred
 
@@ -533,6 +753,41 @@ class Leads(ListResponseMixin):
             "probability": lead.probability,
         }
 
+    @staticmethod
+    def bulk_assign_pipeline(
+        db: Session,
+        pipeline_id: str,
+        stage_id: str | None = None,
+        *,
+        scope: str = "unassigned",
+    ) -> int:
+        pipeline = db.get(Pipeline, coerce_uuid(pipeline_id))
+        if not pipeline:
+            raise HTTPException(status_code=404, detail="Pipeline not found")
+
+        resolved_stage_id = None
+        if stage_id:
+            stage = db.get(PipelineStage, coerce_uuid(stage_id))
+            if not stage or stage.pipeline_id != pipeline.id:
+                raise HTTPException(status_code=400, detail="Selected stage does not belong to this pipeline")
+            resolved_stage_id = stage.id
+
+        query = db.query(Lead).filter(Lead.is_active.is_(True))
+        if scope == "unassigned":
+            query = query.filter(Lead.pipeline_id.is_(None))
+        elif scope != "all_active":
+            raise HTTPException(status_code=400, detail="Unsupported bulk assign scope")
+
+        count = query.update(
+            {
+                Lead.pipeline_id: pipeline.id,
+                Lead.stage_id: resolved_stage_id,
+            },
+            synchronize_session=False,
+        )
+        db.commit()
+        return int(count)
+
 
 class Quotes(ListResponseMixin):
     @staticmethod
@@ -569,7 +824,13 @@ class Quotes(ListResponseMixin):
         if quote.status == QuoteStatus.accepted:
             from app.services import sales_orders as sales_order_service
 
-            sales_order_service.sales_orders.create_from_quote(db, str(quote.id))
+            if quote.person and quote.person.party_status in (PartyStatus.lead, PartyStatus.contact):
+                quote.person.party_status = PartyStatus.customer
+                db.commit()
+                db.refresh(quote)
+
+            sales_order = sales_order_service.sales_orders.create_from_quote(db, str(quote.id))
+            _ensure_project_from_quote(db, quote, str(sales_order.id) if sales_order else None)
         return quote
 
     @staticmethod

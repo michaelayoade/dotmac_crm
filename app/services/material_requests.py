@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.domain_settings import SettingDomain
 from app.models.inventory import InventoryItem
 from app.models.material_request import (
     MaterialRequest,
@@ -25,6 +26,7 @@ from app.services.common import (
     get_or_404,
     validate_enum,
 )
+from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
@@ -39,11 +41,67 @@ _TERMINAL_STATUSES = {
 }
 
 
+def _validate_items_exist_in_erp(db: Session, mr: MaterialRequest) -> None:
+    """Validate that all material request item SKUs exist in ERP before approval."""
+    from app.services.dotmac_erp import DotMacERPError
+    from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
+
+    try:
+        sync_service = dotmac_erp_material_request_sync(db)
+    except ValueError:
+        # ERP not configured in this environment; keep existing behavior.
+        return
+
+    missing_codes: set[str] = set()
+    checked: dict[str, bool] = {}
+    try:
+        for mr_item in mr.items:
+            code = ((mr_item.item.sku if mr_item.item else None) or "").strip()
+            if not code:
+                missing_codes.add("(missing SKU)")
+                continue
+            if code not in checked:
+                matches = sync_service.client.get_inventory_items(
+                    limit=50,
+                    offset=0,
+                    search=code,
+                    include_zero_stock=True,
+                )
+                checked[code] = any((entry.get("item_code") or "").strip() == code for entry in matches)
+            if not checked[code]:
+                missing_codes.add(code)
+    except DotMacERPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Cannot validate ERP item codes right now: {exc}",
+        ) from exc
+    finally:
+        sync_service.close()
+
+    if missing_codes:
+        codes = ", ".join(sorted(missing_codes))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot approve material request. Item code(s) not found in ERP: {codes}",
+        )
+
+
 class MaterialRequests(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: MaterialRequestCreate) -> MaterialRequest:
         get_or_404(db, Person, str(payload.requested_by_person_id), detail="Person not found")
         data = payload.model_dump(exclude={"items"})
+        number = generate_number(
+            db=db,
+            domain=SettingDomain.numbering,
+            sequence_key="material_request_number",
+            enabled_key="material_request_number_enabled",
+            prefix_key="material_request_number_prefix",
+            padding_key="material_request_number_padding",
+            start_key="material_request_number_start",
+        )
+        if number:
+            data["number"] = number
         mr = MaterialRequest(
             **data,
             status=MaterialRequestStatus.submitted,
@@ -144,6 +202,7 @@ class MaterialRequests(ListResponseMixin):
 
         approver_uuid = coerce_uuid(approved_by_person_id)
         get_or_404(db, Person, str(approver_uuid), detail="Approver not found")
+        _validate_items_exist_in_erp(db, mr)
 
         mr.status = MaterialRequestStatus.issued
         mr.approved_by_person_id = approver_uuid

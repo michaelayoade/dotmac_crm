@@ -29,6 +29,7 @@
 
     <div class="animate-fade-in-up overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 75ms">
         <form method="post" action="/admin/system/users/{{ user.id }}/edit" class="space-y-6 p-6">
+            {% include "components/forms/csrf_input.html" %}
             <div class="grid gap-4 sm:grid-cols-2">
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">First Name</label>

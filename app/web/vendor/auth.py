@@ -22,13 +22,11 @@ def vendor_login_page(request: Request, error: str | None = None):
 
 
 @router.post("/login", response_class=HTMLResponse)
-def vendor_login_submit(
+async def vendor_login_submit(
     request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    remember: bool = Form(False),
     db: Session = Depends(get_db),
 ):
+    username, password, remember = await web_vendor_auth_service.parse_vendor_login_payload(request)
     return web_vendor_auth_service.vendor_login_submit(request, db, username, password, remember)
 
 
@@ -76,11 +74,9 @@ def vendor_reset_password_page(request: Request, token: str, error: str | None =
 
 
 @router.post("/reset-password", response_class=HTMLResponse)
-def vendor_reset_password_submit(
+async def vendor_reset_password_submit(
     request: Request,
-    token: str = Form(...),
-    password: str = Form(...),
-    password_confirm: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    token, password, password_confirm = await web_vendor_auth_service.parse_vendor_reset_payload(request)
     return web_vendor_auth_service.vendor_reset_password_submit(request, db, token, password, password_confirm)

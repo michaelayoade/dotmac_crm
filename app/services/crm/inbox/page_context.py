@@ -7,19 +7,22 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.logic import private_note_logic
 from app.models.connector import ConnectorType
-from app.models.crm.conversation import Conversation, Message
+from app.models.crm.conversation import Conversation, ConversationAssignment, Message
 from app.models.crm.enums import ChannelType
+from app.models.crm.team import CrmAgent, CrmTeam
 from app.models.domain_settings import SettingDomain
+from app.models.person import Person
 from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox.agents import get_current_agent_id, list_active_agents_for_mentions
 from app.services.crm.inbox.comments_context import list_comment_inboxes, load_comments_context
+from app.services.crm.inbox.csat import get_conversation_csat_event
 from app.services.crm.inbox.dashboard import load_inbox_stats
 from app.services.crm.inbox.formatting import (
     filter_messages_for_user,
@@ -29,10 +32,65 @@ from app.services.crm.inbox.formatting import (
 )
 from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel_targets
 from app.services.crm.inbox.listing import load_inbox_list
+from app.services.crm.inbox.macros import conversation_macros
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
+
+
+def _person_label(person: Person | None) -> str | None:
+    if not person:
+        return None
+    full_name = person.display_name or " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+    return full_name or person.email or None
+
+
+def _load_assignment_activity(
+    db: Session,
+    *,
+    conversation_id: str,
+    limit: int = 5,
+) -> tuple[list[dict], dict | None]:
+    assigner = aliased(Person)
+    agent_person = aliased(Person)
+    rows = (
+        db.query(ConversationAssignment, assigner, CrmAgent, agent_person, CrmTeam)
+        .outerjoin(assigner, assigner.id == ConversationAssignment.assigned_by_id)
+        .outerjoin(CrmAgent, CrmAgent.id == ConversationAssignment.agent_id)
+        .outerjoin(agent_person, agent_person.id == CrmAgent.person_id)
+        .outerjoin(CrmTeam, CrmTeam.id == ConversationAssignment.team_id)
+        .filter(ConversationAssignment.conversation_id == coerce_uuid(conversation_id))
+        .order_by(
+            ConversationAssignment.assigned_at.desc().nullslast(),
+            ConversationAssignment.created_at.desc(),
+        )
+        .limit(limit)
+        .all()
+    )
+
+    events: list[dict] = []
+    latest_manual: dict | None = None
+    for assignment, assigned_by, _agent, assigned_agent_person, assigned_team in rows:
+        assigned_to_label = _person_label(assigned_agent_person)
+        if not assigned_to_label and assigned_team:
+            assigned_to_label = assigned_team.name or "Team"
+        if not assigned_to_label:
+            assigned_to_label = "Unassigned"
+
+        assigned_by_label = _person_label(assigned_by) or "System"
+        assigned_at = assignment.assigned_at or assignment.created_at
+        event = {
+            "assigned_to": assigned_to_label,
+            "assigned_by": assigned_by_label,
+            "assigned_at": assigned_at,
+            "is_manual": bool(assignment.assigned_by_id),
+        }
+        events.append(event)
+        if latest_manual is None and event["is_manual"]:
+            latest_manual = event
+
+    return events, latest_manual
 
 
 async def build_inbox_page_context(
@@ -50,6 +108,9 @@ async def build_inbox_page_context(
     target_id: str | None = None,
     conversation_id: str | None = None,
     comment_id: str | None = None,
+    filter_agent_id: str | None = None,
+    assigned_from: datetime | None = None,
+    assigned_to: datetime | None = None,
     offset: int | None = None,
     limit: int | None = None,
     page: int | None = None,
@@ -101,6 +162,9 @@ async def build_inbox_page_context(
             assignment=assignment,
             assigned_person_id=assigned_person_id,
             target_id=target_id,
+            filter_agent_id=filter_agent_id,
+            assigned_from=assigned_from,
+            assigned_to=assigned_to,
             offset=0,
             limit=page_limit,
             include_thread=False,
@@ -242,9 +306,15 @@ async def build_inbox_page_context(
         "agents": assignment_options.get("agents"),
         "teams": assignment_options.get("teams"),
         "agent_labels": assignment_options.get("agent_labels"),
+        "current_filter_agent_id": filter_agent_id or "",
+        "current_assigned_from": assigned_from.strftime("%Y-%m-%d") if assigned_from else "",
+        "current_assigned_to": assigned_to.strftime("%Y-%m-%d") if assigned_to else "",
         "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
         "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
         "message_templates": templates,
+        "macros": conversation_macros.list_for_agent(db, str(current_agent_id))
+        if current_agent_id
+        else conversation_macros.list(db, visibility="shared", is_active=True, limit=200),
     }
 
 
@@ -258,6 +328,9 @@ async def build_inbox_conversations_partial_context(
     assignment: str | None = None,
     assigned_person_id: str | None = None,
     target_id: str | None = None,
+    filter_agent_id: str | None = None,
+    assigned_from: datetime | None = None,
+    assigned_to: datetime | None = None,
     offset: int | None = None,
     limit: int | None = None,
     page: int | None = None,
@@ -274,6 +347,9 @@ async def build_inbox_conversations_partial_context(
         assignment=assignment,
         assigned_person_id=assigned_person_id,
         target_id=target_id,
+        filter_agent_id=filter_agent_id,
+        assigned_from=assigned_from,
+        assigned_to=assigned_to,
         offset=safe_offset,
         limit=page_limit,
         include_thread=False,
@@ -400,6 +476,45 @@ def build_inbox_conversation_detail_context(
 
     conversation = format_conversation_for_template(thread.conversation, db, include_inbox_label=True)
     messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
+    assignment_events, latest_manual_assignment = _load_assignment_activity(
+        db,
+        conversation_id=conversation_id,
+        limit=5,
+    )
+    csat_event = get_conversation_csat_event(db, conversation_id=conversation_id)
+    if csat_event and csat_event.timestamp is not None:
+        messages.append(
+            {
+                "id": f"csat-{csat_event.id}",
+                "direction": "system",
+                "timestamp": csat_event.timestamp,
+                "is_private_note": False,
+                "is_csat": True,
+                "sender": {"name": "CSAT", "initials": "CS"},
+                "content": "Customer satisfaction submitted",
+                "csat": {
+                    "survey_name": csat_event.survey_name,
+                    "rating": csat_event.rating,
+                    "feedback": csat_event.feedback,
+                },
+            }
+        )
+    if latest_manual_assignment and isinstance(latest_manual_assignment.get("assigned_at"), datetime):
+        messages.append(
+            {
+                "id": f"assignment-{conversation_id}-{latest_manual_assignment['assigned_at'].isoformat()}",
+                "direction": "system",
+                "timestamp": latest_manual_assignment["assigned_at"],
+                "is_private_note": False,
+                "is_assignment_event": True,
+                "sender": {"name": "Assignment", "initials": "AS"},
+                "assignment": {
+                    "assigned_by": latest_manual_assignment.get("assigned_by") or "System",
+                    "assigned_to": latest_manual_assignment.get("assigned_to") or "Unassigned",
+                },
+            }
+        )
+    messages.sort(key=lambda msg: msg["timestamp"].isoformat() if isinstance(msg.get("timestamp"), datetime) else "")
     current_person_id = (current_user or {}).get("person_id")
     current_agent_id = get_current_agent_id(db, current_person_id)
     messages = filter_messages_for_user(
@@ -415,6 +530,11 @@ def build_inbox_conversation_detail_context(
         offset=0,
     )
     mention_agents = list_active_agents_for_mentions(db)
+    macros = (
+        conversation_macros.list_for_agent(db, str(current_agent_id))
+        if current_agent_id
+        else conversation_macros.list(db, visibility="shared", is_active=True, limit=200)
+    )
     return {
         "conversation": conversation,
         "messages": messages,
@@ -423,4 +543,7 @@ def build_inbox_conversation_detail_context(
         "current_roles": current_roles,
         "message_templates": templates_list,
         "mention_agents": mention_agents,
+        "assignment_events": assignment_events,
+        "latest_manual_assignment": latest_manual_assignment,
+        "macros": macros,
     }

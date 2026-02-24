@@ -28,6 +28,43 @@ def test_coerce_identity_dict_and_extract():
     assert identity["phone"] == "+1555123456"
 
 
+def test_extract_meta_attribution_from_nested_referral_payload():
+    attribution = meta_webhooks._extract_meta_attribution(
+        {
+            "referral": {
+                "source": "ADS",
+                "ad_id": "12001",
+                "campaign_id": "8899",
+                "utm_source": "meta",
+                "utm_campaign": "fiber-promo",
+            }
+        }
+    )
+    assert attribution["source"] == "ADS"
+    assert attribution["ad_id"] == "12001"
+    assert attribution["campaign_id"] == "8899"
+    assert attribution["utm_source"] == "meta"
+    assert attribution["utm_campaign"] == "fiber-promo"
+
+
+def test_upsert_entity_attribution_metadata_updates_last_seen_and_channel():
+    class DummyEntity:
+        def __init__(self):
+            self.metadata_ = {"attribution": {"ad_id": "old"}}
+
+    entity = DummyEntity()
+    meta_webhooks._upsert_entity_attribution_metadata(
+        entity,
+        attribution={"campaign_id": "new-campaign"},
+        channel=meta_webhooks.ChannelType.facebook_messenger,
+    )
+    attribution = entity.metadata_["attribution"]
+    assert attribution["ad_id"] == "old"
+    assert attribution["campaign_id"] == "new-campaign"
+    assert attribution["last_channel"] == "facebook_messenger"
+    assert isinstance(attribution["last_seen_at"], str)
+
+
 def test_extract_location_from_attachments():
     attachments = [
         {"type": "image", "payload": {}},

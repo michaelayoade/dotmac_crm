@@ -315,10 +315,12 @@ class Contacts(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload):
         data = payload.model_dump()
-        splynx_id = None
-        if data.get("splynx_id"):
-            splynx_id = str(data["splynx_id"]).strip() or None
-            data.pop("splynx_id", None)
+        raw_splynx_id = data.get("splynx_id")
+        splynx_id: str | None = str(raw_splynx_id).strip() if raw_splynx_id is not None else ""
+        splynx_id = splynx_id or None
+        # `Person.splynx_id` is a read-only hybrid property backed by metadata_.
+        # Always remove it from constructor data to avoid AttributeError.
+        data.pop("splynx_id", None)
         if data.get("email"):
             data["email"] = _normalize_email(data["email"]) or data["email"]
             existing = db.query(Person).filter(func.lower(Person.email) == data["email"]).first()

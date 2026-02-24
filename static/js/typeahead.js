@@ -11,9 +11,39 @@
         }
         var timer = null;
         var lastQuery = "";
+        var menu = null;
+
+        function positionMenu() {
+            if (!menu) {
+                return;
+            }
+            var rect = input.getBoundingClientRect();
+            var gap = 8;
+            var minMenuHeight = 80;
+            var maxMenuHeight = 320;
+            var viewportPad = 12;
+            var spaceBelow = window.innerHeight - rect.bottom - viewportPad;
+            var spaceAbove = rect.top - viewportPad;
+            var showAbove = spaceBelow < minMenuHeight && spaceAbove > spaceBelow;
+            var availableSpace = showAbove ? spaceAbove : spaceBelow;
+            var constrainedHeight = Math.max(minMenuHeight, Math.min(maxMenuHeight, availableSpace));
+
+            menu.style.left = window.scrollX + rect.left + "px";
+            menu.style.width = rect.width + "px";
+            menu.style.maxHeight = constrainedHeight + "px";
+            menu.style.top = showAbove
+                ? window.scrollY + rect.top - constrainedHeight - gap + "px"
+                : window.scrollY + rect.bottom + gap + "px";
+        }
 
         function clearResults() {
             results.innerHTML = "";
+            if (menu) {
+                menu.remove();
+                menu = null;
+                window.removeEventListener("resize", positionMenu);
+                window.removeEventListener("scroll", positionMenu, true);
+            }
         }
 
         function updateHiddenValue(value) {
@@ -27,8 +57,10 @@
                 clearResults();
                 return;
             }
-            var menu = document.createElement("div");
-            menu.className = "absolute z-10 mt-2 w-full rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800";
+            clearResults();
+            menu = document.createElement("div");
+            menu.className = "absolute z-50 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800";
+            menu.style.zIndex = "1000";
             items.forEach(function (item) {
                 var button = document.createElement("button");
                 button.type = "button";
@@ -41,8 +73,11 @@
                 });
                 menu.appendChild(button);
             });
+            document.body.appendChild(menu);
             results.innerHTML = "";
-            results.appendChild(menu);
+            positionMenu();
+            window.addEventListener("resize", positionMenu);
+            window.addEventListener("scroll", positionMenu, true);
         }
 
         function maybeFetchResults(query, force) {
@@ -101,7 +136,7 @@
         });
 
         document.addEventListener("click", function (event) {
-            if (!container.contains(event.target)) {
+            if (!container.contains(event.target) && (!menu || !menu.contains(event.target))) {
                 clearResults();
             }
         });
@@ -113,6 +148,12 @@
             initTypeahead(container);
         });
     }
+
+    // Expose an API for dynamically added rows (e.g., material request item rows).
+    // Backwards compatible: existing pages still rely on DOMContentLoaded init.
+    window.DotmacTypeahead = window.DotmacTypeahead || {};
+    window.DotmacTypeahead.initTypeahead = initTypeahead;
+    window.DotmacTypeahead.initAll = initAll;
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", initAll);

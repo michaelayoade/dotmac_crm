@@ -26,6 +26,14 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _coerce_ttl(value: object | None, default: int) -> int:
     if isinstance(value, int):
         return value
@@ -76,7 +84,7 @@ def _create_session(
     vendor_id: str,
     role: str | None,
     remember: bool,
-    session_id: str | None,
+    session_id: str | None = None,
     db: Session | None = None,
 ) -> str:
     ttl_seconds = _session_ttl_seconds(remember, db)
@@ -134,8 +142,8 @@ def _get_session(session_token: str, db: Session | None = None) -> dict | None:
     session = _VENDOR_SESSIONS.get(session_token)
     if not session:
         return None
-    expires_at = datetime.fromisoformat(session["expires_at"])
-    if _now() > expires_at:
+    expires_at = _as_utc(datetime.fromisoformat(session["expires_at"]))
+    if expires_at and _now() > expires_at:
         del _VENDOR_SESSIONS[session_token]
         return None
     return session
@@ -198,7 +206,8 @@ def _session_from_access_token(
     auth_session = db.get(AuthSession, coerce_uuid(session_id))
     if not auth_session or auth_session.status != SessionStatus.active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
-    if auth_session.expires_at and auth_session.expires_at <= _now():
+    auth_expires_at = _as_utc(auth_session.expires_at)
+    if auth_expires_at and auth_expires_at <= _now():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
 
     vendor_user = _get_vendor_user(db, str(person_id))
@@ -239,13 +248,14 @@ def get_context(db: Session, session_token: str | None) -> dict | None:
         if not auth_session or auth_session.status != SessionStatus.active:
             invalidate_session(session_token or "", db=db)
             return None
-        if auth_session.expires_at and auth_session.expires_at <= _now():
+        auth_expires_at = _as_utc(auth_session.expires_at)
+        if auth_expires_at and auth_expires_at <= _now():
             invalidate_session(session_token or "", db=db)
             return None
 
     person = db.get(Person, coerce_uuid(session["person_id"]))
     vendor = db.get(Vendor, coerce_uuid(session["vendor_id"]))
-    if not _person_is_active(person) or not _vendor_is_active(vendor):
+    if not person or not vendor or not _person_is_active(person) or not _vendor_is_active(vendor):
         # Session is no longer valid if either side is deactivated.
         invalidate_session(session_token or "", db=db)
         return None

@@ -292,9 +292,18 @@ class SubscriberManager:
             return results
 
         # Splynx ID is stored in people.metadata.splynx_id today.
-        people = (
-            db.query(Person).filter(func.json_extract_path_text(Person.metadata_, "splynx_id").in_(external_ids)).all()
-        )
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "sqlite":
+            people = [
+                person
+                for person in db.query(Person).all()
+                if isinstance(person.metadata_, dict)
+                and str(person.metadata_.get("splynx_id") or "").strip() in external_ids
+            ]
+        else:
+            people = (
+                db.query(Person).filter(func.json_extract_path_text(Person.metadata_, "splynx_id").in_(external_ids)).all()
+            )
 
         people_by_splynx_id: dict[str, list[Person]] = {}
         people_by_id = {p.id: p for p in people}
@@ -439,14 +448,24 @@ class SubscriberManager:
         linked_person_counts = {person_id: int(count) for person_id, count in linked_rows if person_id}
         linked_person_ids = set(linked_person_counts.keys())
 
+        bind = db.get_bind()
+        is_sqlite = bind is not None and bind.dialect.name == "sqlite"
+
         # Business rule: any person with a Splynx ID is considered a subscriber.
-        splynx_people_rows = (
-            db.query(Person.id)
-            .filter(func.json_extract_path_text(Person.metadata_, "splynx_id").isnot(None))
-            .filter(func.json_extract_path_text(Person.metadata_, "splynx_id") != "")
-            .all()
-        )
-        splynx_person_ids = {person_id for (person_id,) in splynx_people_rows if person_id}
+        if is_sqlite:
+            splynx_person_ids = {
+                person.id
+                for person in db.query(Person).all()
+                if isinstance(person.metadata_, dict) and str(person.metadata_.get("splynx_id") or "").strip()
+            }
+        else:
+            splynx_people_rows = (
+                db.query(Person.id)
+                .filter(func.json_extract_path_text(Person.metadata_, "splynx_id").isnot(None))
+                .filter(func.json_extract_path_text(Person.metadata_, "splynx_id") != "")
+                .all()
+            )
+            splynx_person_ids = {person_id for (person_id,) in splynx_people_rows if person_id}
         subscriber_person_ids = linked_person_ids | splynx_person_ids
 
         def normalize_email(value: str | None) -> str | None:
@@ -570,9 +589,17 @@ class SubscriberManager:
         if subscriber_person_ids:
             for person in db.query(Person).filter(Person.id.in_(subscriber_person_ids)).all():
                 people_to_check[person.id] = person
-        for person in (
-            db.query(Person).filter(func.json_extract_path_text(Person.metadata_, "is_reseller") == "true").all()
-        ):
+        if is_sqlite:
+            flagged_resellers = [
+                person
+                for person in db.query(Person).all()
+                if isinstance(person.metadata_, dict) and str(person.metadata_.get("is_reseller")).lower() == "true"
+            ]
+        else:
+            flagged_resellers = (
+                db.query(Person).filter(func.json_extract_path_text(Person.metadata_, "is_reseller") == "true").all()
+            )
+        for person in flagged_resellers:
             people_to_check[person.id] = person
 
         for person in people_to_check.values():

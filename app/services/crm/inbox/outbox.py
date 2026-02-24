@@ -33,6 +33,14 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 def _compute_backoff_seconds(attempts: int, base: float = 5.0, max_backoff: float = 300.0) -> float:
     backoff = min(base * (2 ** max(attempts - 1, 0)), max_backoff)
     jitter = backoff * (secrets.randbelow(2500) / 10000)
@@ -62,7 +70,10 @@ def enqueue_outbound_message(
         if existing:
             return existing
 
-    next_attempt_at = scheduled_at if scheduled_at and scheduled_at > _now() else _now()
+    normalized_scheduled_at = _as_utc(scheduled_at)
+    next_attempt_at = (
+        normalized_scheduled_at if normalized_scheduled_at and normalized_scheduled_at > _now() else _now()
+    )
     payload_data = json.loads(payload.model_dump_json())
     if trace_id:
         payload_data.setdefault("metadata", {})
@@ -117,7 +128,8 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
     if outbox.status in {STATUS_SENT, STATUS_FAILED}:
         return outbox
 
-    if outbox.next_attempt_at and outbox.next_attempt_at > _now():
+    next_attempt_at = _as_utc(outbox.next_attempt_at)
+    if next_attempt_at and next_attempt_at > _now():
         return outbox
 
     attempts = (outbox.attempts or 0) + 1

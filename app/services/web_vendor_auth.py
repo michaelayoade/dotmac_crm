@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory="templates")
 
 
+def _as_str(value: object | None) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def vendor_login_page(request: Request, error: str | None = None):
     session_token = request.cookies.get(vendor_portal.SESSION_COOKIE_NAME)
     with SessionLocal() as db:
@@ -41,12 +45,21 @@ def vendor_login_page(request: Request, error: str | None = None):
 def vendor_login_submit(
     request: Request,
     db: Session,
-    username: str,
-    password: str,
+    username: str | None,
+    password: str | None,
     remember: bool,
 ):
+    username_value = (username or "").strip()
+    password_value = password or ""
+    if not username_value or not password_value:
+        return templates.TemplateResponse(
+            "vendor/auth/login.html",
+            {"request": request, "error": "Please enter your username/email and password"},
+            status_code=400,
+        )
+
     try:
-        result = vendor_portal.login(db, username, password, request, remember)
+        result = vendor_portal.login(db, username_value, password_value, request, remember)
         if result.get("mfa_required"):
             response = RedirectResponse(url="/vendor/auth/mfa", status_code=303)
             response.set_cookie(
@@ -93,6 +106,44 @@ def vendor_login_submit(
             {"request": request, "error": error_msg},
             status_code=401,
         )
+
+
+async def parse_vendor_login_payload(request: Request) -> tuple[str | None, str | None, bool]:
+    username: str | None = None
+    password: str | None = None
+    remember = False
+
+    try:
+        form = await request.form()
+    except Exception:
+        form = None
+
+    if form:
+        username = _as_str(form.get("username")) or _as_str(form.get("email"))
+        password = _as_str(form.get("password"))
+        remember_raw = form.get("remember")
+        if isinstance(remember_raw, str):
+            remember = remember_raw.strip().lower() in {"1", "true", "on", "yes"}
+        elif remember_raw is not None:
+            remember = bool(remember_raw)
+
+    if (not username or not password) and "application/json" in request.headers.get("content-type", "").lower():
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if isinstance(payload, dict):
+            username = username or _as_str(payload.get("username")) or _as_str(payload.get("email"))
+            password = password or _as_str(payload.get("password"))
+            remember_raw = payload.get("remember")
+            if isinstance(remember_raw, bool):
+                remember = remember_raw
+            elif isinstance(remember_raw, str):
+                remember = remember_raw.strip().lower() in {"1", "true", "on", "yes"}
+            elif remember_raw is not None:
+                remember = bool(remember_raw)
+
+    return username, password, remember
 
 
 def vendor_mfa_page(request: Request, error: str | None = None):
@@ -240,22 +291,66 @@ def vendor_reset_password_page(request: Request, token: str, error: str | None =
 def vendor_reset_password_submit(
     request: Request,
     db: Session,
-    token: str,
-    password: str,
-    password_confirm: str,
+    token: str | None,
+    password: str | None,
+    password_confirm: str | None,
 ):
-    if password != password_confirm:
+    token_value = (token or "").strip()
+    password_value = password or ""
+    password_confirm_value = password_confirm or ""
+
+    if not token_value or not password_value or not password_confirm_value:
         return templates.TemplateResponse(
             "vendor/auth/reset-password.html",
-            {"request": request, "token": token, "error": "Passwords do not match"},
+            {"request": request, "token": token_value, "error": "Please complete all required fields"},
+            status_code=400,
+        )
+
+    if password_value != password_confirm_value:
+        return templates.TemplateResponse(
+            "vendor/auth/reset-password.html",
+            {"request": request, "token": token_value, "error": "Passwords do not match"},
             status_code=400,
         )
     try:
-        auth_flow_service.reset_password(db=db, token=token, new_password=password)
+        auth_flow_service.reset_password(db=db, token=token_value, new_password=password_value)
         return RedirectResponse(url="/vendor/auth/login?reset=success", status_code=303)
     except Exception:
         return templates.TemplateResponse(
             "vendor/auth/reset-password.html",
-            {"request": request, "token": token, "error": "Invalid or expired reset link"},
+            {"request": request, "token": token_value, "error": "Invalid or expired reset link"},
             status_code=400,
         )
+
+
+async def parse_vendor_reset_payload(request: Request) -> tuple[str | None, str | None, str | None]:
+    token: str | None = None
+    password: str | None = None
+    password_confirm: str | None = None
+
+    try:
+        form = await request.form()
+    except Exception:
+        form = None
+
+    if form:
+        token = _as_str(form.get("token"))
+        password = _as_str(form.get("password"))
+        password_confirm = _as_str(form.get("password_confirm")) or _as_str(form.get("confirm_password"))
+
+    if (
+        (not token or not password or not password_confirm)
+        and "application/json" in request.headers.get("content-type", "").lower()
+    ):
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if isinstance(payload, dict):
+            token = token or _as_str(payload.get("token"))
+            password = password or _as_str(payload.get("password"))
+            password_confirm = password_confirm or _as_str(payload.get("password_confirm")) or _as_str(
+                payload.get("confirm_password")
+            )
+
+    return token, password, password_confirm

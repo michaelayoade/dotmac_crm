@@ -434,6 +434,7 @@
             <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium
                 {% if project.status == 'active' %}bg-emerald-500/10 text-emerald-400
                 {% elif project.status == 'on_hold' %}bg-amber-500/10 text-amber-400
+                {% elif project.status == 'open' %}bg-sky-500/10 text-sky-400
                 {% elif project.status == 'planned' %}bg-sky-500/10 text-sky-400
                 {% elif project.status == 'canceled' %}bg-slate-500/10 text-slate-400
                 {% else %}bg-slate-500/10 text-slate-400{% endif %}">

@@ -126,6 +126,7 @@ def send_email_with_config(
     subject: str,
     body_html: str,
     body_text: str | None = None,
+    cc_emails: list[str] | None = None,
     reply_to: str | None = None,
     in_reply_to: str | None = None,
     references: str | None = None,
@@ -136,6 +137,7 @@ def send_email_with_config(
         from_name=config.get("from_name") or "System",
         from_email=config.get("from_email", "noreply@example.com"),
         to_email=to_email,
+        cc_emails=cc_emails,
         body_html=body_html,
         body_text=body_text,
         reply_to=reply_to,
@@ -162,7 +164,8 @@ def send_email_with_config(
             server.login(username, password)
 
         from_email = str(config.get("from_email") or "")
-        send_result = server.sendmail(from_email, to_email, msg.as_string())
+        recipients = [to_email, *(cc_emails or [])]
+        send_result = server.sendmail(from_email, recipients, msg.as_string())
         server.quit()
         debug = None
         if send_result:
@@ -186,6 +189,7 @@ def send_email(
     track: bool = True,
     from_name: str | None = None,
     from_email: str | None = None,
+    cc_emails: list[str] | None = None,
     reply_to: str | None = None,
     in_reply_to: str | None = None,
     references: str | None = None,
@@ -217,6 +221,7 @@ def send_email(
         from_name=config["from_name"],
         from_email=config["from_email"],
         to_email=to_email,
+        cc_emails=cc_emails,
         body_html=body_html,
         body_text=body_text,
         reply_to=reply_to,
@@ -253,7 +258,8 @@ def send_email(
         if config["username"] and config["password"]:
             server.login(config["username"], config["password"])
 
-        send_result = server.sendmail(str(config["from_email"]), to_email, msg.as_string())
+        recipients = [to_email, *(cc_emails or [])]
+        send_result = server.sendmail(str(config["from_email"]), recipients, msg.as_string())
         server.quit()
 
         if notification and db:
@@ -288,6 +294,7 @@ def _build_email_message(
     from_name: str,
     from_email: str,
     to_email: str,
+    cc_emails: list[str] | None,
     body_html: str,
     body_text: str | None = None,
     reply_to: str | None = None,
@@ -299,6 +306,8 @@ def _build_email_message(
     msg["Subject"] = subject
     msg["From"] = f"{from_name} <{from_email}>"
     msg["To"] = to_email
+    if cc_emails:
+        msg["Cc"] = ", ".join(cc_emails)
     if reply_to:
         msg["Reply-To"] = reply_to
     if in_reply_to:

@@ -13,6 +13,7 @@
     {% if pm %}{% set _ = _sort_params.append('pm=' ~ pm|urlencode) %}{% endif %}
     {% if spc %}{% set _ = _sort_params.append('spc=' ~ spc|urlencode) %}{% endif %}
     {% if subscriber %}{% set _ = _sort_params.append('subscriber=' ~ subscriber|urlencode) %}{% endif %}
+    {% if filters %}{% set _ = _sort_params.append('filters=' ~ filters|urlencode) %}{% endif %}
     {% if per_page %}{% set _ = _sort_params.append('per_page=' ~ per_page) %}{% endif %}
     {% set sort_extra = _sort_params | join('&') %}
 
@@ -249,7 +250,10 @@
                     <td class="{{ pad }} align-top whitespace-nowrap text-right">
                         <div class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             {{ row_action("/admin/support/tickets/" ~ (ticket.number or ticket.id), icon_view(), "View ticket", "amber") }}
+                            {% if current_user and (('admin' in (current_user.roles or [])) or ('support:ticket:update' in (current_user.permissions or []))) %}
                             {{ row_action("/admin/support/tickets/" ~ (ticket.number or ticket.id) ~ "/edit", icon_edit(), "Edit ticket", "slate") }}
+                            {% endif %}
+                            {% if current_user and (('admin' in (current_user.roles or [])) or ('support:ticket:delete' in (current_user.permissions or []))) %}
                             <form method="post"
                                   action="/admin/support/tickets/{{ ticket.number or ticket.id }}/delete"
                                   onsubmit="return confirm('Delete this ticket? This will hide it from the list.')">
@@ -262,6 +266,7 @@
                                     Delete
                                 </button>
                             </form>
+                            {% endif %}
                         </div>
                     </td>
                 {% endcall %}
@@ -288,6 +293,7 @@
     {% if pm %}{% set _ = pagination_params.append('pm=' ~ pm|urlencode) %}{% endif %}
     {% if spc %}{% set _ = pagination_params.append('spc=' ~ spc|urlencode) %}{% endif %}
     {% if subscriber %}{% set _ = pagination_params.append('subscriber=' ~ subscriber|urlencode) %}{% endif %}
+    {% if filters %}{% set _ = pagination_params.append('filters=' ~ filters|urlencode) %}{% endif %}
     {% if per_page %}{% set _ = pagination_params.append('per_page=' ~ per_page) %}{% endif %}
     {% if order_by and order_by != 'created_at' %}{% set _ = pagination_params.append('order_by=' ~ order_by|urlencode) %}{% endif %}
     {% if order_dir and order_dir != 'desc' %}{% set _ = pagination_params.append('order_dir=' ~ order_dir|urlencode) %}{% endif %}

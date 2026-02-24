@@ -6,6 +6,34 @@ from app.services.crm.inbox.outbound import TransientOutboundError
 from app.services.crm.inbox.outbox import cleanup_old_outbox, list_due_outbox_ids, process_outbox_item
 
 
+@celery_app.task(name="app.tasks.crm_inbox.auto_resolve_idle_conversations")
+def auto_resolve_idle_conversations_task():
+    """Auto-resolve idle conversations based on configured threshold."""
+    import logging
+    import time
+
+    from app.telemetry import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("AUTO_RESOLVE_TASK_START")
+    try:
+        from app.services.crm.inbox.auto_resolve import auto_resolve_idle_conversations
+
+        result = auto_resolve_idle_conversations(session)
+        logger.info("AUTO_RESOLVE_TASK_COMPLETE resolved=%s", result.get("resolved", 0))
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("auto_resolve_idle_conversations", status, time.monotonic() - start)
+
+
 @celery_app.task(name="app.tasks.crm_inbox.send_reply_reminders")
 def send_reply_reminders_task():
     # Temporary operational safety switch: disable heavy reminder scanning.

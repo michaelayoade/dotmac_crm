@@ -131,15 +131,14 @@ async def update_current_agent_location_presence(
         source="browser",
     )
     effective_status = crm_service.agent_presence.effective_status(presence)
+    last_location_at = getattr(presence, "last_location_at", None)
     return JSONResponse(
         {
             "ok": True,
             "agent_id": agent_id,
             "effective_status": effective_status.value if effective_status else None,
             "location_sharing_enabled": bool(getattr(presence, "location_sharing_enabled", False)),
-            "last_location_at": (
-                presence.last_location_at.isoformat() if getattr(presence, "last_location_at", None) else None
-            ),
+            "last_location_at": last_location_at.isoformat() if isinstance(last_location_at, datetime) else None,
         }
     )
 
@@ -160,6 +159,9 @@ async def get_current_agent_presence(
 
     presence = crm_service.agent_presence.get_or_create(db, agent_id)
     effective_status = crm_service.agent_presence.effective_status(presence)
+    last_location_at = getattr(presence, "last_location_at", None)
+    manual_override_status = getattr(presence, "manual_override_status", None)
+    manual_override_set_at = getattr(presence, "manual_override_set_at", None)
 
     # Shift-aware work timer: Online + Away count as working time within current shift window.
     tz_name = resolve_company_timezone(db)
@@ -183,16 +185,10 @@ async def get_current_agent_presence(
             "last_latitude": getattr(presence, "last_latitude", None),
             "last_longitude": getattr(presence, "last_longitude", None),
             "last_location_accuracy_m": getattr(presence, "last_location_accuracy_m", None),
-            "last_location_at": (
-                presence.last_location_at.isoformat() if getattr(presence, "last_location_at", None) else None
-            ),
-            "manual_override_status": (
-                presence.manual_override_status.value if getattr(presence, "manual_override_status", None) else None
-            ),
+            "last_location_at": last_location_at.isoformat() if isinstance(last_location_at, datetime) else None,
+            "manual_override_status": manual_override_status.value if manual_override_status else None,
             "manual_override_set_at": (
-                presence.manual_override_set_at.isoformat()
-                if getattr(presence, "manual_override_set_at", None)
-                else None
+                manual_override_set_at.isoformat() if isinstance(manual_override_set_at, datetime) else None
             ),
             "shift": {
                 "name": shift.name,

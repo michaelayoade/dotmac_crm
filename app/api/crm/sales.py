@@ -21,6 +21,7 @@ from app.schemas.crm.sales import (
     QuoteUpdate,
 )
 from app.services import crm as crm_service
+from app.services.auth_dependencies import require_permission
 
 router = APIRouter(prefix="/crm", tags=["crm-sales"])
 
@@ -85,17 +86,27 @@ def update_pipeline_stage(stage_id: str, payload: PipelineStageUpdate, db: Sessi
     return crm_service.pipeline_stages.update(db, stage_id, payload)
 
 
-@router.post("/leads", response_model=LeadRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/leads",
+    response_model=LeadRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
     return crm_service.leads.create(db, payload)
 
 
-@router.get("/leads", response_model=ListResponse[LeadRead])
+@router.get(
+    "/leads",
+    response_model=ListResponse[LeadRead],
+    dependencies=[Depends(require_permission("crm:lead:read"))],
+)
 def list_leads(
     pipeline_id: str | None = None,
     stage_id: str | None = None,
     owner_agent_id: str | None = None,
     status: str | None = None,
+    lead_source: str | None = None,
     is_active: bool | None = None,
     order_by: str = Query(default="updated_at"),
     order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
@@ -105,29 +116,42 @@ def list_leads(
 ):
     return crm_service.leads.list_response(
         db,
-        pipeline_id,
-        stage_id,
-        owner_agent_id,
-        status,
-        is_active,
-        order_by,
-        order_dir,
-        limit,
-        offset,
+        pipeline_id=pipeline_id,
+        stage_id=stage_id,
+        owner_agent_id=owner_agent_id,
+        status=status,
+        lead_source=lead_source,
+        is_active=is_active,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=limit,
+        offset=offset,
     )
 
 
-@router.get("/leads/{lead_id}", response_model=LeadRead)
+@router.get(
+    "/leads/{lead_id}",
+    response_model=LeadRead,
+    dependencies=[Depends(require_permission("crm:lead:read"))],
+)
 def get_lead(lead_id: str, db: Session = Depends(get_db)):
     return crm_service.leads.get(db, lead_id)
 
 
-@router.patch("/leads/{lead_id}", response_model=LeadRead)
+@router.patch(
+    "/leads/{lead_id}",
+    response_model=LeadRead,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 def update_lead(lead_id: str, payload: LeadUpdate, db: Session = Depends(get_db)):
     return crm_service.leads.update(db, lead_id, payload)
 
 
-@router.delete("/leads/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/leads/{lead_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("crm:lead:write"))],
+)
 def delete_lead(lead_id: str, db: Session = Depends(get_db)):
     crm_service.leads.delete(db, lead_id)
 

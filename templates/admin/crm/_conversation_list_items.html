@@ -154,6 +154,25 @@
                                 {{ conv.inbox.label }}
                             </span>
                             {% endif %}
+
+                            {% if conv.priority is defined and conv.priority not in ('none', None) %}
+                            {% set priority_badge_colors = {
+                                'low': 'bg-blue-500/10 text-blue-600 border-blue-500/20 dark:text-blue-400',
+                                'medium': 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20 dark:text-yellow-400',
+                                'high': 'bg-orange-500/10 text-orange-600 border-orange-500/20 dark:text-orange-400',
+                                'urgent': 'bg-red-500/10 text-red-600 border-red-500/20 dark:text-red-400',
+                            } %}
+                            <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border {{ priority_badge_colors.get(conv.priority, '') }}" title="Priority: {{ conv.priority | capitalize }}">
+                                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"/></svg>
+                                {{ conv.priority | capitalize }}
+                            </span>
+                            {% endif %}
+
+                            {% if conv.is_muted is defined and conv.is_muted %}
+                            <span class="inline-flex items-center text-slate-400 dark:text-slate-500" title="Muted">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/></svg>
+                            </span>
+                            {% endif %}
                         </div>
 
                         <span data-role="unread-count"

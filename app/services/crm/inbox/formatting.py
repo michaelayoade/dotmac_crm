@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
@@ -132,6 +133,28 @@ def _sanitize_message_html(value: str) -> str:
     sanitizer.feed(value)
     sanitizer.close()
     return sanitizer.get_html()
+
+
+def _normalize_storage_attachment_url(url: str | None) -> str | None:
+    if not url or settings.storage_backend != "s3":
+        return url
+    if url.startswith("/admin/storage/"):
+        return url
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return url
+    path = (parsed.path or url).lstrip("/")
+    bucket_prefix = f"{settings.s3_bucket}/"
+    if path.startswith(bucket_prefix):
+        key = path[len(bucket_prefix) :]
+    elif path.startswith("uploads/"):
+        key = path
+    else:
+        return url
+    if not key.startswith("uploads/"):
+        return url
+    return f"/admin/storage/{settings.s3_bucket}/{key}"
 
 
 def _normalize_cid(value: str | None) -> str | None:
@@ -432,6 +455,8 @@ def format_conversation_for_template(
         },
         "channel": channel,
         "status": conv.status.value if conv.status else "open",
+        "priority": conv.priority.value if conv.priority else "none",
+        "is_muted": bool(getattr(conv, "is_muted", False)),
         "subject": conv.subject,
         "preview": preview,
         "unread_count": unread_count or 0,
@@ -492,7 +517,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         metadata = attachment.metadata_ or {}
         content_base64 = metadata.get("content_base64")
         content_id = metadata.get("content_id")
-        url = attachment.external_url
+        url = _normalize_storage_attachment_url(attachment.external_url)
         if not url and content_base64 and attachment.mime_type:
             url = f"data:{attachment.mime_type};base64,{content_base64}"
         attachments.append(
@@ -537,7 +562,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
                 if isinstance(caption, str) and caption.strip():
                     attachment_caption = caption.strip()
             attachment_id = payload.get("attachment_id") or payload.get("id") or meta_attachment.get("id")
-            url = payload.get("url") or meta_attachment.get("url")
+            url = _normalize_storage_attachment_url(payload.get("url") or meta_attachment.get("url"))
             attachment_type = (
                 meta_attachment.get("type") or payload.get("content_type") or payload.get("mime_type") or ""
             )

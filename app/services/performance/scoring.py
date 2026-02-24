@@ -211,7 +211,11 @@ def _build_support_inputs(db: Session, person_id: str, window: ScoreWindow) -> S
     sla_rate = _safe_div(float(sla_met), float(sla_total))
 
     escalation_statuses = {"pending", "waiting_on_customer", "on_hold", "lastmile_rerun", "site_under_construction"}
-    escalation_count = sum(1 for ticket in tickets if ticket.status and ticket.status.value in escalation_statuses)
+    escalation_count = 0
+    for ticket in tickets:
+        status_value = ticket.status.value if ticket.status is not None else None
+        if status_value in escalation_statuses:
+            escalation_count += 1
     escalation_rate = _safe_div(float(escalation_count), float(len(tickets)))
 
     # CSAT is not currently attributable to assignees in a reliable way; keep neutral midpoint.

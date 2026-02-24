@@ -7,4 +7,5 @@
        <!-- rest of form -->
    </form>
 #}
-<input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+{% set _csrf_value = csrf_token | default(request.state.csrf_token | default(request.cookies.get('csrf_token', ''))) %}
+<input type="hidden" name="_csrf_token" value="{{ _csrf_value }}">

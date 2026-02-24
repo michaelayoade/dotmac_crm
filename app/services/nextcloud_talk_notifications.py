@@ -248,6 +248,7 @@ def _send_to_person(db: Session, *, person: Person, message: str) -> bool:
         app_password=str(config["app_password"]),
         db=db,
     )
+    room_type = _as_int(config.get("room_type"), default=1)
     try:
         room_token = _resolve_room_token(
             db,
@@ -256,7 +257,7 @@ def _send_to_person(db: Session, *, person: Person, message: str) -> bool:
             invite_target=invite_target,
             base_url=str(config["base_url"]),
             notifier_username=str(config["username"]),
-            room_type=int(config["room_type"]),
+            room_type=room_type,
         )
         try:
             client.post_message(room_token=room_token, message=message)
@@ -284,7 +285,7 @@ def _send_to_person(db: Session, *, person: Person, message: str) -> bool:
                 invite_target=invite_target,
                 base_url=str(config["base_url"]),
                 notifier_username=str(config["username"]),
-                room_type=int(config["room_type"]),
+                room_type=room_type,
             )
             client.post_message(room_token=retry_room_token, message=message)
             logger.info("talk_notification_forwarded person_id=%s room_token=%s retry=1", person.id, retry_room_token)
@@ -339,10 +340,11 @@ def send_test_message(
         app_password=str(config["app_password"]),
         db=db,
     )
+    room_type = _as_int(config.get("room_type"), default=1)
     try:
         room_payload = client.create_room_with_invite(
             invite=invite_value,
-            room_type=int(config["room_type"]),
+            room_type=room_type,
         )
         room_token = _extract_room_token(room_payload)
         if not room_token:

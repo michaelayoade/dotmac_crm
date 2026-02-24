@@ -5,7 +5,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+
+try:
+    from playwright.sync_api import expect, sync_playwright
+except ModuleNotFoundError:
+    pytest.skip("playwright is not installed; skipping Playwright E2E tests.", allow_module_level=True)
 
 from tests.playwright.helpers.api import api_post_form, bearer_headers
 from tests.playwright.helpers.auth import (

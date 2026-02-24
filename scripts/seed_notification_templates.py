@@ -390,6 +390,17 @@ Thank you for choosing {{company_name}}!""",
     </p>
   </div>
 
+  <div style="text-align: center; margin: 20px 0;">
+    <a href="{{ticket_url}}"
+      style="background-color: #16a34a; color: #fff; text-decoration: none; padding: 12px 20px; border-radius: 6px; display: inline-block; font-weight: 600;">
+      View Ticket
+    </a>
+  </div>
+
+  <p style="font-size: 13px; color: #666; margin: 10px 0;">
+    If the button does not work, copy and paste this link into your browser: {{ticket_url}}
+  </p>
+
   <p style="font-size: 15px; color: #555; margin: 15px 0;">
     We will keep you updated with further progress.
   </p>

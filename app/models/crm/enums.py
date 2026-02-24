@@ -76,7 +76,28 @@ class CampaignRecipientStatus(enum.Enum):
     unsubscribed = "unsubscribed"
 
 
+class ConversationPriority(enum.Enum):
+    none = "none"
+    low = "low"
+    medium = "medium"
+    high = "high"
+    urgent = "urgent"
+
+
 class AgentPresenceStatus(enum.Enum):
     online = "online"
     away = "away"
+    on_break = "on_break"
     offline = "offline"
+
+
+class MacroVisibility(enum.Enum):
+    personal = "personal"
+    shared = "shared"
+
+
+class MacroActionType(enum.Enum):
+    assign_conversation = "assign_conversation"
+    set_status = "set_status"
+    add_tag = "add_tag"
+    send_template = "send_template"

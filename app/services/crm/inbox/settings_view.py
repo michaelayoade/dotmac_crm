@@ -14,11 +14,13 @@ from app.models.person import Person
 from app.services import crm as crm_service
 from app.services import person as person_service
 from app.services.crm.chat_widget import widget_configs
+from app.services.crm.inbox.csat import get_enabled_map as get_csat_enabled_map
 from app.services.crm.inbox.inboxes import (
     get_email_channel_state,
     get_whatsapp_channel_state,
     list_channel_targets,
 )
+from app.services.crm.inbox.macros import conversation_macros
 from app.services.crm.inbox.meta_status import get_meta_connection_status
 from app.services.crm.inbox.permissions import (
     can_manage_inbox_settings,
@@ -45,6 +47,8 @@ def build_inbox_settings_context(
     whatsapp_channel = get_whatsapp_channel_state(db)
     email_inboxes = list_channel_targets(db, ConnectorType.email)
     whatsapp_inboxes = list_channel_targets(db, ConnectorType.whatsapp)
+    facebook_inboxes = list_channel_targets(db, ConnectorType.facebook)
+    instagram_inboxes = list_channel_targets(db, ConnectorType.instagram)
 
     email_setup = query_params.get("email_setup")
     email_error = query_params.get("email_error")
@@ -66,6 +70,13 @@ def build_inbox_settings_context(
     notification_setup = query_params.get("notification_setup")
     notification_error = query_params.get("notification_error")
     notification_error_detail = query_params.get("notification_error_detail")
+    csat_setup = query_params.get("csat_setup")
+    csat_error = query_params.get("csat_error")
+    csat_error_detail = query_params.get("csat_error_detail")
+
+    macro_setup = query_params.get("macro_setup")
+    macro_error = query_params.get("macro_error")
+    macro_error_detail = query_params.get("macro_error_detail")
 
     meta_setup = query_params.get("meta_setup")
     meta_error = query_params.get("meta_error")
@@ -86,6 +97,18 @@ def build_inbox_settings_context(
     notification_auto_dismiss_seconds = resolve_value(
         db, SettingDomain.notification, "crm_inbox_notification_auto_dismiss_seconds"
     )
+    auto_resolve_enabled = resolve_value(db, SettingDomain.notification, "crm_inbox_auto_resolve_enabled")
+    auto_resolve_days = resolve_value(db, SettingDomain.notification, "crm_inbox_auto_resolve_days")
+    csat_enabled_by_target = get_csat_enabled_map(db)
+    for inbox in email_inboxes:
+        inbox["csat_enabled"] = bool(csat_enabled_by_target.get(str(inbox.get("target_id")), False))
+    for inbox in whatsapp_inboxes:
+        inbox["csat_enabled"] = bool(csat_enabled_by_target.get(str(inbox.get("target_id")), False))
+    for inbox in facebook_inboxes:
+        inbox["csat_enabled"] = bool(csat_enabled_by_target.get(str(inbox.get("target_id")), False))
+    for inbox in instagram_inboxes:
+        inbox["csat_enabled"] = bool(csat_enabled_by_target.get(str(inbox.get("target_id")), False))
+    chat_widget_csat_enabled = bool(csat_enabled_by_target.get("channel:chat_widget", False))
 
     teams = crm_service.teams.list(
         db=db,
@@ -167,6 +190,9 @@ def build_inbox_settings_context(
         "whatsapp_channel": whatsapp_channel,
         "email_inboxes": email_inboxes,
         "whatsapp_inboxes": whatsapp_inboxes,
+        "facebook_inboxes": facebook_inboxes,
+        "instagram_inboxes": instagram_inboxes,
+        "chat_widget_csat_enabled": chat_widget_csat_enabled,
         "email_setup": email_setup,
         "email_error": email_error,
         "email_error_detail": email_error_detail,
@@ -187,6 +213,9 @@ def build_inbox_settings_context(
         "notification_setup": notification_setup,
         "notification_error": notification_error,
         "notification_error_detail": notification_error_detail,
+        "csat_setup": csat_setup,
+        "csat_error": csat_error,
+        "csat_error_detail": csat_error_detail,
         "meta_setup": meta_setup,
         "meta_error": meta_error,
         "meta_error_detail": meta_error_detail,
@@ -198,6 +227,8 @@ def build_inbox_settings_context(
         "reminder_repeat_enabled": reminder_repeat_enabled,
         "reminder_repeat_interval_seconds": reminder_repeat_interval_seconds,
         "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
+        "auto_resolve_enabled": auto_resolve_enabled,
+        "auto_resolve_days": auto_resolve_days,
         "teams": teams,
         "agents": agents,
         "agent_teams": agent_teams,
@@ -207,4 +238,8 @@ def build_inbox_settings_context(
         "widgets": widgets,
         "routing_rules": routing_rules,
         "message_templates": templates,
+        "macros": conversation_macros.list(db, is_active=None, limit=200),
+        "macro_setup": macro_setup,
+        "macro_error": macro_error,
+        "macro_error_detail": macro_error_detail,
     }

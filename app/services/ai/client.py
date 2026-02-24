@@ -28,17 +28,35 @@ class AIResponse:
 
 
 def _coerce_int(value: object | None, default: int, minimum: int = 0) -> int:
-    try:
-        parsed = int(value) if value is not None else default
-    except (TypeError, ValueError):
+    if value is None:
+        parsed = default
+    elif isinstance(value, bool):
+        parsed = int(value)
+    elif isinstance(value, int | float):
+        parsed = int(value)
+    elif isinstance(value, str):
+        try:
+            parsed = int(value.strip())
+        except ValueError:
+            parsed = default
+    else:
         parsed = default
     return max(parsed, minimum)
 
 
 def _coerce_float(value: object | None, default: float, minimum: float = 0.0) -> float:
-    try:
-        parsed = float(value) if value is not None else default
-    except (TypeError, ValueError):
+    if value is None:
+        parsed = default
+    elif isinstance(value, bool):
+        parsed = float(value)
+    elif isinstance(value, int | float):
+        parsed = float(value)
+    elif isinstance(value, str):
+        try:
+            parsed = float(value.strip())
+        except ValueError:
+            parsed = default
+    else:
         parsed = default
     return max(parsed, minimum)
 

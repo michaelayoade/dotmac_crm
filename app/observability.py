@@ -60,6 +60,16 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         request.state.request_id = request_id
+
+        # Link request_id to the active OTel span (if any).
+        try:
+            from opentelemetry import trace as otel_trace
+
+            span = otel_trace.get_current_span()
+            if span and span.is_recording():
+                span.set_attribute("app.request_id", request_id)
+        except Exception:
+            pass
         token = _extract_bearer_token(request)
         actor_id = getattr(request.state, "actor_id", None) or _extract_actor_id_from_jwt(token)
         start = time.monotonic()

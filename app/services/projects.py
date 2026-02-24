@@ -1,7 +1,8 @@
 import html
 import logging
 from datetime import UTC, date, datetime, time, timedelta
-from typing import ClassVar
+from typing import Any, ClassVar
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import exists, func, or_, select
@@ -29,6 +30,7 @@ from app.models.projects import (
 )
 from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket
+from app.models.workflow import SlaClock, SlaClockStatus, SlaPolicy, WorkflowEntityType
 from app.models.workforce import WorkOrder
 from app.schemas.projects import (
     ProjectCommentCreate,
@@ -59,6 +61,480 @@ from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
 
+FIBER_INSTALLATION_STAGE_ORDER: tuple[str, ...] = (
+    "project_plan",
+    "project_survey",
+    "drop_cable_installation",
+    "survey_approval_po_issuance",
+    "last_mile_installation",
+    "power_splicing_activation",
+)
+
+FIBER_INSTALLATION_STAGE_TITLES: dict[str, str] = {
+    "project_plan": "Project Plan",
+    "project_survey": "Project Survey",
+    "drop_cable_installation": "Drop Cable Installation",
+    "survey_approval_po_issuance": "Survey Approval & PO Issuance",
+    "last_mile_installation": "Last Mile Installation",
+    "power_splicing_activation": "Power Direction, Splicing & Customer Activation",
+}
+
+FIBER_PROJECT_TASK_SLA_POLICY_NAME = "Fiber Project Task SLA"
+
+
+def _normalize_title(value: str | None) -> str:
+    if not value:
+        return ""
+    return " ".join(value.strip().lower().replace("-", " ").replace("_", " ").split())
+
+
+def _resolve_customer_email(db: Session, project: Project) -> str | None:
+    if project.subscriber and project.subscriber.person and isinstance(project.subscriber.person.email, str):
+        email = project.subscriber.person.email.strip()
+        if email:
+            return email
+    if project.subscriber_id:
+        subscriber = db.get(Subscriber, project.subscriber_id)
+        if subscriber and subscriber.person_id:
+            person = db.get(Person, subscriber.person_id)
+            if person and isinstance(person.email, str):
+                email = person.email.strip()
+                if email:
+                    return email
+    if project.lead and project.lead.person and isinstance(project.lead.person.email, str):
+        email = project.lead.person.email.strip()
+        if email:
+            return email
+    if project.lead_id:
+        lead = db.get(Lead, project.lead_id)
+        if lead and lead.person and isinstance(lead.person.email, str):
+            email = lead.person.email.strip()
+            if email:
+                return email
+    return None
+
+
+def _resolve_customer_name(project: Project) -> str:
+    if project.subscriber and project.subscriber.person:
+        person = project.subscriber.person
+        if isinstance(person.display_name, str) and person.display_name.strip():
+            return person.display_name.strip()
+        if isinstance(person.first_name, str) and isinstance(person.last_name, str):
+            full_name = f"{person.first_name} {person.last_name}".strip()
+            if full_name:
+                return full_name
+        if isinstance(person.email, str) and person.email.strip():
+            return person.email.strip()
+    if project.lead and project.lead.person:
+        person = project.lead.person
+        if isinstance(person.display_name, str) and person.display_name.strip():
+            return person.display_name.strip()
+        if isinstance(person.first_name, str) and isinstance(person.last_name, str):
+            full_name = f"{person.first_name} {person.last_name}".strip()
+            if full_name:
+                return full_name
+        if isinstance(person.email, str) and person.email.strip():
+            return person.email.strip()
+    return "Customer"
+
+
+def _resolve_fiber_stage_key(task: ProjectTask) -> str | None:
+    metadata = task.metadata_ if isinstance(task.metadata_, dict) else {}
+    raw_stage = metadata.get("fiber_stage_key")
+    if isinstance(raw_stage, str) and raw_stage in FIBER_INSTALLATION_STAGE_ORDER:
+        return raw_stage
+
+    normalized = _normalize_title(task.title)
+    if "project plan" in normalized:
+        return "project_plan"
+    if "project survey" in normalized:
+        return "project_survey"
+    if "drop cable" in normalized:
+        return "drop_cable_installation"
+    if ("po" in normalized and "issuance" in normalized) or ("survey approval" in normalized):
+        return "survey_approval_po_issuance"
+    if "last mile" in normalized:
+        return "last_mile_installation"
+    if "splicing" in normalized or "activation" in normalized or "power direction" in normalized:
+        return "power_splicing_activation"
+    return None
+
+
+def _fiber_stage_task(db: Session, project_id: UUID, stage_key: str) -> ProjectTask | None:
+    candidates = (
+        db.query(ProjectTask)
+        .filter(ProjectTask.project_id == project_id, ProjectTask.is_active.is_(True))
+        .order_by(ProjectTask.created_at.asc())
+        .all()
+    )
+    for candidate in candidates:
+        if _resolve_fiber_stage_key(candidate) == stage_key:
+            return candidate
+    return None
+
+
+def _fiber_stage_anchor(task: ProjectTask | None, fallback: datetime) -> datetime:
+    if not task:
+        return fallback
+    return task.completed_at or task.created_at or fallback
+
+
+def _compute_fiber_stage_due_at(db: Session, project: Project, task: ProjectTask, stage_key: str) -> datetime:
+    baseline = project.created_at or datetime.now(UTC)
+    if stage_key == "project_plan":
+        return baseline + timedelta(hours=24)
+    if stage_key == "project_survey":
+        plan = _fiber_stage_task(db, project.id, "project_plan")
+        return _fiber_stage_anchor(plan, baseline) + timedelta(hours=24)
+    if stage_key == "drop_cable_installation":
+        survey = _fiber_stage_task(db, project.id, "project_survey")
+        return _fiber_stage_anchor(survey, baseline) + timedelta(hours=48)
+    if stage_key == "survey_approval_po_issuance":
+        survey = _fiber_stage_task(db, project.id, "project_survey")
+        return _fiber_stage_anchor(survey, baseline) + timedelta(hours=24)
+    if stage_key == "last_mile_installation":
+        survey = _fiber_stage_task(db, project.id, "project_survey")
+        return _fiber_stage_anchor(survey, baseline) + timedelta(days=5)
+    if stage_key == "power_splicing_activation":
+        drop_task = _fiber_stage_task(db, project.id, "drop_cable_installation")
+        last_mile_task = _fiber_stage_task(db, project.id, "last_mile_installation")
+        drop_anchor = _fiber_stage_anchor(drop_task, baseline)
+        last_mile_anchor = _fiber_stage_anchor(last_mile_task, baseline)
+        return max(drop_anchor, last_mile_anchor) + timedelta(hours=24)
+    return (task.created_at or baseline) + timedelta(hours=24)
+
+
+def _ensure_project_task_sla_policy(db: Session) -> SlaPolicy:
+    policy = (
+        db.query(SlaPolicy)
+        .filter(SlaPolicy.entity_type == WorkflowEntityType.project_task)
+        .filter(SlaPolicy.name == FIBER_PROJECT_TASK_SLA_POLICY_NAME)
+        .filter(SlaPolicy.is_active.is_(True))
+        .first()
+    )
+    if policy:
+        return policy
+    policy = SlaPolicy(
+        name=FIBER_PROJECT_TASK_SLA_POLICY_NAME,
+        entity_type=WorkflowEntityType.project_task,
+        description="SLA policy for fiber installation project stages",
+        is_active=True,
+    )
+    db.add(policy)
+    db.flush()
+    return policy
+
+
+def _latest_task_sla_clock(db: Session, task_id: UUID) -> SlaClock | None:
+    return (
+        db.query(SlaClock)
+        .filter(
+            SlaClock.entity_type == WorkflowEntityType.project_task,
+            SlaClock.entity_id == task_id,
+        )
+        .order_by(SlaClock.created_at.desc())
+        .first()
+    )
+
+
+def _sync_task_sla_clock(db: Session, task: ProjectTask) -> None:
+    if not task.due_at:
+        return
+    policy = _ensure_project_task_sla_policy(db)
+    clock = _latest_task_sla_clock(db, task.id)
+    now = datetime.now(UTC)
+    terminal = {TaskStatus.done, TaskStatus.canceled}
+
+    if task.status in terminal:
+        if clock and clock.status != SlaClockStatus.completed:
+            clock.status = SlaClockStatus.completed
+            clock.completed_at = task.completed_at or now
+        return
+
+    if not clock or clock.status == SlaClockStatus.completed:
+        db.add(
+            SlaClock(
+                policy_id=policy.id,
+                entity_type=WorkflowEntityType.project_task,
+                entity_id=task.id,
+                priority=task.priority.value if task.priority else None,
+                status=SlaClockStatus.running,
+                started_at=task.created_at or now,
+                due_at=task.due_at,
+            )
+        )
+        return
+
+    if clock.status in {SlaClockStatus.paused, SlaClockStatus.breached}:
+        clock.status = SlaClockStatus.running
+    clock.priority = task.priority.value if task.priority else None
+    clock.due_at = task.due_at
+
+
+def _apply_fiber_stage_defaults(db: Session, task: ProjectTask) -> None:
+    project = db.get(Project, task.project_id)
+    if not project or project.project_type != ProjectType.fiber_optics_installation:
+        return
+
+    stage_key = _resolve_fiber_stage_key(task)
+    if not stage_key:
+        return
+
+    metadata = dict(task.metadata_) if isinstance(task.metadata_, dict) else {}
+    metadata["fiber_stage_key"] = stage_key
+    metadata.setdefault("fiber_stage_title", FIBER_INSTALLATION_STAGE_TITLES.get(stage_key, task.title))
+    metadata["fiber_sla_managed"] = True
+    task.metadata_ = metadata
+    task.due_at = _compute_fiber_stage_due_at(db, project, task, stage_key)
+
+
+def _queue_in_app_notification(db: Session, recipient: str, subject: str, body: str) -> None:
+    now = datetime.now(UTC)
+    db.add(
+        Notification(
+            channel=NotificationChannel.push,
+            recipient=recipient,
+            subject=subject,
+            body=body,
+            status=NotificationStatus.delivered,
+            sent_at=now,
+        )
+    )
+
+
+def _queue_email_notification(db: Session, recipient: str, subject: str, body: str) -> None:
+    db.add(
+        Notification(
+            channel=NotificationChannel.email,
+            recipient=recipient,
+            subject=subject,
+            body=body,
+            status=NotificationStatus.queued,
+        )
+    )
+
+
+def _next_fiber_stage_label(task: ProjectTask) -> str | None:
+    stage_key = _resolve_fiber_stage_key(task)
+    if not stage_key or stage_key not in FIBER_INSTALLATION_STAGE_ORDER:
+        return None
+    index = FIBER_INSTALLATION_STAGE_ORDER.index(stage_key)
+    if index >= len(FIBER_INSTALLATION_STAGE_ORDER) - 1:
+        return None
+    next_key = FIBER_INSTALLATION_STAGE_ORDER[index + 1]
+    return FIBER_INSTALLATION_STAGE_TITLES.get(next_key, next_key.replace("_", " ").title())
+
+
+def _next_template_task_label(db: Session, project: Project, task: ProjectTask) -> str | None:
+    if not project.project_template_id or not task.template_task_id:
+        return None
+
+    template_tasks = (
+        db.query(ProjectTemplateTask)
+        .filter(ProjectTemplateTask.template_id == project.project_template_id)
+        .filter(ProjectTemplateTask.is_active.is_(True))
+        .order_by(ProjectTemplateTask.sort_order.asc(), ProjectTemplateTask.created_at.asc())
+        .all()
+    )
+    if not template_tasks:
+        return None
+
+    current_index = None
+    for index, template_task in enumerate(template_tasks):
+        if template_task.id == task.template_task_id:
+            current_index = index
+            break
+    if current_index is None:
+        return None
+
+    project_tasks = (
+        db.query(ProjectTask)
+        .filter(ProjectTask.project_id == project.id)
+        .filter(ProjectTask.is_active.is_(True))
+        .all()
+    )
+    project_tasks_by_template_id = {
+        project_task.template_task_id: project_task for project_task in project_tasks if project_task.template_task_id
+    }
+
+    for template_task in template_tasks[current_index + 1 :]:
+        mapped_task = project_tasks_by_template_id.get(template_task.id)
+        if mapped_task and mapped_task.status in {TaskStatus.done, TaskStatus.canceled}:
+            continue
+        return mapped_task.title if mapped_task else template_task.title
+    return None
+
+
+def _notify_customer_task_completed(db: Session, project: Project, task: ProjectTask) -> None:
+    recipient = _resolve_customer_email(db, project)
+    if not recipient:
+        return
+    customer_name = _resolve_customer_name(project)
+    next_stage = _next_template_task_label(db, project, task) or _next_fiber_stage_label(task)
+    subject = "Project Update - Stage Completed"
+    project_ref = project.number or str(project.id)
+    branding = get_branding(db)
+    company = html.escape(branding.get("company_name", "Dotmac Technologies"))
+    logo_url = branding.get("logo_url") or "https://erp.dotmac.ng/files/dotmac%20no%20bg.png"
+    customer_label = html.escape(customer_name)
+    project_name = html.escape(project.name or "Project")
+    project_code = html.escape(project_ref)
+    completed_stage = html.escape(task.title or "Project Task")
+    next_stage_html = html.escape(next_stage) if next_stage else ""
+    logo_url_html = html.escape(logo_url)
+
+    next_stage_block = ""
+    if next_stage_html:
+        next_stage_block = (
+            '<div style="background-color: #ffffff; border: 1px solid #dbeafe; border-radius: 8px; '
+            'padding: 14px 16px; margin: 12px 0 18px;">'
+            '<p style="margin: 0; font-size: 15px; color: #0f172a;"><strong>&#128279; Next Stage</strong></p>'
+            f'<p style="margin: 6px 0 0; font-size: 16px; color: #111827;">{next_stage_html}</p>'
+            "</div>"
+        )
+
+    body = (
+        "<div style=\"font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; "
+        "line-height: 1.8; color: #333; background-color: #f4f4f9; padding: 25px; "
+        "border: 1px solid #ccc; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); "
+        "position: relative;\">"
+        '<div style="position: absolute; top: 14px; right: 14px;">'
+        f'<img src="{logo_url_html}" alt="Dotmac Logo" style="max-width: 150px; height: auto;">'
+        "</div>"
+        '<div style="text-align: center; margin-bottom: 20px;">'
+        '<h1 style="color: green; font-size: 24px; margin: 0;">Project Stage Completed</h1>'
+        "</div>"
+        f'<p style="font-size: 16px; color: #0f172a; margin-top: 20px;">Dear {customer_label},</p>'
+        '<p style="font-size: 15px; color: #555; margin: 15px 0;">'
+        "We are pleased to inform you that your project "
+        f"<strong>{project_name}</strong> ({project_code}) has successfully completed the "
+        f"<strong>{completed_stage}</strong> stage."
+        "</p>"
+        '<div style="background-color: #ffffff; border: 1px solid #dcfce7; border-radius: 8px; '
+        'padding: 14px 16px; margin: 12px 0 18px;">'
+        '<p style="margin: 0; font-size: 15px; color: #14532d;"><strong>&#9989; Completed Stage</strong></p>'
+        f'<p style="margin: 6px 0 0; font-size: 16px; color: #111827;">{completed_stage}</p>'
+        "</div>"
+        f"{next_stage_block}"
+        '<p style="font-size: 15px; color: #555; margin: 10px 0;">'
+        "Our technical team is progressing steadily to ensure a smooth and timely completion of your installation."
+        "</p>"
+        '<p style="font-size: 15px; color: #555; margin: 10px 0 18px;">'
+        "We will continue to keep you informed at every key milestone."
+        "</p>"
+        '<p style="font-size: 15px; color: #555; margin: 10px 0;">'
+        f"Thank you for choosing {company}."
+        "</p>"
+        '<p style="font-size: 15px; color: #0f172a; margin: 10px 0 0;">'
+        "Warm regards,<br>The Dotmac Team."
+        "</p>"
+        "</div>"
+    )
+    _queue_email_notification(db, recipient, subject, body)
+
+
+def _notify_customer_project_completed(db: Session, project: Project) -> None:
+    recipient = _resolve_customer_email(db, project)
+    if not recipient:
+        return
+    project_ref = project.number or str(project.id)
+    subject = f"Project completed: {project.name}"
+    body = (
+        f"Your installation project '{project.name}' ({project_ref}) is now completed.\n"
+        "Please reply to this email to confirm your satisfaction with the service."
+    )
+    _queue_email_notification(db, recipient, subject, body)
+
+
+def notify_project_task_sla_breach(db: Session, clock: SlaClock) -> None:
+    if clock.entity_type != WorkflowEntityType.project_task:
+        return
+    task = db.get(ProjectTask, clock.entity_id)
+    if not task:
+        return
+    project = db.get(Project, task.project_id)
+    if not project:
+        return
+
+    metadata = dict(task.metadata_) if isinstance(task.metadata_, dict) else {}
+    metadata["sla_breached"] = True
+    metadata["sla_breached_at"] = (clock.breached_at or datetime.now(UTC)).isoformat()
+    task.metadata_ = metadata
+
+    role_person_ids = [
+        project.project_manager_person_id,
+        project.assistant_manager_person_id,
+        project.manager_person_id,
+    ]
+    person_ids = [person_id for person_id in role_person_ids if person_id]
+    if not person_ids:
+        return
+
+    people = db.query(Person).filter(Person.id.in_(person_ids)).all()
+    recipients = {person.email.strip() for person in people if isinstance(person.email, str) and person.email.strip()}
+    if not recipients:
+        return
+
+    task_ref = task.number or str(task.id)
+    project_ref = project.number or str(project.id)
+    subject = f"SLA breach: {task.title}"
+    body = (
+        f"Task {task_ref} in project {project_ref} breached its SLA timeline.\n"
+        "Action required by PM / Assistant PM / SPC. PM supervisor has been tagged."
+    )
+    for recipient in recipients:
+        _queue_in_app_notification(db, recipient, subject, body)
+        _queue_email_notification(db, recipient, subject, body)
+
+
+def _seed_fiber_installation_tasks(db: Session, project: Project) -> None:
+    if project.project_type != ProjectType.fiber_optics_installation:
+        return
+    existing = (
+        db.query(ProjectTask).filter(ProjectTask.project_id == project.id, ProjectTask.is_active.is_(True)).first()
+    )
+    if existing:
+        return
+
+    stage_offsets = {
+        "project_plan": timedelta(hours=24),
+        "project_survey": timedelta(hours=48),
+        "drop_cable_installation": timedelta(hours=96),
+        "survey_approval_po_issuance": timedelta(hours=72),
+        "last_mile_installation": timedelta(days=7),
+        "power_splicing_activation": timedelta(days=8),
+    }
+    baseline = project.created_at or datetime.now(UTC)
+
+    for stage_key in FIBER_INSTALLATION_STAGE_ORDER:
+        number = generate_number(
+            db=db,
+            domain=SettingDomain.numbering,
+            sequence_key="project_task_number",
+            enabled_key="project_task_number_enabled",
+            prefix_key="project_task_number_prefix",
+            padding_key="project_task_number_padding",
+            start_key="project_task_number_start",
+        )
+        task = ProjectTask(
+            project_id=project.id,
+            title=FIBER_INSTALLATION_STAGE_TITLES[stage_key],
+            status=TaskStatus.todo,
+            priority=TaskPriority.normal,
+            created_by_person_id=project.created_by_person_id,
+            due_at=baseline + stage_offsets[stage_key],
+            metadata_={
+                "fiber_stage_key": stage_key,
+                "fiber_stage_title": FIBER_INSTALLATION_STAGE_TITLES[stage_key],
+                "fiber_sla_managed": True,
+            },
+        )
+        if number:
+            task.number = number
+        db.add(task)
+        db.flush()
+        _sync_task_sla_clock(db, task)
+
 
 def _notify_project_roles_created_in_app(db: Session, project: Project) -> None:
     """Create in-app notifications for internal roles on project creation.
@@ -72,8 +548,8 @@ def _notify_project_roles_created_in_app(db: Session, project: Project) -> None:
         ("assistant_manager_person_id", "Site Project Coordinator"),
     ]
 
-    roles_by_person_id: dict[object, list[str]] = {}
-    person_ids: list[object] = []
+    roles_by_person_id: dict[UUID, list[str]] = {}
+    person_ids: list[UUID] = []
     for attr, label in role_specs:
         person_id = getattr(project, attr, None)
         if not person_id:
@@ -234,6 +710,8 @@ def _notify_project_task_assigned(
 
         app_url = email_service.get_app_url(db).rstrip("/")
         task_url = f"{app_url}/admin/projects/tasks/{task.id}" if app_url else None
+        project_ref = project.number or str(project.id)
+        project_url = f"{app_url}/admin/projects/{project_ref}" if app_url else None
 
         branding = get_branding(db)
         company = html.escape(branding["company_name"])
@@ -250,16 +728,28 @@ def _notify_project_task_assigned(
         if task.description:
             description_block = f"<p><strong>Description:</strong><br>{html.escape(task.description)}</p>"
 
-        list_url = task_url or f"{app_url}/admin/projects/tasks"
-        link_block = (
+        task_link_url = task_url or f"{app_url}/admin/projects/tasks"
+        task_link_block = (
             '<div style="text-align: center; margin: 20px 0;">'
-            f'<a href="{list_url}" '
+            f'<a href="{task_link_url}" '
             'style="background-color: #16a34a; color: #fff; text-decoration: none; '
             'padding: 12px 20px; border-radius: 6px; display: inline-block; font-weight: 600;">'
             "View Project Task"
             "</a>"
             "</div>"
         )
+
+        project_link_block = ""
+        if project_url:
+            project_link_block = (
+                '<div style="text-align: center; margin: 12px 0 20px;">'
+                f'<a href="{project_url}" '
+                'style="background-color: #0f766e; color: #fff; text-decoration: none; '
+                'padding: 12px 20px; border-radius: 6px; display: inline-block; font-weight: 600;">'
+                "View Project"
+                "</a>"
+                "</div>"
+            )
 
         logo_block = ""
         if logo_url:
@@ -318,7 +808,8 @@ def _notify_project_task_assigned(
             '<p style="font-size: 15px; color: #555; margin: 15px 0;">'
             "We will keep you updated with further progress."
             "</p>"
-            f"{link_block}"
+            f"{task_link_block}"
+            f"{project_link_block}"
             f"{contact_block}"
             '<p style="font-size: 15px; color: green; text-align: left; font-style: italic;">'
             f'Thank you for choosing <strong style="color: red;">{company}</strong>.'
@@ -472,6 +963,11 @@ class Projects(ListResponseMixin):
         db.commit()
         db.refresh(project)
 
+        if not payload.project_template_id:
+            _seed_fiber_installation_tasks(db, project)
+            db.commit()
+            db.refresh(project)
+
         customer_name = None
         if project.subscriber and project.subscriber.person:
             person = project.subscriber.person
@@ -545,6 +1041,7 @@ class Projects(ListResponseMixin):
         limit: int,
         offset: int,
         search: str | None = None,
+        filters_payload: list[Any] | None = None,
     ):
         query = db.query(Project)
         if subscriber_id:
@@ -578,6 +1075,10 @@ class Projects(ListResponseMixin):
             query = query.filter(Project.is_active.is_(True))
         else:
             query = query.filter(Project.is_active == is_active)
+        if filters_payload:
+            from app.services.filter_engine import apply_filter_payload
+
+            query = apply_filter_payload(query, "Project", filters_payload)
         query = apply_ordering(
             query,
             order_by,
@@ -747,6 +1248,7 @@ class Projects(ListResponseMixin):
                 project_id=project.id,
                 subscriber_id=project.subscriber_id,
             )
+            _notify_customer_project_completed(db, project)
         elif new_status == ProjectStatus.canceled and previous_status != ProjectStatus.canceled:
             emit_event(
                 db,
@@ -781,6 +1283,8 @@ class Projects(ListResponseMixin):
                 ProjectTemplateTasks.replace_project_tasks(
                     db=db, project_id=str(project.id), template_id=new_template_id
                 )
+        # Persist notifications/events queued after the initial project update commit.
+        db.commit()
         return project
 
 
@@ -1116,6 +1620,10 @@ class ProjectTasks(ListResponseMixin):
         task = ProjectTask(**data)
         db.add(task)
         db.flush()
+        _apply_fiber_stage_defaults(db, task)
+        if task.status == TaskStatus.done and not task.completed_at:
+            task.completed_at = datetime.now(UTC)
+        _sync_task_sla_clock(db, task)
         _sync_project_task_assignees(db, task, assignee_ids)
         db.commit()
         db.refresh(task)
@@ -1164,6 +1672,7 @@ class ProjectTasks(ListResponseMixin):
         limit: int,
         offset: int,
         include_assigned: bool = False,
+        filters_payload: list[Any] | None = None,
     ):
         query = db.query(ProjectTask)
         if include_assigned:
@@ -1194,6 +1703,10 @@ class ProjectTasks(ListResponseMixin):
             query = query.filter(ProjectTask.is_active.is_(True))
         else:
             query = query.filter(ProjectTask.is_active == is_active)
+        if filters_payload:
+            from app.services.filter_engine import apply_filter_payload
+
+            query = apply_filter_payload(query, "Project Task", filters_payload)
         query = apply_ordering(
             query,
             order_by,
@@ -1211,6 +1724,8 @@ class ProjectTasks(ListResponseMixin):
         task = db.get(ProjectTask, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Project task not found")
+        previous_status = task.status
+        changed_fields: list[str] = []
         data = payload.model_dump(exclude_unset=True)
         assignee_ids: list[str] | None = None
         if "assigned_to_person_ids" in payload.model_fields_set:
@@ -1241,11 +1756,50 @@ class ProjectTasks(ListResponseMixin):
             work_order = db.get(WorkOrder, data["work_order_id"])
             if not work_order:
                 raise HTTPException(status_code=404, detail="Work order not found")
+        changed_fields.extend(list(data.keys()))
         for key, value in data.items():
             setattr(task, key, value)
+        _apply_fiber_stage_defaults(db, task)
+        if task.status == TaskStatus.done and not task.completed_at:
+            task.completed_at = datetime.now(UTC)
+        _sync_task_sla_clock(db, task)
         _sync_project_task_assignees(db, task, assignee_ids)
         db.commit()
         db.refresh(task)
+        if ("assigned_to_person_ids" in payload.model_fields_set or "assigned_to_person_id" in payload.model_fields_set) and (
+            "assigned_to_person_ids" not in changed_fields
+        ):
+            changed_fields.append("assigned_to_person_ids")
+
+        event_payload: dict[str, object | None] = {
+            "task_id": str(task.id),
+            "project_id": str(task.project_id) if task.project_id else None,
+            "title": task.title,
+            "from_status": previous_status.value if previous_status else None,
+            "to_status": task.status.value if task.status else None,
+            "status": task.status.value if task.status else None,
+            "priority": task.priority.value if task.priority else None,
+            "changed_fields": changed_fields,
+        }
+
+        if previous_status != TaskStatus.done and task.status == TaskStatus.done:
+            project = db.get(Project, task.project_id)
+            if project:
+                _notify_customer_task_completed(db, project, task)
+                db.commit()
+            emit_event(
+                db,
+                EventType.project_task_completed,
+                event_payload,
+                project_id=task.project_id,
+            )
+        elif previous_status != task.status or bool(changed_fields):
+            emit_event(
+                db,
+                EventType.project_task_updated,
+                event_payload,
+                project_id=task.project_id,
+            )
         return task
 
     @staticmethod

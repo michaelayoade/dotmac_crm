@@ -17,20 +17,26 @@ from app.models.crm.enums import (
     CampaignStatus,
     CampaignType,
     ChannelType,
+    ConversationPriority,
     ConversationStatus,
     LeadStatus,
+    MacroActionType,
+    MacroVisibility,
     MessageDirection,
     MessageStatus,
     QuoteStatus,
 )
+from app.models.crm.macro import CrmConversationMacro
 from app.models.crm.message_template import CrmMessageTemplate
 from app.models.crm.outbox import OutboxMessage
-from app.models.crm.presence import AgentPresence
+from app.models.crm.presence import AgentLocationPing, AgentPresence, AgentPresenceEvent
 from app.models.crm.sales import CrmQuoteLineItem, Lead, Pipeline, PipelineStage, Quote
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmRoutingRule, CrmTeam, CrmTeamChannel
 
 __all__ = [
+    "AgentLocationPing",
     "AgentPresence",
+    "AgentPresenceEvent",
     "AgentPresenceStatus",
     "Campaign",
     "CampaignChannel",
@@ -45,10 +51,12 @@ __all__ = [
     "ChatWidgetConfig",
     "Conversation",
     "ConversationAssignment",
+    "ConversationPriority",
     "ConversationStatus",
     "ConversationTag",
     "CrmAgent",
     "CrmAgentTeam",
+    "CrmConversationMacro",
     "CrmMessageTemplate",
     "CrmQuoteLineItem",
     "CrmRoutingRule",
@@ -56,6 +64,8 @@ __all__ = [
     "CrmTeamChannel",
     "Lead",
     "LeadStatus",
+    "MacroActionType",
+    "MacroVisibility",
     "Message",
     "MessageAttachment",
     "MessageDirection",

@@ -11,7 +11,7 @@ from app.models.crm.conversation import (
     Message,
     MessageAttachment,
 )
-from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
+from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person, PersonChannel
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
@@ -598,6 +598,22 @@ def assign_conversation(
     team_uuid = coerce_uuid(team_value) if team_value else None
 
     if agent_value or team_value:
+        # Defense-in-depth: never assign directly to an unavailable agent.
+        if agent_uuid is not None:
+            from app.models.crm.presence import AgentPresence
+            from app.services.crm.presence import agent_presence as presence_service
+
+            presence = db.query(AgentPresence).filter(AgentPresence.agent_id == agent_uuid).first()
+            effective_status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
+            if effective_status not in {AgentPresenceStatus.online, AgentPresenceStatus.away}:
+                # Auto-routing may still assign to team queue; manual assignment should fail fast.
+                if assigned_by_id is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Agent is offline or unavailable and cannot be assigned",
+                    )
+                # Keep team assignment, but drop the agent assignment.
+                agent_uuid = None
         payload = ConversationAssignmentCreate(
             conversation_id=conversation.id,
             agent_id=agent_uuid,

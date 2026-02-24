@@ -72,6 +72,7 @@ class DotMacERPSync:
 
     # Status mappings from CRM to ERP
     PROJECT_STATUS_MAP: ClassVar[dict[ProjectStatus, str]] = {
+        ProjectStatus.open: "active",
         ProjectStatus.planned: "active",
         ProjectStatus.active: "active",
         ProjectStatus.on_hold: "active",
@@ -385,7 +386,7 @@ class DotMacERPSync:
                 }
             )
 
-        entries.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+        entries.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
         return entries[:max_entries]
 
     def _get_ticket_comments(self, ticket_id: object, limit: int = 50) -> list[TicketComment]:

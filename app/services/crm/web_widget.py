@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
@@ -33,7 +33,7 @@ def _as_int(value: str | None, default: int | None = None) -> int | None:
         return default
 
 
-def _coerce_bubble_position(value: str | None) -> str:
+def _coerce_bubble_position(value: str | None) -> Literal["bottom-right", "bottom-left"]:
     return "bottom-left" if value == "bottom-left" else "bottom-right"
 
 

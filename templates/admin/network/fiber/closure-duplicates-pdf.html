@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Duplicate Splice Closures</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; font-size: 12px; color: #0f172a; }
+    h1 { font-size: 18px; margin: 0 0 6px 0; }
+    .meta { color: #475569; margin-bottom: 14px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #0f172a; font-size: 11px; }
+    .group { margin-top: 14px; page-break-inside: avoid; }
+    .group-title { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+    .group-title h2 { font-size: 14px; margin: 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
+    th { background: #f8fafc; text-align: left; font-weight: 600; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 11px; }
+    .muted { color: #64748b; }
+  </style>
+</head>
+<body>
+  <h1>Duplicate Splice Closures (By Name)</h1>
+  <div class="meta">
+    <div>Generated: <span class="mono">{{ generated_at }}</span></div>
+    <div>Total duplicate-name groups: <span class="badge">{{ report.total_groups }}</span></div>
+    <div>Total rows in duplicate groups: <span class="badge">{{ report.total_rows }}</span></div>
+    <div class="muted">Matching rule: <span class="mono">lower(trim(name))</span></div>
+  </div>
+
+  {% for g in report.groups %}
+    <div class="group">
+      <div class="group-title">
+        <h2>{{ g.norm_name }}</h2>
+        <span class="badge">{{ g.row_count }} rows</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 28%;">ID</th>
+            <th style="width: 22%;">Name</th>
+            <th style="width: 18%;">Latitude</th>
+            <th style="width: 18%;">Longitude</th>
+            <th style="width: 14%;">Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in g.rows %}
+            <tr>
+              <td class="mono">{{ r.id }}</td>
+              <td>{{ r.name }}</td>
+              <td class="mono">{{ r.latitude if r.latitude is not none else "" }}</td>
+              <td class="mono">{{ r.longitude if r.longitude is not none else "" }}</td>
+              <td class="mono">{{ r.updated_at if r.updated_at is not none else "" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endfor %}
+</body>
+</html>
+

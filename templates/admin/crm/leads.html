@@ -10,10 +10,12 @@
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Leads</h1>
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track opportunities and customer interest.</p>
         </div>
+        {% if can_write_leads %}
         <a href="/admin/crm/leads/new" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
             New Lead
         </a>
+        {% endif %}
     </div>
 
     {% if lead_stats is defined %}
@@ -38,7 +40,7 @@
     {% endif %}
 
     <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Status</label>
                 <select name="status" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
@@ -76,6 +78,15 @@
                     {% endfor %}
                 </select>
             </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Source</label>
+                <select name="lead_source" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All</option>
+                    {% for option in lead_sources %}
+                    <option value="{{ option }}" {% if lead_source == option %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </div>
         </div>
         <div class="mt-4 flex items-center justify-end gap-2">
             <a href="/admin/crm/leads" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Reset</a>
@@ -92,6 +103,7 @@
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Contact</th>
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Value</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Source</th>
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Pipeline</th>
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Owner</th>
                     <th class="{{ pad }}"><span class="sr-only">Actions</span></th>
@@ -125,6 +137,9 @@
                             {% endif %}
                         </td>
                         <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                            {{ lead.lead_source or '—' }}
+                        </td>
+                        <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
                             {{ pipeline.name if pipeline else '—' }}
                             {% if stage %}
                             <div class="text-xs text-slate-500 dark:text-slate-400">{{ stage.name }}</div>
@@ -135,14 +150,16 @@
                         </td>
                         <td class="{{ pad }} text-right text-sm">
                             <a href="/admin/crm/leads/{{ lead.id }}" class="text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white">View</a>
+                            {% if can_write_leads %}
                             <a href="/admin/crm/leads/{{ lead.id }}/edit" class="ml-3 text-primary-600 hover:text-primary-700">Edit</a>
                             {{ danger_button("Delete", "Confirm Delete", "Delete this lead?", "/admin/crm/leads/" ~ lead.id ~ "/delete", size="sm") }}
+                            {% endif %}
                         </td>
                     {% endcall %}
                     {% endfor %}
                     {% else %}
                     <tr>
-                        <td colspan="7" class="px-6 py-12">
+                        <td colspan="8" class="px-6 py-12">
                             {{ empty_state("No leads found", "Try adjusting your filters or create a new lead.") }}
                         </td>
                     </tr>
@@ -163,8 +180,8 @@
                 </label>
             </div>
             <div class="flex items-center gap-2">
-                <a href="/admin/crm/leads?page={{ page - 1 }}&per_page={{ per_page }}&status={{ status }}&pipeline_id={{ pipeline_id }}&stage_id={{ stage_id }}&owner_agent_id={{ owner_agent_id }}" class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page <= 1 else '' }}">Prev</a>
-                <a href="/admin/crm/leads?page={{ page + 1 }}&per_page={{ per_page }}&status={{ status }}&pipeline_id={{ pipeline_id }}&stage_id={{ stage_id }}&owner_agent_id={{ owner_agent_id }}" class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page >= total_pages else '' }}">Next</a>
+                <a href="/admin/crm/leads?page={{ page - 1 }}&per_page={{ per_page }}&status={{ status }}&pipeline_id={{ pipeline_id }}&stage_id={{ stage_id }}&owner_agent_id={{ owner_agent_id }}&lead_source={{ lead_source }}" class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page <= 1 else '' }}">Prev</a>
+                <a href="/admin/crm/leads?page={{ page + 1 }}&per_page={{ per_page }}&status={{ status }}&pipeline_id={{ pipeline_id }}&stage_id={{ stage_id }}&owner_agent_id={{ owner_agent_id }}&lead_source={{ lead_source }}" class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page >= total_pages else '' }}">Next</a>
             </div>
         </div>
     {% endcall %}
