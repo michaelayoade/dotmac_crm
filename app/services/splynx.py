@@ -86,7 +86,7 @@ def create_customer(db: Session, person: Person) -> str | None:
     payload = _build_customer_payload(person)
     url = _resolve_customer_url(config)
     try:
-        response = requests.post(
+        response = requests.post(  # nosec B113 — timeout via config dict
             url,
             json=payload,
             headers=headers,
@@ -138,7 +138,7 @@ def create_installation_invoice(
 
     for url in _resolve_invoice_urls(config):
         try:
-            response = requests.post(
+            response = requests.post(  # nosec B113 — timeout via config dict
                 url,
                 json=base_payload,
                 headers=headers,
@@ -198,7 +198,7 @@ def test_connection(db: Session) -> tuple[bool, str]:
     }
     url = _resolve_customer_url(config)
     try:
-        response = requests.get(
+        response = requests.get(  # nosec B113 — timeout via config dict
             url,
             headers=headers,
             timeout=config["timeout_seconds"],
@@ -225,7 +225,7 @@ def fetch_customers(db: Session) -> list[dict[str, Any]]:
     }
     url = _resolve_customer_url(config)
     try:
-        response = requests.get(
+        response = requests.get(  # nosec B113 — timeout via config dict
             url,
             headers=headers,
             timeout=config["timeout_seconds"],
@@ -251,7 +251,7 @@ def fetch_customer(db: Session, splynx_id: str) -> dict[str, Any] | None:
     }
     url = f"{_resolve_customer_url(config)}/{splynx_id}"
     try:
-        response = requests.get(
+        response = requests.get(  # nosec B113 — timeout via config dict
             url,
             headers=headers,
             timeout=config["timeout_seconds"],
@@ -277,7 +277,7 @@ def fetch_customer_internet_services(db: Session, splynx_id: str) -> list[dict[s
     }
     url = f"{_resolve_customer_url(config)}/{splynx_id}/internet-services"
     try:
-        response = requests.get(
+        response = requests.get(  # nosec B113 — timeout via config dict
             url,
             headers=headers,
             timeout=config["timeout_seconds"],
@@ -306,7 +306,7 @@ def fetch_customer_billing(db: Session, splynx_id: str) -> dict[str, Any] | None
     }
     url = f"{_resolve_customer_url(config)}/{splynx_id}/billing"
     try:
-        response = requests.get(
+        response = requests.get(  # nosec B113 — timeout via config dict
             url,
             headers=headers,
             timeout=config["timeout_seconds"],

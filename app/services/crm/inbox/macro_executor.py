@@ -113,10 +113,17 @@ def _exec_send_template(
     conversation = db.get(Conversation, coerce_uuid(conversation_id))
     if not conversation:
         raise ValueError("Conversation not found")
+    # Determine channel type from the latest inbound message, falling back to email.
+    from app.models.crm.enums import ChannelType as CrmChannelType
+
+    last_msg = (
+        db.query(Conversation).filter_by(id=conversation.id).one().messages[-1] if conversation.messages else None
+    )
+    channel = last_msg.channel_type if last_msg else CrmChannelType.email
     payload = InboxSendRequest(
-        conversation_id=str(conversation.id),
+        conversation_id=conversation.id,
         body=template.body,
-        channel=conversation.channel_type.value,
+        channel_type=channel,
     )
     send_message(db, payload, author_id=actor_person_id)
     return {"action": "send_template", "ok": True, "template_id": template_id}

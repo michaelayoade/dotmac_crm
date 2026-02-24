@@ -41,7 +41,7 @@ def _format_balance_display(value: object) -> str:
 
 def _decorate_balance_display(subscribers: list[Subscriber]) -> None:
     for subscriber in subscribers:
-        subscriber.balance_display = _format_balance_display(getattr(subscriber, "balance", None))
+        subscriber.balance_display = _format_balance_display(getattr(subscriber, "balance", None))  # type: ignore[attr-defined]
 
 
 def _parse_export_days(value: str | None) -> int:

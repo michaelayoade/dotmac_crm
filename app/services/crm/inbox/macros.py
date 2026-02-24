@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import logging
 from typing import Any
 
@@ -120,7 +121,7 @@ class ConversationMacros(ListResponseMixin):
         return query.offset(offset).limit(limit).all()
 
     @staticmethod
-    def list_for_agent(db: Session, agent_id: str) -> list[CrmConversationMacro]:
+    def list_for_agent(db: Session, agent_id: str) -> builtins.list[CrmConversationMacro]:
         """Return agent's personal macros + all shared macros, sorted by popularity."""
         agent_uuid = coerce_uuid(agent_id)
         query = db.query(CrmConversationMacro).filter(
