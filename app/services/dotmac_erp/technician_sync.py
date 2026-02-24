@@ -385,6 +385,7 @@ class DotMacERPTechnicianSync:
                     emp.get("designation") or emp.get("designation_name") or emp.get("job_title") or emp.get("title")
                 )
             # Enrich member with department context for metadata/debugging.
+            assert dept is not None  # narrowed by if-not-dept guard above
             emp = {
                 **emp,
                 "department": dept.get("department_name") or dept.get("name"),

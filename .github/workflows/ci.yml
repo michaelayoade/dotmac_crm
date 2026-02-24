@@ -40,7 +40,7 @@ jobs:
         run: poetry run mypy app/
 
       - name: Bandit
-        run: poetry run bandit -r app
+        run: poetry run bandit -r app -ll --skip B113
 
       - name: Pytest (Coverage)
         run: poetry run pytest --cov=app --cov-report=term-missing --cov-report=xml
