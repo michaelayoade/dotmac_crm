@@ -13,6 +13,7 @@ from app.services.common import coerce_uuid
 
 templates = Jinja2Templates(directory="templates")
 
+
 def _coerce_float(value: object | None, default: float) -> float:
     if isinstance(value, bool):
         return default

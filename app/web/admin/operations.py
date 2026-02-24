@@ -182,7 +182,11 @@ def sales_order_new(
     """Create sales order form."""
     user = get_current_user(request)
     inventory_items = (
-        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name.asc()).limit(500).all()
+        db.query(InventoryItem)
+        .filter(InventoryItem.is_active.is_(True))
+        .order_by(InventoryItem.name.asc())
+        .limit(500)
+        .all()
     )
     return templates.TemplateResponse(
         "admin/operations/sales_order_form.html",
@@ -248,7 +252,9 @@ async def sales_order_create(
         inventory_item_id = (line_item_ids[idx] if idx < len(line_item_ids) else "") or ""
         description = (line_descriptions[idx] if idx < len(line_descriptions) else "").strip()
         quantity = _decimal_from_form(line_quantities[idx] if idx < len(line_quantities) else "", default=Decimal("1"))
-        unit_price = _decimal_from_form(line_unit_prices[idx] if idx < len(line_unit_prices) else "", default=Decimal("0"))
+        unit_price = _decimal_from_form(
+            line_unit_prices[idx] if idx < len(line_unit_prices) else "", default=Decimal("0")
+        )
 
         if quantity <= 0:
             quantity = Decimal("1")
@@ -293,11 +299,17 @@ async def sales_order_create(
     if person_obj:
         person_label = person_obj.display_name or person_obj.email or ""
     inventory_items = (
-        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name.asc()).limit(500).all()
+        db.query(InventoryItem)
+        .filter(InventoryItem.is_active.is_(True))
+        .order_by(InventoryItem.name.asc())
+        .limit(500)
+        .all()
     )
     try:
         project_metadata = {"project_type": project_type} if project_type else None
-        resolved_status = SalesOrderStatus(status) if status in SalesOrderStatus._value2member_map_ else SalesOrderStatus.draft
+        resolved_status = (
+            SalesOrderStatus(status) if status in SalesOrderStatus._value2member_map_ else SalesOrderStatus.draft
+        )
         resolved_payment_status = (
             SalesOrderPaymentStatus(payment_status)
             if payment_status in SalesOrderPaymentStatus._value2member_map_
@@ -458,7 +470,11 @@ def sales_order_edit(
         offset=0,
     )
     inventory_items = (
-        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name.asc()).limit(500).all()
+        db.query(InventoryItem)
+        .filter(InventoryItem.is_active.is_(True))
+        .order_by(InventoryItem.name.asc())
+        .limit(500)
+        .all()
     )
 
     return templates.TemplateResponse(
@@ -508,7 +524,11 @@ def sales_order_update(
         offset=0,
     )
     inventory_items = (
-        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name.asc()).limit(500).all()
+        db.query(InventoryItem)
+        .filter(InventoryItem.is_active.is_(True))
+        .order_by(InventoryItem.name.asc())
+        .limit(500)
+        .all()
     )
 
     try:

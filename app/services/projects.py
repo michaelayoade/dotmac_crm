@@ -348,10 +348,7 @@ def _next_template_task_label(db: Session, project: Project, task: ProjectTask) 
         return None
 
     project_tasks = (
-        db.query(ProjectTask)
-        .filter(ProjectTask.project_id == project.id)
-        .filter(ProjectTask.is_active.is_(True))
-        .all()
+        db.query(ProjectTask).filter(ProjectTask.project_id == project.id).filter(ProjectTask.is_active.is_(True)).all()
     )
     project_tasks_by_template_id = {
         project_task.template_task_id: project_task for project_task in project_tasks if project_task.template_task_id
@@ -397,7 +394,7 @@ def _notify_customer_task_completed(db: Session, project: Project, task: Project
         "<div style=\"font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; "
         "line-height: 1.8; color: #333; background-color: #f4f4f9; padding: 25px; "
         "border: 1px solid #ccc; border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); "
-        "position: relative;\">"
+        'position: relative;">'
         '<div style="position: absolute; top: 14px; right: 14px;">'
         f'<img src="{logo_url_html}" alt="Dotmac Logo" style="max-width: 150px; height: auto;">'
         "</div>"
@@ -1766,9 +1763,9 @@ class ProjectTasks(ListResponseMixin):
         _sync_project_task_assignees(db, task, assignee_ids)
         db.commit()
         db.refresh(task)
-        if ("assigned_to_person_ids" in payload.model_fields_set or "assigned_to_person_id" in payload.model_fields_set) and (
-            "assigned_to_person_ids" not in changed_fields
-        ):
+        if (
+            "assigned_to_person_ids" in payload.model_fields_set or "assigned_to_person_id" in payload.model_fields_set
+        ) and ("assigned_to_person_ids" not in changed_fields):
             changed_fields.append("assigned_to_person_ids")
 
         event_payload: dict[str, object | None] = {

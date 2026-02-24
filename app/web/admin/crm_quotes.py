@@ -1,4 +1,5 @@
 """CRM quote routes."""
+
 from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, Form, Query, Request

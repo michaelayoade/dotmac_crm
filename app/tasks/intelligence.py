@@ -37,9 +37,7 @@ def run_scheduled_analysis(persona_key: str | None = None) -> dict:
         try:
             if max_per_run is None:
                 max_per_run_int = 50
-            elif isinstance(max_per_run, bool):
-                max_per_run_int = int(max_per_run)
-            elif isinstance(max_per_run, int | float):
+            elif isinstance(max_per_run, bool | int | float):
                 max_per_run_int = int(max_per_run)
             elif isinstance(max_per_run, str):
                 max_per_run_int = int(max_per_run.strip())

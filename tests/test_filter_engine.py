@@ -124,7 +124,9 @@ def test_filter_engine_rejects_mixed_doctypes(db_session):
 
 def test_filter_engine_project_task_filters(db_session):
     project = _create_project(db_session, name="Fiber Rollout", status="active")
-    task_in_scope = _create_project_task(db_session, project.id, title="Splice A", status="in_progress", priority="high")
+    task_in_scope = _create_project_task(
+        db_session, project.id, title="Splice A", status="in_progress", priority="high"
+    )
     _create_project_task(db_session, project.id, title="Splice B", status="blocked", priority="low")
 
     filtered = apply_filter_payload(

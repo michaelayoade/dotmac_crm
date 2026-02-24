@@ -99,4 +99,3 @@ def current_shift_window(*, now_utc: datetime | None = None, tz_name: str) -> Sh
         start_utc=start_utc,
         end_utc=end_utc,
     )
-

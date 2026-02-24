@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from decimal import Decimal
-from typing import Sequence
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session

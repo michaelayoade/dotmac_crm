@@ -427,6 +427,7 @@ async def static_cache_middleware(request: Request, call_next):
     - Images: 1 week cache
     - Other static: 1 day cache
     """
+
     def _is_no_response_returned_error(exc: BaseException) -> bool:
         if isinstance(exc, RuntimeError) and str(exc) == "No response returned.":
             return True

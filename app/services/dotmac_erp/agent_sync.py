@@ -74,9 +74,7 @@ class DotMacERPAgentSync:
             return None
 
         timeout_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds")
-        if isinstance(timeout_value, bool):
-            timeout = int(timeout_value)
-        elif isinstance(timeout_value, int | float):
+        if isinstance(timeout_value, bool | int | float):
             timeout = int(timeout_value)
         elif isinstance(timeout_value, str):
             with_value = timeout_value.strip()

@@ -10,9 +10,7 @@ from app.db import Base
 
 class UserFilterPreference(Base):
     __tablename__ = "user_filter_preferences"
-    __table_args__ = (
-        UniqueConstraint("person_id", "page_key", name="uq_user_filter_preferences_person_page"),
-    )
+    __table_args__ = (UniqueConstraint("person_id", "page_key", name="uq_user_filter_preferences_person_page"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)

@@ -12,11 +12,12 @@ from app.models.ai_insight import InsightDomain
 # Data quality types (used by both data_quality module and AI engine)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ContextQualityResult:
     """Result of evaluating context data completeness for a persona."""
 
-    score: float                                  # 0.0 (empty) to 1.0 (fully populated)
+    score: float  # 0.0 (empty) to 1.0 (fully populated)
     field_scores: dict[str, float] = field(default_factory=dict)
     missing_fields: list[str] = field(default_factory=list)
 
@@ -34,6 +35,7 @@ def _default_quality_scorer(_db: Session, _params: dict[str, Any]) -> ContextQua
 # ---------------------------------------------------------------------------
 # Output schema types
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class OutputField:
@@ -62,6 +64,7 @@ class OutputSchema:
 # Persona specification
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class PersonaSpec:
     key: str
@@ -81,5 +84,5 @@ class PersonaSpec:
 
     # Data readiness gate
     context_quality_scorer: Callable[[Session, dict[str, Any]], ContextQualityResult] = _default_quality_scorer
-    min_context_quality: float = 0.0       # 0.0 = no gate (always proceed)
-    skip_on_low_quality: bool = True       # if True, skip LLM; if False, proceed but tag
+    min_context_quality: float = 0.0  # 0.0 = no gate (always proceed)
+    skip_on_low_quality: bool = True  # if True, skip LLM; if False, proceed but tag

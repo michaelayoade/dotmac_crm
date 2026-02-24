@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from sqlalchemy import String, cast, exists, or_
 from sqlalchemy.orm import selectinload
 
+from app.models.service_team import ServiceTeamMember
 from app.models.tickets import (
     Ticket,
     TicketAssignee,
@@ -16,7 +17,6 @@ from app.models.tickets import (
     TicketSlaEvent,
     TicketStatus,
 )
-from app.models.service_team import ServiceTeamMember
 from app.queries.base import BaseQuery
 from app.services.common import coerce_uuid, validate_enum
 

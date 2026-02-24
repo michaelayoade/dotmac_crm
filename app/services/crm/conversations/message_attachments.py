@@ -39,7 +39,9 @@ def _coerce_upload_files(files: UploadFile | list[UploadFile] | tuple[UploadFile
         # file input; treat that as "no attachments".
         raw = str(files).strip()
         if raw:
-            logger.warning("Ignoring non-file attachment scalar payload type=%s value=%r", type(files).__name__, raw[:120])
+            logger.warning(
+                "Ignoring non-file attachment scalar payload type=%s value=%r", type(files).__name__, raw[:120]
+            )
         return []
     if isinstance(files, UploadFile):
         if not files.filename:

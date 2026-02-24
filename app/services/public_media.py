@@ -22,11 +22,7 @@ def is_valid_stored_name(stored_name: str | None) -> bool:
 
 
 def _signature_secret() -> str | None:
-    return (
-        os.getenv("MEDIA_URL_SECRET")
-        or os.getenv("JWT_SECRET")
-        or os.getenv("SECRET_KEY")
-    )
+    return os.getenv("MEDIA_URL_SECRET") or os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY")
 
 
 def _sign(stored_name: str, exp: int) -> str:

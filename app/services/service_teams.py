@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from fastapi import HTTPException
 import builtins
 
+from fastapi import HTTPException
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
@@ -115,18 +115,15 @@ class ServiceTeams(ListResponseMixin):
                 )
             )
 
-        rows = (
-            apply_pagination(
-                query.order_by(
-                    ServiceTeam.name.asc(),
-                    Person.first_name.asc(),
-                    Person.last_name.asc(),
-                ),
-                limit,
-                offset,
-            )
-            .all()
-        )
+        rows = apply_pagination(
+            query.order_by(
+                ServiceTeam.name.asc(),
+                Person.first_name.asc(),
+                Person.last_name.asc(),
+            ),
+            limit,
+            offset,
+        ).all()
 
         groups_by_key: dict[str, dict] = {}
         for team, member, person in rows:

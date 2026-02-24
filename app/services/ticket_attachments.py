@@ -96,7 +96,11 @@ def save_ticket_attachments(prepared: list[dict]) -> list[dict]:
         storage.put(key, item["content"], item["mime_type"])
         # Serve through the authenticated app route so we don't depend on MinIO
         # being publicly reachable (and avoid localhost links in prod).
-        url = f"{app_url}/admin/storage/{settings.s3_bucket}/{key}" if app_url else f"/admin/storage/{settings.s3_bucket}/{key}"
+        url = (
+            f"{app_url}/admin/storage/{settings.s3_bucket}/{key}"
+            if app_url
+            else f"/admin/storage/{settings.s3_bucket}/{key}"
+        )
         saved.append(
             {
                 "file_name": item["file_name"],

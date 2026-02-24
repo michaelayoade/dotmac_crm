@@ -60,9 +60,15 @@ def resolve_company_time_prefs(db: Session) -> tuple[str, str, str, str]:
     date_format = settings_spec.resolve_value(db, SettingDomain.scheduler, "date_format")
     time_format = settings_spec.resolve_value(db, SettingDomain.scheduler, "time_format")
     week_start = settings_spec.resolve_value(db, SettingDomain.scheduler, "week_start")
-    safe_date = date_format if isinstance(date_format, str) and date_format in ALLOWED_DATE_FORMATS else DEFAULT_DATE_FORMAT
-    safe_time = time_format if isinstance(time_format, str) and time_format in ALLOWED_TIME_FORMATS else DEFAULT_TIME_FORMAT
-    safe_week_start = week_start if isinstance(week_start, str) and week_start in ALLOWED_WEEK_STARTS else DEFAULT_WEEK_START
+    safe_date = (
+        date_format if isinstance(date_format, str) and date_format in ALLOWED_DATE_FORMATS else DEFAULT_DATE_FORMAT
+    )
+    safe_time = (
+        time_format if isinstance(time_format, str) and time_format in ALLOWED_TIME_FORMATS else DEFAULT_TIME_FORMAT
+    )
+    safe_week_start = (
+        week_start if isinstance(week_start, str) and week_start in ALLOWED_WEEK_STARTS else DEFAULT_WEEK_START
+    )
     return timezone, safe_date, safe_time, safe_week_start
 
 

@@ -37,4 +37,3 @@ def get_object(bucket: str, key: str):
 
     ctype, _enc = mimetypes.guess_type(key)
     return Response(content=data, media_type=ctype or "application/octet-stream")
-

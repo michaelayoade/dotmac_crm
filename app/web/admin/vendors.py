@@ -727,7 +727,9 @@ def vendor_route_revision_view(
 ):
     revision = vendor_service.proposed_route_revisions.get(db, revision_id)
     if str(revision.quote_id) != str(quote_id):
-        return RedirectResponse(url="/admin/vendors/quotes?route_error_detail=Route+revision+does+not+belong+to+quote", status_code=303)
+        return RedirectResponse(
+            url="/admin/vendors/quotes?route_error_detail=Route+revision+does+not+belong+to+quote", status_code=303
+        )
 
     route_geojson_str = (
         db.query(func.ST_AsGeoJSON(ProposedRouteRevision.route_geom))

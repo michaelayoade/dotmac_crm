@@ -55,11 +55,7 @@ def data_quality_overview(
         )
 
     reports = all_domains_health(db, limit=200)
-    overall_avg = (
-        round(sum(r.avg_quality for r in reports) / len(reports), 3)
-        if reports
-        else 0.0
-    )
+    overall_avg = round(sum(r.avg_quality for r in reports) / len(reports), 3) if reports else 0.0
     total_entities = sum(r.entity_count for r in reports)
 
     return templates.TemplateResponse(
@@ -118,7 +114,7 @@ def data_quality_domain(
     entities = _get_scored_entities(db, domain, limit=500)
     entities.sort(key=lambda r: r.score)
     total = len(entities)
-    page = entities[offset: offset + limit]
+    page = entities[offset : offset + limit]
 
     return templates.TemplateResponse(
         "admin/data_quality/domain_detail.html",
@@ -158,7 +154,7 @@ def data_quality_domain_table(
     entities = _get_scored_entities(db, domain, limit=500)
     entities.sort(key=lambda r: r.score)
     total = len(entities)
-    page = entities[offset: offset + limit]
+    page = entities[offset : offset + limit]
 
     return templates.TemplateResponse(
         "admin/data_quality/_entity_table.html",

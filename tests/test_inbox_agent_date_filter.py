@@ -37,7 +37,9 @@ def _create_conversation(db_session, contact: Person) -> Conversation:
     return conv
 
 
-def _assign(db_session, conversation: Conversation, agent: CrmAgent, *, assigned_at: datetime) -> ConversationAssignment:
+def _assign(
+    db_session, conversation: Conversation, agent: CrmAgent, *, assigned_at: datetime
+) -> ConversationAssignment:
     assignment = ConversationAssignment(
         conversation_id=conversation.id,
         agent_id=agent.id,

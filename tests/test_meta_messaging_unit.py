@@ -3,8 +3,6 @@ import concurrent.futures
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import ChannelType
 from app.models.integration import IntegrationTarget, IntegrationTargetType
