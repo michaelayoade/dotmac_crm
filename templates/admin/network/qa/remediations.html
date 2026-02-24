@@ -1,0 +1,549 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Network QA Remediations - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Network QA Remediations</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Draft fixes live here. Nothing is applied until you approve.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="/admin/network/map" class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+        Back to Map
+      </a>
+    </div>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-2">
+    <a href="/admin/network/qa/remediations?status=pending" class="inline-flex items-center rounded-xl border px-3 py-1.5 text-xs font-semibold {{ 'border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-800 dark:bg-orange-900/20 dark:text-orange-200' if status == 'pending' else 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200' }}">Pending</a>
+    <a href="/admin/network/qa/remediations?status=approved" class="inline-flex items-center rounded-xl border px-3 py-1.5 text-xs font-semibold {{ 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200' if status == 'approved' else 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200' }}">Approved</a>
+    <a href="/admin/network/qa/remediations?status=ignored" class="inline-flex items-center rounded-xl border px-3 py-1.5 text-xs font-semibold {{ 'border-slate-300 bg-slate-100 text-slate-800 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200' if status == 'ignored' else 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200' }}">Ignored</a>
+  </div>
+
+  {% if error %}
+    <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-200">
+      {{ error }}
+    </div>
+  {% endif %}
+  {% if message %}
+    <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200">
+      {{ message }}
+    </div>
+  {% endif %}
+
+  <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+      <h2 class="font-semibold text-slate-900 dark:text-white">Proximity Duplicates (Splice Closures)</h2>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Pairs are same normalized name within 10 meters.</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          <tr>
+            <th class="px-6 py-3">Name</th>
+            <th class="px-6 py-3">Distance</th>
+            <th class="px-6 py-3">Source</th>
+            <th class="px-6 py-3">Keep/Delete Selection</th>
+            <th class="px-6 py-3">Notes</th>
+            <th class="px-6 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          {% for row in proximity_rows %}
+          <tr class="align-top">
+            <td class="px-6 py-4">
+              <div class="font-semibold text-slate-900 dark:text-white">{{ row.name }}</div>
+              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">Log #{{ row.log_id }}</div>
+            </td>
+            <td class="px-6 py-4">
+              <div class="font-mono text-slate-900 dark:text-white">{{ "%.3f"|format(row.distance_m or 0) }} m</div>
+              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                From (will be archived): {{ "%.6f"|format(row.source_lat or 0) }}, {{ "%.6f"|format(row.source_lng or 0) }}<br>
+                To (will remain): {{ "%.6f"|format(row.target_lat or 0) }}, {{ "%.6f"|format(row.target_lng or 0) }}
+              </div>
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                <a class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                   href="/admin/network/map?focus={{ row.source_lat }},{{ row.source_lng }}" target="_blank">Map (From: will be archived)</a>
+                <a class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                   href="/admin/network/map?focus={{ row.target_lat }},{{ row.target_lng }}" target="_blank">Map (To: will remain)</a>
+              </div>
+            </td>
+            <td class="px-6 py-4 font-mono text-xs text-slate-700 dark:text-slate-200">
+              <div class="flex items-center gap-2">
+                <span title="{{ row.source_id }}">{{ (row.source_id|string)[:8] }}...{{ (row.source_id|string)[-4:] }}</span>
+                <button type="button" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" data-copy="{{ row.source_id }}">Copy</button>
+              </div>
+              <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Name: {{ row.name }}</div>
+            </td>
+            <td class="px-6 py-4">
+              <form id="proximity-form-{{ row.log_id }}" method="post" action="/admin/network/qa/remediations/{{ row.log_id }}/update" class="space-y-2">
+                <input type="hidden" name="source_asset_id" value="{{ row.source_id }}">
+                <input type="hidden" name="candidate_target_asset_id" value="{{ row.target_id }}">
+                <div class="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Choose which closure remains</div>
+                  <label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <input
+                      id="keep-source-{{ row.log_id }}"
+                      type="checkbox"
+                      name="keep_source"
+                      value="1"
+                      class="mt-0.5 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 dark:border-slate-600"
+                      onchange="if (this.checked) { document.getElementById('keep-target-{{ row.log_id }}').checked = false; document.getElementById('keep-both-rename-{{ row.log_id }}').checked = false; } else if (!document.getElementById('keep-target-{{ row.log_id }}').checked && !document.getElementById('keep-both-rename-{{ row.log_id }}').checked) { document.getElementById('keep-target-{{ row.log_id }}').checked = true; }">
+                    <span>
+                      Keep SOURCE
+                      <span class="block font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                        {{ "%.6f"|format(row.source_lat or 0) }}, {{ "%.6f"|format(row.source_lng or 0) }}
+                      </span>
+                      <span class="block text-[11px] text-slate-500 dark:text-slate-400">
+                        Delete TARGET {{ "%.6f"|format(row.target_lat or 0) }}, {{ "%.6f"|format(row.target_lng or 0) }}
+                      </span>
+                    </span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <input
+                      id="keep-target-{{ row.log_id }}"
+                      type="checkbox"
+                      name="keep_target"
+                      value="1"
+                      checked
+                      class="mt-0.5 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 dark:border-slate-600"
+                      onchange="if (this.checked) { document.getElementById('keep-source-{{ row.log_id }}').checked = false; document.getElementById('keep-both-rename-{{ row.log_id }}').checked = false; } else if (!document.getElementById('keep-source-{{ row.log_id }}').checked && !document.getElementById('keep-both-rename-{{ row.log_id }}').checked) { document.getElementById('keep-source-{{ row.log_id }}').checked = true; }">
+                    <span>
+                      Keep TARGET
+                      <span class="block font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                        {{ "%.6f"|format(row.target_lat or 0) }}, {{ "%.6f"|format(row.target_lng or 0) }}
+                      </span>
+                      <span class="block text-[11px] text-slate-500 dark:text-slate-400">
+                        Delete SOURCE {{ "%.6f"|format(row.source_lat or 0) }}, {{ "%.6f"|format(row.source_lng or 0) }}
+                      </span>
+                    </span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <input
+                      id="keep-both-rename-{{ row.log_id }}"
+                      type="checkbox"
+                      name="keep_both_rename"
+                      value="1"
+                      class="mt-0.5 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 dark:border-slate-600"
+                      onchange="if (this.checked) { document.getElementById('keep-source-{{ row.log_id }}').checked = false; document.getElementById('keep-target-{{ row.log_id }}').checked = false; } else if (!document.getElementById('keep-source-{{ row.log_id }}').checked && !document.getElementById('keep-target-{{ row.log_id }}').checked) { document.getElementById('keep-target-{{ row.log_id }}').checked = true; }">
+                    <span>
+                      Keep BOTH closures and rename one
+                      <span class="block text-[11px] text-slate-500 dark:text-slate-400">No deletion. You must choose one closure and set a new name.</span>
+                    </span>
+                  </label>
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <select name="rename_side" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                      <option value="target">
+                        Rename closure: {{ row.target_name or row.name }}
+                      </option>
+                      <option value="source">
+                        Rename closure: {{ row.name }}
+                      </option>
+                    </select>
+                    <input
+                      type="text"
+                      name="rename_to"
+                      value="{% if row.issue_type == 'proximity_duplicate' and row.new_value and not (row.new_value|string|length == 36 and '-' in (row.new_value|string)) %}{{ row.new_value }}{% endif %}"
+                      placeholder="New unique closure name"
+                      class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                  </div>
+                </div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400">Current target name: <span class="text-slate-700 dark:text-slate-200">{{ row.target_name }}</span></div>
+                <select name="status" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                  <option value="pending" {{ 'selected' if row.status == 'pending' else '' }}>pending</option>
+                  <option value="ignored" {{ 'selected' if row.status == 'ignored' else '' }}>ignored</option>
+                </select>
+                <textarea name="review_notes" rows="2" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" placeholder="Optional notes...">{{ row.review_notes or '' }}</textarea>
+                <button type="submit" class="inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">Save Draft</button>
+              </form>
+            </td>
+            <td class="px-6 py-4 text-xs text-slate-600 dark:text-slate-300">
+              {{ row.review_notes or '' }}
+            </td>
+            <td class="px-6 py-4">
+              {% if row.status == 'pending' %}
+              <button
+                type="submit"
+                form="proximity-form-{{ row.log_id }}"
+                formaction="/admin/network/qa/remediations/{{ row.log_id }}/approve-merge"
+                formmethod="post"
+                onclick="return confirm('Approve selected action? Merge will delete one closure; keep-both will rename one closure and keep both.');"
+                class="inline-flex items-center rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:shadow-md">
+                Approve Action
+              </button>
+              {% else %}
+              <span class="text-xs text-slate-400">No actions</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if proximity_rows|length == 0 %}
+          <tr>
+            <td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No rows for this filter.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+      <h2 class="font-semibold text-slate-900 dark:text-white">Bulk Rename Drafts (Splice Closures)</h2>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Draft unique names for the largest duplicate-name group. Approve to apply.</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          <tr>
+            <th class="px-6 py-3">Current Name</th>
+            <th class="px-6 py-3">Asset</th>
+            <th class="px-6 py-3">Proposed Name (Editable)</th>
+            <th class="px-6 py-3">Notes</th>
+            <th class="px-6 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          {% for row in rename_rows %}
+          <tr class="align-top">
+            <td class="px-6 py-4">
+              <div class="font-semibold text-slate-900 dark:text-white">{{ row.old_value }}</div>
+              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">Log #{{ row.log_id }}</div>
+            </td>
+            <td class="px-6 py-4 font-mono text-xs text-slate-700 dark:text-slate-200">
+              <div class="flex items-center gap-2">
+                <span title="{{ row.asset_id }}">{{ (row.asset_id|string)[:8] }}...{{ (row.asset_id|string)[-4:] }}</span>
+                <button type="button" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" data-copy="{{ row.asset_id }}">Copy</button>
+              </div>
+              {% if row.source_lat is not none and row.source_lng is not none %}
+              <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                {{ "%.6f"|format(row.source_lat) }}, {{ "%.6f"|format(row.source_lng) }}
+              </div>
+              <div class="mt-2">
+                <a class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                   href="/admin/network/map?focus={{ row.source_lat }},{{ row.source_lng }}" target="_blank">Map</a>
+              </div>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4">
+              <form method="post" action="/admin/network/qa/remediations/{{ row.log_id }}/update-rename" class="space-y-2">
+                <input type="text" name="new_value" value="{{ row.new_value }}" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                <select name="status" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                  <option value="pending" {{ 'selected' if row.status == 'pending' else '' }}>pending</option>
+                  <option value="ignored" {{ 'selected' if row.status == 'ignored' else '' }}>ignored</option>
+                </select>
+                <textarea name="review_notes" rows="2" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" placeholder="Optional notes...">{{ row.review_notes or '' }}</textarea>
+                <button type="submit" class="inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">Save Draft</button>
+              </form>
+            </td>
+            <td class="px-6 py-4 text-xs text-slate-600 dark:text-slate-300">{{ row.review_notes or '' }}</td>
+            <td class="px-6 py-4">
+              {% if row.status == 'pending' %}
+              <form method="post" action="/admin/network/qa/remediations/{{ row.log_id }}/approve-rename" onsubmit="return confirm('Approve rename? This will update the closure name in production.');">
+                <button type="submit" class="inline-flex items-center rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:shadow-md">Approve Rename</button>
+              </form>
+              {% else %}
+              <span class="text-xs text-slate-400">No actions</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if rename_rows|length == 0 %}
+          <tr>
+            <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No rows for this filter.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+      <h2 class="font-semibold text-slate-900 dark:text-white">Manual Segment Connectivity</h2>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Draft endpoint assignments for segments. Edits only update the registry row.</p>
+    </div>
+    {% if status == 'pending' %}
+    <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+      <form method="post" action="/admin/network/qa/remediations/stage-manual-connectivity" class="grid gap-3 lg:grid-cols-12 lg:items-end">
+        <div class="lg:col-span-4">
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Segment (UUID or code)</label>
+          <div class="mt-1 flex items-center gap-2">
+            <input id="mc-segment" type="text" name="segment_id" placeholder="segment UUID or PM-..." class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+            <button id="mc-lookup" type="button" class="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Lookup</button>
+          </div>
+          <div id="mc-lookup-status" class="mt-1 text-[11px] text-slate-500 dark:text-slate-400"></div>
+        </div>
+        <div class="lg:col-span-3">
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">FROM</label>
+          <input id="mc-from" type="text" name="from_value" placeholder="lat,lng or termination-point UUID" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+        </div>
+        <div class="lg:col-span-3">
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">TO</label>
+          <input id="mc-to" type="text" name="to_value" placeholder="lat,lng or termination-point UUID" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+        </div>
+        <div class="lg:col-span-2">
+          <button type="submit" class="inline-flex w-full items-center justify-center rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:shadow-md">Stage Draft</button>
+        </div>
+        <div class="lg:col-span-12">
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Notes (optional)</label>
+          <textarea name="review_notes" rows="2" placeholder="Why are you setting these endpoints?" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"></textarea>
+        </div>
+      </form>
+      <p class="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+        This only creates a pending registry row. It does not modify the segment until you build an approval action later.
+      </p>
+    </div>
+    {% endif %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          <tr>
+            <th class="px-6 py-3">Segment</th>
+            <th class="px-6 py-3">Draft Endpoints</th>
+            <th class="px-6 py-3">Draft</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          {% for row in manual_rows %}
+          <tr class="align-top">
+            <td class="px-6 py-4">
+              <div class="font-semibold text-slate-900 dark:text-white">{{ row.segment_name }}</div>
+              <div class="mt-1 font-mono text-xs text-slate-600 dark:text-slate-300">
+                <span title="{{ row.segment_id }}">{{ (row.segment_id|string)[:8] }}...{{ (row.segment_id|string)[-4:] }}</span>
+                <button type="button" class="ml-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" data-copy="{{ row.segment_id }}">Copy</button>
+              </div>
+              <div class="mt-2">
+                <a class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                   href="/admin/network/map?segment_id={{ row.segment_id }}" target="_blank">Map</a>
+              </div>
+              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">Log #{{ row.log_id }}</div>
+            </td>
+            <td class="px-6 py-4">
+              <div class="text-xs text-slate-600 dark:text-slate-300">
+                <div><span class="font-semibold">FROM:</span> <span class="font-mono">{{ row.from_value }}</span></div>
+                <div class="mt-1"><span class="font-semibold">TO:</span> <span class="font-mono">{{ row.to_value }}</span></div>
+              </div>
+            </td>
+            <td class="px-6 py-4">
+              <form method="post" action="/admin/network/qa/remediations/{{ row.log_id }}/update-manual-connectivity" class="space-y-2">
+                <input type="text" name="from_value" value="{{ row.from_value }}" placeholder="FROM: lat,lng or termination-point UUID" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                <input type="text" name="to_value" value="{{ row.to_value }}" placeholder="TO: lat,lng or termination-point UUID" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                <select name="status" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                  <option value="pending" {{ 'selected' if row.status == 'pending' else '' }}>pending</option>
+                  <option value="ignored" {{ 'selected' if row.status == 'ignored' else '' }}>ignored</option>
+                </select>
+                <textarea name="review_notes" rows="2" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" placeholder="Optional notes...">{{ row.review_notes or '' }}</textarea>
+                <button type="submit" class="inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">Save Draft</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if manual_rows|length == 0 %}
+          <tr>
+            <td colspan="3" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No rows for this filter.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+      <h2 class="font-semibold text-slate-900 dark:text-white">Segment Geometry Duplicates</h2>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Staged likely twin segments (high overlap). Edit drafts here; no segment data changes happen on edit.</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          <tr>
+            <th class="px-6 py-3">Source</th>
+            <th class="px-6 py-3">Target</th>
+            <th class="px-6 py-3">Details</th>
+            <th class="px-6 py-3">Draft</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          {% for row in segment_rows %}
+          <tr class="align-top">
+            <td class="px-6 py-4">
+              <div class="font-semibold text-slate-900 dark:text-white">{{ row.source_name }}</div>
+              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">Log #{{ row.log_id }}</div>
+            </td>
+            <td class="px-6 py-4">
+              <div class="font-semibold text-slate-900 dark:text-white">{{ row.target_name }}</div>
+            </td>
+            <td class="px-6 py-4">
+              <div class="text-xs text-slate-600 dark:text-slate-300">{{ row.old_value }}</div>
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                {% if row.source_lat is not none and row.source_lng is not none %}
+                <a class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                   href="/admin/network/map?focus={{ row.source_lat }},{{ row.source_lng }}" target="_blank">Map (From: will be archived)</a>
+                {% else %}
+                <a class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                   href="/admin/network/map?segment_id={{ row.source_id }}" target="_blank">Map (From: will be archived)</a>
+                {% endif %}
+                {% if row.target_lat is not none and row.target_lng is not none %}
+                <a class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                   href="/admin/network/map?focus={{ row.target_lat }},{{ row.target_lng }}" target="_blank">Map (To: will remain)</a>
+                {% else %}
+                <a class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                   href="/admin/network/map?segment_id={{ row.target_id }}" target="_blank">Map (To: will remain)</a>
+                {% endif %}
+              </div>
+              <details class="mt-3">
+                <summary class="cursor-pointer select-none text-[11px] font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">IDs</summary>
+                <div class="mt-2 space-y-2 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-semibold text-slate-700 dark:text-slate-200">From (will be archived)</span>
+                    <span title="{{ row.source_id }}">{{ row.source_id }}</span>
+                    <button type="button" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" data-copy="{{ row.source_id }}">Copy</button>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-semibold text-slate-700 dark:text-slate-200">To (will remain)</span>
+                    <span title="{{ row.target_id }}">{{ row.target_id }}</span>
+                    <button type="button" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" data-copy="{{ row.target_id }}">Copy</button>
+                  </div>
+                </div>
+              </details>
+            </td>
+            <td class="px-6 py-4">
+              <form method="post" action="/admin/network/qa/remediations/{{ row.log_id }}/update-segment-dup" class="space-y-2">
+                <input type="hidden" name="source_asset_id" value="{{ row.source_id }}">
+                <input type="hidden" name="candidate_target_asset_id" value="{{ row.target_id }}">
+                <div class="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Choose which segment remains</div>
+                  <label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <input
+                      id="keep-seg-source-{{ row.log_id }}"
+                      type="checkbox"
+                      name="keep_source"
+                      value="1"
+                      class="mt-0.5 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 dark:border-slate-600"
+                      onchange="if (this.checked) { document.getElementById('keep-seg-target-{{ row.log_id }}').checked = false; } else { document.getElementById('keep-seg-target-{{ row.log_id }}').checked = true; }">
+                    <span>
+                      Keep SOURCE: {{ row.source_name }}
+                      <span class="block text-[11px] text-slate-500 dark:text-slate-400">Delete TARGET: {{ row.target_name }}</span>
+                    </span>
+                  </label>
+                  <label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <input
+                      id="keep-seg-target-{{ row.log_id }}"
+                      type="checkbox"
+                      name="keep_target"
+                      value="1"
+                      checked
+                      class="mt-0.5 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500 dark:border-slate-600"
+                      onchange="if (this.checked) { document.getElementById('keep-seg-source-{{ row.log_id }}').checked = false; } else { document.getElementById('keep-seg-source-{{ row.log_id }}').checked = true; }">
+                    <span>
+                      Keep TARGET: {{ row.target_name }}
+                      <span class="block text-[11px] text-slate-500 dark:text-slate-400">Delete SOURCE: {{ row.source_name }}</span>
+                    </span>
+                  </label>
+                </div>
+                <select name="status" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                  <option value="pending" {{ 'selected' if row.status == 'pending' else '' }}>pending</option>
+                  <option value="ignored" {{ 'selected' if row.status == 'ignored' else '' }}>ignored</option>
+                </select>
+                <textarea name="review_notes" rows="2" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:border-orange-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" placeholder="Optional notes...">{{ row.review_notes or '' }}</textarea>
+                <button type="submit" class="inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">Save Draft</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if segment_rows|length == 0 %}
+          <tr>
+            <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No rows for this filter.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  function copyText(text) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text);
+      return;
+    }
+    const tmp = document.createElement('textarea');
+    tmp.value = text;
+    document.body.appendChild(tmp);
+    tmp.select();
+    document.execCommand('copy');
+    tmp.remove();
+  }
+
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-copy]');
+    if (!btn) return;
+    e.preventDefault();
+    copyText(btn.getAttribute('data-copy'));
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 900);
+  });
+
+  async function lookupManualConnectivity() {
+    const input = document.getElementById('mc-segment');
+    const status = document.getElementById('mc-lookup-status');
+    const fromEl = document.getElementById('mc-from');
+    const toEl = document.getElementById('mc-to');
+    if (!input || !status || !fromEl || !toEl) return;
+
+    const q = (input.value || '').trim();
+    if (!q) {
+      status.textContent = 'Enter a segment UUID or code first.';
+      return;
+    }
+    status.textContent = 'Looking up segment...';
+    try {
+      const res = await fetch('/admin/network/qa/segments/lookup?query=' + encodeURIComponent(q), {
+        headers: { 'Accept': 'application/json' }
+      });
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      if (!contentType.includes('application/json')) {
+        status.textContent = 'Lookup failed: session expired or unexpected response. Refresh the page and try again.';
+        return;
+      }
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        status.textContent = payload.error || ('Lookup failed (' + res.status + ')');
+        return;
+      }
+      const seg = payload.segment || null;
+      if (!seg) {
+        status.textContent = 'Lookup failed: missing segment data.';
+        return;
+      }
+      const hasStart = seg.start_lat !== null && seg.start_lat !== undefined && seg.start_lng !== null && seg.start_lng !== undefined;
+      const hasEnd = seg.end_lat !== null && seg.end_lat !== undefined && seg.end_lng !== null && seg.end_lng !== undefined;
+      if (hasStart) fromEl.value = String(seg.start_lat) + ',' + String(seg.start_lng);
+      if (hasEnd) toEl.value = String(seg.end_lat) + ',' + String(seg.end_lng);
+      if (hasStart || hasEnd) {
+        status.textContent = 'Found: ' + (seg.name || seg.id || q) + '. Filled FROM/TO from geometry.';
+      } else {
+        status.textContent = 'Found: ' + (seg.name || seg.id || q) + '. No geometry endpoints available to fill.';
+      }
+    } catch (err) {
+      status.textContent = 'Lookup failed. Try again.';
+    }
+  }
+
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('#mc-lookup');
+    if (!btn) return;
+    e.preventDefault();
+    lookupManualConnectivity();
+  });
+})();
+</script>
+{% endblock %}

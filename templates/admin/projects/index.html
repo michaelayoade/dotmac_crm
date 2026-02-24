@@ -14,10 +14,12 @@
             <a href="/admin/projects/tasks" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 View Tasks
             </a>
+            {% if current_user and (('admin' in (current_user.roles or [])) or ('project:create' in (current_user.permissions or []))) %}
             <a href="/admin/projects/new" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 New Project
             </a>
+            {% endif %}
         </div>
     </div>
     {% if notice == "splynx_exists" %}
@@ -44,11 +46,11 @@
                 <span class="h-3 w-3 rounded-full bg-slate-400 dark:bg-slate-500"></span>
             </div>
         </a>
-        <a href="/admin/projects?{{ (query_params + ['status=planned']) | join('&') }}" class="rounded-xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if status == 'planned' %}border-primary-300 bg-primary-50 ring-1 ring-primary-200 dark:border-primary-500/60 dark:bg-primary-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+        <a href="/admin/projects?{{ (query_params + ['status=open']) | join('&') }}" class="rounded-xl border px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if status == 'open' %}border-primary-300 bg-primary-50 ring-1 ring-primary-200 dark:border-primary-500/60 dark:bg-primary-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Planned</p>
-                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ status_counts.get('planned', 0) }}</p>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Open</p>
+                    <p class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ status_counts.get('open', 0) }}</p>
                 </div>
                 <span class="h-3 w-3 rounded-full bg-slate-400 dark:bg-slate-500"></span>
             </div>
@@ -98,6 +100,7 @@
             <input type="hidden" name="page" value="1">
             <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
             <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
+            <input type="hidden" name="filters" value="{{ filters or '' }}">
             <div class="w-full lg:max-w-3xl">
                 <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
                 {{ search_input("search", search or "", "Search by project name, code, number, region...", "primary") }}
@@ -106,6 +109,7 @@
                 <div class="w-full">
                     {{ filter_select("status", [
                         {"value": "", "label": "All Status"},
+                        {"value": "open", "label": "Open"},
                         {"value": "planned", "label": "Planned"},
                         {"value": "active", "label": "Active"},
                         {"value": "on_hold", "label": "On Hold"},
@@ -138,7 +142,18 @@
                     <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                         Apply Filters
                     </button>
+                    {% if search or status or project_type or pm or spc or filters %}
+                    <a href="/admin/projects" class="ml-2 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        Clear
+                    </a>
+                    {% endif %}
                 </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/20">
+                <div class="mb-2 flex items-center justify-between">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Advanced Filters</p>
+                </div>
+                <div id="projects-advanced-filters"></div>
             </div>
         </form>
         <div class="mt-3 flex justify-end">
@@ -285,6 +300,7 @@
     {% if project_type %}{% set _ = _sort_params.append('project_type=' ~ project_type|urlencode) %}{% endif %}
     {% if pm %}{% set _ = _sort_params.append('pm=' ~ pm|urlencode) %}{% endif %}
     {% if spc %}{% set _ = _sort_params.append('spc=' ~ spc|urlencode) %}{% endif %}
+    {% if filters %}{% set _ = _sort_params.append('filters=' ~ filters|urlencode) %}{% endif %}
     {% if per_page %}{% set _ = _sort_params.append('per_page=' ~ per_page) %}{% endif %}
     {% set sort_extra = _sort_params | join('&') %}
 
@@ -317,7 +333,7 @@
             <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
                 {% if projects %}
                 {% for project in projects %}
-                {% set status_val = project.status.value if project.status else 'planned' %}
+                {% set status_val = project.status.value if project.status else 'open' %}
                 {% set project_type_label = project.project_type.value | replace('_', ' ') | title if project.project_type else '—' %}
                 {% set owner_label = project.owner.display_name or ((project.owner.first_name or '') ~ ' ' ~ (project.owner.last_name or '') | trim) if project.owner else '—' %}
                 {% set manager_label = project.manager.display_name or ((project.manager.first_name or '') ~ ' ' ~ (project.manager.last_name or '') | trim) if project.manager else '—' %}
@@ -380,8 +396,11 @@
                     <td data-project-column="created" class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ project.created_at.strftime('%b %d, %Y') if project.created_at else 'N/A' }}</td>
                     <td class="{{ pad }} text-right">
                         <a href="/admin/projects/{{ project.number or project.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
+                        {% if current_user and (('admin' in (current_user.roles or [])) or ('project:update' in (current_user.permissions or []))) %}
                         <span class="px-1.5 text-slate-300">|</span>
                         <a href="/admin/projects/{{ project.number or project.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
+                        {% endif %}
+                            {% if current_user and (('admin' in (current_user.roles or [])) or ('project:delete' in (current_user.permissions or []))) %}
                             <span class="px-1.5 text-slate-300">|</span>
                             <form method="post"
                                   action="/admin/projects/{{ project.number or project.id }}/delete"
@@ -396,6 +415,7 @@
                                     Delete
                                 </button>
                             </form>
+                            {% endif %}
                         </td>
                 {% endcall %}
                     {% endfor %}
@@ -414,6 +434,7 @@
         {% set project_type_param = '&project_type=' ~ project_type if project_type else '' %}
         {% set pm_param = '&pm=' ~ pm if pm else '' %}
         {% set spc_param = '&spc=' ~ spc if spc else '' %}
+        {% set filters_param = '&filters=' ~ filters|urlencode if filters else '' %}
         {% set order_by_param = '&order_by=' ~ order_by if order_by and order_by != 'created_at' else '' %}
         {% set order_dir_param = '&order_dir=' ~ order_dir if order_dir and order_dir != 'desc' else '' %}
         <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row">
@@ -428,6 +449,7 @@
                         <input type="hidden" name="project_type" value="{{ project_type or '' }}">
                         <input type="hidden" name="pm" value="{{ pm or '' }}">
                         <input type="hidden" name="spc" value="{{ spc or '' }}">
+                        <input type="hidden" name="filters" value="{{ filters or '' }}">
                         <input type="hidden" name="page" value="1">
                         <select name="per_page"
                                 class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
@@ -441,10 +463,10 @@
             </div>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
-                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}{{ filters_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
                 {% endif %}
                 {% if page < total_pages %}
-                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ pm_param }}{{ spc_param }}{{ filters_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
                 {% endif %}
             </div>
         </div>
@@ -570,10 +592,57 @@ document.addEventListener("DOMContentLoaded", () => {
     })();
 });
 </script>
+<script src="/static/js/filter-builder.js"></script>
 <script src="/static/js/ui-filter-state.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", () => {
     const userId = "{{ (current_user.get('person_id') if current_user and current_user.get('person_id') else 'anon') }}";
+    if (window.DotmacFilterBuilder && window.DotmacFilterBuilder.init) {
+        window.DotmacFilterBuilder.init({
+            formId: "projects-filter-form",
+            mountId: "projects-advanced-filters",
+            filtersFieldName: "filters",
+            doctype: "Project",
+            initialFilters: {{ (filters or '') | tojson }},
+            fields: [
+                { name: "number", label: "Project Number", type: "string" },
+                { name: "name", label: "Name", type: "string" },
+                { name: "code", label: "Code", type: "string" },
+                { name: "description", label: "Description", type: "string" },
+                { name: "project_type", label: "Project Type", type: "select", options: [
+                    { value: "cable_rerun", label: "Cable Rerun" },
+                    { value: "fiber_optics_relocation", label: "Fiber Optics Relocation" },
+                    { value: "air_fiber_relocation", label: "Air Fiber Relocation" },
+                    { value: "fiber_optics_installation", label: "Fiber Optics Installation" },
+                    { value: "air_fiber_installation", label: "Air Fiber Installation" },
+                    { value: "cross_connect", label: "Cross Connect" },
+                ]},
+                { name: "status", label: "Status", type: "select", options: [
+                    { value: "open", label: "Open" },
+                    { value: "planned", label: "Planned" },
+                    { value: "active", label: "Active" },
+                    { value: "on_hold", label: "On Hold" },
+                    { value: "completed", label: "Completed" },
+                    { value: "canceled", label: "Canceled" },
+                ]},
+                { name: "priority", label: "Priority", type: "select", options: [
+                    { value: "lower", label: "Lower" },
+                    { value: "low", label: "Low" },
+                    { value: "medium", label: "Medium" },
+                    { value: "normal", label: "Normal" },
+                    { value: "high", label: "High" },
+                    { value: "urgent", label: "Urgent" },
+                ]},
+                { name: "region", label: "Region", type: "string" },
+                { name: "start_at", label: "Start At", type: "date" },
+                { name: "due_at", label: "Due At", type: "date" },
+                { name: "completed_at", label: "Completed At", type: "date" },
+                { name: "created_at", label: "Created At", type: "date" },
+                { name: "updated_at", label: "Updated At", type: "date" },
+                { name: "is_active", label: "Is Active", type: "boolean", operators: ["=", "!=", "is", "is not"] },
+            ],
+        });
+    }
     if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
     const columnDefinitions = [
         "project",
@@ -593,7 +662,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ];
     window.DotmacUiFilterState.init({
         formId: "projects-filter-form",
-        fields: ["search", "status", "project_type", "pm", "spc", "order_by", "order_dir"],
+        fields: ["search", "status", "project_type", "pm", "spc", "order_by", "order_dir", "filters"],
         urlSyncFields: ["order_by", "order_dir"],
         filterStorageKey: `admin:projects:filters:${userId}`,
         columns: {

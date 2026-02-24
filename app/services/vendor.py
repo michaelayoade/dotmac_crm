@@ -530,11 +530,10 @@ class ProjectQuotes(ListResponseMixin):
             )
         for idx, item in enumerate(active_items, start=1):
             has_description = bool((item.description or "").strip())
-            has_type = bool((item.item_type or "").strip())
-            if not (has_description or has_type):
+            if not has_description:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Quote line item {idx} is missing description or type",
+                    detail=f"Quote line item {idx} is missing description",
                 )
 
         previous_status = quote.status
@@ -731,6 +730,10 @@ class QuoteLineItems(ListResponseMixin):
 
 class ProposedRouteRevisions(ListResponseMixin):
     @staticmethod
+    def get(db: Session, revision_id: str):
+        return _ensure_route_revision(db, revision_id)
+
+    @staticmethod
     def create(db: Session, payload: ProposedRouteRevisionCreate, vendor_id: str):
         quote = _ensure_quote(db, str(payload.quote_id))
         if str(quote.vendor_id) != str(vendor_id):
@@ -783,6 +786,34 @@ class ProposedRouteRevisions(ListResponseMixin):
         revision.status = ProposedRouteRevisionStatus.submitted
         revision.submitted_at = _now()
         revision.submitted_by_person_id = coerce_uuid(person_id)
+        db.commit()
+        db.refresh(revision)
+        return revision
+
+    @staticmethod
+    def approve(db: Session, revision_id: str, reviewer_person_id: str, review_notes: str | None = None):
+        revision = _ensure_route_revision(db, revision_id)
+        _ensure_person(db, reviewer_person_id)
+        if revision.status != ProposedRouteRevisionStatus.submitted:
+            raise HTTPException(status_code=400, detail="Only submitted route revisions can be approved")
+        revision.status = ProposedRouteRevisionStatus.accepted
+        revision.reviewed_at = _now()
+        revision.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
+        revision.review_notes = review_notes
+        db.commit()
+        db.refresh(revision)
+        return revision
+
+    @staticmethod
+    def reject(db: Session, revision_id: str, reviewer_person_id: str, review_notes: str | None = None):
+        revision = _ensure_route_revision(db, revision_id)
+        _ensure_person(db, reviewer_person_id)
+        if revision.status != ProposedRouteRevisionStatus.submitted:
+            raise HTTPException(status_code=400, detail="Only submitted route revisions can be rejected")
+        revision.status = ProposedRouteRevisionStatus.rejected
+        revision.reviewed_at = _now()
+        revision.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
+        revision.review_notes = review_notes
         db.commit()
         db.refresh(revision)
         return revision

@@ -1,21 +1,100 @@
 """Admin subscriber web routes."""
 
 import contextlib
+import csv
+import io
 import math
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.subscriber import AccountType, Organization, Subscriber, SubscriberStatus
+from app.services import reseller as reseller_service
+from app.services import reseller_admin as reseller_admin_service
+from app.services.audit_helpers import log_audit_event
 from app.services.subscriber import subscriber as subscriber_service
+from app.web.auth.rbac import require_web_role
 
 router = APIRouter(prefix="/subscribers", tags=["admin-subscribers"])
 templates = Jinja2Templates(directory="templates")
+
+
+def _format_balance_display(value: object) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, int | float):
+        return f"{float(value):.2f}"
+    text = str(value).strip()
+    if not text:
+        return "—"
+    try:
+        return f"{float(text):.2f}"
+    except (TypeError, ValueError):
+        return text
+
+
+def _decorate_balance_display(subscribers: list[Subscriber]) -> None:
+    for subscriber in subscribers:
+        setattr(subscriber, "balance_display", _format_balance_display(getattr(subscriber, "balance", None)))
+
+
+def _parse_export_days(value: str | None) -> int:
+    try:
+        parsed = int((value or "").strip())
+    except (TypeError, ValueError):
+        return 30
+    return max(1, min(parsed, 3650))
+
+
+def _clean_export_value(value: object | None) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text in {"-", "—", "N/A"}:
+        return ""
+    return text
+
+
+def _source_label(external_system: str | None) -> str:
+    value = (external_system or "").strip().lower()
+    if value == "splynx":
+        return "Splynx"
+    if value == "ucrm":
+        return "UCRM"
+    if value == "whmcs":
+        return "WHMCS"
+    if value == "manual":
+        return "Manual"
+    return "Manual"
+
+
+def _contact_detail_values(subscriber: Subscriber) -> tuple[str, str]:
+    person = getattr(subscriber, "person", None)
+    if not person:
+        return "", ""
+    return (person.email or "").strip(), (person.phone or "").strip()
+
+
+def _csv_response(data: list[dict[str, str]], filename: str) -> StreamingResponse:
+    output = io.StringIO()
+    if data:
+        writer = csv.DictWriter(output, fieldnames=list(data[0].keys()))
+        writer.writeheader()
+        writer.writerows(data)
+    else:
+        output.write("No data available\n")
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.get("", response_class=HTMLResponse)
@@ -29,6 +108,7 @@ def subscriber_list(
     order_dir: str = Query("desc"),
     page: int = 1,
     per_page: int = 20,
+    export_days: str | None = Query("30"),
 ):
     """List subscribers."""
     if order_by not in {"created_at", "updated_at", "subscriber_number", "status"}:
@@ -61,6 +141,7 @@ def subscriber_list(
         limit=per_page,
         offset=offset,
     )
+    _decorate_balance_display(subscribers)
 
     total = subscriber_service.count(
         db,
@@ -112,8 +193,63 @@ def subscriber_list(
             "total_pages": total_pages,
             "statuses": [s.value for s in SubscriberStatus],
             "active_page": "subscribers",
+            "export_days": str(_parse_export_days(export_days)),
         },
     )
+
+
+@router.get("/export")
+def subscriber_export_csv(
+    db: Session = Depends(get_db),
+    search: str | None = None,
+    external_system: str | None = None,
+    status: str | None = None,
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
+    export_days: str | None = Query("30"),
+):
+    if order_by not in {"created_at", "updated_at", "subscriber_number", "status"}:
+        order_by = "created_at"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "desc"
+
+    status_filter = None
+    if status:
+        with contextlib.suppress(ValueError):
+            status_filter = SubscriberStatus(status)
+
+    parsed_days = _parse_export_days(export_days)
+    cutoff = datetime.now(UTC) - timedelta(days=parsed_days)
+
+    subscribers = subscriber_service.list(
+        db,
+        search=search,
+        external_system=external_system,
+        status=status_filter,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=10000,
+        offset=0,
+    )
+    subscribers = [subscriber for subscriber in subscribers if subscriber.created_at and subscriber.created_at >= cutoff]
+
+    rows: list[dict[str, str]] = []
+    for subscriber in subscribers:
+        contact_email, contact_number = _contact_detail_values(subscriber)
+        rows.append(
+            {
+                "Name": _clean_export_value(subscriber.display_name),
+                "Contact Detail - Email": _clean_export_value(contact_email),
+                "Contact Detail - Number": _clean_export_value(contact_number),
+                "External ID": _clean_export_value(subscriber.external_id),
+                "Source": _clean_export_value(_source_label(subscriber.external_system)),
+                "Status": _clean_export_value(subscriber.status.value.title() if subscriber.status else ""),
+                "Created": _clean_export_value(subscriber.created_at.strftime("%Y-%m-%d") if subscriber.created_at else ""),
+            }
+        )
+
+    filename = f"subscribers_{parsed_days}d_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    return _csv_response(rows, filename)
 
 
 @router.get("/resellers", response_class=HTMLResponse)
@@ -125,6 +261,7 @@ def reseller_organizations_list(
     per_page: int = 20,
 ):
     """List organizations configured as resellers."""
+    from app.csrf import get_csrf_token
     from app.web.admin import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
@@ -231,9 +368,185 @@ def reseller_organizations_list(
                 "direct_subscribers": int(direct_subscriber_total),
                 "hierarchy_subscribers": int(hierarchy_subscriber_total),
             },
+            "csrf_token": get_csrf_token(request),
             "active_page": "subscribers",
         },
     )
+
+
+@router.get("/resellers/new", response_class=HTMLResponse)
+def reseller_new(
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_web_role("admin")),
+):
+    """Admin: create a reseller org + login."""
+    from app.csrf import get_csrf_token
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    user = get_current_user(request)
+    sidebar_stats = get_sidebar_stats(db)
+    return templates.TemplateResponse(
+        "admin/subscribers/reseller_new.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": sidebar_stats,
+            "csrf_token": get_csrf_token(request),
+            "active_page": "subscribers",
+        },
+    )
+
+
+@router.get("/resellers/promote", response_class=HTMLResponse)
+def reseller_promote_picker(
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_web_role("admin")),
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 20,
+):
+    """Admin: choose an existing org to promote to reseller."""
+    from app.csrf import get_csrf_token
+    from app.web.admin import get_current_user, get_sidebar_stats
+
+    user = get_current_user(request)
+    sidebar_stats = get_sidebar_stats(db)
+    offset = (page - 1) * per_page
+
+    query = (
+        db.query(Organization)
+        .filter(Organization.is_active.is_(True))
+        .filter(Organization.account_type != AccountType.reseller)
+    )
+    if search:
+        like = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                Organization.name.ilike(like),
+                Organization.legal_name.ilike(like),
+                Organization.domain.ilike(like),
+            )
+        )
+
+    total = query.with_entities(func.count(Organization.id)).scalar() or 0
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+    orgs = query.order_by(Organization.name.asc()).offset(offset).limit(per_page).all()
+
+    return templates.TemplateResponse(
+        "admin/subscribers/reseller_promote.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": sidebar_stats,
+            "csrf_token": get_csrf_token(request),
+            "orgs": orgs,
+            "search": search or "",
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "active_page": "subscribers",
+        },
+    )
+
+
+@router.post("/resellers/new", response_class=HTMLResponse)
+def reseller_create(
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_web_role("admin")),
+    organization_name: str = Form(...),
+    organization_domain: str | None = Form(None),
+    user_first_name: str = Form(...),
+    user_last_name: str = Form(...),
+    user_email: str = Form(...),
+    user_phone: str | None = Form(None),
+    password: str | None = Form(None),
+    reset_password_if_exists: bool = Form(False),
+):
+    """Admin: create reseller org and (re)use person by email."""
+    org, person = reseller_service.admin_create_reseller(
+        db,
+        organization_name=organization_name,
+        organization_domain=organization_domain,
+        user_first_name=user_first_name,
+        user_last_name=user_last_name,
+        user_email=user_email,
+        user_phone=user_phone,
+        password=password,
+        reset_password_if_exists=bool(reset_password_if_exists),
+    )
+    # Audit the explicit reseller creation.
+    log_audit_event(
+        db,
+        request,
+        action="reseller_create",
+        entity_type="/admin/subscribers/resellers",
+        entity_id=str(org.id),
+        actor_id=getattr(request.state, "actor_id", None),
+        metadata={"organization_name": org.name, "person_id": str(person.id), "person_email": person.email},
+        status_code=201,
+        is_success=True,
+    )
+    return RedirectResponse(url="/admin/subscribers/resellers", status_code=303)
+
+
+@router.post("/resellers/{organization_id}/promote", response_class=HTMLResponse)
+def reseller_promote(
+    request: Request,
+    organization_id: UUID,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_web_role("admin")),
+):
+    """Admin: promote an existing org to reseller and grant reseller roles."""
+    org, grantee_ids = reseller_admin_service.promote_organization_to_reseller(
+        db,
+        organization_id=organization_id,
+        actor_person_id=getattr(getattr(request.state, "user", None), "id", None),
+    )
+    log_audit_event(
+        db,
+        request,
+        action="reseller_promote",
+        entity_type="/admin/subscribers/resellers",
+        entity_id=str(org.id),
+        actor_id=getattr(request.state, "actor_id", None),
+        metadata={"granted_to_person_ids": [str(pid) for pid in grantee_ids]},
+        status_code=200,
+        is_success=True,
+    )
+    return RedirectResponse(url="/admin/subscribers/resellers", status_code=303)
+
+
+@router.post("/resellers/{organization_id}/demote", response_class=HTMLResponse)
+def reseller_demote(
+    request: Request,
+    organization_id: UUID,
+    db: Session = Depends(get_db),
+    _admin: dict = Depends(require_web_role("admin")),
+):
+    """Admin: demote a reseller org (blocks portal and removes reseller roles where safe)."""
+    org, removed_from = reseller_admin_service.demote_organization_from_reseller(
+        db,
+        organization_id=organization_id,
+        actor_person_id=getattr(getattr(request.state, "user", None), "id", None),
+    )
+    log_audit_event(
+        db,
+        request,
+        action="reseller_demote",
+        entity_type="/admin/subscribers/resellers",
+        entity_id=str(org.id),
+        actor_id=getattr(request.state, "actor_id", None),
+        metadata={"removed_from_person_ids": [str(pid) for pid in removed_from]},
+        status_code=200,
+        is_success=True,
+    )
+    return RedirectResponse(url="/admin/subscribers/resellers", status_code=303)
 
 
 @router.get("/resellers/{organization_id}", response_class=HTMLResponse)
@@ -245,6 +558,7 @@ def reseller_organization_subscribers(
     per_page: int = 20,
 ):
     """Show subscribers under a reseller organization hierarchy."""
+    from app.csrf import get_csrf_token
     from app.web.admin import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
@@ -273,6 +587,7 @@ def reseller_organization_subscribers(
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
+            "csrf_token": get_csrf_token(request),
             "active_page": "subscribers",
         },
     )
@@ -451,6 +766,12 @@ def subscriber_link_person(
     )
 
 
+def _subscriber_action_redirect(request: Request, url: str) -> Response:
+    if request.headers.get("HX-Request"):
+        return Response(status_code=200, headers={"HX-Redirect": url})
+    return RedirectResponse(url=url, status_code=303)
+
+
 @router.post("/{subscriber_id}/delete", response_class=HTMLResponse)
 def subscriber_delete(
     request: Request,
@@ -461,4 +782,14 @@ def subscriber_delete(
     subscriber = subscriber_service.get(db, subscriber_id)
     if subscriber:
         subscriber_service.delete(db, subscriber)
-    return RedirectResponse(url="/admin/subscribers", status_code=303)
+    return _subscriber_action_redirect(request, "/admin/subscribers")
+
+
+@router.post("/{subscriber_id}/deactivate", response_class=HTMLResponse)
+def subscriber_deactivate(
+    request: Request,
+    subscriber_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """Deactivate a subscriber (alias for delete soft-action)."""
+    return subscriber_delete(request, subscriber_id, db)

@@ -31,7 +31,7 @@ def sync_subscribers_from_splynx() -> dict[str, Any]:
     results: dict[str, Any] = {"created": 0, "updated": 0, "errors": []}
 
     try:
-        from app.services.splynx import fetch_customers
+        from app.services.splynx import fetch_customers, map_customer_to_subscriber_data
 
         customers_data = fetch_customers(session)
         if not customers_data:
@@ -50,18 +50,11 @@ def sync_subscribers_from_splynx() -> dict[str, Any]:
         for customer in customers_data:
             try:
                 external_id = str(customer.get("id"))
-                data: dict[str, Any] = {
-                    "subscriber_number": customer.get("login"),
-                    "status": _map_splynx_status(customer.get("status")),
-                    "service_name": customer.get("tariff_name"),
-                    "service_plan": customer.get("tariff_name"),
-                    "balance": str(customer.get("balance", 0)),
-                    "currency": customer.get("currency", "USD"),
-                    "service_address_line1": customer.get("street"),
-                    "service_city": customer.get("city"),
-                    "service_region": customer.get("state"),
-                    "service_postal_code": customer.get("zip"),
-                }
+                data: dict[str, Any] = map_customer_to_subscriber_data(
+                    session,
+                    customer,
+                    include_remote_details=True,
+                )
 
                 # Try to match to a Person by email
                 email = (customer.get("email") or "").lower().strip()
@@ -329,20 +322,7 @@ def _fetch_ucrm_clients(config: dict[str, Any], logger: logging.Logger) -> list[
 
 
 def _map_splynx_status(status: str | int | None) -> str:
-    """Map Splynx status to our status enum value."""
-    status_map: dict[str | int, str] = {
-        "active": "active",
-        "blocked": "suspended",
-        "inactive": "terminated",
-        "new": "pending",
-        1: "active",
-        2: "suspended",
-        0: "terminated",
-    }
-    if status is None:
-        return "active"
-    mapped = status_map.get(status)
-    if mapped is None:
-        logger.warning("splynx_unknown_status value=%s — defaulting to active", status)
-        return "active"
-    return mapped
+    """Backward-compatible status mapper retained for tests/imports."""
+    from app.services.splynx import _map_splynx_status as _service_status_mapper
+
+    return _service_status_mapper(status)

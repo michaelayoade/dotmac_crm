@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.services.crm.inbox.permissions import can_view_inbox
+from app.services.performance.goals import performance_goals
 from app.services.performance.reports import performance_reports
 from app.services.performance.reviews import performance_reviews
 from app.web.admin import get_current_user, get_sidebar_stats
@@ -116,3 +117,23 @@ def ack_review(request: Request, review_id: str, db: Session = Depends(_get_db))
             raise HTTPException(status_code=403, detail=detail) from exc
         raise HTTPException(status_code=400, detail=detail) from exc
     return RedirectResponse(url=f"/agent/my-performance/reviews/{review_id}", status_code=303)
+
+
+@router.get("/my-performance/goals", response_class=HTMLResponse)
+def my_goals(request: Request, db: Session = Depends(_get_db)):
+    user = get_current_user(request)
+    if not can_view_inbox(user.get("roles", []), user.get("permissions", [])):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    goals = performance_goals.list(db, user["person_id"])
+    return templates.TemplateResponse(
+        "agent/performance/my_goals.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "my-performance",
+            "active_menu": "reports",
+            "goals": goals,
+        },
+    )

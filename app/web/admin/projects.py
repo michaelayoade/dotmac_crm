@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
+from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.projects import (
     Project,
@@ -28,6 +29,7 @@ from app.models.projects import (
     TaskStatus,
 )
 from app.models.subscriber import Subscriber
+from app.models.workflow import SlaClock, SlaClockStatus, WorkflowEntityType
 from app.schemas.projects import (
     ProjectCommentCreate,
     ProjectCreate,
@@ -45,6 +47,7 @@ from app.services import audit as audit_service
 from app.services import filter_preferences as filter_preferences_service
 from app.services import person as person_service
 from app.services import projects as projects_service
+from app.services import settings_spec
 from app.services import vendor as vendor_service
 from app.services.audit_helpers import (
     build_changes_metadata,
@@ -244,6 +247,7 @@ def _project_form_context(
     for template in template_items:
         if template.project_type:
             template_map[template.project_type.value] = str(template.id)
+    region_assignment_map = _load_region_assignment_map(db)
     context = {
         "request": request,
         "project": project,
@@ -253,6 +257,7 @@ def _project_form_context(
         "project_statuses": [item.value for item in ProjectStatus],
         "project_priorities": [item.value for item in ProjectPriority],
         "region_options": REGION_OPTIONS,
+        "region_assignment_map": region_assignment_map,
         "action_url": action_url,
         "current_user": get_current_user(request),
         "sidebar_stats": get_sidebar_stats(db),
@@ -267,6 +272,68 @@ def _project_form_context(
     if error:
         context["error"] = error
     return context
+
+
+def _load_region_assignment_map(db: Session) -> dict[str, dict[str, str | None]]:
+    raw_map = settings_spec.resolve_value(db, SettingDomain.projects, "region_pm_assignments")
+    if not isinstance(raw_map, dict):
+        return {}
+
+    normalized: dict[str, dict[str, str | None]] = {}
+    person_ids: set[str] = set()
+
+    for region, entry in raw_map.items():
+        if not isinstance(region, str):
+            continue
+        manager_id: str | None = None
+        spc_id: str | None = None
+        if isinstance(entry, dict):
+            manager_id = entry.get("manager_person_id") or entry.get("project_manager_person_id")
+            spc_id = (
+                entry.get("spc_person_id")
+                or entry.get("assistant_person_id")
+                or entry.get("assistant_manager_person_id")
+            )
+        elif isinstance(entry, str):
+            manager_id = entry
+
+        clean_manager_id: str | None = None
+        clean_spc_id: str | None = None
+        if manager_id:
+            try:
+                with_uuid = coerce_uuid(manager_id)
+                clean_manager_id = str(with_uuid)
+                person_ids.add(clean_manager_id)
+            except Exception:
+                clean_manager_id = None
+        if spc_id:
+            try:
+                with_uuid = coerce_uuid(spc_id)
+                clean_spc_id = str(with_uuid)
+                person_ids.add(clean_spc_id)
+            except Exception:
+                clean_spc_id = None
+
+        normalized[region] = {
+            "manager_person_id": clean_manager_id,
+            "project_manager_person_id": clean_manager_id,
+            "assistant_manager_person_id": clean_spc_id,
+        }
+
+    if not person_ids:
+        return normalized
+
+    people = db.query(Person).filter(Person.id.in_([coerce_uuid(person_id) for person_id in person_ids])).all()
+    labels = {str(person.id): _person_filter_label(person) for person in people}
+
+    for _region, entry in normalized.items():
+        manager_id = entry.get("manager_person_id")
+        spc_id = entry.get("assistant_manager_person_id")
+        entry["manager_label"] = labels.get(manager_id, "") if manager_id else ""
+        entry["project_manager_label"] = labels.get(manager_id, "") if manager_id else ""
+        entry["assistant_manager_label"] = labels.get(spc_id, "") if spc_id else ""
+
+    return normalized
 
 
 def _task_form_context(
@@ -856,6 +923,17 @@ def project_tasks_list(
     else:
         project_rows = []
     project_map = {str(project.id): project for project in project_rows}
+    task_ids = [task.id for task in tasks]
+    breached_ids: set[str] = set()
+    if task_ids:
+        breached_rows = (
+            db.query(SlaClock.entity_id)
+            .filter(SlaClock.entity_type == WorkflowEntityType.project_task)
+            .filter(SlaClock.entity_id.in_(task_ids))
+            .filter(SlaClock.status == SlaClockStatus.breached)
+            .all()
+        )
+        breached_ids = {str(row[0]) for row in breached_rows if row and row[0]}
 
     return templates.TemplateResponse(
         "admin/projects/tasks.html",
@@ -867,6 +945,7 @@ def project_tasks_list(
             "project_id": project_id,
             "status": status,
             "priority": priority,
+            "breached_task_ids": breached_ids,
             "assigned": assigned,
             "filters": filters,
             "page": page,
@@ -2411,6 +2490,14 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
             offset=0,
         )
         activities = _build_activity_feed(db, audit_events, "task")
+        task_is_breached = (
+            db.query(SlaClock)
+            .filter(SlaClock.entity_type == WorkflowEntityType.project_task)
+            .filter(SlaClock.entity_id == task.id)
+            .filter(SlaClock.status == SlaClockStatus.breached)
+            .first()
+            is not None
+        )
     except Exception:
         context = {
             "request": request,
@@ -2428,6 +2515,7 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
             "project": project,
             "comments": comments,
             "activities": activities,
+            "task_is_breached": task_is_breached,
             "csrf_token": get_csrf_token(request),
             "mention_agents": list_active_users_for_mentions(db),
             "current_user": get_current_user(request),

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.crm.enums import ChannelType, ConversationStatus
+from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.comments_context import (
     build_comment_list_items,
@@ -36,11 +37,16 @@ async def load_inbox_list(
     *,
     channel: str | None,
     status: str | None,
+    priority: str | None = None,
     outbox_status: str | None,
     search: str | None,
     assignment: str | None,
     assigned_person_id: str | None,
     target_id: str | None,
+    filter_agent_id: str | None = None,
+    assigned_from: datetime | None = None,
+    assigned_to: datetime | None = None,
+    sort_by: str | None = None,
     offset: int = 0,
     limit: int = 150,
     include_thread: bool = False,
@@ -52,11 +58,16 @@ async def load_inbox_list(
     cache_params = {
         "channel": channel,
         "status": status,
+        "priority": priority,
         "outbox_status": outbox_status,
         "search": normalized_search,
         "assignment": assignment,
         "assigned_person_id": assigned_person_id,
         "target_id": target_id,
+        "filter_agent_id": filter_agent_id,
+        "assigned_from": assigned_from,
+        "assigned_to": assigned_to,
+        "sort_by": sort_by,
         "offset": safe_offset,
         "limit": safe_limit,
         "include_thread": include_thread,
@@ -70,6 +81,7 @@ async def load_inbox_list(
     channel_enum = None
     status_enum = None
     status_enums = None
+    priority_enum = None
     outbox_status_filter = (outbox_status or "").strip().lower() or None
     if outbox_status_filter not in {"failed"}:
         outbox_status_filter = None
@@ -78,6 +90,11 @@ async def load_inbox_list(
             channel_enum = ChannelType(channel)
         except ValueError:
             channel_enum = None
+    if priority:
+        try:
+            priority_enum = ConversationPriority(priority)
+        except ValueError:
+            priority_enum = None
     if status:
         if status == "needs_action":
             status_enums = [ConversationStatus.open, ConversationStatus.snoozed]
@@ -110,12 +127,17 @@ async def load_inbox_list(
             channel=channel_enum,
             status=status_enum,
             statuses=status_enums,
+            priority=priority_enum,
             outbox_status=outbox_status_filter,
             search=normalized_search,
             assignment=assignment,
             assigned_person_id=assigned_person_id,
             channel_target_id=target_id,
             exclude_superseded_resolved=exclude_superseded,
+            filter_agent_id=filter_agent_id,
+            assigned_from=assigned_from,
+            assigned_to=assigned_to,
+            sort_by=sort_by,
             limit=safe_limit + 1,
             offset=safe_offset,
         )

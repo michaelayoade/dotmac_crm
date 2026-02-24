@@ -28,6 +28,7 @@ from app.models.crm.enums import (
     MessageDirection,
     MessageStatus,
 )
+from app.models.crm.sales import Lead
 from app.models.domain_settings import SettingDomain
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.oauth_token import OAuthToken
@@ -64,6 +65,33 @@ _META_IDENTITY_KEYS = {
     "customer_id",
     "email",
     "phone",
+}
+
+_META_ATTRIBUTION_KEYS = {
+    "source",
+    "type",
+    "ref",
+    "referer_uri",
+    "ad_id",
+    "adgroup_id",
+    "adset_id",
+    "campaign_id",
+    "post_id",
+    "product_id",
+    "ctwa_clid",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+}
+
+_META_ATTRIBUTION_NESTED_KEYS = {
+    "referral",
+    "ads_context_data",
+    "ad",
+    "campaign",
+    "utm",
 }
 
 
@@ -167,6 +195,76 @@ def _extract_identity_metadata(*values: object) -> dict:
             if candidate:
                 identity[key] = candidate
     return identity
+
+
+def _collect_meta_attribution(data: dict, attribution: dict) -> None:
+    for key in _META_ATTRIBUTION_KEYS:
+        candidate = data.get(key)
+        if candidate is None:
+            continue
+        if isinstance(candidate, str):
+            candidate = candidate.strip()
+        if candidate not in (None, ""):
+            attribution[key] = candidate
+    for key in _META_ATTRIBUTION_NESTED_KEYS:
+        nested = _coerce_identity_dict(data.get(key))
+        if nested:
+            _collect_meta_attribution(nested, attribution)
+
+
+def _extract_meta_attribution(*values: object) -> dict:
+    attribution: dict = {}
+    for value in values:
+        data = _coerce_identity_dict(value)
+        if not data:
+            continue
+        _collect_meta_attribution(data, attribution)
+    return attribution
+
+
+def _is_meta_ad_attribution_capture_enabled(db: Session) -> bool:
+    enabled = resolve_value(db, SettingDomain.comms, "meta_capture_ad_attribution")
+    if isinstance(enabled, bool):
+        return enabled
+    if isinstance(enabled, str):
+        return enabled.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def _upsert_entity_attribution_metadata(entity, *, attribution: dict, channel: ChannelType) -> None:
+    if not attribution:
+        return
+    existing_meta = dict(entity.metadata_) if isinstance(entity.metadata_, dict) else {}
+    existing_attr = existing_meta.get("attribution")
+    merged_attr = dict(existing_attr) if isinstance(existing_attr, dict) else {}
+    merged_attr.update(attribution)
+    merged_attr["last_channel"] = channel.value
+    merged_attr["last_seen_at"] = datetime.now(UTC).isoformat()
+    existing_meta["attribution"] = merged_attr
+    entity.metadata_ = existing_meta
+
+
+def _persist_meta_attribution_to_person_and_lead(
+    db: Session,
+    *,
+    person: Person,
+    channel: ChannelType,
+    attribution: dict | None,
+) -> None:
+    if not attribution:
+        return
+    if not _is_meta_ad_attribution_capture_enabled(db):
+        return
+    _upsert_entity_attribution_metadata(person, attribution=attribution, channel=channel)
+    lead = (
+        db.query(Lead)
+        .filter(Lead.person_id == person.id)
+        .filter(Lead.is_active.is_(True))
+        .order_by(Lead.created_at.desc())
+        .first()
+    )
+    if lead:
+        _upsert_entity_attribution_metadata(lead, attribution=attribution, channel=channel)
 
 
 def _extract_location_from_attachments(attachments: object) -> dict | None:
@@ -551,6 +649,14 @@ def process_messenger_webhook(
             )
             if identity_metadata:
                 metadata.update(identity_metadata)
+            attribution_metadata = _extract_meta_attribution(
+                message.get("referral"),
+                message.get("metadata"),
+                messaging_event.postback,
+                messaging_event.postback.get("payload") if messaging_event.postback else None,
+            )
+            if attribution_metadata:
+                metadata["attribution"] = attribution_metadata
             if external_ref:
                 metadata["provider_message_id"] = external_ref
             contact_name = (
@@ -748,6 +854,14 @@ def process_instagram_webhook(
             )
             if identity_metadata:
                 metadata.update(identity_metadata)
+            attribution_metadata = _extract_meta_attribution(
+                message.get("referral"),
+                message.get("metadata"),
+                messaging_event.postback,
+                messaging_event.postback.get("payload") if messaging_event.postback else None,
+            )
+            if attribution_metadata:
+                metadata["attribution"] = attribution_metadata
             if external_ref:
                 metadata["provider_message_id"] = external_ref
             contact_name = (
@@ -1057,6 +1171,12 @@ def receive_facebook_message(
     metadata = dict(payload.metadata or {})
     metadata["page_id"] = payload.page_id
     external_ref = _normalize_external_ref(metadata.get("provider_message_id"))
+    _persist_meta_attribution_to_person_and_lead(
+        db,
+        person=contact,
+        channel=ChannelType.facebook_messenger,
+        attribution=metadata.get("attribution") if isinstance(metadata.get("attribution"), dict) else None,
+    )
 
     # Create message
     message = conversation_service.Messages.create(
@@ -1176,6 +1296,12 @@ def receive_instagram_message(
     metadata = dict(payload.metadata or {})
     metadata["instagram_account_id"] = payload.instagram_account_id
     external_ref = _normalize_external_ref(metadata.get("provider_message_id"))
+    _persist_meta_attribution_to_person_and_lead(
+        db,
+        person=contact,
+        channel=ChannelType.instagram_dm,
+        attribution=metadata.get("attribution") if isinstance(metadata.get("attribution"), dict) else None,
+    )
 
     # Create message
     message = conversation_service.Messages.create(

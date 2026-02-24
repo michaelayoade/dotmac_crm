@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 
 from app.config import settings
+from app.services.storage import storage
 
 _LOGO_ALLOWED_TYPES = {
     "image/png",
@@ -56,15 +57,12 @@ def _validate_upload(file: UploadFile, content: bytes, kind: str) -> None:
 def _delete_previous(previous_url: str | None) -> None:
     if not previous_url:
         return
-    prefix = settings.branding_url_prefix.rstrip("/") + "/"
-    if not previous_url.startswith(prefix):
+    marker = "uploads/branding/"
+    idx = previous_url.find(marker)
+    if idx == -1:
         return
-    filename = previous_url.replace(prefix, "", 1)
-    if not filename:
-        return
-    file_path = Path(settings.branding_upload_dir) / filename
-    if file_path.exists():
-        file_path.unlink()
+    key = previous_url[idx:]
+    storage.delete(key)
 
 
 async def save_branding_asset(
@@ -78,9 +76,7 @@ async def save_branding_asset(
     if not ext and file.filename:
         ext = Path(file.filename).suffix or ""
     filename = f"{kind}_{uuid.uuid4().hex}{ext}"
-    upload_dir = Path(settings.branding_upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / filename
-    file_path.write_bytes(content)
+    key = f"uploads/branding/{filename}"
+    url = storage.put(key, content, file.content_type or "")
     _delete_previous(previous_url)
-    return f"{settings.branding_url_prefix}/{filename}"
+    return url

@@ -11,13 +11,14 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import String, cast, false, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.campaign import Campaign, CampaignRecipient, CampaignStep
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
 from app.models.crm.enums import CampaignChannel, CampaignRecipientStatus, CampaignStatus, CampaignType
+from app.models.crm.sales import Lead
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import PartyStatus, Person
 from app.models.subscriber import Organization
@@ -132,6 +133,26 @@ def _build_segment_query(db: Session, segment_filter: dict | None, channel: Camp
             query = query.filter(Person.created_at <= dt)
         except (ValueError, TypeError):
             pass
+
+    if segment_filter.get("pipeline_ids") or segment_filter.get("stage_ids"):
+        lead_query = db.query(Lead.person_id).filter(Lead.is_active.is_(True))
+
+        if segment_filter.get("pipeline_ids"):
+            pipeline_ids = [coerce_uuid(pid) for pid in segment_filter["pipeline_ids"] if pid]
+            if pipeline_ids:
+                lead_query = lead_query.filter(Lead.pipeline_id.in_(pipeline_ids))
+            else:
+                lead_query = lead_query.filter(false())
+
+        if segment_filter.get("stage_ids"):
+            stage_ids = [coerce_uuid(sid) for sid in segment_filter["stage_ids"] if sid]
+            if stage_ids:
+                lead_query = lead_query.filter(Lead.stage_id.in_(stage_ids))
+            else:
+                lead_query = lead_query.filter(false())
+
+        lead_person_ids = lead_query.distinct().subquery()
+        query = query.filter(Person.id.in_(select(lead_person_ids.c.person_id)))
 
     return query
 

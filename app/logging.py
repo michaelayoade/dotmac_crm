@@ -19,6 +19,9 @@ class JsonLogFormatter(logging.Formatter):
             "method",
             "status",
             "duration_ms",
+            "otelTraceID",
+            "otelSpanID",
+            "otelServiceName",
         ):
             value = getattr(record, key, None)
             if value is not None:

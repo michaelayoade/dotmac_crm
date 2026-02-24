@@ -1,8 +1,9 @@
 <!-- Admin Sidebar Navigation -->
 {# Determine which section should be open based on active_page/active_menu #}
 {% set section_for_page = {
-    'inbox': 'customers', 'contacts': 'customers', 'subscribers': 'customers', 'quotes': 'customers', 'sales': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
+    'inbox': 'customers', 'contacts': 'customers', 'leads': 'customers', 'subscribers': 'customers', 'quotes': 'customers', 'sales': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
     'inventory': 'operations',
+    'crm-live-map': 'operations',
     'network-map': 'operations', 'network-devices': 'operations', 'core-devices': 'operations', 'olts': 'operations', 'onts': 'operations', 'devices': 'operations',
     'automations': 'system', 'pop-sites': 'system', 'configuration': 'system',
     'fiber-plant': 'operations', 'fiber-map': 'operations', 'fiber-change-requests': 'operations', 'fdh-cabinets': 'operations', 'splitters': 'operations', 'fiber-strands': 'operations', 'splice-closures': 'operations', 'fiber-reports': 'operations',
@@ -13,7 +14,7 @@
     'team-performance': 'reports',
     'ai-insights': 'reports',
     'data-quality': 'system',
-    'service-teams': 'system'
+    'service-teams': 'system', 'user-guide': 'system'
 } %}
 {% set field_service_pages = ['installations', 'technicians', 'dispatch', 'work-orders'] %}
 {% set project_pages = ['projects', 'vendor-quotes'] %}
@@ -41,6 +42,7 @@
 {% set can_quotes = is_admin or 'crm:lead:read' in user_permissions or 'crm:lead:write' in user_permissions or 'crm:lead' in user_permissions or 'crm' in user_permissions %}
 {% set can_campaigns = is_admin or 'crm:campaign:read' in user_permissions or 'crm:campaign:write' in user_permissions or 'crm:campaign' in user_permissions or 'crm' in user_permissions %}
 {% set can_surveys = is_admin or 'crm:survey:read' in user_permissions or 'crm:survey:write' in user_permissions or 'crm:survey' in user_permissions or 'crm' in user_permissions %}
+{% set can_live_map = is_admin or 'manager' in user_roles_lower or 'crm:location:read' in user_permissions %}
 {% set can_sales = can_quotes %}
 {% set customers_section_visible = can_inbox or can_contacts or can_subscribers or can_resellers or can_quotes or can_sales or can_campaigns or can_surveys %}
 
@@ -111,7 +113,7 @@
     or 'operations:material_request' in user_permissions
     or 'operations' in user_permissions
 %}
-{% set operations_section_visible = can_fiber_map or can_sales_orders or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory or can_material_requests %}
+{% set operations_section_visible = can_live_map or can_fiber_map or can_sales_orders or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory or can_material_requests %}
 {% set network_section_visible = can_fiber_map %}
 
 {% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
@@ -148,7 +150,8 @@
     or 'system' in user_permissions
 %}
 {% set system_section_visible = can_admin_hub or can_system_configuration or can_system_settings or can_system_health or can_system_legal or can_automations or can_service_teams %}
-{% set has_any_nav = customers_section_visible or network_section_visible or operations_section_visible or reports_section_visible or system_section_visible %}
+{% set user_guide_section_visible = true %}
+{% set has_any_nav = customers_section_visible or network_section_visible or operations_section_visible or reports_section_visible or system_section_visible or user_guide_section_visible %}
 
 <div class="space-y-1"
      x-data="{
@@ -219,21 +222,33 @@
 
         <!-- Contacts (People & Organizations - unified view) -->
         {% if can_contacts %}
-        <a href="/admin/crm/contacts"
-           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'contacts' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
-            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
-            </svg>
-            <span>Contacts</span>
-        </a>
-        {% endif %}
+	        <a href="/admin/crm/contacts"
+	           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+	                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'contacts' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+	            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+	                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+	            </svg>
+	            <span>Contacts</span>
+	        </a>
+	        {% endif %}
 
-        <!-- Subscribers -->
-        {% if can_subscribers %}
-        <a href="/admin/subscribers"
-           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'subscribers' and not request.url.path.startswith('/admin/subscribers/resellers') else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+	        <!-- Leads -->
+	        {% if can_quotes %}
+	        <a href="https://crm.dotmac.io/admin/crm/leads"
+	           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+	                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'leads' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+	            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+	                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+	            </svg>
+	            <span>Leads</span>
+	        </a>
+	        {% endif %}
+
+	        <!-- Subscribers -->
+	        {% if can_subscribers %}
+	        <a href="/admin/subscribers"
+	           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+	                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'subscribers' and not request.url.path.startswith('/admin/subscribers/resellers') else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
             <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
             </svg>
@@ -308,6 +323,17 @@
     </button>
 
     <div x-show="openSection === 'operations' && !sidebarCollapsed" x-collapse x-cloak class="space-y-1">
+        {% if can_live_map %}
+        <a href="/admin/crm/live-map"
+           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'crm-live-map' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 01.553-.894L9 2m0 18l6-2m-6 2V2m6 16l5.447-2.724A1 1 0 0021 14.382V3.618a1 1 0 00-.553-.894L15 0m0 18V0m0 0L9 2"/>
+            </svg>
+            <span>Live Map</span>
+        </a>
+        {% endif %}
+
         <!-- Fiber Map -->
         {% if can_fiber_map %}
         <a href="/admin/network/map"
@@ -521,6 +547,38 @@
             {% if can_system_configuration %}
             <a href="/admin/integrations/dotmac-erp" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'dotmac-erp' else '' }}">ERP Sync</a>
             {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 9. USER GUIDE -->
+    {% if user_guide_section_visible %}
+    <div>
+        <button x-on:click="openMenu = openMenu === 'user-guide' ? '' : 'user-guide'"
+                class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors
+                       dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white
+                       {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_menu == 'user-guide' else '' }}">
+            <span class="flex items-center gap-3">
+                <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.483 9.246 5 7.5 5S4.168 5.483 3 6.253v13C4.168 18.483 5.754 18 7.5 18s3.332.483 4.5 1.253m0-13C13.168 5.483 14.754 5 16.5 5s3.332.483 4.5 1.253v13C19.832 18.483 18.246 18 16.5 18s-3.332.483-4.5 1.253"/>
+                </svg>
+                <span x-show="!sidebarCollapsed">User Guide</span>
+            </span>
+            <svg x-show="!sidebarCollapsed" class="h-4 w-4 transition-transform" :class="{ 'rotate-180': openMenu === 'user-guide' }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+        </button>
+        <div x-show="openMenu === 'user-guide' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
+            <a href="/admin/user-guide?module=getting-started" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module', 'getting-started') == 'getting-started' and request.url.path == '/admin/user-guide' else '' }}">Getting Started</a>
+            <a href="/admin/user-guide?module=crm-inbox" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'crm-inbox' and request.url.path == '/admin/user-guide' else '' }}">CRM Inbox</a>
+            <a href="/admin/user-guide?module=contacts-leads" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'contacts-leads' and request.url.path == '/admin/user-guide' else '' }}">Contacts & Leads</a>
+            <a href="/admin/user-guide?module=support-tickets" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'support-tickets' and request.url.path == '/admin/user-guide' else '' }}">Support Tickets</a>
+            <a href="/admin/user-guide?module=dispatch-work-orders" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'dispatch-work-orders' and request.url.path == '/admin/user-guide' else '' }}">Dispatch & Work Orders</a>
+            <a href="/admin/user-guide?module=projects" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'projects' and request.url.path == '/admin/user-guide' else '' }}">Projects</a>
+            <a href="/admin/user-guide?module=fiber-map" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'fiber-map' and request.url.path == '/admin/user-guide' else '' }}">Fiber Map</a>
+            <a href="/admin/user-guide?module=inventory" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'inventory' and request.url.path == '/admin/user-guide' else '' }}">Inventory</a>
+            <a href="/admin/user-guide?module=system-admin" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'system-admin' and request.url.path == '/admin/user-guide' else '' }}">System & Permissions</a>
+            <a href="/admin/user-guide/full" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if request.url.path == '/admin/user-guide/full' else '' }}">Full Guide</a>
         </div>
     </div>
     {% endif %}

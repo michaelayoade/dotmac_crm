@@ -78,7 +78,10 @@ class OAuthToken(Base):
         """Check if the access token has expired."""
         if not self.token_expires_at:
             return False
-        return datetime.now(UTC) >= self.token_expires_at
+        expires_at = self.token_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return datetime.now(UTC) >= expires_at
 
     def should_refresh(self, buffer_days: int = 7) -> bool:
         """Check if token should be proactively refreshed.
@@ -92,14 +95,20 @@ class OAuthToken(Base):
         """
         if not self.token_expires_at:
             return False
+        expires_at = self.token_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
         buffer = timedelta(days=buffer_days)
-        return datetime.now(UTC) >= (self.token_expires_at - buffer)
+        return datetime.now(UTC) >= (expires_at - buffer)
 
     def days_until_expiry(self) -> int | None:
         """Return number of days until token expires, or None if no expiry set."""
         if not self.token_expires_at:
             return None
-        delta = self.token_expires_at - datetime.now(UTC)
+        expires_at = self.token_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        delta = expires_at - datetime.now(UTC)
         return max(0, delta.days)
 
     def __repr__(self) -> str:

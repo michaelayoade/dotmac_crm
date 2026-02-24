@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,7 +16,7 @@ from app.models.auth import AuthProvider, UserCredential
 from app.models.person import Person, PersonStatus
 from app.models.projects import Project
 from app.models.rbac import PersonRole, Role
-from app.models.vendor import InstallationProject, ProjectQuoteStatus, Vendor, VendorUser
+from app.models.vendor import InstallationProject, ProjectQuoteStatus, ProposedRouteRevision, Vendor, VendorUser
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.person import PersonCreate
 from app.schemas.rbac import PersonRoleCreate
@@ -528,7 +529,9 @@ def vendor_quotes_list(
     request: Request,
     db: Session = Depends(get_db),
     quote_action: str | None = None,
+    route_action: str | None = None,
     quote_error_detail: str | None = None,
+    route_error_detail: str | None = None,
 ):
     quotes = vendor_service.project_quotes.list(
         db=db,
@@ -559,6 +562,17 @@ def vendor_quotes_list(
             installation_project_id: f"{project_name} ({project_code})" if project_code else project_name
             for installation_project_id, project_name, project_code in project_rows
         }
+    quote_ids = [quote.id for quote in quotes]
+    route_revisions_by_quote: dict[object, list[ProposedRouteRevision]] = {quote_id: [] for quote_id in quote_ids}
+    if quote_ids:
+        revisions = (
+            db.query(ProposedRouteRevision)
+            .filter(ProposedRouteRevision.quote_id.in_(quote_ids))
+            .order_by(ProposedRouteRevision.quote_id.asc(), ProposedRouteRevision.revision_number.desc())
+            .all()
+        )
+        for revision in revisions:
+            route_revisions_by_quote.setdefault(revision.quote_id, []).append(revision)
     context = _base_context(request, db, active_page="vendor-quotes")
     context.update(
         {
@@ -566,7 +580,10 @@ def vendor_quotes_list(
             "project_labels": project_labels,
             "vendor_labels": vendor_labels,
             "quote_action": quote_action,
+            "route_action": route_action,
             "quote_error_detail": quote_error_detail,
+            "route_error_detail": route_error_detail,
+            "route_revisions_by_quote": route_revisions_by_quote,
         }
     )
     return templates.TemplateResponse("admin/vendors/quotes/review.html", context)
@@ -635,6 +652,108 @@ def vendor_quote_reject(
         return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
 
     return RedirectResponse(url="/admin/vendors/quotes?quote_action=rejected", status_code=303)
+
+
+@router.post("/quotes/{quote_id}/route-revisions/{revision_id}/approve", response_class=HTMLResponse)
+def vendor_route_revision_approve(
+    quote_id: str,
+    revision_id: str,
+    request: Request,
+    review_notes: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?route_error_detail={detail}", status_code=303)
+
+    revision = vendor_service.proposed_route_revisions.get(db, revision_id)
+    if str(revision.quote_id) != str(quote_id):
+        detail = urlquote("Route revision does not belong to quote.", safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?route_error_detail={detail}", status_code=303)
+
+    try:
+        vendor_service.proposed_route_revisions.approve(
+            db,
+            revision_id=revision_id,
+            reviewer_person_id=reviewer_person_id,
+            review_notes=(review_notes or "").strip() or None,
+        )
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to approve route revision."), safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?route_error_detail={detail}", status_code=303)
+
+    return RedirectResponse(url="/admin/vendors/quotes?route_action=approved", status_code=303)
+
+
+@router.post("/quotes/{quote_id}/route-revisions/{revision_id}/reject", response_class=HTMLResponse)
+def vendor_route_revision_reject(
+    quote_id: str,
+    revision_id: str,
+    request: Request,
+    review_notes: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?route_error_detail={detail}", status_code=303)
+
+    revision = vendor_service.proposed_route_revisions.get(db, revision_id)
+    if str(revision.quote_id) != str(quote_id):
+        detail = urlquote("Route revision does not belong to quote.", safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?route_error_detail={detail}", status_code=303)
+
+    try:
+        vendor_service.proposed_route_revisions.reject(
+            db,
+            revision_id=revision_id,
+            reviewer_person_id=reviewer_person_id,
+            review_notes=(review_notes or "").strip() or None,
+        )
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to reject route revision."), safe="")
+        return RedirectResponse(url=f"/admin/vendors/quotes?route_error_detail={detail}", status_code=303)
+
+    return RedirectResponse(url="/admin/vendors/quotes?route_action=rejected", status_code=303)
+
+
+@router.get("/quotes/{quote_id}/route-revisions/{revision_id}/view", response_class=HTMLResponse)
+def vendor_route_revision_view(
+    quote_id: str,
+    revision_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    revision = vendor_service.proposed_route_revisions.get(db, revision_id)
+    if str(revision.quote_id) != str(quote_id):
+        return RedirectResponse(url="/admin/vendors/quotes?route_error_detail=Route+revision+does+not+belong+to+quote", status_code=303)
+
+    route_geojson_str = (
+        db.query(func.ST_AsGeoJSON(ProposedRouteRevision.route_geom))
+        .filter(ProposedRouteRevision.id == coerce_uuid(revision_id))
+        .scalar()
+    )
+    route_geojson = None
+    if route_geojson_str:
+        import json
+
+        route_geojson = json.loads(route_geojson_str)
+
+    from app.services.fiber_plant import fiber_plant
+
+    geojson_data = fiber_plant.get_geojson(db)
+
+    context = _base_context(request, db, active_page="vendor-quotes")
+    context.update(
+        {
+            "quote_id": quote_id,
+            "revision": revision,
+            "route_geojson": route_geojson,
+            "geojson_data": geojson_data,
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/quotes/route-view.html", context)
 
 
 @router.get("/as-built", response_class=HTMLResponse)

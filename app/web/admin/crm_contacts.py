@@ -1,16 +1,23 @@
 """CRM contacts routes."""
 
+import csv
+import io
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.logging import get_logger
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Person
+from app.models.subscriber import Organization
 from app.services.audit_helpers import recent_activity_for_paths
+from app.services import crm as crm_service
 from app.services.crm.web_contacts import (
     ContactUpsertInput,
     contact_detail_data,
@@ -57,6 +64,65 @@ def _load_crm_agent_team_options(db: Session):
     return _shared_load_crm_agent_team_options(db)
 
 
+def _parse_bool_filter(value: str | None) -> bool | None:
+    if value is None or value == "":
+        return None
+    return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_export_days(value: str | None) -> int:
+    try:
+        parsed = int((value or "").strip())
+    except (TypeError, ValueError):
+        return 30
+    # Keep bounds reasonable for export payload size and UX.
+    return max(1, min(parsed, 3650))
+
+
+def _csv_response(data: list[dict[str, str]], filename: str) -> StreamingResponse:
+    output = io.StringIO()
+    if data:
+        writer = csv.DictWriter(output, fieldnames=list(data[0].keys()))
+        writer.writeheader()
+        writer.writerows(data)
+    else:
+        output.write("No data available\n")
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+def _contact_channels(contact) -> tuple[str, str]:
+    channels = list(contact.channels or [])
+    email_values = [ch.address for ch in channels if ch.channel_type == PersonChannelType.email and ch.address]
+    whatsapp_values = [ch.address for ch in channels if ch.channel_type == PersonChannelType.whatsapp and ch.address]
+    if not email_values and contact.email and not str(contact.email).endswith("@example.invalid"):
+        email_values = [str(contact.email)]
+    return "; ".join(email_values), "; ".join(whatsapp_values)
+
+
+def _clean_export_value(value: object | None) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text in {"-", "—"}:
+        return ""
+    return text
+
+
+def _linked_label(contact, people_map: dict[str, Person], org_map: dict[str, Organization]) -> str:
+    person = people_map.get(str(contact.person_id)) if contact.person_id else None
+    org = org_map.get(str(contact.organization_id)) if contact.organization_id else None
+    if person:
+        return f"{person.first_name or ''} {person.last_name or ''}".strip() or (person.display_name or "")
+    if org:
+        return org.name or ""
+    return ""
+
+
 @router.get("/contacts", response_class=HTMLResponse)
 def crm_contacts_list(
     request: Request,
@@ -69,6 +135,7 @@ def crm_contacts_list(
     order_dir: str = Query("desc"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=10, le=100),
+    export_days: str | None = Query("30"),
     db: Session = Depends(get_db),
 ):
     context = _crm_base_context(request, db, "contacts")
@@ -87,7 +154,91 @@ def crm_contacts_list(
         )
     )
     context["recent_activities"] = recent_activity_for_paths(db, ["/admin/crm"])
+    context["export_days"] = str(_parse_export_days(export_days))
     return templates.TemplateResponse("admin/crm/contacts.html", context)
+
+
+@router.get("/contacts/export")
+def crm_contacts_export_csv(
+    search: str | None = None,
+    party_status: str | None = None,
+    is_active: str | None = None,
+    has_channels: str | None = None,
+    linked_to_org: str | None = None,
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
+    export_days: str | None = Query("30"),
+    db: Session = Depends(get_db),
+):
+    safe_order_by = order_by if order_by in {"created_at", "display_name"} else "created_at"
+    safe_order_dir = order_dir if order_dir in {"asc", "desc"} else "desc"
+    active_filter = _parse_bool_filter(is_active)
+    has_channels_filter = _parse_bool_filter(has_channels)
+    linked_to_org_filter = _parse_bool_filter(linked_to_org)
+    parsed_export_days = _parse_export_days(export_days)
+    cutoff = datetime.now(UTC) - timedelta(days=parsed_export_days)
+
+    contacts = crm_service.contacts.list(
+        db=db,
+        person_id=None,
+        organization_id=None,
+        party_status=party_status,
+        is_active=active_filter,
+        search=search,
+        order_by=safe_order_by,
+        order_dir=safe_order_dir,
+        limit=10000,
+        offset=0,
+    )
+    if has_channels_filter is not None:
+        contacts = [contact for contact in contacts if bool(contact.channels) is has_channels_filter]
+    if linked_to_org_filter is not None:
+        contacts = [contact for contact in contacts if bool(contact.organization_id) is linked_to_org_filter]
+    contacts = [contact for contact in contacts if contact.created_at and contact.created_at >= cutoff]
+
+    person_ids = {contact.person_id for contact in contacts if contact.person_id}
+    org_ids = {contact.organization_id for contact in contacts if contact.organization_id}
+    people_map = (
+        {str(person.id): person for person in db.query(Person).filter(Person.id.in_(person_ids)).all()} if person_ids else {}
+    )
+    org_map = (
+        {str(org.id): org for org in db.query(Organization).filter(Organization.id.in_(org_ids)).all()} if org_ids else {}
+    )
+
+    rows: list[dict[str, str]] = []
+    for contact in contacts:
+        email_values, whatsapp_values = _contact_channels(contact)
+        metadata = contact.metadata_ if isinstance(contact.metadata_, dict) else {}
+        if metadata.get("is_reseller"):
+            type_value = "Reseller"
+        elif contact.party_status:
+            type_value = contact.party_status.value.replace("_", " ").title()
+        else:
+            type_value = ""
+
+        rows.append(
+            {
+                "Contact": _clean_export_value(
+                    contact.display_name or " ".join([contact.first_name or "", contact.last_name or ""]).strip()
+                ),
+                "Customer ID": _clean_export_value(metadata.get("splynx_id")),
+                "Contact Details - Email": _clean_export_value(email_values),
+                "Contact Details - WhatsApp": _clean_export_value(whatsapp_values),
+                "Linked": _clean_export_value(_linked_label(contact, people_map, org_map)),
+                "Type": _clean_export_value(type_value),
+                "Status": _clean_export_value("Active" if contact.is_active else "Inactive"),
+                "Job Title": _clean_export_value(contact.job_title),
+                "City": _clean_export_value(contact.city),
+                "Region": _clean_export_value(contact.region),
+                "Address": _clean_export_value(contact.address_line1),
+                "Gender": _clean_export_value(contact.gender.value.title() if contact.gender else ""),
+                "Marketing Opt-in": _clean_export_value("Yes" if contact.marketing_opt_in else "No"),
+                "Created Date": _clean_export_value(contact.created_at.strftime("%Y-%m-%d") if contact.created_at else ""),
+            }
+        )
+
+    filename = f"crm_contacts_{parsed_export_days}d_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    return _csv_response(rows, filename)
 
 
 @router.get("/contacts/merge", response_class=HTMLResponse)

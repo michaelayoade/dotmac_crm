@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.models.domain_settings import SettingDomain, SettingValueType
 from app.schemas.settings import DomainSettingUpdate
 from app.services import domain_settings as settings_service
-from app.services import settings_spec
+from app.services import settings_spec, time_preferences
 from app.services.response import list_response
 
 _GIS_SETTING_KEYS = {
@@ -73,6 +73,9 @@ _SCHEDULER_SETTING_KEYS = {
     "broker_url",
     "result_backend",
     "timezone",
+    "date_format",
+    "time_format",
+    "week_start",
     "beat_max_loop_interval",
     "beat_refresh_seconds",
     "refresh_minutes",
@@ -780,7 +783,7 @@ def _normalize_scheduler_setting(key: str, payload: DomainSettingUpdate) -> Doma
     if value is None:
         raise HTTPException(status_code=400, detail="Value required")
     data = payload.model_dump(exclude_unset=True)
-    if key in {"beat_max_loop_interval", "beat_refresh_seconds"}:
+    if key in {"beat_max_loop_interval", "beat_refresh_seconds", "refresh_minutes"}:
         if not isinstance(value, int | str):
             raise HTTPException(status_code=400, detail="Value must be an integer")
         try:
@@ -795,8 +798,10 @@ def _normalize_scheduler_setting(key: str, payload: DomainSettingUpdate) -> Doma
         return DomainSettingUpdate(**data)
     if not isinstance(value, str):
         raise HTTPException(status_code=400, detail="Value must be a string")
+    if key == "timezone" and not time_preferences.is_valid_timezone(value):
+        raise HTTPException(status_code=400, detail="Value must be a valid IANA timezone, e.g. UTC or Africa/Lagos")
     data["value_type"] = SettingValueType.string
-    data["value_text"] = value
+    data["value_text"] = value.strip()
     data["value_json"] = None
     return DomainSettingUpdate(**data)
 

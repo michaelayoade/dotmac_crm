@@ -92,16 +92,20 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-200 dark:divide-slate-700" data-mr-item-rows>
-                        {% if inventory_items %}
                         <tr data-mr-item-row>
                             <td class="{{ pad }}">
-                                <select name="item_id"
-                                        class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
-                                    <option value="">Select an item</option>
-                                    {% for inv in inventory_items %}
-                                    <option value="{{ inv.id }}">{{ inv.name }}</option>
-                                    {% endfor %}
-                                </select>
+                                <div class="relative"
+                                     data-typeahead-url="/api/v1/search/inventory-items"
+                                     data-typeahead-min="0"
+                                     data-typeahead-limit="20">
+                                    <input type="text"
+                                           data-typeahead-input
+                                           placeholder="Search inventory items..."
+                                           autocomplete="off"
+                                           class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                                    <input type="hidden" name="item_id" data-typeahead-hidden>
+                                    <div data-typeahead-results></div>
+                                </div>
                             </td>
                             <td class="{{ pad }} text-slate-500 dark:text-slate-400">
                                 <span data-mr-item-sku>-</span>
@@ -118,9 +122,6 @@
                                 <button type="button" data-remove-mr-item class="text-xs text-red-500 hover:text-red-700 dark:text-red-400" disabled>Remove</button>
                             </td>
                         </tr>
-                        {% else %}
-                        {{ empty_state("No inventory items", "Add inventory items before creating a request.", colspan=5) }}
-                        {% endif %}
                     </tbody>
                 </table>
             {% endcall %}
@@ -168,7 +169,6 @@
             {% endcall %}
         </div>
 
-        {% if inventory_items %}
         <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 125ms;">
             <div class="flex items-center gap-3 border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
                 <h3 class="font-semibold text-slate-900 dark:text-white">Add Item</h3>
@@ -178,13 +178,18 @@
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                     <div class="flex-1">
                         <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Item</label>
-                        <select name="item_id" required
-                                class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
-                            <option value="">Select an item</option>
-                            {% for inv in inventory_items %}
-                            <option value="{{ inv.id }}">{{ inv.name }}{% if inv.sku %} ({{ inv.sku }}){% endif %}</option>
-                            {% endfor %}
-                        </select>
+                        <div class="relative"
+                             data-typeahead-url="/api/v1/search/inventory-items"
+                             data-typeahead-min="0"
+                             data-typeahead-limit="20">
+                            <input type="text"
+                                   data-typeahead-input
+                                   placeholder="Search inventory items..."
+                                   autocomplete="off"
+                                   class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            <input type="hidden" name="item_id" data-typeahead-hidden required>
+                            <div data-typeahead-results></div>
+                        </div>
                     </div>
                     <div class="w-24">
                         <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Qty</label>
@@ -201,7 +206,6 @@
             </div>
         </div>
         {% endif %}
-        {% endif %}
 
         <div class="flex items-center justify-end gap-3">
             <a href="/admin/operations/material-requests"
@@ -213,7 +217,7 @@
     </form>
 </div>
 
-{% if not mr and inventory_items %}
+    {% if not mr %}
 <script>
 (() => {
     const section = document.querySelector("[data-mr-items]");
@@ -222,18 +226,30 @@
     const addButton = section.querySelector("[data-add-mr-item]");
     if (!rows || !addButton) return;
 
-    const inventory = [
-        {% for inv in inventory_items %}
-        { id: {{ inv.id | string | tojson }}, sku: {{ (inv.sku or '') | tojson }}, name: {{ (inv.name or '') | tojson }} },
-        {% endfor %}
-    ];
+    async function fetchSku(itemId) {
+        if (!itemId) return null;
+        try {
+            const resp = await fetch(`/api/v1/inventory/items/${encodeURIComponent(itemId)}`);
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            return (data && data.sku) ? data.sku : null;
+        } catch (err) {
+            return null;
+        }
+    }
 
-    function updateRowSku(row) {
-        const select = row.querySelector("select[name='item_id']");
+    async function updateRowSku(row) {
+        const hidden = row.querySelector("input[name='item_id'][data-typeahead-hidden]");
         const sku = row.querySelector("[data-mr-item-sku]");
-        if (!select || !sku) return;
-        const match = inventory.find((item) => item.id === select.value);
-        sku.textContent = match && match.sku ? match.sku : "-";
+        if (!hidden || !sku) return;
+        const itemId = (hidden.value || "").trim();
+        if (!itemId) {
+            sku.textContent = "-";
+            return;
+        }
+        sku.textContent = "…";
+        const fetched = await fetchSku(itemId);
+        sku.textContent = fetched || "-";
     }
 
     function updateRemoveButtons() {
@@ -255,9 +271,9 @@
                 updateRemoveButtons();
             });
         }
-        const select = row.querySelector("select[name='item_id']");
-        if (select) {
-            select.addEventListener("change", () => updateRowSku(row));
+        const hidden = row.querySelector("input[name='item_id'][data-typeahead-hidden]");
+        if (hidden) {
+            hidden.addEventListener("change", () => updateRowSku(row));
             updateRowSku(row);
         }
     }
@@ -266,14 +282,25 @@
         const firstRow = rows.querySelector("[data-mr-item-row]");
         if (!firstRow) return;
         const clone = firstRow.cloneNode(true);
-        clone.querySelectorAll("input, select").forEach((input) => {
-            if (input.tagName === "SELECT") {
-                input.value = "";
-            } else {
-                input.value = input.name === "quantity" ? "1" : "";
+        const typeaheadContainer = clone.querySelector("[data-typeahead-url]");
+        if (typeaheadContainer) {
+            const input = typeaheadContainer.querySelector("[data-typeahead-input]");
+            const hidden = typeaheadContainer.querySelector("[data-typeahead-hidden]");
+            const results = typeaheadContainer.querySelector("[data-typeahead-results]");
+            if (input) input.value = "";
+            if (hidden) hidden.value = "";
+            if (results) results.innerHTML = "";
+        }
+        clone.querySelectorAll("input").forEach((input) => {
+            if (input.hasAttribute("data-typeahead-hidden") || input.hasAttribute("data-typeahead-input")) {
+                return;
             }
+            input.value = input.name === "quantity" ? "1" : "";
         });
         rows.appendChild(clone);
+        if (typeaheadContainer && window.DotmacTypeahead && window.DotmacTypeahead.initTypeahead) {
+            window.DotmacTypeahead.initTypeahead(typeaheadContainer);
+        }
         wireRow(clone);
         updateRemoveButtons();
     });

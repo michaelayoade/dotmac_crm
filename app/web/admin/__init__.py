@@ -36,6 +36,7 @@ from app.web.admin.subscribers import router as subscribers_router
 from app.web.admin.surveys import router as surveys_router
 from app.web.admin.system import router as system_router
 from app.web.admin.tickets import router as tickets_router
+from app.web.admin.user_guide import router as user_guide_router
 from app.web.admin.vendors import router as vendors_router
 from app.web.auth.dependencies import require_web_auth
 
@@ -109,5 +110,6 @@ router.include_router(automations_router)
 router.include_router(ai_router)
 router.include_router(intelligence_router)
 router.include_router(data_quality_router)
+router.include_router(user_guide_router)
 
 __all__ = ["get_current_user", "get_sidebar_stats", "router"]

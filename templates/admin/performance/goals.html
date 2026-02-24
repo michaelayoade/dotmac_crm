@@ -1,0 +1,156 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Performance Goals - Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/reports" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Reports</a>
+<span class="text-slate-400">/</span>
+<a href="/admin/performance/team" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Team Performance</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">Goals</span>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Performance Goals</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create and manage goals by agent, domain, and status.</p>
+        </div>
+        <a href="/admin/performance/team" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Back to Team</a>
+    </div>
+
+    {% if error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Agent</label>
+                <select name="person_id" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All</option>
+                    {% for person in people %}
+                    {% set label = person.display_name or ((person.first_name or '') ~ ' ' ~ (person.last_name or '')) | trim or person.email or person.phone or (person.id|string) %}
+                    <option value="{{ person.id }}" {% if filters.person_id == person.id|string %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Status</label>
+                <select name="status" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All</option>
+                    {% for item in statuses %}
+                    <option value="{{ item }}" {% if filters.status == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Domain</label>
+                <select name="domain" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All</option>
+                    {% for item in domains %}
+                    <option value="{{ item }}" {% if filters.domain == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="mt-4 flex items-center justify-end gap-2">
+            <a href="/admin/performance/goals" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Reset</a>
+            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Filter</button>
+        </div>
+    </form>
+
+    <form method="post" action="/admin/performance/goals" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <h2 class="text-base font-semibold text-slate-900 dark:text-white">Create Goal</h2>
+        <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <select name="person_id" required class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <option value="">Select agent</option>
+                {% for person in people %}
+                {% set label = person.display_name or ((person.first_name or '') ~ ' ' ~ (person.last_name or '')) | trim or person.email or person.phone or (person.id|string) %}
+                <option value="{{ person.id }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+            <select name="domain" required class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                {% for item in domains %}
+                <option value="{{ item }}">{{ item | replace('_', ' ') | title }}</option>
+                {% endfor %}
+            </select>
+            <input type="text" name="metric_key" required placeholder="metric_key (e.g. raw_score)" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            <input type="text" name="label" required placeholder="Goal label" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            <input type="number" name="target_value" step="0.01" required placeholder="Target value" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            <select name="comparison" required class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <option value="gte">Greater Than / Equal</option>
+                <option value="lte">Less Than / Equal</option>
+            </select>
+            <input type="date" name="deadline" required class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+        </div>
+        <div class="mt-4 flex justify-end">
+            <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Create Goal</button>
+        </div>
+    </form>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-900/40">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Agent</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Domain</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Metric</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Label</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Target</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Current</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Deadline</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="px-4 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {% for goal in goals %}
+                    {% set person = person_map.get(goal.person_id|string) %}
+                    {% set person_label = person.display_name if person and person.display_name else ((person.first_name or '') ~ ' ' ~ (person.last_name or '')) | trim if person else (goal.person_id|string) %}
+                    <tr>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ person_label or (goal.person_id|string) }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.domain.value | replace('_', ' ') | title }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.metric_key }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.label }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.comparison }} {{ "%.2f"|format(goal.target_value|float) }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ "%.2f"|format(goal.current_value|float) if goal.current_value is not none else "—" }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.deadline }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{{ goal.status.value | replace('_', ' ') | title }}</td>
+                        <td class="px-4 py-3">
+                            <form method="post" action="/admin/performance/goals/{{ goal.id }}/update" class="grid grid-cols-1 gap-2">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                <input type="text" name="label" value="{{ goal.label }}" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <input type="number" name="target_value" step="0.01" value="{{ goal.target_value }}" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <select name="comparison" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    <option value="gte" {% if goal.comparison == "gte" %}selected{% endif %}>gte</option>
+                                    <option value="lte" {% if goal.comparison == "lte" %}selected{% endif %}>lte</option>
+                                </select>
+                                <input type="date" name="deadline" value="{{ goal.deadline }}" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                <select name="status" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    {% for item in statuses %}
+                                    <option value="{{ item }}" {% if goal.status.value == item %}selected{% endif %}>{{ item }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white dark:bg-slate-100 dark:text-slate-900">Save</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">No goals found for the selected filters.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

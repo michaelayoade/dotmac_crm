@@ -29,12 +29,19 @@ from app.schemas.crm.inbox import (
     InboxSendResponse,
     WhatsAppWebhookPayload,
 )
+from app.schemas.crm.macro import (
+    MacroCreate,
+    MacroRead,
+    MacroUpdate,
+)
 from app.schemas.crm.message_template import (
     MessageTemplateCreate,
     MessageTemplateRead,
     MessageTemplateUpdate,
 )
 from app.schemas.crm.presence import (
+    AgentLiveLocationRead,
+    AgentLocationUpdate,
     AgentPresenceRead,
     AgentPresenceUpdate,
 )
@@ -81,6 +88,8 @@ from app.schemas.crm.team import (
 
 __all__ = [
     "AgentCreate",
+    "AgentLiveLocationRead",
+    "AgentLocationUpdate",
     "AgentPresenceRead",
     "AgentPresenceUpdate",
     "AgentRead",
@@ -111,6 +120,9 @@ __all__ = [
     "LeadCreate",
     "LeadRead",
     "LeadUpdate",
+    "MacroCreate",
+    "MacroRead",
+    "MacroUpdate",
     "MessageAttachmentCreate",
     "MessageAttachmentRead",
     "MessageCreate",

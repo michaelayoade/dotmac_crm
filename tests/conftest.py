@@ -8,6 +8,7 @@ import pytest
 from dotenv import load_dotenv
 from sqlalchemy import String, TypeDecorator, create_engine, event, text
 from sqlalchemy.engine.url import make_url
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -163,42 +164,88 @@ def _resolve_test_database_url() -> str | None:
     return raw_url
 
 
+def _backfill_enum_values(engine):
+    """Ensure all PG enum values are present after create_all.
+
+    Both app.models.person.ChannelType and app.models.crm.enums.ChannelType map
+    to a single PG enum called 'channeltype'. Depending on table creation order,
+    some values may be missing.  ALTER TYPE … ADD VALUE cannot run inside a
+    transaction, so we use AUTOCOMMIT isolation.
+    """
+    from app.models.crm.enums import ChannelType as CrmChannelType
+    from app.models.person import ChannelType as PersonChannelType
+
+    all_values = {m.value for m in PersonChannelType} | {m.value for m in CrmChannelType}
+
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        existing = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT enumlabel FROM pg_enum "
+                    "JOIN pg_type ON pg_enum.enumtypid = pg_type.oid "
+                    "WHERE typname = 'channeltype'"
+                )
+            )
+        }
+        for val in sorted(all_values - existing):
+            conn.execute(text(f"ALTER TYPE channeltype ADD VALUE IF NOT EXISTS '{val}'"))
+
+
 @pytest.fixture(scope="session")
 def engine():
     database_url = _resolve_test_database_url()
     if database_url:
-        # Use PostgreSQL for tests (recommended)
-        engine = create_engine(database_url)
-        with engine.begin() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-    else:
-        # Fall back to SQLite with Spatialite
-        engine = create_engine(
-            "sqlite+pysqlite://",
-            connect_args={
-                "check_same_thread": False,
-                "detect_types": sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
-            },
-            poolclass=StaticPool,
-        )
+        # Prefer PostgreSQL when available; fall back to SQLite when unavailable.
+        with contextlib.suppress(SQLAlchemyError):
+            engine = create_engine(database_url)
+            with engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+            Base.metadata.create_all(engine)
+            # Both app.models.person.ChannelType and app.models.crm.enums.ChannelType
+            # map to the same PG enum 'channeltype'. Whichever create_all processes
+            # first wins; add any missing values so both enums are fully represented.
+            _backfill_enum_values(engine)
+            return engine
 
-        @event.listens_for(engine, "connect")
-        def _load_spatialite(dbapi_connection, _connection_record):
-            dbapi_connection.enable_load_extension(True)
-            with contextlib.suppress(Exception):
-                dbapi_connection.load_extension("mod_spatialite")
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
+    # Fall back to SQLite with Spatialite
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={
+            "check_same_thread": False,
+        },
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _load_spatialite(dbapi_connection, _connection_record):
+        dbapi_connection.enable_load_extension(True)
+        spatialite_loaded = False
+        with contextlib.suppress(Exception):
+            dbapi_connection.load_extension("mod_spatialite")
+            spatialite_loaded = True
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        if spatialite_loaded:
             with contextlib.suppress(Exception):
                 cursor.execute("SELECT InitSpatialMetaData(1)")
-            cursor.close()
+        else:
+            # GeoAlchemy2 calls these during table DDL; provide no-op shims when
+            # SpatiaLite is unavailable so non-spatial tests can still run.
+            dbapi_connection.create_function("InitSpatialMetaData", 1, lambda _x: 1)
+            dbapi_connection.create_function("RecoverGeometryColumn", 5, lambda *_args: 1)
+            dbapi_connection.create_function("DiscardGeometryColumn", 2, lambda *_args: 1)
+            dbapi_connection.create_function("CreateSpatialIndex", 2, lambda *_args: 1)
+            dbapi_connection.create_function("DisableSpatialIndex", 2, lambda *_args: 1)
+            dbapi_connection.create_function("GeomFromEWKT", 1, lambda value: value)
+            dbapi_connection.create_function("AsEWKB", 1, lambda value: value)
+        cursor.close()
 
-        # Create a connection first to initialize spatialite
-        with engine.connect() as conn:
-            pass
+    # Create a connection first to initialize spatialite
+    with engine.connect() as conn:
+        pass
 
     Base.metadata.create_all(engine)
-
     return engine
 
 

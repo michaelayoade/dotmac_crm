@@ -1,0 +1,75 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, icon_users %}
+
+{% block title %}Create Reseller - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header(
+        title="Create Reseller",
+        subtitle="Create a reseller organization and a login user",
+        icon=icon_users(),
+        color="amber",
+        color2="orange"
+    ) %}
+        <a href="/admin/subscribers/resellers" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">
+            Back to Resellers
+        </a>
+    {% endcall %}
+
+    <form method="post" class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800 space-y-6">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}" />
+
+        <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Organization</h2>
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Name</label>
+                    <input name="organization_name" required class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" placeholder="Acme Reseller" />
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Domain (optional)</label>
+                    <input name="organization_domain" class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" placeholder="example.com" />
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Login User</h2>
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">First name</label>
+                    <input name="user_first_name" required class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last name</label>
+                    <input name="user_last_name" required class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Email</label>
+                    <input name="user_email" type="email" required class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" placeholder="reseller.user@example.com" />
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">If this email already exists, the Person record will be reused (not duplicated).</p>
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Phone (optional)</label>
+                    <input name="user_phone" class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" placeholder="+1 555 000 0000" />
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Password</label>
+                    <input name="password" type="password" class="block w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" placeholder="Set a password (required for new user)" />
+                </div>
+                <label class="sm:col-span-2 inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                    <input type="checkbox" name="reset_password_if_exists" value="1" class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700" />
+                    Reset password if the user already exists (requires password above)
+                </label>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-3">
+            <a href="/admin/subscribers/resellers" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Cancel</a>
+            <button type="submit" class="rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">Create Reseller</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

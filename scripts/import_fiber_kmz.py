@@ -2,6 +2,7 @@ import argparse
 import itertools
 import json
 import math
+import re
 import zipfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from app.models.network import (
     FiberSplice,
     FiberSpliceClosure,
     FiberSpliceTray,
+    OLTDevice,
     PonPortSplitterLink,
     Splitter,
     SplitterPort,
@@ -47,14 +49,163 @@ class PlacemarkData:
     coordinates: list[tuple[float, float]]
 
 
+# ---------------------------------------------------------------------------
+# Merged-KMZ helpers: classification, geo-filter, deduplication
+# ---------------------------------------------------------------------------
+
+# Abuja bounding box
+_ABUJA_LAT_MIN, _ABUJA_LAT_MAX = 8.8, 9.2
+_ABUJA_LON_MIN, _ABUJA_LON_MAX = 7.1, 7.6
+
+# Name patterns for classification (compiled once)
+_RE_CABINET = re.compile(r"cabinet|fdh|wall\s*cabinet", re.IGNORECASE)
+_RE_CLOSURE = re.compile(r"closure|joint|(?<!\w)icc(?!\w)|handhole", re.IGNORECASE)
+_RE_ACCESS_POINT = re.compile(r"pick\s*point|pickpoint|picking\s*point", re.IGNORECASE)
+_RE_OLT_BTS = re.compile(r"(?<!\w)bts(?!\w)|(?<!\w)gpon(?!\w)|(?<!\w)olt(?!\w)|nigcomsat", re.IGNORECASE)
+_RE_SKIP_INFRA = re.compile(r"(?<!\w)drainage(?!\w)|(?<!\w)trenching(?!\w)|(?<!\w)manhole(?!\w)|(?<!\w)duct\s", re.IGNORECASE)
+_RE_JUNK_NAME = re.compile(r"^(untitled\s*(placemark|path)?|path\s*measure|line\s*measure|sightseeing)$", re.IGNORECASE)
+
+# Entity type constants
+ENTITY_CABINET = "fdh_cabinet"
+ENTITY_CLOSURE = "splice_closure"
+ENTITY_ACCESS_POINT = "access_point"
+ENTITY_OLT = "olt_device"
+ENTITY_SEGMENT = "fiber_segment"
+ENTITY_BUILDING = "building"
+ENTITY_SKIP = "skip"
+
+
+def _is_in_abuja(coords: list[tuple[float, float]]) -> bool:
+    """Check if first coordinate falls within the Abuja bounding box."""
+    if not coords:
+        return False
+    lon, lat = coords[0]
+    return _ABUJA_LAT_MIN <= lat <= _ABUJA_LAT_MAX and _ABUJA_LON_MIN <= lon <= _ABUJA_LON_MAX
+
+
+def _classify_placemark(name: str, geom_type: str) -> str:
+    """Classify a placemark into an entity type based on name patterns and geometry.
+
+    Returns one of the ENTITY_* constants or ENTITY_SKIP.
+    """
+    n = name.strip()
+    nl = n.lower()
+
+    # Junk / empty names
+    if not n or _RE_JUNK_NAME.match(nl):
+        if geom_type == "LineString" and nl in ("path measure", "line measure"):
+            return ENTITY_SEGMENT  # measurement traces are still real fiber routes
+        return ENTITY_SKIP
+
+    # Infrastructure: manholes → closures, ducts/trenching/drainage → segments
+    if _RE_SKIP_INFRA.search(nl):
+        if "manhole" in nl:
+            return ENTITY_CLOSURE
+        # Ducts, trenching, drainage are civil-works routes
+        return ENTITY_SEGMENT if geom_type == "LineString" else ENTITY_BUILDING
+
+    # Cabinet patterns (highest priority for points)
+    if _RE_CABINET.search(nl):
+        return ENTITY_SEGMENT if geom_type == "LineString" else ENTITY_CABINET
+
+    # Closure patterns
+    if _RE_CLOSURE.search(nl):
+        return ENTITY_SEGMENT if geom_type == "LineString" else ENTITY_CLOSURE
+
+    # Access point patterns
+    if _RE_ACCESS_POINT.search(nl):
+        return ENTITY_SEGMENT if geom_type == "LineString" else ENTITY_ACCESS_POINT
+
+    # OLT / BTS patterns
+    if _RE_OLT_BTS.search(nl):
+        return ENTITY_SEGMENT if geom_type == "LineString" else ENTITY_OLT
+
+    # By geometry type
+    if geom_type == "LineString":
+        return ENTITY_SEGMENT
+    if geom_type == "Polygon":
+        return ENTITY_BUILDING
+
+    # Remaining points are customer/subscriber premises
+    return ENTITY_BUILDING
+
+
+def _dedup_key(name: str, geom_type: str, coords: list[tuple[float, float]]) -> tuple:
+    """Create a deduplication key from name + geometry type + start/end coordinates."""
+    start = coords[0]
+    end = coords[-1] if len(coords) > 1 else coords[0]
+    return (
+        name.lower().strip(),
+        geom_type,
+        round(start[0], 5),
+        round(start[1], 5),
+        round(end[0], 5),
+        round(end[1], 5),
+    )
+
+
+def _make_segment_name(name: str, coords: list[tuple[float, float]], counter: dict[str, int]) -> str:
+    """Generate a unique name for segments with generic names like 'Path Measure'."""
+    nl = name.lower().strip()
+    _generic_segment_names = (
+        "path measure", "line measure", "route", "proposed route", "untitled path",
+        "new route", "", "trenching", "drainage", "duct route", "new duct route",
+        "trenching route", "new trenching", "trenching part", "interlock and trenching",
+        "interlock & trenching",
+    )
+    if nl not in _generic_segment_names:
+        return name  # already has a meaningful name
+
+    # Generate from start/end coordinates
+    start_lon, start_lat = coords[0]
+    end_lon, end_lat = coords[-1] if len(coords) > 1 else coords[0]
+    base = f"PM-{start_lat:.4f}-{start_lon:.4f}-{end_lat:.4f}-{end_lon:.4f}"
+
+    # Ensure uniqueness
+    if base in counter:
+        counter[base] += 1
+        return f"{base}-{counter[base]}"
+    counter[base] = 0
+    return base
+
+
+# Generic names for point entities that need location disambiguation
+_GENERIC_CABINET_NAMES = {"cabinet", "wall cabinet", "fdh"}
+_GENERIC_CLOSURE_NAMES = {"closure", "joint", "icc", "handhole", "proposed closure", "manhole", "manhole closure"}
+_GENERIC_AP_NAMES = {"pick point", "pick_point", "pickpoint", "picking point"}
+_GENERIC_OLT_NAMES = {"bts", "proposed bts", "olt"}
+_GENERIC_BUILDING_NAMES = {"client", "building", "trenching", "drainage", "duct route", "new duct route"}
+
+
+def _make_unique_point_name(name: str, lon: float, lat: float, generic_set: set[str], counter: dict[str, int]) -> str:
+    """Make a point entity name unique by appending coordinates for generic names."""
+    nl = name.lower().strip()
+    if nl not in generic_set:
+        return name
+    base = f"{name}-{lat:.4f}-{lon:.4f}"
+    if base in counter:
+        counter[base] += 1
+        return f"{base}-{counter[base]}"
+    counter[base] = 0
+    return base
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Import KMZ/KML data into fiber plant tables.")
+    # Per-type KMZ inputs (original mode)
     parser.add_argument("--paths-kmz", action="append", default=[], help="KMZ with fiber paths (LineString).")
     parser.add_argument("--cabinet-kmz", action="append", default=[], help="KMZ with cabinets (Polygon/Point).")
     parser.add_argument("--splice-kmz", action="append", default=[], help="KMZ with splice closures (Polygon/Point).")
     parser.add_argument("--access-point-kmz", action="append", default=[], help="KMZ with fiber access points (Polygon/Point).")
     parser.add_argument("--mast-kmz", action="append", default=[], help="KMZ with wireless masts/poles (Point).")
     parser.add_argument("--building-kmz", action="append", default=[], help="KMZ with service buildings (Polygon/Point).")
+    # Merged KMZ input (new mode)
+    parser.add_argument(
+        "--merged-kmz",
+        type=str,
+        default=None,
+        help="Path to a merged KMZ containing all entity types. Placemarks are classified by name patterns.",
+    )
     parser.add_argument("--segment-type", default="distribution", choices=[t.value for t in FiberSegmentType])
     parser.add_argument("--cable-type", default=None, choices=[t.value for t in FiberCableType])
     parser.add_argument("--dry-run", action="store_true")
@@ -505,6 +656,432 @@ def import_buildings(db, paths: list[Path], upsert: bool, limit: int | None):
     return created, updated, skipped
 
 
+# ---------------------------------------------------------------------------
+# Batch import functions: accept list[PlacemarkData] directly (for merged mode)
+# ---------------------------------------------------------------------------
+
+
+def _import_segments_batch(
+    db, placemarks: list[PlacemarkData], segment_type: str, cable_type: str | None, upsert: bool
+) -> tuple[int, int, int]:
+    """Import fiber segments from pre-classified placemarks."""
+    created = updated = skipped = 0
+    seg_name_counter: dict[str, int] = {}
+    # Track names used in this batch to avoid unique-constraint collisions
+    # (unflushed inserts are invisible to queries within the same session)
+    batch_names: set[str] = set()
+    for pm in placemarks:
+        if pm.geometry_type != "LineString":
+            continue
+        name = _make_segment_name(
+            pm.name or pm.properties.get("spanid") or "unnamed-segment",
+            pm.coordinates,
+            seg_name_counter,
+        )
+        # Ensure unique within batch — append suffix if name was already used
+        base_name = name
+        suffix = 1
+        while name in batch_names:
+            name = f"{base_name}-{suffix}"
+            suffix += 1
+        existing = db.query(FiberSegment).filter(FiberSegment.name == name).first()
+        coords = pm.coordinates
+        geojson = {"type": "LineString", "coordinates": coords}
+        length_m = _line_length_m(coords) if len(coords) > 1 else None
+        notes = _make_notes(pm.properties)
+        if existing:
+            if not upsert:
+                skipped += 1
+                continue
+            existing.segment_type = FiberSegmentType(segment_type)
+            existing.cable_type = FiberCableType(cable_type) if cable_type else None
+            existing.route_geom = _geojson_to_geom(geojson)
+            existing.length_m = length_m
+            existing.notes = notes
+            updated += 1
+        else:
+            segment = FiberSegment(
+                name=name,
+                segment_type=FiberSegmentType(segment_type),
+                cable_type=FiberCableType(cable_type) if cable_type else None,
+                route_geom=_geojson_to_geom(geojson),
+                length_m=length_m,
+                notes=notes,
+            )
+            db.add(segment)
+            batch_names.add(name)
+            created += 1
+    return created, updated, skipped
+
+
+def _import_cabinets_batch(db, placemarks: list[PlacemarkData], upsert: bool) -> tuple[int, int, int]:
+    """Import FDH cabinets from pre-classified placemarks."""
+    created = updated = skipped = 0
+    name_counter: dict[str, int] = {}
+    batch_names: set[str] = set()
+    for pm in placemarks:
+        point = _extract_point(pm)
+        if not point:
+            continue
+        lon, lat = point
+        name = pm.properties.get("name") or pm.name or "unnamed-cabinet"
+        name = _make_unique_point_name(name, lon, lat, _GENERIC_CABINET_NAMES, name_counter)
+        code = pm.properties.get("fibermngrid")
+        existing = None
+        if code:
+            existing = db.query(FdhCabinet).filter(FdhCabinet.code == code).first()
+        if not existing:
+            existing = db.query(FdhCabinet).filter(FdhCabinet.name == name).first()
+        notes = _make_notes(pm.properties)
+        if existing:
+            if not upsert:
+                skipped += 1
+                continue
+            existing.name = name
+            existing.code = code
+            existing.latitude = lat
+            existing.longitude = lon
+            existing.geom = _point_geom(lon, lat)
+            existing.notes = notes
+            updated += 1
+        else:
+            cabinet = FdhCabinet(
+                name=name,
+                code=code,
+                latitude=lat,
+                longitude=lon,
+                geom=_point_geom(lon, lat),
+                notes=notes,
+            )
+            db.add(cabinet)
+            created += 1
+    return created, updated, skipped
+
+
+def _import_closures_batch(db, placemarks: list[PlacemarkData], upsert: bool) -> tuple[int, int, int]:
+    """Import splice closures from pre-classified placemarks."""
+    created = updated = skipped = 0
+    name_counter: dict[str, int] = {}
+    for pm in placemarks:
+        point = _extract_point(pm)
+        if not point:
+            continue
+        lon, lat = point
+        name = pm.properties.get("name") or pm.name or "unnamed-closure"
+        name = _make_unique_point_name(name, lon, lat, _GENERIC_CLOSURE_NAMES, name_counter)
+        existing = db.query(FiberSpliceClosure).filter(FiberSpliceClosure.name == name).first()
+        notes = _make_notes(pm.properties)
+        if existing:
+            if not upsert:
+                skipped += 1
+                continue
+            existing.name = name
+            existing.latitude = lat
+            existing.longitude = lon
+            existing.geom = _point_geom(lon, lat)
+            existing.notes = notes
+            updated += 1
+        else:
+            closure = FiberSpliceClosure(
+                name=name,
+                latitude=lat,
+                longitude=lon,
+                geom=_point_geom(lon, lat),
+                notes=notes,
+            )
+            db.add(closure)
+            created += 1
+    return created, updated, skipped
+
+
+def _import_access_points_batch(db, placemarks: list[PlacemarkData], upsert: bool) -> tuple[int, int, int]:
+    """Import fiber access points from pre-classified placemarks."""
+    created = updated = skipped = 0
+    name_counter: dict[str, int] = {}
+    for pm in placemarks:
+        point = _extract_point(pm)
+        if not point:
+            continue
+        lon, lat = point
+        name = pm.properties.get("Name") or pm.name or "unnamed-ap"
+        name = _make_unique_point_name(name, lon, lat, _GENERIC_AP_NAMES, name_counter)
+        code = pm.properties.get("access_pointid")
+        existing = None
+        if code:
+            existing = db.query(FiberAccessPoint).filter(FiberAccessPoint.code == code).first()
+        if not existing:
+            existing = db.query(FiberAccessPoint).filter(FiberAccessPoint.name == name).first()
+        notes = _make_notes(pm.properties)
+        ap_type = pm.properties.get("Type")
+        placement = pm.properties.get("Placement")
+        street = pm.properties.get("Street")
+        city = pm.properties.get("City")
+        county = pm.properties.get("County")
+        state = pm.properties.get("State")
+        if existing:
+            if not upsert:
+                skipped += 1
+                continue
+            existing.name = name
+            existing.code = code
+            existing.access_point_type = ap_type
+            existing.placement = placement
+            existing.latitude = lat
+            existing.longitude = lon
+            existing.geom = _point_geom(lon, lat)
+            existing.street = street
+            existing.city = city
+            existing.county = county
+            existing.state = state
+            existing.notes = notes
+            updated += 1
+        else:
+            ap = FiberAccessPoint(
+                name=name,
+                code=code,
+                access_point_type=ap_type,
+                placement=placement,
+                latitude=lat,
+                longitude=lon,
+                geom=_point_geom(lon, lat),
+                street=street,
+                city=city,
+                county=county,
+                state=state,
+                notes=notes,
+            )
+            db.add(ap)
+            created += 1
+    return created, updated, skipped
+
+
+def _import_olt_devices_batch(db, placemarks: list[PlacemarkData], upsert: bool) -> tuple[int, int, int]:
+    """Import OLT/BTS devices from pre-classified placemarks."""
+    created = updated = skipped = 0
+    name_counter: dict[str, int] = {}
+    for pm in placemarks:
+        point = _extract_point(pm)
+        if not point:
+            continue
+        lon, lat = point
+        name = pm.name or "unnamed-olt"
+        name = _make_unique_point_name(name, lon, lat, _GENERIC_OLT_NAMES, name_counter)
+        existing = db.query(OLTDevice).filter(OLTDevice.name == name).first()
+        notes = _make_notes(pm.properties)
+        if existing:
+            if not upsert:
+                skipped += 1
+                continue
+            existing.latitude = lat
+            existing.longitude = lon
+            existing.notes = notes
+            updated += 1
+        else:
+            olt = OLTDevice(
+                name=name,
+                latitude=lat,
+                longitude=lon,
+                notes=notes,
+            )
+            db.add(olt)
+            created += 1
+    return created, updated, skipped
+
+
+def _import_buildings_batch(db, placemarks: list[PlacemarkData], upsert: bool) -> tuple[int, int, int]:
+    """Import service buildings from pre-classified placemarks."""
+    created = updated = skipped = 0
+    name_counter: dict[str, int] = {}
+    for pm in placemarks:
+        point = _extract_point(pm)
+        if not point:
+            continue
+        lon, lat = point
+        name = pm.properties.get("Name") or pm.name or "unnamed-building"
+        name = _make_unique_point_name(name, lon, lat, _GENERIC_BUILDING_NAMES, name_counter)
+        code = pm.properties.get("buildingid")
+        existing = None
+        if code:
+            existing = db.query(ServiceBuilding).filter(ServiceBuilding.code == code).first()
+        if not existing:
+            existing = db.query(ServiceBuilding).filter(ServiceBuilding.name == name).first()
+        notes = _make_notes(pm.properties)
+        clli = pm.properties.get("CLLI")
+        street = pm.properties.get("Street")
+        city = pm.properties.get("City")
+        state = pm.properties.get("State")
+        zip_code = pm.properties.get("ZIP")
+        work_order = pm.properties.get("Work Order")
+        boundary_geom = None
+        if pm.geometry_type == "Polygon" and len(pm.coordinates) >= 3:
+            coords = pm.coordinates
+            if coords[0] != coords[-1]:
+                coords = [*coords, coords[0]]
+            geojson = {"type": "Polygon", "coordinates": [coords]}
+            boundary_geom = _geojson_to_geom(geojson)
+        if existing:
+            if not upsert:
+                skipped += 1
+                continue
+            existing.name = name
+            existing.code = code
+            existing.clli = clli
+            existing.latitude = lat
+            existing.longitude = lon
+            existing.geom = _point_geom(lon, lat)
+            if boundary_geom is not None:
+                existing.boundary_geom = boundary_geom
+            existing.street = street
+            existing.city = city
+            existing.state = state
+            existing.zip_code = zip_code
+            existing.work_order = work_order
+            existing.notes = notes
+            updated += 1
+        else:
+            building = ServiceBuilding(
+                name=name,
+                code=code,
+                clli=clli,
+                latitude=lat,
+                longitude=lon,
+                geom=_point_geom(lon, lat),
+                boundary_geom=boundary_geom,
+                street=street,
+                city=city,
+                state=state,
+                zip_code=zip_code,
+                work_order=work_order,
+                notes=notes,
+            )
+            db.add(building)
+            created += 1
+    return created, updated, skipped
+
+
+# ---------------------------------------------------------------------------
+# Merged-KMZ orchestrator
+# ---------------------------------------------------------------------------
+
+
+def import_merged(
+    db,
+    kmz_path: Path,
+    segment_type: str,
+    cable_type: str | None,
+    upsert: bool,
+    dry_run: bool,
+    limit: int | None,
+) -> None:
+    """Import a merged KMZ that contains all entity types in one file.
+
+    Steps:
+    1. Parse all placemarks from the (deeply nested) KML.
+    2. Filter to Abuja bounding box.
+    3. Deduplicate by (name, geom_type, start/end coords).
+    4. Classify each placemark into an entity type.
+    5. Route to the appropriate batch import function.
+    6. Print per-entity stats.
+    """
+    print(f"[merged] Reading {kmz_path} ...")
+    root = _read_kmz_kml(kmz_path)
+
+    # Collect all placemarks (handles the deep nesting automatically via .//)
+    all_placemarks = list(_iter_placemarks(root, limit=None))
+    print(f"[merged] Total placemarks parsed: {len(all_placemarks)}")
+
+    # Step 1: Abuja geographic filter
+    abuja_placemarks = [pm for pm in all_placemarks if _is_in_abuja(pm.coordinates)]
+    filtered_out = len(all_placemarks) - len(abuja_placemarks)
+    print(f"[merged] In Abuja: {len(abuja_placemarks)} (filtered out {filtered_out} outside bounds)")
+
+    # Step 2: Deduplicate
+    seen: set[tuple] = set()
+    unique: list[PlacemarkData] = []
+    for pm in abuja_placemarks:
+        key = _dedup_key(pm.name, pm.geometry_type, pm.coordinates)
+        if key not in seen:
+            seen.add(key)
+            unique.append(pm)
+    dedup_removed = len(abuja_placemarks) - len(unique)
+    print(f"[merged] After dedup: {len(unique)} (removed {dedup_removed} duplicates)")
+
+    # Step 3: Classify
+    buckets: dict[str, list[PlacemarkData]] = {
+        ENTITY_SEGMENT: [],
+        ENTITY_CABINET: [],
+        ENTITY_CLOSURE: [],
+        ENTITY_ACCESS_POINT: [],
+        ENTITY_OLT: [],
+        ENTITY_BUILDING: [],
+        ENTITY_SKIP: [],
+    }
+    for pm in unique:
+        entity_type = _classify_placemark(pm.name, pm.geometry_type)
+        buckets[entity_type].append(pm)
+
+    # Apply limit if specified
+    if limit is not None:
+        for key in buckets:
+            if key != ENTITY_SKIP:
+                buckets[key] = buckets[key][:limit]
+
+    print("\n[merged] Classification results:")
+    for entity_type, items in sorted(buckets.items(), key=lambda x: -len(x[1])):
+        label = entity_type.replace("_", " ").title()
+        print(f"  {label:.<25} {len(items):>5}")
+    print()
+
+    # Step 4: Import each entity type
+    results: dict[str, tuple[int, int, int]] = {}
+
+    if buckets[ENTITY_SEGMENT]:
+        print(f"[merged] Importing {len(buckets[ENTITY_SEGMENT])} fiber segments ...")
+        results["Fiber Segments"] = _import_segments_batch(
+            db, buckets[ENTITY_SEGMENT], segment_type, cable_type, upsert
+        )
+
+    if buckets[ENTITY_CABINET]:
+        print(f"[merged] Importing {len(buckets[ENTITY_CABINET])} FDH cabinets ...")
+        results["FDH Cabinets"] = _import_cabinets_batch(db, buckets[ENTITY_CABINET], upsert)
+
+    if buckets[ENTITY_CLOSURE]:
+        print(f"[merged] Importing {len(buckets[ENTITY_CLOSURE])} splice closures ...")
+        results["Splice Closures"] = _import_closures_batch(db, buckets[ENTITY_CLOSURE], upsert)
+
+    if buckets[ENTITY_ACCESS_POINT]:
+        print(f"[merged] Importing {len(buckets[ENTITY_ACCESS_POINT])} access points ...")
+        results["Access Points"] = _import_access_points_batch(db, buckets[ENTITY_ACCESS_POINT], upsert)
+
+    if buckets[ENTITY_OLT]:
+        print(f"[merged] Importing {len(buckets[ENTITY_OLT])} OLT/BTS devices ...")
+        results["OLT/BTS Devices"] = _import_olt_devices_batch(db, buckets[ENTITY_OLT], upsert)
+
+    if buckets[ENTITY_BUILDING]:
+        print(f"[merged] Importing {len(buckets[ENTITY_BUILDING])} buildings ...")
+        results["Buildings"] = _import_buildings_batch(db, buckets[ENTITY_BUILDING], upsert)
+
+    # Step 5: Summary
+    print(f"\n{'='*60}")
+    print(f"  {'Entity':<20} {'Created':>8} {'Updated':>8} {'Skipped':>8}")
+    print(f"  {'-'*20} {'-'*8} {'-'*8} {'-'*8}")
+    total_c = total_u = total_s = 0
+    for entity_name, (c, u, s) in results.items():
+        print(f"  {entity_name:<20} {c:>8} {u:>8} {s:>8}")
+        total_c += c
+        total_u += u
+        total_s += s
+    print(f"  {'-'*20} {'-'*8} {'-'*8} {'-'*8}")
+    print(f"  {'TOTAL':<20} {total_c:>8} {total_u:>8} {total_s:>8}")
+    print(f"  Skipped (non-infra): {len(buckets[ENTITY_SKIP])}")
+    print(f"{'='*60}")
+
+    if dry_run:
+        print("\n[merged] DRY RUN — no changes committed.")
+    else:
+        print(f"\n[merged] Committing {total_c} new + {total_u} updated records ...")
+
+
 def main():
     if load_dotenv is not None:
         load_dotenv()
@@ -532,6 +1109,24 @@ def main():
             db.query(WirelessMast).delete()
             db.query(ServiceBuilding).delete()
 
+        # ── Merged KMZ mode ─────────────────────────────────────
+        if args.merged_kmz:
+            import_merged(
+                db,
+                Path(args.merged_kmz),
+                args.segment_type,
+                args.cable_type,
+                args.upsert,
+                args.dry_run,
+                args.limit,
+            )
+            if args.dry_run:
+                db.rollback()
+            else:
+                db.commit()
+            return
+
+        # ── Per-type KMZ mode (original) ────────────────────────
         cabinet_paths = [Path(p) for p in args.cabinet_kmz]
         splice_paths = [Path(p) for p in args.splice_kmz]
         segment_paths = [Path(p) for p in args.paths_kmz]

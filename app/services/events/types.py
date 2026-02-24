@@ -77,11 +77,13 @@ class EventType(enum.Enum):
     # CRM - Message events (1)
     message_inbound = "message.inbound"
 
-    # Projects - Project events (4)
+    # Projects - Project events
     project_created = "project.created"
     project_updated = "project.updated"
     project_completed = "project.completed"
     project_canceled = "project.canceled"
+    project_task_updated = "project_task.updated"
+    project_task_completed = "project_task.completed"
     vendor_quote_submitted = "vendor_quote.submitted"
     vendor_quote_approved = "vendor_quote.approved"
 

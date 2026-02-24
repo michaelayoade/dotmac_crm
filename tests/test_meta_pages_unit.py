@@ -1,15 +1,26 @@
+import asyncio
+import concurrent.futures
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.oauth_token import OAuthToken
 from app.services import meta_pages
 
 
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
+
+
 def _create_page_token(db_session, page_id="page_1"):
+    config = ConnectorConfig(name="Meta Test Connector", connector_type=ConnectorType.facebook, is_active=True)
+    db_session.add(config)
+    db_session.flush()
     token = OAuthToken(
-        connector_config_id=None,
+        connector_config_id=config.id,
         provider="meta",
         account_type="page",
         external_account_id=page_id,
@@ -25,8 +36,7 @@ def _create_page_token(db_session, page_id="page_1"):
     return token
 
 
-@pytest.mark.asyncio
-async def test_create_page_post_success(db_session):
+def test_create_page_post_success(db_session):
     _create_page_token(db_session, page_id="page_123")
 
     mock_response = MagicMock()
@@ -40,22 +50,25 @@ async def test_create_page_post_success(db_session):
         mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
         mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        result = await meta_pages.create_page_post(
-            db_session,
-            page_id="page_123",
-            message="Hello",
+        result = _run_async(
+            meta_pages.create_page_post(
+                db_session,
+                page_id="page_123",
+                message="Hello",
+            )
         )
 
     assert result["id"] == "post_1"
 
 
-@pytest.mark.asyncio
-async def test_create_instagram_carousel_post_invalid_count():
+def test_create_instagram_carousel_post_invalid_count():
     with pytest.raises(ValueError):
-        await meta_pages.create_instagram_carousel_post(
-            None,  # type: ignore[arg-type]
-            "ig_123",
-            ["only-one"],
+        _run_async(
+            meta_pages.create_instagram_carousel_post(
+                None,  # type: ignore[arg-type]
+                "ig_123",
+                ["only-one"],
+            )
         )
 
 

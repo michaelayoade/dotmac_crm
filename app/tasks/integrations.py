@@ -1154,7 +1154,22 @@ def sync_chatwoot(
                 return default
         return default
 
+    def _coerce_bool(value: object | None, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
     try:
+        chatwoot_sync_enabled = _coerce_bool(
+            settings_spec.resolve_value(session, SettingDomain.integration, "chatwoot_sync_enabled"),
+            default=False,
+        )
+        if not chatwoot_sync_enabled:
+            logger.info("CHATWOOT_SYNC_DISABLED")
+            return {"success": True, "skipped": True, "reason": "chatwoot_sync_disabled"}
+
         # Get Chatwoot configuration from settings
         base_url = _coerce_str(settings_spec.resolve_value(session, SettingDomain.integration, "chatwoot_base_url"))
         access_token = _coerce_str(

@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 from fastapi import HTTPException
-from sqlalchemy import or_
+import builtins
+
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.models.person import Person
@@ -72,6 +76,87 @@ class ServiceTeams(ListResponseMixin):
         team = get_or_404(db, ServiceTeam, team_id)
         team.is_active = False
         db.commit()
+
+    @staticmethod
+    def list_designation_region_groups(
+        db: Session,
+        *,
+        is_active: bool | None = True,
+        search: str | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> builtins.list[dict]:
+        """Return groups keyed by region + designation with active users attached."""
+        query = (
+            db.query(ServiceTeam, ServiceTeamMember, Person)
+            .outerjoin(
+                ServiceTeamMember,
+                and_(
+                    ServiceTeamMember.team_id == ServiceTeam.id,
+                    ServiceTeamMember.is_active.is_(True),
+                ),
+            )
+            .outerjoin(Person, Person.id == ServiceTeamMember.person_id)
+        )
+        query = apply_is_active_filter(query, ServiceTeam, is_active)
+
+        if search:
+            pattern = f"%{search.strip()}%"
+            query = query.filter(
+                or_(
+                    ServiceTeam.name.ilike(pattern),
+                    ServiceTeam.region.ilike(pattern),
+                    ServiceTeam.erp_department.ilike(pattern),
+                    Person.job_title.ilike(pattern),
+                    Person.first_name.ilike(pattern),
+                    Person.last_name.ilike(pattern),
+                    Person.display_name.ilike(pattern),
+                    Person.email.ilike(pattern),
+                )
+            )
+
+        rows = (
+            apply_pagination(
+                query.order_by(
+                    ServiceTeam.name.asc(),
+                    Person.first_name.asc(),
+                    Person.last_name.asc(),
+                ),
+                limit,
+                offset,
+            )
+            .all()
+        )
+
+        groups_by_key: dict[str, dict] = {}
+        for team, member, person in rows:
+            region = ((team.region or "").strip() or (person.region if person else None) or "unassigned").strip()
+            designation_raw = ((person.job_title if person else None) or "").strip()
+            if not designation_raw and member and member.role:
+                designation_raw = str(member.role.value).replace("_", " ").strip()
+            designation = designation_raw or "unspecified"
+            key = f"{region.lower()}_{designation.lower()}"
+
+            group = groups_by_key.get(key)
+            if group is None:
+                group = {
+                    "group_key": key,
+                    "region": region,
+                    "designation": designation,
+                    "members": [],
+                }
+                groups_by_key[key] = group
+            if member and person:
+                group["members"].append({"member": member, "person": person})
+
+        groups = list(groups_by_key.values())
+        groups.sort(
+            key=lambda item: (
+                (item.get("region") or "").lower(),
+                (item.get("designation") or "").lower(),
+            )
+        )
+        return groups
 
 
 class ServiceTeamMembers:

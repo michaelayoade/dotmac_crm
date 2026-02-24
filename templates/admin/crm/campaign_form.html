@@ -110,6 +110,40 @@
                     </div>
                 </div>
 
+                <!-- Pipelines -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Lead Pipeline</label>
+                    <div class="rounded-lg border border-slate-300 bg-white p-3 max-h-40 overflow-y-auto dark:border-slate-600 dark:bg-slate-700">
+                        <div class="space-y-2">
+                            {% for pipeline in pipelines %}
+                            <label class="flex items-center gap-2 text-sm">
+                                <input type="checkbox" name="seg_pipeline_ids" value="{{ pipeline.id }}"
+                                       {% if sf.get('pipeline_ids') and pipeline.id|string in sf.get('pipeline_ids', []) %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                <span class="text-slate-700 dark:text-slate-300">{{ pipeline.name }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pipeline Stages -->
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Lead Stage</label>
+                    <div class="rounded-lg border border-slate-300 bg-white p-3 max-h-40 overflow-y-auto dark:border-slate-600 dark:bg-slate-700">
+                        <div class="space-y-2">
+                            {% for stage in pipeline_stages %}
+                            <label class="flex items-center gap-2 text-sm">
+                                <input type="checkbox" name="seg_stage_ids" value="{{ stage.id }}"
+                                       {% if sf.get('stage_ids') and stage.id|string in sf.get('stage_ids', []) %}checked{% endif %}
+                                       class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                                <span class="text-slate-700 dark:text-slate-300">{{ stage.name }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Created After -->
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Created After</label>

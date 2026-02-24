@@ -27,11 +27,13 @@
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Lead</label>
-                    <select name="lead_id"
+                    <select id="quote-lead-select" name="lead_id"
                             class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                         <option value="">Unassigned</option>
                         {% for lead in leads %}
-                        <option value="{{ lead.id }}" {% if quote.lead_id == lead.id|string %}selected{% endif %}>
+                        <option value="{{ lead.id }}"
+                                data-person-id="{{ lead.person_id or '' }}"
+                                {% if quote.lead_id == lead.id|string %}selected{% endif %}>
                             {{ lead.title or ('Lead ' ~ lead.id|string|truncate(8, True, '')) }}
                         </option>
                         {% endfor %}
@@ -39,7 +41,7 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Contact</label>
-                    <select name="contact_id"
+                    <select id="quote-contact-select" name="contact_id"
                             class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                         <option value="">Unassigned</option>
                         {% for contact in contacts %}
@@ -51,7 +53,34 @@
                 </div>
             </div>
 
-            {% if not quote.id %}
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Status</label>
+                    <select name="status"
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for item in quote_statuses %}
+                        <option value="{{ item }}" {% if quote.status == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Currency</label>
+                    <input type="text" name="currency" value="{{ quote.currency }}" placeholder="NGN"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm uppercase focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Project Type</label>
+                <select name="project_type"
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">Select a project type</option>
+                    {% for project_type in project_types or [] %}
+                    <option value="{{ project_type }}" {% if quote.project_type == project_type %}selected{% endif %}>
+                        {{ project_type | replace('_', ' ') | title }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
             {% set items = quote_items or [] %}
             <div>
                 {% set pad = 'px-6 py-3' %}
@@ -156,36 +185,6 @@
                 </template>
                 <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Amounts are calculated automatically on save.</p>
             </div>
-            {% endif %}
-
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Status</label>
-                    <select name="status"
-                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                        {% for item in quote_statuses %}
-                        <option value="{{ item }}" {% if quote.status == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Currency</label>
-                    <input type="text" name="currency" value="{{ quote.currency }}" placeholder="NGN"
-                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm uppercase focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                </div>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Project Type</label>
-                <select name="project_type"
-                        class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="">Select a project type</option>
-                    {% for project_type in project_types or [] %}
-                    <option value="{{ project_type }}" {% if quote.project_type == project_type %}selected{% endif %}>
-                        {{ project_type | replace('_', ' ') | title }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
 
             {% if not quote.id %}
             <div>
@@ -251,7 +250,6 @@
         </div>
     </form>
 </div>
-{% if not quote.id %}
 <datalist id="inventory-item-suggestions">
     {% for inv in inventory_items or [] %}
     {% set inv_label = inv.name ~ (inv.sku and (' (' ~ inv.sku ~ ')') or '') %}
@@ -274,6 +272,9 @@
   const totalInput = document.querySelector("[data-quote-total]");
   const taxInput = document.querySelector("[data-quote-tax-total]");
   const taxRateSelect = document.querySelector("[data-quote-tax-rate]");
+  const leadSelect = document.getElementById("quote-lead-select");
+  const contactSelect = document.getElementById("quote-contact-select");
+  const quoteForm = body.closest("form");
 
   const renderSuggestions = (items) => {
     datalist.replaceChildren();
@@ -424,6 +425,45 @@
   taxRateSelect?.addEventListener("change", recalcTotals);
   recalcTotals();
 
+  const syncContactFromLead = (force = false) => {
+    if (!leadSelect || !contactSelect) {
+      return;
+    }
+    const selected = leadSelect.selectedOptions?.[0];
+    const leadPersonId = selected?.dataset?.personId || "";
+    if (!leadPersonId) {
+      return;
+    }
+    if (!contactSelect.value || force) {
+      contactSelect.value = leadPersonId;
+    }
+  };
+
+  leadSelect?.addEventListener("change", () => {
+    syncContactFromLead(false);
+    contactSelect?.setCustomValidity("");
+  });
+  contactSelect?.addEventListener("change", () => {
+    contactSelect.setCustomValidity("");
+  });
+  syncContactFromLead(false);
+
+  quoteForm?.addEventListener("submit", (event) => {
+    const leadValue = leadSelect?.value?.trim() || "";
+    const contactValue = contactSelect?.value?.trim() || "";
+    if (leadValue || contactValue) {
+      if (contactSelect) {
+        contactSelect.setCustomValidity("");
+      }
+      return;
+    }
+    if (contactSelect) {
+      contactSelect.setCustomValidity("Select a contact or choose a lead to create a quote.");
+      contactSelect.reportValidity();
+    }
+    event.preventDefault();
+  });
+
   addButton.addEventListener("click", () => {
     const clone = template.content.firstElementChild?.cloneNode(true);
     if (!clone) {
@@ -434,5 +474,4 @@
   });
 })();
 </script>
-{% endif %}
 {% endblock %}

@@ -400,13 +400,25 @@ def build_beat_schedule() -> dict:
             interval_seconds=300,
         )
 
+        # CRM inbox auto-resolve idle conversations
+        auto_resolve_enabled = bool(
+            resolve_value(session, SettingDomain.notification, "crm_inbox_auto_resolve_enabled")
+        )
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_auto_resolve",
+            task_name="app.tasks.crm_inbox.auto_resolve_idle_conversations",
+            enabled=auto_resolve_enabled,
+            interval_seconds=3600,
+        )
+
         # CRM inbox reply reminders - checks for unreplied inbound messages
-        reminder_interval_seconds = 60
+        reminder_interval_seconds = 300
         _sync_scheduled_task(
             session,
             name="crm_inbox_reply_reminders",
             task_name="app.tasks.crm_inbox.send_reply_reminders",
-            enabled=True,
+            enabled=False,
             interval_seconds=reminder_interval_seconds,
         )
 
@@ -435,7 +447,7 @@ def build_beat_schedule() -> dict:
             SettingDomain.scheduler,
             "event_retry_enabled",
             "EVENT_RETRY_ENABLED",
-            True,
+            False,
         )
         event_retry_interval = _coerce_int(
             resolve_value(session, SettingDomain.scheduler, "event_retry_interval_seconds"),
@@ -456,7 +468,7 @@ def build_beat_schedule() -> dict:
             SettingDomain.scheduler,
             "event_stale_cleanup_enabled",
             "EVENT_STALE_CLEANUP_ENABLED",
-            True,
+            False,
         )
         event_stale_cleanup_interval = _coerce_int(
             resolve_value(session, SettingDomain.scheduler, "event_stale_cleanup_interval_seconds"),
@@ -477,7 +489,7 @@ def build_beat_schedule() -> dict:
             SettingDomain.scheduler,
             "event_old_cleanup_enabled",
             "EVENT_OLD_CLEANUP_ENABLED",
-            True,
+            False,
         )
         event_old_cleanup_interval = _coerce_int(
             resolve_value(session, SettingDomain.scheduler, "event_old_cleanup_interval_seconds"),

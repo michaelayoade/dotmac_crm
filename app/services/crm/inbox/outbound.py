@@ -11,7 +11,6 @@ import os
 import secrets
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from typing import cast as typing_cast
 
@@ -19,7 +18,6 @@ import httpx
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.logging import get_logger
 from app.logic.crm_inbox_logic import (
     ChannelType as LogicChannelType,
@@ -35,6 +33,7 @@ from app.models.person import Person, PersonChannel
 from app.schemas.crm.conversation import MessageCreate
 from app.schemas.crm.inbox import InboxSendRequest
 from app.services import email as email_service
+from app.services import public_media
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox import cache as inbox_cache
@@ -55,6 +54,7 @@ from app.services.crm.inbox_connectors import (
     _resolve_integration_target,
     _smtp_config_from_connector,
 )
+from app.services.storage import storage
 
 if TYPE_CHECKING:
     from app.models.connector import ConnectorConfig
@@ -94,6 +94,48 @@ class PermanentOutboundError(OutboundSendError):
             status_code=status_code,
             retryable=False,
         )
+
+
+def _resolve_meta_public_attachment_url(db: Session, attachment: dict) -> str:
+    """Return a public URL that Meta can fetch for media messages."""
+    attachment_url = attachment.get("url") or ""
+    if isinstance(attachment_url, str) and attachment_url.startswith(("http://", "https://")):
+        return attachment_url
+
+    if isinstance(attachment_url, str) and attachment_url.startswith(
+        ("/static/uploads/messages/", "/admin/storage/", "/public/media/messages/")
+    ):
+        app_url = email_service.get_app_url(db).rstrip("/")
+        if app_url:
+            return f"{app_url}{attachment_url}"
+        return attachment_url
+
+    stored_name = attachment.get("stored_name")
+    if isinstance(stored_name, str) and public_media.is_valid_stored_name(stored_name):
+        return public_media.build_public_media_url(db, stored_name=stored_name, ttl_seconds=1800)
+
+    if isinstance(attachment_url, str) and attachment_url:
+        if not attachment_url.startswith(("http://", "https://")):
+            app_url = email_service.get_app_url(db).rstrip("/")
+            if app_url:
+                attachment_url = f"{app_url}{attachment_url}"
+        return attachment_url
+
+    return ""
+
+
+def _append_attachment_links_to_body(
+    body: str,
+    links: list[str],
+) -> str:
+    """Append attachment links to message body for channels without file uploads."""
+    clean_links = [link.strip() for link in links if isinstance(link, str) and link.strip()]
+    if not clean_links:
+        return body
+    links_text = "\n".join(clean_links)
+    if body.strip():
+        return f"{body.rstrip()}\n\nAttachments:\n{links_text}"
+    return f"Attachments:\n{links_text}"
 
 
 def _is_transient_status(status_code: int | None) -> bool:
@@ -351,12 +393,11 @@ def _prepare_email_attachments(attachments: list[dict] | None) -> list[dict] | N
         stored_name = item.get("stored_name")
         if not stored_name:
             continue
-        file_path = Path(settings.message_attachment_upload_dir) / stored_name
         content = None
         try:
-            content = file_path.read_bytes()
+            content = storage.get(f"uploads/messages/{stored_name}")
         except Exception:
-            logger.debug("Failed to read attachment bytes: %s", file_path, exc_info=True)
+            logger.debug("Failed to read attachment bytes: uploads/messages/%s", stored_name, exc_info=True)
         if content is None:
             continue
         prepared.append(
@@ -462,6 +503,10 @@ def _send_email_message(
         raise InboxValidationError("recipient_missing", "Recipient email missing")
     _enforce_rate_limit(payload.channel_type, target, config)
 
+    message_metadata = _merge_reply_metadata(reply_context) or {}
+    if payload.cc_addresses:
+        message_metadata["cc"] = list(payload.cc_addresses)
+
     message = conversation_service.Messages.create(
         db,
         MessageCreate(
@@ -474,7 +519,7 @@ def _send_email_message(
             status=MessageStatus.queued,
             subject=payload.subject,
             body=rendered_body,
-            metadata_=_merge_reply_metadata(reply_context),
+            metadata_=message_metadata or None,
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
@@ -492,6 +537,7 @@ def _send_email_message(
                 payload.subject or "Message",
                 rendered_body,
                 rendered_body,
+                cc_emails=payload.cc_addresses,
                 in_reply_to=reply_context.get("email_in_reply_to") if reply_context else None,
                 references=reply_context.get("email_references") if reply_context else None,
                 attachments=email_attachments,
@@ -509,6 +555,7 @@ def _send_email_message(
             payload.subject or "Message",
             rendered_body,
             rendered_body,
+            cc_emails=payload.cc_addresses,
             in_reply_to=reply_context.get("email_in_reply_to") if reply_context else None,
             references=reply_context.get("email_references") if reply_context else None,
             attachments=email_attachments,
@@ -604,11 +651,7 @@ def _send_whatsapp_message(
     if attachments:
         first_attachment = attachments[0] if isinstance(attachments, list) else None
         if isinstance(first_attachment, dict):
-            attachment_url = first_attachment.get("url") or ""
-            if attachment_url and not attachment_url.startswith(("http://", "https://")):
-                app_url = email_service.get_app_url(db).rstrip("/")
-                if app_url:
-                    attachment_url = f"{app_url}{attachment_url}"
+            attachment_url = _resolve_meta_public_attachment_url(db, first_attachment)
             mime_type = (first_attachment.get("mime_type") or "").lower()
             if attachment_url:
                 if mime_type.startswith("image/"):
@@ -857,6 +900,24 @@ def _send_instagram_message(
     if (datetime.now(UTC) - last_inbound.received_at).total_seconds() > 24 * 3600:
         raise InboxValidationError("meta_reply_window_expired", "Meta reply window expired")
 
+    attachments = payload.attachments or []
+    image_url = None
+    file_links: list[str] = []
+    if isinstance(attachments, list):
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            mime_type = (attachment.get("mime_type") or "").lower()
+            resolved_url = _resolve_meta_public_attachment_url(db, attachment)
+            if not resolved_url:
+                continue
+            if mime_type.startswith("image/") and not image_url:
+                image_url = resolved_url
+                continue
+            file_links.append(resolved_url)
+
+    outbound_body = _append_attachment_links_to_body(rendered_body, file_links)
+
     message = conversation_service.Messages.create(
         db,
         MessageCreate(
@@ -867,31 +928,12 @@ def _send_instagram_message(
             channel_type=payload.channel_type,
             direction=MessageDirection.outbound,
             status=MessageStatus.queued,
-            body=rendered_body,
+            body=outbound_body,
             metadata_=_merge_reply_metadata(reply_context),
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
     )
-
-    image_url = None
-    attachments = payload.attachments or []
-    if isinstance(attachments, list):
-        for attachment in attachments:
-            if not isinstance(attachment, dict):
-                continue
-            candidate_url = attachment.get("url") or ""
-            if not candidate_url:
-                continue
-            mime_type = (attachment.get("mime_type") or "").lower()
-            if mime_type and not mime_type.startswith("image/"):
-                continue
-            if not candidate_url.startswith(("http://", "https://")):
-                app_url = email_service.get_app_url(db).rstrip("/")
-                if app_url:
-                    candidate_url = f"{app_url}{candidate_url}"
-            image_url = candidate_url
-            break
 
     retry_error: OutboundSendError | None = None
     try:
@@ -899,7 +941,7 @@ def _send_instagram_message(
             meta_messaging.send_instagram_message_sync,
             db,
             person_channel.address,
-            rendered_body,
+            outbound_body,
             target,
             account_id=account_id,
             image_url=image_url,
@@ -1237,8 +1279,8 @@ def send_message(
             )
 
         raise InboxValidationError("channel_unsupported", "Unsupported channel type")
-    except InboxError:
-        raise
+    except InboxError as exc:
+        raise exc.to_http_exception() from exc
 
 
 def send_message_with_retry(

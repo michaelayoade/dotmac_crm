@@ -57,7 +57,7 @@ def ticket_ai_summary(
                 "title": "AI Summary Unavailable",
                 "message": str(exc),
             },
-            status_code=400,
+            status_code=200,
         )
 
 
@@ -96,7 +96,7 @@ def ticket_ai_triage(
                 "title": "AI Triage Unavailable",
                 "message": str(exc),
             },
-            status_code=400,
+            status_code=200,
         )
 
 
@@ -137,7 +137,7 @@ def conversation_ai_draft_reply(
                 "title": "AI Draft Unavailable",
                 "message": str(exc),
             },
-            status_code=400,
+            status_code=200,
         )
 
 

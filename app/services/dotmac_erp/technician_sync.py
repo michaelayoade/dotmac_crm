@@ -297,8 +297,9 @@ class DotMacERPTechnicianSync:
         tech.title = str(designation).strip()[:120] if designation else tech.title
         tech.is_active = True
 
-        meta = tech.metadata_ if isinstance(tech.metadata_, dict) else {}
-        meta_dotmac = meta.get("dotmac_erp") if isinstance(meta.get("dotmac_erp"), dict) else {}
+        meta: dict[str, object] = tech.metadata_ if isinstance(tech.metadata_, dict) else {}
+        raw_dotmac = meta.get("dotmac_erp")
+        meta_dotmac: dict[str, object] = raw_dotmac if isinstance(raw_dotmac, dict) else {}
         meta_dotmac.update(
             {
                 "department": department,
@@ -349,7 +350,8 @@ class DotMacERPTechnicianSync:
 
         dept, members = self._resolve_department_members(departments)
         if not dept:
-            # Safety: do not deactivate anything if we couldn't find the department in ERP.
+            # Department missing means no employees are currently eligible; continue so
+            # previously linked technicians can be deactivated.
             result.errors.append(
                 {
                     "type": "data",
@@ -357,8 +359,7 @@ class DotMacERPTechnicianSync:
                     "department_name": self._technician_department_name(),
                 }
             )
-            result.duration_seconds = (datetime.now(UTC) - start).total_seconds()
-            return result
+            members = []
 
         # Treat members of the department as eligible employees.
         result.employees_seen = len(members)

@@ -40,6 +40,8 @@ from app.schemas.workflow import (
 )
 from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.events import emit_event
+from app.services.events.types import EventType
 from app.services.response import ListResponseMixin
 
 
@@ -674,6 +676,29 @@ def transition_project_task(db: Session, task_id: str, payload: StatusTransition
         task.completed_at = task.completed_at or now
     db.commit()
     db.refresh(task)
+    event_payload: dict[str, str | None | list[str]] = {
+        "task_id": str(task.id),
+        "project_id": str(task.project_id) if task.project_id else None,
+        "title": task.title,
+        "from_status": from_status,
+        "to_status": to_status.value,
+        "status": to_status.value,
+        "changed_fields": ["status"],
+    }
+    if to_status == TaskStatus.done and from_status != TaskStatus.done.value:
+        emit_event(
+            db,
+            EventType.project_task_completed,
+            event_payload,
+            project_id=task.project_id,
+        )
+    elif from_status != to_status.value:
+        emit_event(
+            db,
+            EventType.project_task_updated,
+            event_payload,
+            project_id=task.project_id,
+        )
     return task
 
 

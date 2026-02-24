@@ -1,3 +1,5 @@
+import asyncio
+import concurrent.futures
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +10,11 @@ from app.models.crm.enums import ChannelType
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.oauth_token import OAuthToken
 from app.services import meta_messaging
+
+
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
 
 
 def _create_target(db_session):
@@ -25,8 +32,7 @@ def _create_target(db_session):
     return config, target
 
 
-@pytest.mark.asyncio
-async def test_send_facebook_message_success(db_session):
+def test_send_facebook_message_success(db_session):
     config, target = _create_target(db_session)
     token = OAuthToken(
         connector_config_id=config.id,
@@ -52,7 +58,7 @@ async def test_send_facebook_message_success(db_session):
         mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
         mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        result = await meta_messaging.send_facebook_message(db_session, "u1", "Hello", target=target)
+        result = _run_async(meta_messaging.send_facebook_message(db_session, "u1", "Hello", target=target))
 
     assert result["message_id"] == "m1"
 
@@ -76,8 +82,7 @@ def test_get_token_for_channel(db_session):
     assert found.access_token == "token"
 
 
-@pytest.mark.asyncio
-async def test_send_instagram_message_text_payload(db_session):
+def test_send_instagram_message_text_payload(db_session):
     config, target = _create_target(db_session)
     token = OAuthToken(
         connector_config_id=config.id,
@@ -103,15 +108,14 @@ async def test_send_instagram_message_text_payload(db_session):
         mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
         mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        result = await meta_messaging.send_instagram_message(db_session, "ig_u1", "Hello", target=target)
+        result = _run_async(meta_messaging.send_instagram_message(db_session, "ig_u1", "Hello", target=target))
 
     assert result["message_id"] == "ig_m1"
     call_kwargs = mock_instance.post.await_args.kwargs
     assert call_kwargs["json"]["message"] == {"text": "Hello"}
 
 
-@pytest.mark.asyncio
-async def test_send_instagram_message_image_payload(db_session):
+def test_send_instagram_message_image_payload(db_session):
     config, target = _create_target(db_session)
     token = OAuthToken(
         connector_config_id=config.id,
@@ -137,12 +141,14 @@ async def test_send_instagram_message_image_payload(db_session):
         mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
         mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        result = await meta_messaging.send_instagram_message(
-            db_session,
-            "ig_u1",
-            "Hello",
-            target=target,
-            image_url="https://crm.dotmac.io/static/uploads/messages/test.jpg",
+        result = _run_async(
+            meta_messaging.send_instagram_message(
+                db_session,
+                "ig_u1",
+                "Hello",
+                target=target,
+                image_url="https://crm.dotmac.io/static/uploads/messages/test.jpg",
+            )
         )
 
     assert result["message_id"] == "ig_m2"

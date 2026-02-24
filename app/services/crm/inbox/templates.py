@@ -46,6 +46,23 @@ class MessageTemplates(ListResponseMixin):
         db.commit()
 
     @staticmethod
+    def search(
+        db: Session,
+        query: str,
+        limit: int = 10,
+    ) -> list[CrmMessageTemplate]:
+        """Search templates by name prefix (for shortcode autocomplete)."""
+        search_term = f"%{query.strip()}%"
+        return (
+            db.query(CrmMessageTemplate)
+            .filter(CrmMessageTemplate.is_active.is_(True))
+            .filter(CrmMessageTemplate.name.ilike(search_term))
+            .order_by(CrmMessageTemplate.name)
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
     def list(
         db: Session,
         *,

@@ -16,6 +16,7 @@ from app.schemas.subscriber import (
     SubscriberStats,
     SubscriberUpdate,
 )
+from app.services.splynx import map_customer_to_subscriber_data
 from app.services.subscriber import subscriber as subscriber_service
 
 router = APIRouter(prefix="/subscribers", tags=["subscribers"])
@@ -227,18 +228,8 @@ def sync_webhook(
 
 def _handle_splynx_webhook(db: Session, payload: dict) -> dict:
     """Handle Splynx webhook payload."""
-    # Splynx sends customer data in specific format
-    # Map to our normalized format
     external_id = str(payload.get("id"))
-    data = {
-        "external_id": external_id,
-        "subscriber_number": payload.get("login"),
-        "status": _map_splynx_status(payload.get("status")),
-        "service_name": payload.get("tariff_name"),
-        "balance": str(payload.get("balance", 0)),
-        "service_address_line1": payload.get("street"),
-        "service_city": payload.get("city"),
-    }
+    data = map_customer_to_subscriber_data(db, payload, include_remote_details=True)
 
     sub = subscriber_service.sync_from_external(db, "splynx", external_id, data)
     return {"status": "ok", "subscriber_id": str(sub.id)}
@@ -269,20 +260,6 @@ def _handle_generic_webhook(db: Session, external_system: str, payload: dict) ->
 
     sub = subscriber_service.sync_from_external(db, external_system, str(external_id), payload)
     return {"status": "ok", "subscriber_id": str(sub.id)}
-
-
-def _map_splynx_status(status: str | int | None) -> SubscriberStatus:
-    """Map Splynx status to our status enum."""
-    status_map = {
-        "active": SubscriberStatus.active,
-        "blocked": SubscriberStatus.suspended,
-        "inactive": SubscriberStatus.terminated,
-        "new": SubscriberStatus.pending,
-        1: SubscriberStatus.active,
-        2: SubscriberStatus.suspended,
-        0: SubscriberStatus.terminated,
-    }
-    return status_map.get(status, SubscriberStatus.active)
 
 
 def _map_ucrm_status(is_active: bool | None) -> SubscriberStatus:

@@ -1,5 +1,7 @@
 """CRM inbox conversation/list/detail partial routes."""
 
+from datetime import UTC, datetime, time
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -28,6 +30,18 @@ def _get_current_roles(request: Request) -> list[str]:
     return []
 
 
+def _parse_date_param(value: str | None, *, end_of_day: bool = False) -> datetime | None:
+    """Parse a YYYY-MM-DD string into a timezone-aware datetime."""
+    if not value:
+        return None
+    try:
+        d = datetime.strptime(value.strip(), "%Y-%m-%d")
+        t = time.max if end_of_day else time.min
+        return datetime.combine(d.date(), t, tzinfo=UTC)
+    except ValueError:
+        return None
+
+
 @router.get("/inbox/conversations", response_class=HTMLResponse)
 async def inbox_conversations_partial(
     request: Request,
@@ -38,6 +52,9 @@ async def inbox_conversations_partial(
     search: str | None = None,
     assignment: str | None = None,
     target_id: str | None = None,
+    agent_id: str | None = None,
+    assigned_from: str | None = None,
+    assigned_to: str | None = None,
     offset: int | None = None,
     limit: int | None = None,
     page: int | None = None,
@@ -48,6 +65,8 @@ async def inbox_conversations_partial(
 
     current_user = get_current_user(request)
     assigned_person_id = current_user.get("person_id")
+    assigned_from_dt = _parse_date_param(assigned_from)
+    assigned_to_dt = _parse_date_param(assigned_to, end_of_day=True)
     template_name, context = await build_inbox_conversations_partial_context(
         db,
         channel=channel,
@@ -57,6 +76,9 @@ async def inbox_conversations_partial(
         assignment=assignment,
         assigned_person_id=assigned_person_id,
         target_id=target_id,
+        filter_agent_id=agent_id,
+        assigned_from=assigned_from_dt,
+        assigned_to=assigned_to_dt,
         offset=offset,
         limit=limit,
         page=page,

@@ -20,6 +20,7 @@ from app.schemas.crm.sales import LeadCreate, LeadUpdate
 from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
+from app.services.crm.sales.service import LEAD_SOURCE_OPTIONS
 
 
 @dataclass(slots=True)
@@ -36,6 +37,7 @@ class LeadUpsertInput:
     probability: str | None = None
     expected_close_date: str | None = None
     lost_reason: str | None = None
+    lead_source: str | None = None
     region: str | None = None
     address: str | None = None
     notes: str | None = None
@@ -67,6 +69,31 @@ def lead_status_values() -> list[str]:
     return [item.value for item in LeadStatus]
 
 
+def lead_source_values() -> list[str]:
+    return list(LEAD_SOURCE_OPTIONS)
+
+
+def _person_display_label(person: Person) -> str:
+    display_name = (person.display_name or "").strip()
+    if not display_name:
+        first = (person.first_name or "").strip()
+        last = (person.last_name or "").strip()
+        display_name = f"{first} {last}".strip()
+    if not display_name:
+        display_name = (person.email or "").strip() or (person.phone or "").strip() or str(person.id)
+    email = (person.email or "").strip()
+    return f"{display_name} ({email})" if email else display_name
+
+
+def _resolve_person_display_value(people: list[Person], person_id: str) -> str:
+    if not person_id:
+        return ""
+    for person in people:
+        if str(person.id) == str(person_id):
+            return _person_display_label(person)
+    return ""
+
+
 def list_leads_page_data(
     db: Session,
     *,
@@ -74,6 +101,7 @@ def list_leads_page_data(
     pipeline_id: str | None,
     stage_id: str | None,
     owner_agent_id: str | None,
+    lead_source: str | None,
     page: int,
     per_page: int,
     options: dict[str, Any],
@@ -85,6 +113,7 @@ def list_leads_page_data(
         pipeline_id=pipeline_id,
         stage_id=stage_id,
         owner_agent_id=owner_agent_id,
+        lead_source=lead_source,
         status=status,
         is_active=None,
         order_by="created_at",
@@ -97,6 +126,7 @@ def list_leads_page_data(
         pipeline_id=pipeline_id,
         stage_id=stage_id,
         owner_agent_id=owner_agent_id,
+        lead_source=lead_source,
         status=status,
         is_active=None,
         order_by="created_at",
@@ -123,6 +153,7 @@ def list_leads_page_data(
         pipeline_id=None,
         stage_id=None,
         owner_agent_id=None,
+        lead_source=None,
         status=None,
         is_active=None,
         order_by="created_at",
@@ -151,7 +182,9 @@ def list_leads_page_data(
         "pipeline_id": pipeline_id or "",
         "stage_id": stage_id or "",
         "owner_agent_id": owner_agent_id or "",
+        "lead_source": lead_source or "",
         "lead_statuses": lead_status_values(),
+        "lead_sources": lead_source_values(),
         "contacts": options["contacts"],
         "pipelines": options["pipelines"],
         "stages": options["stages"],
@@ -201,6 +234,7 @@ def new_lead_form_data(
         "owner_agent_id": "",
         "title": "",
         "status": LeadStatus.new.value,
+        "lead_source": "Website",
         "estimated_value": "",
         "currency": "",
         "probability": None,
@@ -227,6 +261,8 @@ def new_lead_form_data(
     return {
         "lead": lead,
         "lead_statuses": lead_status_values(),
+        "lead_sources": lead_source_values(),
+        "person_display_value": _resolve_person_display_value(options["people"], str(lead["person_id"] or "")),
         "people": options["people"],
         "contacts": options["contacts"],
         "pipelines": options["pipelines"],
@@ -291,6 +327,7 @@ def _normalize_form(form: LeadUpsertInput, *, lead_id: str | None = None) -> dic
         "probability": (form.probability or "").strip(),
         "expected_close_date": (form.expected_close_date or "").strip(),
         "lost_reason": (form.lost_reason or "").strip(),
+        "lead_source": (form.lead_source or "").strip(),
         "region": (form.region or "").strip(),
         "address": (form.address or "").strip(),
         "notes": (form.notes or "").strip(),
@@ -355,6 +392,7 @@ def create_lead(
     title_value = lead["title"] if isinstance(lead["title"], str) else ""
     currency_value = lead["currency"] if isinstance(lead["currency"], str) else ""
     lost_reason_value = lead["lost_reason"] if isinstance(lead["lost_reason"], str) else ""
+    lead_source_value = lead["lead_source"] if isinstance(lead["lead_source"], str) else ""
     region_value = lead["region"] if isinstance(lead["region"], str) else ""
     address_value = lead["address"] if isinstance(lead["address"], str) else ""
     notes_value = lead["notes"] if isinstance(lead["notes"], str) else ""
@@ -371,6 +409,7 @@ def create_lead(
         probability=prob_value,
         expected_close_date=close_date,
         lost_reason=lost_reason_value or None,
+        lead_source=lead_source_value or None,
         region=region_value or None,
         address=address_value or None,
         notes=notes_value or None,
@@ -399,6 +438,7 @@ def update_lead(
     probability_value = lead["probability"] if isinstance(lead["probability"], str) else ""
     expected_close_date_value = lead["expected_close_date"] if isinstance(lead["expected_close_date"], str) else ""
     lost_reason_value = lead["lost_reason"] if isinstance(lead["lost_reason"], str) else ""
+    lead_source_value = lead["lead_source"] if isinstance(lead["lead_source"], str) else ""
     region_value = lead["region"] if isinstance(lead["region"], str) else ""
     address_value = lead["address"] if isinstance(lead["address"], str) else ""
     notes_value = lead["notes"] if isinstance(lead["notes"], str) else ""
@@ -434,6 +474,7 @@ def update_lead(
         probability=prob_value,
         expected_close_date=close_date,
         lost_reason=lost_reason_value or None,
+        lead_source=lead_source_value or None,
         region=region_value or None,
         address=address_value or None,
         notes=notes_value or None,
@@ -454,6 +495,8 @@ def lead_form_error_data(
     return {
         "lead": lead,
         "lead_statuses": lead_status_values(),
+        "lead_sources": lead_source_values(),
+        "person_display_value": _resolve_person_display_value(options["people"], str(lead["person_id"] or "")),
         "people": options["people"],
         "contacts": options["contacts"],
         "pipelines": options["pipelines"],
@@ -488,6 +531,7 @@ def edit_lead_form_data(
         "probability": lead_obj.probability,
         "expected_close_date": lead_obj.expected_close_date.isoformat() if lead_obj.expected_close_date else "",
         "lost_reason": lead_obj.lost_reason or "",
+        "lead_source": lead_obj.lead_source or "",
         "region": lead_obj.region or "",
         "address": lead_obj.address or "",
         "notes": lead_obj.notes or "",
@@ -513,6 +557,8 @@ def edit_lead_form_data(
     return {
         "lead": lead,
         "lead_statuses": lead_status_values(),
+        "lead_sources": lead_source_values(),
+        "person_display_value": _resolve_person_display_value(options["people"], str(lead["person_id"] or "")),
         "people": options["people"],
         "contacts": options["contacts"],
         "pipelines": options["pipelines"],

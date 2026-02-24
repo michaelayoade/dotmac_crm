@@ -98,7 +98,7 @@
 	                        <div>
 	                            {% set proj = project.project %}
 	                            <p class="font-semibold text-slate-900 dark:text-white">
-	                                Project {{ (proj.code or proj.number or proj.name) if proj else (project.project_id|string|truncate(8, True, '')) }}
+	                                Project {{ (proj.name or proj.code or proj.number) if proj else (project.project_id|string|truncate(8, True, '')) }}
 	                            </p>
 	                            <p class="text-xs text-slate-500 dark:text-slate-400">
 	                                {% if project.bidding_close_at %}
@@ -148,7 +148,7 @@
 	                        <div>
 	                            {% set proj = project.project %}
 	                            <p class="font-semibold text-slate-900 dark:text-white">
-	                                Project {{ (proj.code or proj.number or proj.name) if proj else (project.project_id|string|truncate(8, True, '')) }}
+	                                Project {{ (proj.name or proj.code or proj.number) if proj else (project.project_id|string|truncate(8, True, '')) }}
 	                            </p>
 	                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
 	                                {% set status_val = project.status.value | lower if project.status else '' %}

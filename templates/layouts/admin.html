@@ -266,21 +266,143 @@
                 </div>
                 {% endif %}
 
-                <!-- Dark mode toggle -->
-                <button x-on:click="$store.darkMode.toggle()"
-                        aria-label="Toggle dark mode"
-                        :aria-pressed="$store.darkMode.on.toString()"
-                        class="flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700">
-                    <svg x-show="!$store.darkMode.on" class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-                    </svg>
-                    <svg x-show="$store.darkMode.on" x-cloak class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-                    </svg>
-                </button>
+	                <!-- Dark mode toggle -->
+	                <button x-on:click="$store.darkMode.toggle()"
+	                        aria-label="Toggle dark mode"
+	                        :aria-pressed="$store.darkMode.on.toString()"
+	                        class="flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700">
+	                    <svg x-show="!$store.darkMode.on" class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+	                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+	                    </svg>
+	                    <svg x-show="$store.darkMode.on" x-cloak class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+	                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+	                    </svg>
+	                </button>
 
-                <!-- Notifications -->
-                <div x-data="{ open: false }" class="relative">
+	                <div x-data="locationShareToggle()" x-init="init()" class="flex">
+	                    <button type="button"
+	                            x-on:click="toggle()"
+	                            :disabled="loading || !supported || (agentKnown && !agentId)"
+	                            :title="isSharing ? 'Stop sharing location' : 'Start sharing location'"
+	                            :aria-label="isSharing ? 'Stop sharing location' : 'Start sharing location'"
+	                            class="inline-flex h-10 w-10 items-center justify-center rounded-lg border transition"
+	                            :class="isSharing
+	                              ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200 dark:hover:bg-emerald-900/30'
+	                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'">
+	                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+	                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z"/>
+	                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+	                        </svg>
+	                    </button>
+	                </div>
+
+	                <a href="/admin/crm/live-map"
+	                   class="hidden md:inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+	                    Live Map
+	                </a>
+
+	                {# Inbox-only quick presence toggle (Online / Away / Break / Offline) #}
+	                {% if active_page == 'inbox' or (request is defined and request.url is defined and (request.url.path or '').startswith('/admin/crm/inbox')) %}
+	                <!-- Mobile: compact menu -->
+	                <div x-data="presenceQuickToggle()"
+	                     x-init="init()"
+	                     x-on:click.outside="open = false"
+	                     class="flex sm:hidden relative">
+	                    <button type="button"
+	                            x-on:click="open = !open"
+	                            aria-label="Set availability"
+	                            :aria-expanded="open.toString()"
+	                            :title="(agentKnown && !agentId) ? 'Not configured as a CRM agent' : 'Set availability'"
+	                            class="flex h-10 w-10 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white">
+	                        <span class="h-2.5 w-2.5 rounded-full" :class="dotClass()"></span>
+	                    </button>
+	                    <div x-show="open"
+	                         x-transition
+	                         x-cloak
+	                         class="absolute right-0 mt-12 w-44 rounded-xl border border-slate-200 bg-white py-2 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+	                        <div x-show="error" x-cloak class="px-4 pb-2 text-xs text-rose-600 dark:text-rose-400" x-text="error"></div>
+	                        <button type="button"
+	                                x-on:click="setStatus('online'); open = false"
+	                                :disabled="(agentKnown && !agentId) || loading"
+	                                class="flex w-full items-center justify-between px-4 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
+	                                :class="menuItemClass('online')">
+	                            <span>Online</span>
+	                        </button>
+	                        <button type="button"
+	                                x-on:click="setStatus('away'); open = false"
+	                                :disabled="(agentKnown && !agentId) || loading"
+	                                class="flex w-full items-center justify-between px-4 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
+	                                :class="menuItemClass('away')">
+	                            <span>Away</span>
+	                        </button>
+	                        <button type="button"
+	                                x-on:click="setStatus('on_break'); open = false"
+	                                :disabled="(agentKnown && !agentId) || loading"
+	                                class="flex w-full items-center justify-between px-4 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
+	                                :class="menuItemClass('on_break')">
+	                            <span>On break</span>
+	                        </button>
+	                        <button type="button"
+	                                x-on:click="setStatus('offline'); open = false"
+	                                :disabled="(agentKnown && !agentId) || loading"
+	                                class="flex w-full items-center justify-between px-4 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
+	                                :class="menuItemClass('offline')">
+	                            <span>Offline</span>
+	                        </button>
+	                    </div>
+	                </div>
+
+	                <!-- Work timer (counts only while Online; pauses for Away/Break/Offline) -->
+	                <div x-data="presenceWorkTimer()"
+	                     x-init="init()"
+	                     class="flex items-center rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-mono text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+	                    <span class="mr-2 hidden sm:inline text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Online</span>
+	                    <span x-text="display">00:00:00</span>
+	                </div>
+
+	                <!-- Desktop: segmented control -->
+	                <div x-data="presenceQuickToggle()"
+	                     x-init="init()"
+	                     class="hidden sm:flex">
+	                    <div class="relative flex items-center rounded-full border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+	                        <span class="absolute inset-y-1 left-1 w-14 rounded-full transition-transform duration-200 ease-out"
+	                              :class="pillClass()"
+	                              :style="pillStyle()"></span>
+	                        <button type="button"
+	                                class="relative z-10 w-14 rounded-full px-2 py-1.5 text-xs font-semibold transition-colors"
+	                                :class="btnClass('online')"
+	                                :disabled="(agentKnown && !agentId) || loading"
+	                                x-on:click="setStatus('online')">
+	                            On
+	                        </button>
+	                        <button type="button"
+	                                class="relative z-10 w-14 rounded-full px-2 py-1.5 text-xs font-semibold transition-colors"
+	                                :class="btnClass('away')"
+	                                :disabled="(agentKnown && !agentId) || loading"
+	                                x-on:click="setStatus('away')">
+	                            Away
+	                        </button>
+	                        <button type="button"
+	                                class="relative z-10 w-14 rounded-full px-2 py-1.5 text-xs font-semibold transition-colors"
+	                                :class="btnClass('on_break')"
+	                                :disabled="(agentKnown && !agentId) || loading"
+	                                x-on:click="setStatus('on_break')">
+	                            Break
+	                        </button>
+	                        <button type="button"
+	                                class="relative z-10 w-14 rounded-full px-2 py-1.5 text-xs font-semibold transition-colors"
+	                                :class="btnClass('offline')"
+	                                :disabled="(agentKnown && !agentId) || loading"
+	                                x-on:click="setStatus('offline')">
+	                            Off
+	                        </button>
+	                    </div>
+	                    <div x-show="error" x-cloak class="ml-2 text-xs text-rose-600 dark:text-rose-400" x-text="error"></div>
+	                </div>
+	                {% endif %}
+
+	                <!-- Notifications -->
+	                <div x-data="{ open: false }" class="relative">
                     <button x-on:click="open = !open"
                             aria-label="View notifications"
                             :aria-expanded="open.toString()"
@@ -309,7 +431,119 @@
                             Loading notifications...
                         </div>
                     </div>
-                </div>
+	                </div>
+
+	                {% if active_page != 'inbox' %}
+	                <!-- Presence override (manual on_break/offline) -->
+	                <div x-data="{
+	                        open: false,
+	                        status: null,
+                        effective: null,
+                        loading: false,
+                        init() {
+                            this.refresh();
+                        },
+                        refresh() {
+                            fetch('/admin/crm/agents/presence/self', { headers: { 'Accept': 'application/json' }})
+                                .then(r => r.ok ? r.json() : null)
+                                .then(data => {
+                                    if (!data) return;
+                                    this.status = data.status || null;
+                                    this.effective = data.effective_status || null;
+                                })
+                                .catch(() => {});
+                        },
+	                        dotClass() {
+	                            const s = this.effective || this.status || 'offline';
+	                            if (s === 'online') return 'bg-emerald-500';
+	                            if (s === 'away') return 'bg-amber-500';
+	                            if (s === 'on_break') return 'bg-slate-400';
+	                            return 'bg-rose-500';
+	                        },
+                        label() {
+                            const s = this.effective || this.status || 'offline';
+                            if (s === 'online') return 'Online';
+                            if (s === 'away') return 'Away';
+                            if (s === 'on_break') return 'On break';
+                            return 'Offline';
+                        },
+	                        setOverride(value) {
+	                            this.loading = true;
+	                            // Check-in enables auto heartbeats. Offline should use explicit checkout.
+	                            if (value === 'clear' || value === 'on_break') {
+	                                try {
+	                                    window.sessionStorage.setItem('crmPresenceCheckedIn', 'true');
+	                                } catch (e) {}
+	                            }
+                            fetch('/admin/crm/agents/presence/override', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRF-Token': getCsrfToken() || ''
+                                },
+                                body: JSON.stringify({ status: value })
+	                            })
+	                            .then(() => {
+	                                // For check-in we want an immediate online heartbeat.
+	                                if (value === 'clear') {
+	                                    window.dispatchEvent(new CustomEvent('crm-presence-checkin'));
+	                                }
+	                            })
+                            .then(() => this.refresh())
+                            .finally(() => { this.loading = false; this.open = false; });
+                        },
+                        checkOut() {
+                            this.loading = true;
+                            // Disable heartbeats for this tab before we set offline.
+                            try { window.sessionStorage.removeItem('crmPresenceCheckedIn'); } catch (e) {}
+                            fetch('/admin/crm/agents/presence/override', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRF-Token': getCsrfToken() || ''
+                                },
+                                body: JSON.stringify({ status: 'offline' })
+                            })
+                            .then(() => this.refresh())
+                            .finally(() => { this.loading = false; this.open = false; });
+                        }
+                    }"
+                    x-init="init()"
+                    class="relative">
+                    <button x-on:click="open = !open"
+                            aria-label="Set availability"
+                            :aria-expanded="open.toString()"
+                            class="flex h-10 items-center gap-2 rounded-lg px-3 text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white">
+                        <span class="h-2.5 w-2.5 rounded-full" :class="dotClass()"></span>
+                        <span class="text-sm font-medium" x-text="label()"></span>
+                        <svg class="h-4 w-4 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+
+                    <div x-show="open"
+                         x-on:click.outside="open = false"
+                         x-transition
+                         x-cloak
+                         class="absolute right-0 mt-2 w-52 rounded-xl border border-slate-200 bg-white py-2 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                        <button type="button"
+                                x-on:click="setOverride('clear')"
+                                class="flex w-full items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700">
+                            <span>Check in (Online)</span>
+                        </button>
+                        <button type="button"
+                                x-on:click="setOverride('on_break')"
+                                class="flex w-full items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700">
+                            <span>On break</span>
+                        </button>
+                        <button type="button"
+                                x-on:click="checkOut()"
+                                class="flex w-full items-center justify-between px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700">
+	                            <span>Check out (Offline)</span>
+	                        </button>
+	                    </div>
+	                </div>
+	                {% endif %}
 
                 <!-- User dropdown -->
                 <div x-data="{ open: false }" class="relative">
@@ -605,36 +839,590 @@
         console.warn('[SessionRefresh] initSessionRefresh not available');
     }
 </script>
-<script>
-    (function () {
-        const endpoint = "/admin/crm/agents/presence";
-        const send = (status) => {
-            fetch(endpoint, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRF-Token": getCsrfToken() || ""
-                },
-                body: JSON.stringify({ status }),
-                keepalive: true
-            }).catch(() => {});
-        };
+		<script>
+		    (function () {
+		        const endpoint = "/admin/crm/agents/presence";
+		        const checkinKey = "crmPresenceCheckedIn"; // session-scoped check-in
+		        const modeKey = "crmPresenceMode"; // 'online' | 'away' (while checked in)
+		        const send = (status) => {
+		            // Broadcast locally so UI widgets (timer, pills, etc.) can react instantly.
+		            try {
+		                window.dispatchEvent(new CustomEvent("crm-presence-status", { detail: { status } }));
+		            } catch (e) {}
+		            fetch(endpoint, {
+		                method: "POST",
+		                headers: {
+		                    "Content-Type": "application/json",
+		                    "X-CSRF-Token": getCsrfToken() || ""
+		                },
+		                body: JSON.stringify({ status }),
+		                keepalive: true
+		            }).catch(() => {});
+		        };
 
-        send("online");
-        setInterval(() => {
-            if (!document.hidden) {
-                send("online");
-            }
-        }, 60000);
+		        const getMode = () => {
+		            try {
+		                const v = window.sessionStorage.getItem(modeKey);
+		                return (v === "away") ? "away" : "online";
+		            } catch (e) {
+		                return "online";
+		            }
+		        };
 
-        document.addEventListener("visibilitychange", () => {
-            send(document.hidden ? "away" : "online");
-        });
+		        const isCheckedIn = () => {
+		            try {
+		                return window.sessionStorage.getItem(checkinKey) === "true";
+		            } catch (e) {
+		                return false;
+		            }
+		        };
 
-        window.addEventListener("beforeunload", () => {
-            send("offline");
-        });
-    })();
-</script>
+		        // Check-in is explicit: don't auto-mark online until the user opts in.
+		        // When checked in, keep last_seen fresh with periodic heartbeats.
+		        // Keep last_seen fresh for checked-in users even when the tab is backgrounded.
+		        // When hidden, we report away (system-set) but still heartbeat so the agent
+		        // doesn't flip to "offline" due to staleness while actively working elsewhere.
+		        setInterval(() => {
+		            if (!isCheckedIn()) return;
+		            send(document.hidden ? "away" : getMode());
+		        }, 60000);
+
+		        document.addEventListener("visibilitychange", () => {
+		            if (!isCheckedIn()) return;
+		            send(document.hidden ? "away" : getMode());
+		        });
+
+		        window.addEventListener("beforeunload", () => {
+		            if (!isCheckedIn()) return;
+		            send("offline");
+		        });
+
+		        // Allow UI to trigger check-in immediately.
+		        window.addEventListener("crm-presence-checkin", () => {
+		            try {
+		                window.sessionStorage.setItem(checkinKey, "true");
+		            } catch (e) {}
+		            send(getMode());
+		        });
+
+		        // Allow UI to update the mode used by heartbeats (online/away).
+		        window.addEventListener("crm-presence-setmode", (evt) => {
+		            try {
+		                const detail = (evt && evt.detail) ? String(evt.detail) : "";
+		                const v = (detail === "away") ? "away" : "online";
+		                window.sessionStorage.setItem(modeKey, v);
+		            } catch (e) {}
+		        });
+		    })();
+		</script>
+	<script>
+	    function presenceWorkTimer() {
+	        const selfEndpoint = "/admin/crm/agents/presence/self";
+	        const baseKey = "crmShiftWorkTimer";
+
+	        const safeParse = (raw) => {
+	            try {
+	                return JSON.parse(raw);
+	            } catch (e) {
+	                return null;
+	            }
+	        };
+
+	        const pad2 = (n) => String(Math.max(0, n)).padStart(2, "0");
+	        const formatHms = (ms) => {
+	            const total = Math.floor(Math.max(0, ms) / 1000);
+	            const h = Math.floor(total / 3600);
+	            const m = Math.floor((total % 3600) / 60);
+	            const s = total % 60;
+	            return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+	        };
+
+	        return {
+	            agentId: null,
+	            status: "offline",
+	            display: "00:00:00",
+	            elapsedMs: 0,
+	            runningSince: null,
+	            intervalId: null,
+	            storageKey: baseKey,
+	            shiftKey: null, // shift start timestamp (UTC ISO)
+	            workStatuses: ["online", "away"],
+
+	            init() {
+	                // Load any existing state immediately so the UI doesn't jump after fetch.
+	                this.loadState();
+	                this.updateDisplay();
+
+	                // Sync based on server's effective status + server-computed shift work seconds.
+	                fetch(selfEndpoint, { headers: { "Accept": "application/json" } })
+	                    .then((r) => (r.ok ? r.json() : null))
+	                    .then((data) => {
+	                        if (!data) return;
+	                        this.agentId = data.agent_id || null;
+	                        const nextKey = this.agentId ? `${baseKey}:${this.agentId}` : baseKey;
+	                        this.maybeMigrateKey(nextKey);
+
+	                        const shift = data.shift || null;
+	                        const shiftStart = shift && shift.start_at ? String(shift.start_at) : null;
+	                        const workSeconds = shift && typeof shift.work_seconds === "number" ? shift.work_seconds : null;
+	                        if (shiftStart) {
+	                            this.applyShiftBaseline(shiftStart, workSeconds);
+	                        }
+	                        this.applyStatus(data.effective_status || data.status || "offline");
+	                    })
+	                    .catch(() => {});
+
+	                // React to any presence changes from heartbeat + manual toggle.
+	                window.addEventListener("crm-presence-status", (evt) => {
+	                    const st = evt && evt.detail && evt.detail.status ? String(evt.detail.status) : "";
+	                    if (st) this.applyStatus(st);
+	                });
+
+	                // Keep the clock fresh (even while paused, it stays accurate).
+	                this.intervalId = window.setInterval(() => this.updateDisplay(), 1000);
+	            },
+
+	            maybeMigrateKey(nextKey) {
+	                if (!nextKey || nextKey === this.storageKey) return;
+	                try {
+	                    const currentRaw = window.sessionStorage.getItem(this.storageKey);
+	                    const nextRaw = window.sessionStorage.getItem(nextKey);
+	                    if (currentRaw && !nextRaw) {
+	                        window.sessionStorage.setItem(nextKey, currentRaw);
+	                    }
+	                } catch (e) {}
+	                this.storageKey = nextKey;
+	                this.loadState();
+	                this.updateDisplay();
+	            },
+
+	            loadState() {
+	                try {
+	                    const raw = window.sessionStorage.getItem(this.storageKey);
+	                    const data = raw ? safeParse(raw) : null;
+	                    if (!data) return;
+	                    this.elapsedMs = Number(data.elapsedMs || 0) || 0;
+	                    this.runningSince = data.runningSince ? Number(data.runningSince) : null;
+	                    this.shiftKey = data.shiftKey ? String(data.shiftKey) : null;
+	                } catch (e) {}
+	            },
+
+	            saveState() {
+	                try {
+	                    window.sessionStorage.setItem(
+	                        this.storageKey,
+	                        JSON.stringify({
+	                            elapsedMs: this.elapsedMs,
+	                            runningSince: this.runningSince,
+	                            shiftKey: this.shiftKey,
+	                        })
+	                    );
+	                } catch (e) {}
+	            },
+
+	            currentElapsedMs() {
+	                if (this.runningSince) {
+	                    return this.elapsedMs + (Date.now() - this.runningSince);
+	                }
+	                return this.elapsedMs;
+	            },
+
+	            updateDisplay() {
+	                this.display = formatHms(this.currentElapsedMs());
+	            },
+
+	            start() {
+	                if (this.runningSince) return;
+	                this.runningSince = Date.now();
+	                this.saveState();
+	                this.updateDisplay();
+	            },
+
+	            pause() {
+	                if (!this.runningSince) return;
+	                this.elapsedMs = this.elapsedMs + (Date.now() - this.runningSince);
+	                this.runningSince = null;
+	                this.saveState();
+	                this.updateDisplay();
+	            },
+
+	            applyShiftBaseline(shiftStartIso, workSeconds) {
+	                // Shift reset: when shift changes, reset local state to server baseline.
+	                if (!shiftStartIso) return;
+	                const nextKey = String(shiftStartIso);
+	                if (this.shiftKey !== nextKey) {
+	                    this.shiftKey = nextKey;
+	                    this.elapsedMs = 0;
+	                    this.runningSince = null;
+	                }
+	                if (typeof workSeconds === "number" && isFinite(workSeconds) && workSeconds >= 0) {
+	                    // Server is the source of truth for accumulated time in current shift.
+	                    this.elapsedMs = Math.floor(workSeconds * 1000);
+	                    // If we're running, restart from now with the new baseline.
+	                    if (this.runningSince) this.runningSince = Date.now();
+	                }
+	                this.saveState();
+	                this.updateDisplay();
+	            },
+
+	            applyStatus(status) {
+	                // Working time counts while Online or Away; pauses for Break/Offline.
+	                this.status = status || "offline";
+	                if (this.workStatuses.includes(this.status)) this.start();
+	                else this.pause();
+	            },
+	        };
+	    }
+
+	    function presenceQuickToggle() {
+	        const checkinKey = "crmPresenceCheckedIn";
+	        const modeKey = "crmPresenceMode";
+	        const segmentPx = 56; // w-14
+	        const statusOrder = ["online", "away", "on_break", "offline"];
+
+	        const getMode = () => {
+	            try {
+	                const v = window.sessionStorage.getItem(modeKey);
+	                return (v === "away") ? "away" : "online";
+	            } catch (e) {
+	                return "online";
+	            }
+	        };
+
+	        const setCheckedIn = (value) => {
+	            try {
+	                if (value) window.sessionStorage.setItem(checkinKey, "true");
+	                else window.sessionStorage.removeItem(checkinKey);
+	            } catch (e) {}
+	        };
+
+	        const setMode = (value) => {
+	            try {
+	                const v = (value === "away") ? "away" : "online";
+	                window.sessionStorage.setItem(modeKey, v);
+	            } catch (e) {}
+	            window.dispatchEvent(new CustomEvent("crm-presence-setmode", { detail: value }));
+	        };
+
+	        const csrf = () => (typeof getCsrfToken === "function" ? (getCsrfToken() || "") : "");
+
+	        const postOverride = (status) => {
+	            return fetch("/admin/crm/agents/presence/override", {
+	                method: "POST",
+	                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf() },
+	                body: JSON.stringify({ status }),
+	            });
+	        };
+
+	        const postPresence = (status) => {
+	            return fetch("/admin/crm/agents/presence", {
+	                method: "POST",
+	                headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf() },
+	                body: JSON.stringify({ status }),
+	                keepalive: true,
+	            });
+	        };
+
+	        const mustOk = async (resp, label) => {
+	            if (resp && resp.ok) return resp;
+	            let body = "";
+	            try {
+	                body = resp ? await resp.text() : "";
+	            } catch (e) {}
+	            const code = resp ? resp.status : 0;
+	            throw new Error(`${label} failed (${code})${body ? `: ${body}` : ""}`);
+	        };
+
+	        return {
+	            open: false,
+	            agentId: null,
+	            agentKnown: false,
+	            status: null,
+	            effective: null,
+	            loading: false,
+	            error: null,
+	            init() {
+	                this.refresh();
+	            },
+	            refresh() {
+	                return fetch("/admin/crm/agents/presence/self", { headers: { "Accept": "application/json" } })
+	                    .then((r) => (r.ok ? r.json() : null))
+	                    .then((data) => {
+	                        if (!data) {
+	                            this.agentKnown = false;
+	                            return;
+	                        }
+	                        this.agentId = data.agent_id || null;
+	                        this.agentKnown = true;
+	                        this.status = data.status || null;
+	                        this.effective = data.effective_status || null;
+	                        if (this.agentKnown && !this.agentId) {
+	                            this.error = "This user is not configured as a CRM agent.";
+	                        } else {
+	                            this.error = null;
+	                        }
+	                    })
+	                    .catch(() => {
+	                        // If blocked (403) or network issue, don't disable the UI; show a hint.
+	                        this.agentKnown = false;
+	                        this.error = "Presence unavailable (check permissions / refresh).";
+	                    });
+	            },
+	            selected() {
+	                return this.effective || this.status || "offline";
+	            },
+	            selectedIndex() {
+	                const s = this.selected();
+	                const idx = statusOrder.indexOf(s);
+	                return idx >= 0 ? idx : 3;
+	            },
+	            pillStyle() {
+	                return `transform: translateX(${this.selectedIndex() * segmentPx}px);`;
+	            },
+	            pillClass() {
+	                const s = this.selected();
+	                if (s === "online") return "bg-emerald-600/90";
+	                if (s === "away") return "bg-amber-500/90";
+	                if (s === "on_break") return "bg-slate-500/80";
+	                return "bg-rose-500/90";
+	            },
+	            btnClass(value) {
+	                const active = this.selected() === value;
+	                return active
+	                    ? "text-white"
+	                    : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white";
+	            },
+	            menuItemClass(value) {
+	                const active = this.selected() === value;
+	                return active
+	                    ? "text-slate-900 dark:text-white font-semibold"
+	                    : "text-slate-700 dark:text-slate-300";
+	            },
+	            dotClass() {
+	                const s = this.selected();
+	                if (s === "online") return "bg-emerald-500";
+	                if (s === "away") return "bg-amber-500";
+	                if (s === "on_break") return "bg-slate-400";
+	                return "bg-rose-500";
+	            },
+	            async setStatus(value) {
+	                if (this.loading) return;
+	                this.loading = true;
+	                this.error = null;
+	                try {
+	                    // Ensure this user is actually a CRM agent. Non-agents will no-op server-side.
+	                    if (!this.agentKnown) {
+	                        await this.refresh();
+	                    }
+	                    if (this.agentKnown && !this.agentId) {
+	                        this.error = "This user is not configured as a CRM agent.";
+	                        return;
+	                    }
+
+	                    if (value === "offline") {
+	                        // Check out: stop heartbeats for this tab and force offline.
+	                        setCheckedIn(false);
+	                        try { window.sessionStorage.removeItem(modeKey); } catch (e) {}
+	                        await mustOk(await postOverride("offline"), "Presence override");
+	                        try {
+	                            window.dispatchEvent(new CustomEvent("crm-presence-status", { detail: { status: "offline" } }));
+	                        } catch (e) {}
+	                        this.refresh();
+	                        return;
+	                    }
+
+	                    if (value === "on_break") {
+	                        // Break is manual override; keep tab checked-in so away/online can resume later.
+	                        setCheckedIn(true);
+	                        await mustOk(await postOverride("on_break"), "Presence override");
+	                        try {
+	                            window.dispatchEvent(new CustomEvent("crm-presence-status", { detail: { status: "on_break" } }));
+	                        } catch (e) {}
+	                        this.refresh();
+	                        return;
+	                    }
+
+	                    if (value === "away") {
+	                        // Manual away: clear overrides and set heartbeat mode to away.
+	                        setCheckedIn(true);
+	                        setMode("away");
+	                        await mustOk(await postOverride("clear"), "Presence override");
+	                        await mustOk(await postPresence("away"), "Presence update");
+	                        window.dispatchEvent(new CustomEvent("crm-presence-checkin"));
+	                        try {
+	                            window.dispatchEvent(new CustomEvent("crm-presence-status", { detail: { status: "away" } }));
+	                        } catch (e) {}
+	                        this.refresh();
+	                        return;
+	                    }
+
+	                    // Online
+	                    setCheckedIn(true);
+	                    setMode("online");
+	                    await mustOk(await postOverride("clear"), "Presence override");
+	                    await mustOk(await postPresence("online"), "Presence update");
+	                    window.dispatchEvent(new CustomEvent("crm-presence-checkin"));
+	                    try {
+	                        window.dispatchEvent(new CustomEvent("crm-presence-status", { detail: { status: "online" } }));
+	                    } catch (e) {}
+	                    this.refresh();
+	                } catch (e) {
+	                    const msg = (e && e.message) ? String(e.message) : "Failed to update presence.";
+	                    this.error = msg;
+	                    try { console.warn("[PresenceToggle]", msg); } catch (e2) {}
+	                } finally {
+	                    this.loading = false;
+	                }
+	            },
+	        };
+	    }
+
+	    function locationShareToggle() {
+	        const endpoint = "/admin/crm/agents/presence/location";
+	        const selfEndpoint = "/admin/crm/agents/presence/self";
+	        const shareKey = "crmLocationSharingEnabled";
+	        const checkinKey = "crmPresenceCheckedIn";
+	        const modeKey = "crmPresenceMode";
+	        const intervalMs = 30000;
+	        const csrf = () => (typeof getCsrfToken === "function" ? (getCsrfToken() || "") : "");
+
+	        const isCheckedIn = () => {
+	            try { return window.sessionStorage.getItem(checkinKey) === "true"; } catch (e) { return false; }
+	        };
+	        const getMode = () => {
+	            try {
+	                const mode = window.sessionStorage.getItem(modeKey);
+	                return mode === "away" ? "away" : "online";
+	            } catch (e) {
+	                return "online";
+	            }
+	        };
+	        const statusForHeartbeat = () => {
+	            if (!isCheckedIn()) return "offline";
+	            return document.hidden ? "away" : getMode();
+	        };
+
+	        return {
+	            loading: false,
+	            supported: !!(navigator && navigator.geolocation),
+	            agentKnown: false,
+	            agentId: null,
+	            isSharing: false,
+	            timerId: null,
+	            init() {
+	                fetch(selfEndpoint, { headers: { "Accept": "application/json" } })
+	                    .then((r) => (r.ok ? r.json() : null))
+	                    .then((data) => {
+	                        if (!data) return;
+	                        this.agentKnown = true;
+	                        this.agentId = data.agent_id || null;
+	                        const serverEnabled = !!data.location_sharing_enabled;
+	                        let localEnabled = false;
+	                        try { localEnabled = window.sessionStorage.getItem(shareKey) === "true"; } catch (e) {}
+	                        this.isSharing = this.supported && !!this.agentId && (localEnabled || serverEnabled);
+	                        if (this.isSharing) this.startLoop();
+	                    })
+	                    .catch(() => {});
+	                window.addEventListener("beforeunload", () => {
+	                    if (!this.isSharing) return;
+	                    this.sendStop();
+	                });
+	            },
+	            startLoop() {
+	                if (this.timerId) return;
+	                this.ping();
+	                this.timerId = window.setInterval(() => this.ping(), intervalMs);
+	            },
+	            stopLoop() {
+	                if (!this.timerId) return;
+	                window.clearInterval(this.timerId);
+	                this.timerId = null;
+	            },
+	            ping() {
+	                if (!this.isSharing || !this.supported || !this.agentId) return;
+	                navigator.geolocation.getCurrentPosition(
+	                    (pos) => {
+	                        const body = {
+	                            sharing_enabled: true,
+	                            status: statusForHeartbeat(),
+	                            latitude: pos.coords.latitude,
+	                            longitude: pos.coords.longitude,
+	                            accuracy_m: pos.coords.accuracy,
+	                            captured_at: new Date(pos.timestamp).toISOString(),
+	                        };
+	                        fetch(endpoint, {
+	                            method: "POST",
+	                            headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf() },
+	                            body: JSON.stringify(body),
+	                            keepalive: true,
+	                        }).catch(() => {});
+	                    },
+	                    () => {},
+	                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+	                );
+	            },
+	            sendStop() {
+	                const body = { sharing_enabled: false, status: statusForHeartbeat() };
+	                return fetch(endpoint, {
+	                    method: "POST",
+	                    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf() },
+	                    body: JSON.stringify(body),
+	                    keepalive: true,
+	                }).catch(() => {});
+	            },
+	            async toggle() {
+	                if (this.loading || !this.supported) return;
+	                if (this.agentKnown && !this.agentId) return;
+	                this.loading = true;
+	                try {
+	                    if (!this.isSharing) {
+	                        this.isSharing = true;
+	                        try { window.sessionStorage.setItem(shareKey, "true"); } catch (e) {}
+	                        this.startLoop();
+	                    } else {
+	                        this.isSharing = false;
+	                        try { window.sessionStorage.removeItem(shareKey); } catch (e) {}
+	                        this.stopLoop();
+	                        await this.sendStop();
+	                    }
+	                } finally {
+	                    this.loading = false;
+	                }
+	            },
+	        };
+	    }
+		</script>
+	<script>
+	    (function () {
+	        // Show all selected filenames for multi-attachment inputs.
+	        const renderSelected = (input, output) => {
+	            const files = Array.from(input.files || []);
+	            if (!files.length) {
+	                output.textContent = "";
+	                return;
+	            }
+	            const names = files.map((f) => f && f.name).filter(Boolean);
+	            const limit = 6;
+	            const shown = names.slice(0, limit);
+	            const extra = names.length - shown.length;
+	            const suffix = extra > 0 ? ` (+${extra} more)` : "";
+	            output.textContent = `Selected (${names.length}): ${shown.join(", ")}${suffix}`;
+	        };
+
+	        const wire = (output) => {
+	            if (!output || !(output instanceof HTMLElement)) return;
+	            if (output.dataset.bound === "true") return;
+	            const container = output.closest("div");
+	            if (!container) return;
+	            const input = container.querySelector('input[type="file"][name="attachments"]');
+	            if (!input || !(input instanceof HTMLInputElement)) return;
+	            output.dataset.bound = "true";
+	            input.addEventListener("change", () => renderSelected(input, output));
+	            renderSelected(input, output);
+	        };
+
+	        document.querySelectorAll("[data-attachments-selected]").forEach(wire);
+	    })();
+	</script>
 {% include "components/modals/confirm_modal.html" %}
 {% endblock %}

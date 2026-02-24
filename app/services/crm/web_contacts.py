@@ -345,9 +345,10 @@ def create_contact(db: Session, form: ContactUpsertInput) -> None:
     last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else "Unknown"
 
     party_status_value = None
-    if isinstance(contact.get("party_status"), str) and contact["party_status"]:
+    party_status_raw = contact.get("party_status")
+    if isinstance(party_status_raw, str) and party_status_raw:
         try:
-            party_status_value = PartyStatusEnum(contact["party_status"])
+            party_status_value = PartyStatusEnum(party_status_raw)
         except ValueError:
             party_status_value = None
 
@@ -414,9 +415,10 @@ def update_contact(db: Session, contact_id: str, form: ContactUpsertInput) -> No
     notes_value = contact["notes"] if isinstance(contact["notes"], str) else ""
 
     party_status_value = None
-    if isinstance(contact.get("party_status"), str) and contact["party_status"]:
+    party_status_raw = contact.get("party_status")
+    if isinstance(party_status_raw, str) and party_status_raw:
         try:
-            party_status_value = PartyStatusEnum(contact["party_status"])
+            party_status_value = PartyStatusEnum(party_status_raw)
         except ValueError:
             party_status_value = None
 

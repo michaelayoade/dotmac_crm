@@ -1,6 +1,9 @@
 import builtins
+import html
 import logging
 from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -9,6 +12,7 @@ from app.models.crm.sales import Lead
 from app.models.domain_settings import SettingDomain
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import Person
+from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.tickets import (
     Ticket,
     TicketAssignee,
@@ -52,16 +56,20 @@ def _notify_ticket_role_assignment_in_app(
     We de-dupe by recipient email so one person with multiple roles receives one notification.
     """
     # Group roles by person_id and discard empty.
-    roles_by_person_id: dict[object, list[str]] = {}
-    person_ids: list[object] = []
+    roles_by_person_id: dict[UUID, list[str]] = {}
+    person_ids: list[UUID] = []
     for role_label, person_id in role_assignments.items():
         if not person_id:
             continue
-        if person_id not in roles_by_person_id:
-            roles_by_person_id[person_id] = []
-            person_ids.append(person_id)
-        if role_label not in roles_by_person_id[person_id]:
-            roles_by_person_id[person_id].append(role_label)
+        try:
+            person_uuid = coerce_uuid(person_id)
+        except Exception:
+            continue
+        if person_uuid not in roles_by_person_id:
+            roles_by_person_id[person_uuid] = []
+            person_ids.append(person_uuid)
+        if role_label not in roles_by_person_id[person_uuid]:
+            roles_by_person_id[person_uuid].append(role_label)
 
     if not person_ids:
         return set()
@@ -112,6 +120,102 @@ def _notify_ticket_role_assignment_in_app(
     return created_for
 
 
+def _notify_ticket_service_team_assignment(
+    db: Session,
+    *,
+    ticket: Ticket,
+    service_team_id: object,
+    exclude_recipients: set[str] | None = None,
+) -> set[str]:
+    """Notify active members when a ticket is assigned to a service team.
+
+    Sends both:
+    - in-app push notifications
+    - queued email notifications
+    """
+    if not service_team_id:
+        return set()
+    try:
+        team_uuid = coerce_uuid(service_team_id)
+    except Exception:
+        return set()
+
+    team = db.get(ServiceTeam, team_uuid)
+    if not team or not team.is_active:
+        return set()
+
+    member_rows = (
+        db.query(Person)
+        .join(
+            ServiceTeamMember,
+            ServiceTeamMember.person_id == Person.id,
+        )
+        .filter(ServiceTeamMember.team_id == team_uuid)
+        .filter(ServiceTeamMember.is_active.is_(True))
+        .filter(Person.is_active.is_(True))
+        .all()
+    )
+    if not member_rows:
+        return set()
+
+    from app.services import email as email_service
+
+    base_url = (email_service.get_app_url(db) or "").rstrip("/")
+    ticket_ref = ticket.number or str(ticket.id)
+    ticket_url = (
+        f"{base_url}/admin/support/tickets/{ticket_ref}" if base_url else f"/admin/support/tickets/{ticket_ref}"
+    )
+    subject = f"New Ticket Assignment: {ticket.title}"
+    site = (ticket.region or "").strip()
+    group_name = (team.name or "User Group").strip()
+    now = datetime.now(UTC)
+
+    excluded = set(exclude_recipients or set())
+    notified: set[str] = set()
+    for person in member_rows:
+        if not isinstance(person.email, str) or not person.email.strip():
+            continue
+        recipient = person.email.strip()
+        if recipient in excluded or recipient in notified:
+            continue
+        notified.add(recipient)
+        body_lines = [f"A ticket has been assigned to your group ({group_name})."]
+        if site:
+            body_lines.append(f"Site: {site}.")
+        body_lines.append(f"Open: {ticket_url}")
+        push_body = "\n".join(body_lines)
+        safe_group = html.escape(group_name)
+        safe_site = html.escape(site) if site else ""
+        safe_ticket_url = html.escape(ticket_url, quote=True)
+        email_body_parts = [f"<p>A ticket has been assigned to your group ({safe_group}).</p>"]
+        if safe_site:
+            email_body_parts.append(f"<p>Site: {safe_site}.</p>")
+        email_body_parts.append(f'<p>Open: <a href="{safe_ticket_url}">{safe_ticket_url}</a></p>')
+        email_body = "".join(email_body_parts)
+        db.add(
+            Notification(
+                channel=NotificationChannel.push,
+                recipient=recipient,
+                subject=subject,
+                body=push_body,
+                status=NotificationStatus.delivered,
+                sent_at=now,
+            )
+        )
+        db.add(
+            Notification(
+                channel=NotificationChannel.email,
+                recipient=recipient,
+                subject=subject,
+                body=email_body,
+                status=NotificationStatus.queued,
+            )
+        )
+
+    db.commit()
+    return notified
+
+
 def _ensure_person(db: Session, person_id: str):
     person = db.get(Person, coerce_uuid(person_id))
     if not person:
@@ -122,6 +226,12 @@ def _ensure_lead(db: Session, lead_id: str):
     lead = db.get(Lead, coerce_uuid(lead_id))
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+
+
+def _ensure_service_team(db: Session, service_team_id: str):
+    team = db.get(ServiceTeam, coerce_uuid(service_team_id))
+    if not team:
+        raise HTTPException(status_code=404, detail="User group not found")
 
 
 def _has_field_visit_tag(tags: list | None) -> bool:
@@ -309,6 +419,8 @@ class Tickets(ListResponseMixin):
             _ensure_lead(db, str(payload.lead_id))
         if payload.customer_person_id:
             _ensure_person(db, str(payload.customer_person_id))
+        if payload.service_team_id:
+            _ensure_service_team(db, str(payload.service_team_id))
 
         from app.services.ticket_validation import validate_ticket_creation
 
@@ -354,7 +466,7 @@ class Tickets(ListResponseMixin):
         # In-app notifications for internal ticket roles.
         # Ticket has already been committed above, so failures here won't roll back creation.
         try:
-            _notify_ticket_role_assignment_in_app(
+            role_recipients = _notify_ticket_role_assignment_in_app(
                 db,
                 ticket=ticket,
                 role_assignments={
@@ -363,6 +475,13 @@ class Tickets(ListResponseMixin):
                     "Site Project Coordinator": ticket.assistant_manager_person_id,
                 },
             )
+            if ticket.service_team_id:
+                _notify_ticket_service_team_assignment(
+                    db,
+                    ticket=ticket,
+                    service_team_id=ticket.service_team_id,
+                    exclude_recipients=role_recipients,
+                )
         except Exception:
             db.rollback()
             # Keep creating ticket even if notification creation fails.
@@ -397,11 +516,19 @@ class Tickets(ListResponseMixin):
 
         technician_contact = _resolve_technician_contact(db, ticket.assigned_to_person_id)
         if technician_contact and technician_contact.get("email"):
+            from app.services import email as email_service
+
+            app_url = (email_service.get_app_url(db) or "").rstrip("/")
+            ticket_ref = ticket.number or str(ticket.id)
+            ticket_url = (
+                f"{app_url}/admin/support/tickets/{ticket_ref}" if app_url else f"/admin/support/tickets/{ticket_ref}"
+            )
             emit_event(
                 db,
                 EventType.ticket_assigned,
                 {
                     "ticket_id": str(ticket.id),
+                    "ticket_url": ticket_url,
                     "title": ticket.title,
                     "subject": ticket.title,
                     "status": ticket.status.value if ticket.status else None,
@@ -455,6 +582,7 @@ class Tickets(ListResponseMixin):
         order_dir: str,
         limit: int,
         offset: int,
+        filters_payload: list[Any] | None = None,
     ):
         # Use query builder for cleaner, composable filtering
         query = (
@@ -465,7 +593,7 @@ class Tickets(ListResponseMixin):
             .by_channel(channel)
             .search(search)
             .by_created_by(created_by_person_id)
-            .by_assigned_to(assigned_to_person_id)
+            .by_assigned_to_or_team_member(assigned_to_person_id)
         )
         # Apply active filter
         if is_active is None:
@@ -474,6 +602,10 @@ class Tickets(ListResponseMixin):
             query = query.active_only(True)
         else:
             query = query.active_only(False)
+        if filters_payload:
+            from app.services.filter_engine import apply_filter_payload
+
+            query._query = apply_filter_payload(query._query, "Ticket", filters_payload)
 
         return (
             query.with_relations()  # Eager load relationships to avoid N+1
@@ -515,6 +647,7 @@ class Tickets(ListResponseMixin):
         previous_assigned_to = ticket.assigned_to_person_id
         previous_ticket_manager = ticket.ticket_manager_person_id
         previous_assistant_manager = ticket.assistant_manager_person_id
+        previous_service_team = ticket.service_team_id
         data = payload.model_dump(exclude_unset=True)
         fields_set = payload.model_fields_set
         assignee_ids: list[str] | None = None
@@ -538,6 +671,8 @@ class Tickets(ListResponseMixin):
             _ensure_lead(db, str(data["lead_id"]))
         if data.get("customer_person_id"):
             _ensure_person(db, str(data["customer_person_id"]))
+        if data.get("service_team_id"):
+            _ensure_service_team(db, str(data["service_team_id"]))
 
         # Auto-assign project manager + SPC based on region if region changes and no manager is set
         new_region = data.get("region")
@@ -585,8 +720,16 @@ class Tickets(ListResponseMixin):
                 changed_roles["Ticket Manager"] = ticket.ticket_manager_person_id
             if ticket.assistant_manager_person_id and ticket.assistant_manager_person_id != previous_assistant_manager:
                 changed_roles["Site Project Coordinator"] = ticket.assistant_manager_person_id
+            role_recipients: set[str] = set()
             if changed_roles:
-                _notify_ticket_role_assignment_in_app(db, ticket=ticket, role_assignments=changed_roles)
+                role_recipients = _notify_ticket_role_assignment_in_app(db, ticket=ticket, role_assignments=changed_roles)
+            if ticket.service_team_id and ticket.service_team_id != previous_service_team:
+                _notify_ticket_service_team_assignment(
+                    db,
+                    ticket=ticket,
+                    service_team_id=ticket.service_team_id,
+                    exclude_recipients=role_recipients,
+                )
         except Exception:
             db.rollback()
             logger.exception("ticket_role_change_in_app_notifications_failed ticket_id=%s", ticket.id)
@@ -603,7 +746,7 @@ class Tickets(ListResponseMixin):
             "status": new_status.value if new_status else None,
         }
 
-        if previous_status != new_status and new_status == TicketStatus.resolved:
+        if previous_status != new_status and new_status == TicketStatus.closed:
             customer_name = _resolve_customer_name(ticket, db)
             customer_email = _resolve_customer_email(ticket, db)
             event_payload["customer_name"] = customer_name
@@ -636,11 +779,21 @@ class Tickets(ListResponseMixin):
             customer_name = _resolve_customer_name(ticket, db)
             technician_contact = _resolve_technician_contact(db, ticket.assigned_to_person_id)
             if technician_contact and technician_contact.get("email"):
+                from app.services import email as email_service
+
+                app_url = (email_service.get_app_url(db) or "").rstrip("/")
+                ticket_ref = ticket.number or str(ticket.id)
+                ticket_url = (
+                    f"{app_url}/admin/support/tickets/{ticket_ref}"
+                    if app_url
+                    else f"/admin/support/tickets/{ticket_ref}"
+                )
                 emit_event(
                     db,
                     EventType.ticket_assigned,
                     {
                         "ticket_id": str(ticket.id),
+                        "ticket_url": ticket_url,
                         "title": ticket.title,
                         "subject": ticket.title,
                         "status": ticket.status.value if ticket.status else None,

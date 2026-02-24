@@ -1,4 +1,4 @@
-"""Authentication web routes for login, logout, MFA, and password reset."""
+"""Authentication web routes for login, logout, MFA, password reset, and signup."""
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.services import web_auth as web_auth_service
 
-router = APIRouter(prefix="/auth", tags=["web-auth"])
+router = APIRouter(tags=["web-auth"])
+auth_router = APIRouter(prefix="/auth", tags=["web-auth"])
 
 
 def get_db():
@@ -18,13 +19,13 @@ def get_db():
         db.close()
 
 
-@router.get("/login", response_class=HTMLResponse)
+@auth_router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, error: str | None = None, next: str | None = None):
     """Display the login page."""
     return web_auth_service.login_page(request, error, next)
 
 
-@router.post("/login", response_class=HTMLResponse)
+@auth_router.post("/login", response_class=HTMLResponse)
 def login_submit(
     request: Request,
     username: str = Form(...),
@@ -37,13 +38,13 @@ def login_submit(
     return web_auth_service.login_submit(request, db, username, password, remember, next)
 
 
-@router.get("/mfa", response_class=HTMLResponse)
+@auth_router.get("/mfa", response_class=HTMLResponse)
 def mfa_page(request: Request, error: str | None = None, next: str | None = None):
     """Display the MFA verification page."""
     return web_auth_service.mfa_page(request, next, error)
 
 
-@router.post("/mfa", response_class=HTMLResponse)
+@auth_router.post("/mfa", response_class=HTMLResponse)
 def mfa_submit(
     request: Request,
     code: str = Form(...),
@@ -54,19 +55,19 @@ def mfa_submit(
     return web_auth_service.mfa_submit(request, db, code, next)
 
 
-@router.get("/refresh")
+@auth_router.get("/refresh")
 def refresh(request: Request, next: str | None = None, db: Session = Depends(get_db)):
     """Refresh access token using refresh cookie."""
     return web_auth_service.refresh(request, db, next)
 
 
-@router.get("/forgot-password", response_class=HTMLResponse)
+@auth_router.get("/forgot-password", response_class=HTMLResponse)
 def forgot_password_page(request: Request, success: bool = False):
     """Display the forgot password page."""
     return web_auth_service.forgot_password_page(request, success)
 
 
-@router.post("/forgot-password", response_class=HTMLResponse)
+@auth_router.post("/forgot-password", response_class=HTMLResponse)
 def forgot_password_submit(
     request: Request,
     email: str = Form(...),
@@ -76,13 +77,13 @@ def forgot_password_submit(
     return web_auth_service.forgot_password_submit(request, db, email)
 
 
-@router.get("/reset-password", response_class=HTMLResponse)
+@auth_router.get("/reset-password", response_class=HTMLResponse)
 def reset_password_page(request: Request, token: str, error: str | None = None):
     """Display the password reset page."""
     return web_auth_service.reset_password_page(request, token, error)
 
 
-@router.post("/reset-password", response_class=HTMLResponse)
+@auth_router.post("/reset-password", response_class=HTMLResponse)
 def reset_password_submit(
     request: Request,
     token: str = Form(...),
@@ -94,7 +95,46 @@ def reset_password_submit(
     return web_auth_service.reset_password_submit(request, db, token, password, password_confirm)
 
 
-@router.get("/logout")
+@auth_router.get("/logout")
 def logout(request: Request, db: Session = Depends(get_db)):
     """Log out the current user."""
     return web_auth_service.logout(request, db)
+
+
+@router.get("/signup", response_class=HTMLResponse)
+def signup_page(request: Request, account_type: str | None = None):
+    """Dedicated signup URL (e.g. /signup?account_type=reseller)."""
+    return web_auth_service.register_page(request, account_type=account_type)
+
+
+@auth_router.get("/register", response_class=HTMLResponse)
+def register_page(request: Request, account_type: str | None = None):
+    return web_auth_service.register_page(request, account_type=account_type)
+
+
+@auth_router.post("/register", response_class=HTMLResponse)
+def register_submit(
+    request: Request,
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    email: str = Form(...),
+    phone: str | None = Form(None),
+    password: str = Form(...),
+    account_type: str | None = Form(None),
+    organization_name: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    return web_auth_service.register_submit(
+        request,
+        db,
+        first_name=first_name,
+        last_name=last_name,
+        email=email,
+        phone=phone,
+        password=password,
+        account_type=account_type,
+        organization_name=organization_name,
+    )
+
+
+router.include_router(auth_router)

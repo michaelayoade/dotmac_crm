@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.models.crm.conversation import Conversation
-from app.models.crm.enums import ChannelType
+from app.models.crm.conversation import Conversation, Message
+from app.models.crm.enums import ChannelType, MessageDirection
 from app.schemas.crm.inbox import InboxSendRequest
 from app.services.crm.inbox import outbox
 
@@ -56,11 +56,21 @@ def test_process_outbox_item_success(db_session, person, monkeypatch):
         dispatch=False,
     )
 
-    message_id = uuid4()
+    # Create a real Message so the FK on crm_outbox.message_id is satisfied.
+    msg = Message(
+        conversation_id=conversation.id,
+        body="Hello",
+        channel_type=ChannelType.email,
+        direction=MessageDirection.outbound,
+    )
+    db_session.add(msg)
+    db_session.commit()
+    db_session.refresh(msg)
+    message_id = msg.id
     monkeypatch.setattr(
         outbox,
         "send_message_with_retry",
-        lambda *args, **kwargs: SimpleNamespace(id=message_id),
+        lambda *args, **kwargs: msg,
     )
 
     processed = outbox.process_outbox_item(db_session, str(queued.id))

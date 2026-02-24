@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversation Transcript</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #334155; line-height: 1.5; }
+        .container { max-width: 700px; margin: 0 auto; padding: 24px 16px; }
+        .header { background: #0e7490; color: white; padding: 20px 24px; border-radius: 12px 12px 0 0; }
+        .header h1 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+        .header p { margin: 0; font-size: 13px; opacity: 0.85; }
+        .meta { background: #f1f5f9; padding: 16px 24px; border-bottom: 1px solid #e2e8f0; }
+        .meta-row { display: flex; gap: 8px; margin-bottom: 4px; font-size: 13px; }
+        .meta-label { font-weight: 600; color: #64748b; min-width: 80px; }
+        .meta-value { color: #334155; }
+        .messages { background: white; padding: 24px; border: 1px solid #e2e8f0; border-top: none; }
+        .message { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #f1f5f9; }
+        .message:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+        .msg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .msg-sender { font-size: 13px; font-weight: 600; color: #0f172a; }
+        .msg-time { font-size: 11px; color: #94a3b8; }
+        .msg-direction { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
+        .msg-direction.inbound { background: #dbeafe; color: #1d4ed8; }
+        .msg-direction.outbound { background: #dcfce7; color: #15803d; }
+        .msg-direction.internal { background: #fef3c7; color: #b45309; }
+        .msg-body { font-size: 14px; color: #475569; white-space: pre-wrap; word-wrap: break-word; }
+        .msg-attachments { margin-top: 8px; }
+        .msg-attachment { display: inline-block; font-size: 12px; color: #6366f1; background: #eef2ff; padding: 2px 8px; border-radius: 4px; margin: 2px 4px 2px 0; }
+        .footer { background: #f8fafc; padding: 16px 24px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; text-align: center; font-size: 11px; color: #94a3b8; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Conversation Transcript</h1>
+        <p>{{ conversation.contact.name }} &middot; {{ conversation.channel | title }}</p>
+    </div>
+    <div class="meta">
+        <div class="meta-row">
+            <span class="meta-label">Contact:</span>
+            <span class="meta-value">{{ conversation.contact.name }}{% if conversation.contact.email %} ({{ conversation.contact.email }}){% endif %}</span>
+        </div>
+        {% if conversation.subject %}
+        <div class="meta-row">
+            <span class="meta-label">Subject:</span>
+            <span class="meta-value">{{ conversation.subject }}</span>
+        </div>
+        {% endif %}
+        <div class="meta-row">
+            <span class="meta-label">Status:</span>
+            <span class="meta-value">{{ conversation.status | title }}</span>
+        </div>
+        <div class="meta-row">
+            <span class="meta-label">Channel:</span>
+            <span class="meta-value">{{ conversation.channel | replace('_', ' ') | title }}</span>
+        </div>
+        <div class="meta-row">
+            <span class="meta-label">Messages:</span>
+            <span class="meta-value">{{ messages | length }}</span>
+        </div>
+    </div>
+    <div class="messages">
+        {% for msg in messages %}
+        <div class="message">
+            <div class="msg-header">
+                <span>
+                    <span class="msg-sender">{{ msg.sender.name }}</span>
+                    <span class="msg-direction {{ msg.direction }}">{{ msg.direction }}</span>
+                </span>
+                <span class="msg-time">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') if msg.timestamp else '' }}</span>
+            </div>
+            <div class="msg-body">{{ msg.content }}</div>
+            {% if msg.attachments %}
+            <div class="msg-attachments">
+                {% for att in msg.attachments %}
+                <span class="msg-attachment">{{ att.file_name }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    <div class="footer">
+        This transcript was exported from the CRM inbox.
+    </div>
+</div>
+</body>
+</html>

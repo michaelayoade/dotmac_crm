@@ -1,0 +1,276 @@
+{% extends "layouts/admin.html" %}
+{% block title %}CRM Live Map - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900 dark:text-white">CRM Live Map</h1>
+      <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
+        Shows agents who enabled location sharing in this browser session.
+      </p>
+    </div>
+    <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+      <span id="live-map-count">0 active</span>
+      <span>•</span>
+      <span id="live-map-updated">Waiting for data</span>
+    </div>
+  </div>
+
+  <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div id="crm-live-map" class="w-full" style="height:66vh;min-height:420px;background:#f1f5f9;"></div>
+  </div>
+  <div id="live-map-mapnotice" class="hidden rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+    Map tiles are unavailable on this network. Live locations are still shown in the list below.
+  </div>
+
+  <div id="live-map-empty" class="hidden rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+    No active shared locations in the last 2 minutes.
+  </div>
+
+  <div id="live-map-list" class="grid gap-2 sm:grid-cols-2"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(() => {
+  const mapEl = document.getElementById("crm-live-map");
+  if (!mapEl) return;
+  const hasLeaflet = typeof L !== "undefined";
+  let mapEnabled = hasLeaflet;
+
+  let map = null;
+  let mapNoticeShown = false;
+  let tileLoaded = false;
+  let tileErrorCount = 0;
+  const markers = new Map();
+  const latestById = new Map();
+  let hasFit = false;
+
+  const countEl = document.getElementById("live-map-count");
+  const updatedEl = document.getElementById("live-map-updated");
+  const mapNoticeEl = document.getElementById("live-map-mapnotice");
+  const emptyEl = document.getElementById("live-map-empty");
+  const listEl = document.getElementById("live-map-list");
+
+  const showMapNotice = () => {
+    if (mapNoticeShown) return;
+    mapNoticeShown = true;
+    if (mapNoticeEl) mapNoticeEl.classList.remove("hidden");
+  };
+
+  const pulseMapNotice = () => {
+    if (!mapNoticeEl) return;
+    mapNoticeEl.classList.remove("ring-2", "ring-amber-400");
+    mapNoticeEl.offsetHeight;
+    mapNoticeEl.classList.add("ring-2", "ring-amber-400");
+    window.setTimeout(() => {
+      mapNoticeEl.classList.remove("ring-2", "ring-amber-400");
+    }, 900);
+  };
+
+  if (mapEnabled) {
+    try {
+      if (L.Icon && L.Icon.Default) {
+        L.Icon.Default.mergeOptions({
+          iconRetinaUrl: "/static/vendor/leaflet/images/marker-icon-2x.png",
+          iconUrl: "/static/vendor/leaflet/images/marker-icon.png",
+          shadowUrl: "/static/vendor/leaflet/images/marker-shadow.png",
+        });
+      }
+      map = L.map(mapEl).setView([20, 0], 2);
+      const tile = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      });
+      tile.on("tileload", () => {
+        tileLoaded = true;
+      });
+      tile.on("tileerror", () => {
+        tileErrorCount += 1;
+        if (!tileLoaded && tileErrorCount >= 6) {
+          showMapNotice();
+        }
+      });
+      tile.addTo(map);
+      window.setTimeout(() => {
+        if (!tileLoaded) showMapNotice();
+      }, 12000);
+    } catch (_) {
+      mapEnabled = false;
+      map = null;
+      showMapNotice();
+    }
+  } else {
+    showMapNotice();
+  }
+
+  const fmtAgo = (iso) => {
+    if (!iso) return "unknown";
+    const ts = Date.parse(iso);
+    if (Number.isNaN(ts)) return "unknown";
+    const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    return `${min}m ago`;
+  };
+
+  const colorFor = (status) => {
+    if (status === "online") return "#10b981";
+    if (status === "away") return "#f59e0b";
+    if (status === "on_break") return "#64748b";
+    return "#ef4444";
+  };
+
+  const dotIcon = (status) => {
+    if (!mapEnabled || !map) return null;
+    return L.divIcon({
+      className: "crm-live-dot",
+      html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #fff;background:${colorFor(status)};box-shadow:0 0 0 1px rgba(15,23,42,.25)"></span>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7]
+    });
+  };
+
+  const focusAgent = (agentId) => {
+    const row = latestById.get(String(agentId));
+    if (!row) return;
+    const lat = Number(row.latitude);
+    const lng = Number(row.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!mapEnabled || !map) {
+      showMapNotice();
+      pulseMapNotice();
+      if (updatedEl) updatedEl.textContent = "Map unavailable on this network; use list coordinates";
+      return;
+    }
+    map.invalidateSize();
+    map.setView([lat, lng], Math.max(map.getZoom(), 16));
+    let marker = markers.get(String(agentId));
+    if (!marker) {
+      marker = L.marker([lat, lng], { icon: dotIcon(row.effective_status || row.status) }).addTo(map);
+      marker.bindPopup(popupHtml(row));
+      markers.set(String(agentId), marker);
+    }
+    marker.openPopup();
+    mapEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  window.crmLiveMapFocusAgent = focusAgent;
+
+  const popupHtml = (row) => {
+    const acc = (row.accuracy_m != null) ? `${Number(row.accuracy_m).toFixed(1)}m` : "n/a";
+    const lat = Number(row.latitude).toFixed(6);
+    const lng = Number(row.longitude).toFixed(6);
+    const aid = String(row.agent_id || "");
+    return `
+      <div class="text-xs leading-5">
+        <div><strong>${row.agent_label || "Agent"}</strong></div>
+        <div>Status: ${row.effective_status || row.status || "unknown"}</div>
+        <div>Last update: ${fmtAgo(row.location_at)}</div>
+        <div>Lat/Lng: ${lat}, ${lng}</div>
+        <div>Accuracy: ${acc}</div>
+        <div class="mt-1">
+          <button type="button" data-focus-agent="${aid}" style="color:#2563eb;text-decoration:underline;background:none;border:0;padding:0;cursor:pointer;">Show on Map</button>
+        </div>
+      </div>
+    `;
+  };
+
+  const refresh = () => {
+    fetch("/admin/crm/agents/presence/live-map?stale_after_seconds=120&limit=500", {
+      headers: { "Accept": "application/json" }
+    })
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data) => {
+        const items = Array.isArray(data && data.items) ? data.items : [];
+        latestById.clear();
+        items.forEach((i) => latestById.set(String(i.agent_id), i));
+        const nextIds = new Set(items.map((i) => String(i.agent_id)));
+
+        if (mapEnabled && map) {
+          markers.forEach((marker, id) => {
+            if (!nextIds.has(id)) {
+              map.removeLayer(marker);
+              markers.delete(id);
+            }
+          });
+        }
+
+        const bounds = [];
+        items.forEach((row) => {
+          const id = String(row.agent_id);
+          const lat = Number(row.latitude);
+          const lng = Number(row.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const pos = [lat, lng];
+          bounds.push(pos);
+
+          if (mapEnabled && map) {
+            const existing = markers.get(id);
+            if (existing) {
+              existing.setLatLng(pos);
+              existing.setIcon(dotIcon(row.effective_status || row.status));
+              existing.setPopupContent(popupHtml(row));
+            } else {
+              const marker = L.marker(pos, { icon: dotIcon(row.effective_status || row.status) }).addTo(map);
+              marker.bindPopup(popupHtml(row));
+              markers.set(id, marker);
+            }
+          }
+        });
+
+        if (listEl) {
+          listEl.innerHTML = items.map((row) => {
+            const acc = (row.accuracy_m != null) ? `${Number(row.accuracy_m).toFixed(1)}m` : "n/a";
+            const lat = Number(row.latitude).toFixed(6);
+            const lng = Number(row.longitude).toFixed(6);
+            const aid = String(row.agent_id || "");
+            return `<button type="button" data-focus-agent="${aid}" class="text-left rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+              <div class="font-semibold">${row.agent_label || "Agent"}</div>
+              <div>Status: ${row.effective_status || row.status || "unknown"}</div>
+              <div>Last update: ${fmtAgo(row.location_at)}</div>
+              <div>Lat/Lng: ${lat}, ${lng}</div>
+              <div>Accuracy: ${acc}</div>
+              <div class="mt-1 text-blue-600 dark:text-blue-400">Show on map</div>
+            </button>`;
+          }).join("");
+        }
+
+        if (countEl) countEl.textContent = `${items.length} active`;
+        if (updatedEl) {
+          const suffix = (mapEnabled && map && !mapNoticeShown) ? "" : " (Map unavailable; showing list)";
+          updatedEl.textContent = `Updated ${new Date().toLocaleTimeString()}${suffix}`;
+        }
+        if (emptyEl) emptyEl.classList.toggle("hidden", items.length !== 0);
+
+        if (mapEnabled && map && bounds.length > 0 && !hasFit) {
+          map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+          hasFit = true;
+        }
+      })
+      .catch(() => {
+        if (updatedEl) updatedEl.textContent = "Refresh failed";
+      });
+  };
+
+  refresh();
+  window.setInterval(refresh, 30000);
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest("[data-focus-agent]");
+    if (!button) return;
+    const agentId = button.getAttribute("data-focus-agent");
+    if (!agentId) return;
+    event.preventDefault();
+    focusAgent(agentId);
+  });
+})();
+</script>
+{% endblock %}

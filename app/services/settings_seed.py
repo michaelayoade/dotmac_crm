@@ -372,6 +372,24 @@ def seed_scheduler_settings(db: Session) -> None:
     )
     scheduler_settings.ensure_by_key(
         db,
+        key="date_format",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("APP_DATE_FORMAT", "%B %d, %Y"),
+    )
+    scheduler_settings.ensure_by_key(
+        db,
+        key="time_format",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("APP_TIME_FORMAT", "%H:%M"),
+    )
+    scheduler_settings.ensure_by_key(
+        db,
+        key="week_start",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("APP_WEEK_START", "monday"),
+    )
+    scheduler_settings.ensure_by_key(
+        db,
         key="beat_max_loop_interval",
         value_type=SettingValueType.integer,
         value_text=os.getenv("CELERY_BEAT_MAX_LOOP_INTERVAL", "5"),
@@ -425,7 +443,7 @@ def seed_projects_settings(db: Session) -> None:
         db,
         key="default_project_status",
         value_type=SettingValueType.string,
-        value_text=os.getenv("PROJECTS_DEFAULT_PROJECT_STATUS", "planned"),
+        value_text=os.getenv("PROJECTS_DEFAULT_PROJECT_STATUS", "open"),
     )
     projects_settings.ensure_by_key(
         db,

@@ -175,6 +175,8 @@ def notify_assigned_agent_new_reply(db: Session, conversation: Conversation, mes
         return
     if conversation.status == ConversationStatus.resolved:
         return
+    if getattr(conversation, "is_muted", False):
+        return
     agent_person_id = _active_agent_person_id(db, str(conversation.id))
     if not agent_person_id:
         return
@@ -286,6 +288,7 @@ def send_reply_reminders(db: Session) -> int:
         .filter(CrmAgent.is_active.is_(True))
         .filter(CrmAgent.person_id.isnot(None))
         .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.is_muted.is_(False))
         .filter(Conversation.status != ConversationStatus.resolved)
         .filter(latest_message_subq.c.direction == MessageDirection.inbound)
         .filter(latest_message_subq.c.last_message_at <= threshold)

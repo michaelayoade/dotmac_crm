@@ -11,7 +11,8 @@
                                class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-700 dark:ring-offset-slate-800" />
                     </th>
                     <th scope="col" class="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        <button class="group inline-flex items-center gap-1.5 hover:text-slate-700 dark:hover:text-slate-200"
+                        <button type="button"
+                                class="group inline-flex items-center gap-1.5 hover:text-slate-700 dark:hover:text-slate-200"
                                 hx-get="/admin/customers?sort=name&per_page={{ per_page }}{% if customer_type %}&customer_type={{ customer_type }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
                                 hx-target="#customers-table">
                             Customer
@@ -149,7 +150,8 @@
                             </a>
                             <!-- Quick actions menu -->
                             <div x-data="{ open: false }" class="relative">
-                                <button @click="open = !open"
+                                <button type="button"
+                                        @click="open = !open"
                                         class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
                                         title="More actions">
                                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -170,7 +172,8 @@
                                     </a>
                                     <div class="my-1 border-t border-slate-100 dark:border-slate-700"></div>
                                     {% if customer.is_active %}
-                                    <button hx-post="/admin/customers/{{ customer.type }}/{{ customer.id }}/deactivate"
+                                    <button type="button"
+                                            hx-post="/admin/customers/{{ customer.type }}/{{ customer.id }}/deactivate"
                                             hx-confirm="Deactivate this customer?"
                                             @click="open = false"
                                             class="flex w-full items-center gap-2 px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20">
@@ -178,7 +181,8 @@
                                         Deactivate
                                     </button>
                                     {% else %}
-                                    <button hx-delete="/admin/customers/{{ customer.type }}/{{ customer.id }}"
+                                    <button type="button"
+                                            hx-delete="/admin/customers/{{ customer.type }}/{{ customer.id }}"
                                             hx-confirm="Delete this customer? This action cannot be undone."
                                             hx-target="closest tr"
                                             hx-swap="outerHTML swap:0.5s"
@@ -243,7 +247,8 @@
             <nav class="flex items-center gap-1">
                 <!-- Previous -->
                 {% if page > 1 %}
-                <button hx-get="/admin/customers?page={{ page - 1 }}&per_page={{ per_page }}{% if customer_type %}&customer_type={{ customer_type }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
+                <button type="button"
+                        hx-get="/admin/customers?page={{ page - 1 }}&per_page={{ per_page }}{% if customer_type %}&customer_type={{ customer_type }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
                         hx-target="#customers-table"
                         class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-slate-700 hover:shadow-sm dark:hover:bg-slate-700 dark:hover:text-slate-300">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
@@ -260,7 +265,8 @@
                         {% if p == page %}
                         <span class="flex h-9 min-w-[36px] items-center justify-center rounded-lg bg-amber-500 px-3 text-sm font-semibold text-white shadow-sm">{{ p }}</span>
                         {% elif p == 1 or p == total_pages or (p >= page - 1 and p <= page + 1) %}
-                        <button hx-get="/admin/customers?page={{ p }}&per_page={{ per_page }}{% if customer_type %}&customer_type={{ customer_type }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
+                        <button type="button"
+                                hx-get="/admin/customers?page={{ p }}&per_page={{ per_page }}{% if customer_type %}&customer_type={{ customer_type }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
                                 hx-target="#customers-table"
                                 class="flex h-9 min-w-[36px] items-center justify-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-white hover:shadow-sm dark:text-slate-400 dark:hover:bg-slate-700">
                             {{ p }}
@@ -273,7 +279,8 @@
 
                 <!-- Next -->
                 {% if page < total_pages %}
-                <button hx-get="/admin/customers?page={{ page + 1 }}&per_page={{ per_page }}{% if customer_type %}&customer_type={{ customer_type }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
+                <button type="button"
+                        hx-get="/admin/customers?page={{ page + 1 }}&per_page={{ per_page }}{% if customer_type %}&customer_type={{ customer_type }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
                         hx-target="#customers-table"
                         class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-slate-700 hover:shadow-sm dark:hover:bg-slate-700 dark:hover:text-slate-300">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>

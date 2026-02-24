@@ -385,8 +385,33 @@
                         <div class="h-px flex-1 bg-slate-200/60 dark:bg-slate-700/60"></div>
                     </div>
                     <div class="grid gap-5 sm:grid-cols-2">
+                        {% set numbering_group = namespace(current='') %}
                         {% for setting in section.settings %}
                         {% if setting.key not in hidden_keys %}
+                        {% set setting_group = '' %}
+                        {% if domain == 'numbering' %}
+                            {% if setting.key.startswith('ticket_number_') %}
+                                {% set setting_group = 'Ticket Numbers' %}
+                            {% elif setting.key.startswith('project_number_') %}
+                                {% set setting_group = 'Project Numbers' %}
+                            {% elif setting.key.startswith('project_task_number_') %}
+                                {% set setting_group = 'Project Task Numbers' %}
+                            {% elif setting.key.startswith('material_request_number_') %}
+                                {% set setting_group = 'Material Request Numbers' %}
+                            {% elif setting.key.startswith('inventory_item_number_') %}
+                                {% set setting_group = 'Inventory Item Numbers' %}
+                            {% endif %}
+                        {% endif %}
+                        {% if setting_group and setting_group != numbering_group.current %}
+                        <div class="sm:col-span-2">
+                            <div class="mt-2 mb-1 flex items-center gap-3">
+                                <div class="h-px flex-1 bg-slate-200/60 dark:bg-slate-700/60"></div>
+                                <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{{ setting_group }}</h4>
+                                <div class="h-px flex-1 bg-slate-200/60 dark:bg-slate-700/60"></div>
+                            </div>
+                        </div>
+                        {% set numbering_group.current = setting_group %}
+                        {% endif %}
                         <div>
                             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                                 {{ setting.label }}
@@ -394,6 +419,9 @@
                                 <span class="text-red-500">*</span>
                                 {% endif %}
                             </label>
+                            {% if domain == 'numbering' and setting.key.endswith('_number_prefix') %}
+                            <p class="mb-1.5 text-xs text-slate-500 dark:text-slate-400">Tokens: <code>{YYYY}</code>, <code>{MM}</code>, <code>{DD}</code>, <code>{YYYYMM}</code>, <code>{YYYYMMDD}</code></p>
+                            {% endif %}
                             {% if setting.value_type == 'boolean' %}
                                 <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                     <input type="checkbox" name="{{ setting.key }}" value="true"
@@ -536,8 +564,33 @@
             </div>
             {% else %}
             <div class="mt-6 grid gap-5 sm:grid-cols-2">
+                {% set numbering_group = namespace(current='') %}
                 {% for setting in settings %}
                 {% if setting.key not in hidden_keys %}
+                {% set setting_group = '' %}
+                {% if domain == 'numbering' %}
+                    {% if setting.key.startswith('ticket_number_') %}
+                        {% set setting_group = 'Ticket Numbers' %}
+                    {% elif setting.key.startswith('project_number_') %}
+                        {% set setting_group = 'Project Numbers' %}
+                    {% elif setting.key.startswith('project_task_number_') %}
+                        {% set setting_group = 'Project Task Numbers' %}
+                    {% elif setting.key.startswith('material_request_number_') %}
+                        {% set setting_group = 'Material Request Numbers' %}
+                    {% elif setting.key.startswith('inventory_item_number_') %}
+                        {% set setting_group = 'Inventory Item Numbers' %}
+                    {% endif %}
+                {% endif %}
+                {% if setting_group and setting_group != numbering_group.current %}
+                <div class="sm:col-span-2">
+                    <div class="mt-2 mb-1 flex items-center gap-3">
+                        <div class="h-px flex-1 bg-slate-200/60 dark:bg-slate-700/60"></div>
+                        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{{ setting_group }}</h4>
+                        <div class="h-px flex-1 bg-slate-200/60 dark:bg-slate-700/60"></div>
+                    </div>
+                </div>
+                {% set numbering_group.current = setting_group %}
+                {% endif %}
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                         {{ setting.label }}
@@ -545,6 +598,9 @@
                         <span class="text-red-500">*</span>
                         {% endif %}
                     </label>
+                    {% if domain == 'numbering' and setting.key.endswith('_number_prefix') %}
+                    <p class="mb-1.5 text-xs text-slate-500 dark:text-slate-400">Tokens: <code>{YYYY}</code>, <code>{MM}</code>, <code>{DD}</code>, <code>{YYYYMM}</code>, <code>{YYYYMMDD}</code></p>
+                    {% endif %}
                     {% if setting.value_type == 'boolean' %}
                         <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                             <input type="checkbox" name="{{ setting.key }}" value="true"

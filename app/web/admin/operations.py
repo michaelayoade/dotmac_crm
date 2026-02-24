@@ -3,6 +3,7 @@
 import contextlib
 import math
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from html import escape as html_escape
 from urllib.parse import quote
 from uuid import UUID
@@ -17,11 +18,14 @@ from app.csrf import get_csrf_token
 from app.db import get_db
 from app.models.auth import UserCredential
 from app.models.dispatch import TechnicianProfile
+from app.models.inventory import InventoryItem
 from app.models.person import Person
+from app.models.projects import ProjectType
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
 from app.models.vendor import InstallationProject
 from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
 from app.schemas.dispatch import TechnicianProfileCreate, TechnicianProfileUpdate
+from app.schemas.sales_order import SalesOrderCreate, SalesOrderLineCreate
 from app.schemas.workforce import WorkOrderCreate, WorkOrderUpdate
 from app.services import dispatch as dispatch_service
 from app.services import sales_orders as sales_orders_service
@@ -42,6 +46,31 @@ def _parse_local_datetime(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _form_text(form, key: str) -> str:
+    value = form.get(key)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _form_text_list(form, key: str) -> list[str]:
+    return [item for item in form.getlist(key) if isinstance(item, str)]
+
+
+def _decimal_from_form(value: str | None, default: Decimal = Decimal("0")) -> Decimal:
+    if value is None:
+        return default
+    raw = value.strip()
+    if not raw:
+        return default
+    try:
+        return Decimal(raw)
+    except (InvalidOperation, ValueError):
+        return default
+
+
+def _round_money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"))
 
 
 def _parse_date_range(
@@ -145,6 +174,198 @@ def sales_orders_list(
     )
 
 
+@router.get("/sales-orders/new", response_class=HTMLResponse)
+def sales_order_new(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Create sales order form."""
+    user = get_current_user(request)
+    inventory_items = (
+        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name.asc()).limit(500).all()
+    )
+    return templates.TemplateResponse(
+        "admin/operations/sales_order_form.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "order": {
+                "id": None,
+                "order_number": "",
+                "person_id": "",
+                "account_id": "",
+                "status": SalesOrderStatus.draft.value,
+                "payment_status": SalesOrderPaymentStatus.pending.value,
+                "total": "",
+                "amount_paid": "",
+                "paid_at": None,
+                "notes": "",
+            },
+            "order_lines": [],
+            "inventory_items": inventory_items,
+            "person_label": "",
+            "account_label": "",
+            "statuses": [s.value for s in SalesOrderStatus],
+            "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
+            "project_types": [item.value for item in ProjectType],
+            "action_url": "/admin/operations/sales-orders/new",
+            "is_create": True,
+            "csrf_token": get_csrf_token(request),
+        },
+    )
+
+
+@router.post("/sales-orders/new", response_class=HTMLResponse)
+async def sales_order_create(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Create sales order from form input."""
+    user = get_current_user(request)
+    form = await request.form()
+
+    person_id = _form_text(form, "person_id")
+    status = _form_text(form, "status") or SalesOrderStatus.draft.value
+    payment_status = _form_text(form, "payment_status") or SalesOrderPaymentStatus.pending.value
+    project_type = _form_text(form, "project_type")
+    allowed_project_types = {item.value for item in ProjectType}
+    if project_type and project_type not in allowed_project_types:
+        project_type = ""
+    amount_paid_raw = _form_text(form, "amount_paid")
+    paid_at_raw = _form_text(form, "paid_at")
+    notes = _form_text(form, "notes")
+
+    line_item_ids = _form_text_list(form, "line_item_inventory_item_id[]")
+    line_descriptions = _form_text_list(form, "line_item_description[]")
+    line_quantities = _form_text_list(form, "line_item_quantity[]")
+    line_unit_prices = _form_text_list(form, "line_item_unit_price[]")
+
+    lines_payload: list[dict[str, object]] = []
+    line_count = max(len(line_item_ids), len(line_descriptions), len(line_quantities), len(line_unit_prices))
+    for idx in range(line_count):
+        inventory_item_id = (line_item_ids[idx] if idx < len(line_item_ids) else "") or ""
+        description = (line_descriptions[idx] if idx < len(line_descriptions) else "").strip()
+        quantity = _decimal_from_form(line_quantities[idx] if idx < len(line_quantities) else "", default=Decimal("1"))
+        unit_price = _decimal_from_form(line_unit_prices[idx] if idx < len(line_unit_prices) else "", default=Decimal("0"))
+
+        if quantity <= 0:
+            quantity = Decimal("1")
+        if unit_price < 0:
+            unit_price = Decimal("0")
+
+        if not description and inventory_item_id:
+            with contextlib.suppress(Exception):
+                item = db.get(InventoryItem, coerce_uuid(inventory_item_id))
+                if item and item.name:
+                    description = item.name
+
+        if not description and not inventory_item_id:
+            continue
+
+        amount = _round_money(quantity * unit_price)
+        lines_payload.append(
+            {
+                "inventory_item_id": inventory_item_id or None,
+                "description": description or "Sales order item",
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "amount": amount,
+            }
+        )
+
+    subtotal = Decimal("0")
+    for line in lines_payload:
+        amount_value = line.get("amount")
+        if isinstance(amount_value, Decimal):
+            subtotal += amount_value
+    subtotal = _round_money(subtotal)
+    tax_total = _round_money(subtotal * Decimal("0.075"))
+    total = _round_money(subtotal + tax_total)
+    amount_paid = _decimal_from_form(amount_paid_raw, default=total)
+
+    person_label = ""
+    person_obj = None
+    with contextlib.suppress(Exception):
+        if person_id:
+            person_obj = db.get(Person, coerce_uuid(person_id))
+    if person_obj:
+        person_label = person_obj.display_name or person_obj.email or ""
+    inventory_items = (
+        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name.asc()).limit(500).all()
+    )
+    try:
+        project_metadata = {"project_type": project_type} if project_type else None
+        resolved_status = SalesOrderStatus(status) if status in SalesOrderStatus._value2member_map_ else SalesOrderStatus.draft
+        resolved_payment_status = (
+            SalesOrderPaymentStatus(payment_status)
+            if payment_status in SalesOrderPaymentStatus._value2member_map_
+            else SalesOrderPaymentStatus.pending
+        )
+        payload = SalesOrderCreate(
+            person_id=coerce_uuid(person_id),
+            status=resolved_status,
+            payment_status=resolved_payment_status,
+            subtotal=subtotal,
+            tax_total=tax_total,
+            total=total,
+            amount_paid=amount_paid,
+            paid_at=_parse_local_datetime(paid_at_raw),
+            notes=notes,
+            metadata_=project_metadata,
+        )
+        order = sales_orders_service.sales_orders.create(db, payload)
+        for line in lines_payload:
+            line_payload = SalesOrderLineCreate(
+                sales_order_id=order.id,
+                inventory_item_id=coerce_uuid(line["inventory_item_id"]) if line["inventory_item_id"] else None,
+                description=str(line["description"]),
+                quantity=Decimal(str(line["quantity"])),
+                unit_price=Decimal(str(line["unit_price"])),
+                amount=Decimal(str(line["amount"])),
+            )
+            sales_orders_service.sales_order_lines.create(db, line_payload)
+        return RedirectResponse(url=f"/admin/operations/sales-orders/{order.id}", status_code=303)
+    except Exception as exc:
+        return templates.TemplateResponse(
+            "admin/operations/sales_order_form.html",
+            {
+                "request": request,
+                "user": user,
+                "current_user": user,
+                "sidebar_stats": get_sidebar_stats(db),
+                "order": {
+                    "id": None,
+                    "order_number": "",
+                    "person_id": person_id or "",
+                    "account_id": "",
+                    "status": status,
+                    "payment_status": payment_status,
+                    "project_type": project_type,
+                    "subtotal": subtotal,
+                    "tax_total": tax_total,
+                    "total": total,
+                    "amount_paid": amount_paid,
+                    "paid_at": _parse_local_datetime(paid_at_raw),
+                    "notes": notes or "",
+                },
+                "order_lines": lines_payload,
+                "inventory_items": inventory_items,
+                "person_label": person_label,
+                "account_label": "",
+                "statuses": [s.value for s in SalesOrderStatus],
+                "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
+                "project_types": [item.value for item in ProjectType],
+                "action_url": "/admin/operations/sales-orders/new",
+                "is_create": True,
+                "csrf_token": get_csrf_token(request),
+                "error": str(getattr(exc, "detail", None) or exc),
+            },
+            status_code=400,
+        )
+
+
 @router.get("/sales-orders/{order_id}", response_class=HTMLResponse)
 def sales_order_detail(
     request: Request,
@@ -228,6 +449,17 @@ def sales_order_edit(
         order = sales_orders_service.sales_orders.get(db, str(order_id))
     except HTTPException:
         return RedirectResponse(url="/admin/operations/sales-orders", status_code=303)
+    lines = sales_orders_service.sales_order_lines.list(
+        db,
+        sales_order_id=str(order_id),
+        order_by="created_at",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    inventory_items = (
+        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name.asc()).limit(500).all()
+    )
 
     return templates.TemplateResponse(
         "admin/operations/sales_order_form.html",
@@ -237,10 +469,13 @@ def sales_order_edit(
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
             "order": order,
+            "order_lines": lines,
+            "inventory_items": inventory_items,
             "account_label": "",
             "statuses": [s.value for s in SalesOrderStatus],
             "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
             "action_url": f"/admin/operations/sales-orders/{order.id}/edit",
+            "is_create": False,
             "csrf_token": get_csrf_token(request),
         },
     )
@@ -264,6 +499,17 @@ def sales_order_update(
         order = sales_orders_service.sales_orders.get(db, str(order_id))
     except HTTPException:
         return RedirectResponse(url="/admin/operations/sales-orders", status_code=303)
+    lines = sales_orders_service.sales_order_lines.list(
+        db,
+        sales_order_id=str(order_id),
+        order_by="created_at",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    inventory_items = (
+        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name.asc()).limit(500).all()
+    )
 
     try:
         sales_orders_service.sales_orders.update_from_input(
@@ -286,10 +532,13 @@ def sales_order_update(
                 "current_user": user,
                 "sidebar_stats": get_sidebar_stats(db),
                 "order": order,
+                "order_lines": lines,
+                "inventory_items": inventory_items,
                 "account_label": "",
                 "statuses": [s.value for s in SalesOrderStatus],
                 "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
                 "action_url": f"/admin/operations/sales-orders/{order.id}/edit",
+                "is_create": False,
                 "csrf_token": get_csrf_token(request),
                 "error": str(exc),
             },

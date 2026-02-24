@@ -74,7 +74,15 @@ class DotMacERPAgentSync:
             return None
 
         timeout_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_timeout_seconds")
-        timeout = int(timeout_value) if isinstance(timeout_value, int | str) else 30
+        if isinstance(timeout_value, bool):
+            timeout = int(timeout_value)
+        elif isinstance(timeout_value, int | float):
+            timeout = int(timeout_value)
+        elif isinstance(timeout_value, str):
+            with_value = timeout_value.strip()
+            timeout = int(with_value) if with_value else 30
+        else:
+            timeout = 30
 
         self._client = DotMacERPClient(base_url=base_url, token=token, timeout=timeout)
         return self._client
@@ -234,8 +242,9 @@ class DotMacERPAgentSync:
         if designation and not agent.title:
             agent.title = str(designation).strip()[:120]
 
-        meta = agent.metadata_ if isinstance(agent.metadata_, dict) else {}
-        meta_dotmac = meta.get("dotmac_erp") if isinstance(meta.get("dotmac_erp"), dict) else {}
+        meta: dict[str, object] = agent.metadata_ if isinstance(agent.metadata_, dict) else {}
+        raw_dotmac = meta.get("dotmac_erp")
+        meta_dotmac: dict[str, object] = raw_dotmac if isinstance(raw_dotmac, dict) else {}
         meta_dotmac.update(
             {
                 "source": "crm_agent_sync",
@@ -378,8 +387,9 @@ class DotMacERPAgentSync:
                 .all()
             )
             for agent in active_agents:
-                meta = agent.metadata_ if isinstance(agent.metadata_, dict) else {}
-                meta_dotmac = meta.get("dotmac_erp") if isinstance(meta.get("dotmac_erp"), dict) else {}
+                meta: dict[str, object] = agent.metadata_ if isinstance(agent.metadata_, dict) else {}
+                raw_dotmac = meta.get("dotmac_erp")
+                meta_dotmac: dict[str, object] = raw_dotmac if isinstance(raw_dotmac, dict) else {}
                 if meta_dotmac.get("source") != "crm_agent_sync":
                     continue
                 employee_id = str(meta_dotmac.get("employee_id") or "").strip()

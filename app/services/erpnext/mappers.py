@@ -90,7 +90,7 @@ HD_TICKET_PRIORITY_MAP = {
 }
 
 PROJECT_STATUS_MAP = {
-    "Open": ProjectStatus.active,
+    "Open": ProjectStatus.open,
     "Completed": ProjectStatus.completed,
     "Cancelled": ProjectStatus.canceled,
     "Overdue": ProjectStatus.active,  # Map to active with flag

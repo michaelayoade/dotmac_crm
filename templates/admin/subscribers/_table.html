@@ -113,7 +113,7 @@
                     <td data-subscriber-column="service_plan" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.service_plan or '—' }}</td>
                     <td data-subscriber-column="service_speed" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.service_speed or '—' }}</td>
                     <td data-subscriber-column="service_city" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.service_city or '—' }}</td>
-                    <td data-subscriber-column="balance" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ '%.2f'|format(subscriber.balance) if subscriber.balance is not none else '—' }}</td>
+                    <td data-subscriber-column="balance" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.balance_display }}</td>
                     <td data-subscriber-column="billing_cycle" class="whitespace-nowrap {{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ subscriber.billing_cycle or '—' }}</td>
                     <td data-subscriber-column="activated" class="whitespace-nowrap {{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ subscriber.activated_at.strftime('%b %d, %Y') if subscriber.activated_at else '—' }}</td>
                     <td class="whitespace-nowrap {{ pad }} text-right">
@@ -121,7 +121,8 @@
                             {{ row_action("/admin/subscribers/" ~ subscriber.id, icon_view(), "View details", "amber") }}
                             {{ row_action("/admin/subscribers/" ~ subscriber.id ~ "/edit", icon_edit(), "Edit subscriber", "slate") }}
                             {% if subscriber.is_active %}
-                            <button hx-post="/admin/subscribers/{{ subscriber.id }}/deactivate"
+                            <button type="button"
+                                    hx-post="/admin/subscribers/{{ subscriber.id }}/deactivate"
                                     hx-confirm="Deactivate this subscriber?"
                                     class="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-all hover:bg-orange-100 hover:text-orange-600 dark:hover:bg-orange-900/30 dark:hover:text-orange-400"
                                     title="Deactivate">
@@ -130,7 +131,8 @@
                                 </svg>
                             </button>
                             {% else %}
-                            <button hx-delete="/admin/subscribers/{{ subscriber.id }}"
+                            <button type="button"
+                                    hx-delete="/admin/subscribers/{{ subscriber.id }}"
                                     hx-confirm="Delete this deactivated subscriber? This action cannot be undone."
                                     hx-target="closest tr"
                                     hx-swap="outerHTML swap:1s"

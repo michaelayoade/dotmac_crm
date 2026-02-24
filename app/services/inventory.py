@@ -27,6 +27,7 @@ from app.schemas.inventory import (
 )
 from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
 
 
@@ -48,7 +49,20 @@ def _ensure_work_order(db: Session, work_order_id: str):
 class InventoryItems(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: InventoryItemCreate):
-        item = InventoryItem(**payload.model_dump())
+        data = payload.model_dump()
+        if not (data.get("sku") or "").strip():
+            sku = generate_number(
+                db=db,
+                domain=SettingDomain.numbering,
+                sequence_key="inventory_item_number",
+                enabled_key="inventory_item_number_enabled",
+                prefix_key="inventory_item_number_prefix",
+                padding_key="inventory_item_number_padding",
+                start_key="inventory_item_number_start",
+            )
+            if sku:
+                data["sku"] = sku
+        item = InventoryItem(**data)
         db.add(item)
         db.commit()
         db.refresh(item)

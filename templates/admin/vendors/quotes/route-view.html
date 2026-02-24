@@ -1,0 +1,116 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Route Revision View{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<style>
+    #route-map {
+        height: calc(100vh - 260px);
+        min-height: 420px;
+        border-radius: 0.75rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Route Revision #{{ revision.revision_number }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Quote {{ quote_id }} • Status {{ revision.status.value if revision.status else "—" }}
+            </p>
+        </div>
+        <a href="/admin/vendors/quotes"
+           class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+            Back to quote review
+        </a>
+    </div>
+
+    {% if not route_geojson %}
+    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-600/40 dark:bg-amber-500/10 dark:text-amber-300">
+        No route geometry is saved for this revision.
+    </div>
+    {% else %}
+    <div class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div id="route-map"></div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if route_geojson %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+    (() => {
+        const networkGeojson = {{ geojson_data | tojson | safe }};
+        const routeGeojson = {{ route_geojson | tojson | safe }};
+        const map = L.map('route-map').setView([9.0820, 8.6753], 6);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        const baseLayer = L.geoJSON(networkGeojson, {
+            style: (feature) => {
+                const t = feature?.properties?.type || '';
+                if (t === 'fiber_segment') {
+                    return { color: '#0ea5e9', weight: 2, opacity: 0.45 };
+                }
+                return { color: '#64748b', weight: 1, opacity: 0.35 };
+            },
+            pointToLayer: (feature, latlng) => {
+                const t = feature?.properties?.type || '';
+                if (t === 'fdh_cabinet') {
+                    return L.circleMarker(latlng, {
+                        radius: 6,
+                        color: '#f97316',
+                        weight: 2,
+                        fillColor: '#fed7aa',
+                        fillOpacity: 0.65,
+                    });
+                }
+                if (t === 'splice_closure') {
+                    return L.circleMarker(latlng, {
+                        radius: 5,
+                        color: '#14b8a6',
+                        weight: 2,
+                        fillColor: '#99f6e4',
+                        fillOpacity: 0.65,
+                    });
+                }
+                return L.circleMarker(latlng, {
+                    radius: 4,
+                    color: '#64748b',
+                    weight: 1,
+                    fillColor: '#cbd5e1',
+                    fillOpacity: 0.55,
+                });
+            }
+        }).addTo(map);
+
+        const routeLayer = L.geoJSON(routeGeojson, {
+            style: {
+                color: '#7c3aed',
+                weight: 4,
+                opacity: 0.9
+            }
+        }).addTo(map);
+        const routeBounds = routeLayer.getBounds();
+        if (routeBounds.isValid()) {
+            map.fitBounds(routeBounds.pad(0.25), { maxZoom: 17 });
+        } else {
+            const combined = L.featureGroup([baseLayer, routeLayer]);
+            const bounds = combined.getBounds();
+            if (bounds.isValid()) {
+                map.fitBounds(bounds.pad(0.15), { maxZoom: 14 });
+            }
+        }
+    })();
+</script>
+{% endif %}
+{% endblock %}

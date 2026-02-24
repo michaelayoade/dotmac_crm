@@ -18,6 +18,7 @@ from app.services.crm.inbox.handlers.utils import (
 )
 from app.services.crm.inbox.observability import INBOUND_MESSAGES, MESSAGE_PROCESSING_TIME
 from app.services.events import EventType, emit_event
+from app.telemetry import get_tracer
 
 logger = get_inbox_logger(__name__)
 

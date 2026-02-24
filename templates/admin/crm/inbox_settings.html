@@ -115,6 +115,19 @@
         {% endif %}
     </div>
     {% endif %}
+    {% if csat_setup %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        CSAT inbox settings saved.
+    </div>
+    {% endif %}
+    {% if csat_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        CSAT settings could not be saved.
+        {% if csat_error_detail %}
+        <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ csat_error_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
     {% if meta_setup %}
     <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
         Meta accounts connected successfully.
@@ -146,6 +159,7 @@
             </div>
         </div>
         <form method="POST" action="/admin/crm/inbox/notification-settings" class="mt-5 grid gap-4 md:grid-cols-2">
+            {% include "components/forms/csrf_input.html" %}
             <div>
                 <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300">Reminder delay (seconds)</label>
                 <input type="number"
@@ -190,6 +204,109 @@
                 {{ submit_button("Save notification settings", color="amber") }}
             </div>
         </form>
+    </section>
+
+    <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Auto-Resolve</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Automatically resolve conversations that have been idle for a set number of days.
+                </p>
+            </div>
+        </div>
+        <form method="POST" action="/admin/crm/inbox/notification-settings" class="mt-5 grid gap-4 md:grid-cols-2">
+            {% include "components/forms/csrf_input.html" %}
+            <div class="md:col-span-2">
+                <label class="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input type="checkbox"
+                           name="auto_resolve_enabled"
+                           value="1"
+                           {% if auto_resolve_enabled %}checked{% endif %}
+                           class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800">
+                    Enable auto-resolve for idle conversations
+                </label>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300">Idle days before resolve</label>
+                <input type="number"
+                       name="auto_resolve_days"
+                       min="1"
+                       max="90"
+                       value="{{ auto_resolve_days or 7 }}"
+                       class="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Conversations idle for this many days will be auto-resolved (1–90).</p>
+            </div>
+            <div class="flex items-end justify-end md:col-span-2">
+                {{ submit_button("Save auto-resolve settings", color="amber") }}
+            </div>
+        </form>
+    </section>
+
+    <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Conversation CSAT</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Enable or disable post-resolution CSAT invites per inbox. Disabled by default.
+                </p>
+            </div>
+        </div>
+        <div class="mt-5 space-y-3">
+            {% set all_inboxes = (email_inboxes or []) + (whatsapp_inboxes or []) + (facebook_inboxes or []) + (instagram_inboxes or []) %}
+            {% if all_inboxes and all_inboxes|length > 0 %}
+                {% for inbox in all_inboxes %}
+                <form method="POST" action="/admin/crm/inbox/csat-toggle" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
+                    {% include "components/forms/csrf_input.html" %}
+                    <input type="hidden" name="target_id" value="{{ inbox.target_id }}">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-900 dark:text-white">{{ inbox.name or inbox.target_id }}</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ (inbox.channel or "inbox")|replace("_"," ")|title }}</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                            <input type="checkbox"
+                                   name="enabled"
+                                   value="1"
+                                   {% if inbox.csat_enabled %}checked{% endif %}
+                                   {% if not can_manage_settings %}disabled{% endif %}
+                                   class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800">
+                            Enable CSAT
+                        </label>
+                        <button type="submit"
+                                {% if not can_manage_settings %}disabled{% endif %}
+                                class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                            Save
+                        </button>
+                    </div>
+                </form>
+                {% endfor %}
+            {% endif %}
+            <form method="POST" action="/admin/crm/inbox/csat-toggle" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
+                {% include "components/forms/csrf_input.html" %}
+                <input type="hidden" name="target_id" value="channel:chat_widget">
+                <div>
+                    <p class="text-sm font-semibold text-slate-900 dark:text-white">Website Chat</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Chat Widget</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <label class="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                        <input type="checkbox"
+                               name="enabled"
+                               value="1"
+                               {% if chat_widget_csat_enabled %}checked{% endif %}
+                               {% if not can_manage_settings %}disabled{% endif %}
+                               class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800">
+                        Enable CSAT
+                    </label>
+                    <button type="submit"
+                            {% if not can_manage_settings %}disabled{% endif %}
+                            class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                        Save
+                    </button>
+                </div>
+            </form>
+        </div>
     </section>
 
     <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
@@ -466,6 +583,208 @@
         </div>
         {% else %}
         <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">No routing rules yet.</p>
+        {% endif %}
+    </section>
+
+    <!-- ── Macros ──────────────────────────────────────────────── -->
+    {% if macro_setup is defined and macro_setup %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Macro saved successfully.
+    </div>
+    {% endif %}
+    {% if macro_error is defined and macro_error %}
+    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        Failed to save macro.
+        {% if macro_error_detail is defined and macro_error_detail %}
+        <div class="mt-1 text-xs text-red-600 dark:text-red-300">{{ macro_error_detail }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900 animate-fade-in-up">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Conversation Macros</h2>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Saved action sequences that agents can execute on conversations with one click.
+                </p>
+            </div>
+        </div>
+
+        <!-- Create macro form -->
+        {% if can_manage_settings %}
+        <details class="mt-5 group">
+            <summary class="cursor-pointer text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300">
+                + Add macro
+            </summary>
+            <form method="POST" action="/admin/crm/inbox/macros"
+                  x-data='{
+                      actions: [],
+                      addAction() { this.actions.push({action_type: "set_status", params: {}}); },
+                      removeAction(idx) { this.actions.splice(idx, 1); },
+                      serializeActions() { return JSON.stringify(this.actions); }
+                  }'
+                  @submit="$refs.actionsInput.value = serializeActions()"
+                  class="mt-4 space-y-4">
+                {% include "components/forms/csrf_input.html" %}
+                <div class="grid gap-4 md:grid-cols-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Name</label>
+                        <input type="text" name="name" required maxlength="200" placeholder="e.g. Resolve + tag VIP"
+                               class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Visibility</label>
+                        <select name="visibility"
+                                class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            <option value="personal">Personal (only me)</option>
+                            <option value="shared">Shared (all agents)</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Description (optional)</label>
+                    <input type="text" name="description" maxlength="500" placeholder="Brief description of what this macro does"
+                           class="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:outline-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500">
+                </div>
+
+                <!-- Dynamic action builder -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Actions</label>
+                    <template x-for="(action, idx) in actions" :key="idx">
+                        <div class="flex items-start gap-2 mb-3 p-3 rounded-lg border border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-700/30">
+                            <div class="flex-1 grid gap-2 md:grid-cols-2">
+                                <select x-model="action.action_type" @change="action.params = {}"
+                                        class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    <option value="assign_conversation">Assign to agent/team</option>
+                                    <option value="set_status">Change status</option>
+                                    <option value="add_tag">Add tag</option>
+                                    <option value="send_template">Send canned response</option>
+                                </select>
+                                <!-- Params per type -->
+                                <template x-if="action.action_type === 'set_status'">
+                                    <select x-model="action.params.status"
+                                            class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                        <option value="">Select status...</option>
+                                        <option value="open">Open</option>
+                                        <option value="pending">Pending</option>
+                                        <option value="snoozed">Snoozed</option>
+                                        <option value="resolved">Resolved</option>
+                                    </select>
+                                </template>
+                                <template x-if="action.action_type === 'add_tag'">
+                                    <input type="text" x-model="action.params.tag" placeholder="Tag name"
+                                           class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-500">
+                                </template>
+                                <template x-if="action.action_type === 'assign_conversation'">
+                                    <div class="flex gap-2">
+                                        <select x-model="action.params.agent_id"
+                                                class="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                            <option value="">Agent (optional)</option>
+                                            {% for agent in agents %}
+                                            <option value="{{ agent.id }}">{{ people_by_id.get(agent.person_id|string, agent).display_name|default(people_by_id.get(agent.person_id|string, agent).first_name|default('Agent'), true) }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </template>
+                                <template x-if="action.action_type === 'send_template'">
+                                    <select x-model="action.params.template_id"
+                                            class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                        <option value="">Select template...</option>
+                                        {% for tpl in message_templates %}
+                                        <option value="{{ tpl.id }}">{{ tpl.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </template>
+                            </div>
+                            <button type="button" @click="removeAction(idx)"
+                                    class="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+                                    aria-label="Remove action">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </template>
+                    <button type="button" @click="addAction()"
+                            class="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-500 hover:border-primary-400 hover:text-primary-600 dark:border-slate-600 dark:text-slate-400 dark:hover:border-primary-500 dark:hover:text-primary-400">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
+                        </svg>
+                        Add action
+                    </button>
+                </div>
+
+                <input type="hidden" name="actions_json" x-ref="actionsInput" value="[]">
+                <div class="flex gap-2">
+                    {{ submit_button("Create Macro") }}
+                </div>
+            </form>
+        </details>
+        {% endif %}
+
+        <!-- Existing macros list -->
+        {% if macros is defined and macros|length > 0 %}
+        <div class="mt-5 space-y-3">
+            {% for macro in macros %}
+            <details class="rounded-xl border border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-800/50 group">
+                <summary class="flex items-center justify-between cursor-pointer px-4 py-3">
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <span class="text-sm font-medium text-slate-900 dark:text-white">{{ macro.name }}</span>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                <span class="text-[10px] px-1.5 py-0.5 rounded-md font-medium
+                                    {% if macro.visibility.value == 'shared' %}bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400
+                                    {% else %}bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400{% endif %}">
+                                    {{ macro.visibility.value | capitalize }}
+                                </span>
+                                <span class="text-[10px] text-slate-400 dark:text-slate-500">{{ macro.actions|length }} action{{ 's' if macro.actions|length != 1 else '' }}</span>
+                                <span class="text-[10px] text-slate-400 dark:text-slate-500">{{ macro.execution_count }} run{{ 's' if macro.execution_count != 1 else '' }}</span>
+                                {% if not macro.is_active %}
+                                <span class="text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-red-500/10 text-red-700 dark:bg-red-500/20 dark:text-red-400">Inactive</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </summary>
+                <div class="px-4 pb-4 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                    {% if macro.description %}
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">{{ macro.description }}</p>
+                    {% endif %}
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                        <span class="font-semibold">Actions:</span>
+                        {% for action in macro.actions %}
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 ml-1 mb-1">
+                            {{ action.action_type | replace('_', ' ') | title }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% if can_manage_settings %}
+                    <div class="flex gap-2">
+                        <form method="POST" action="/admin/crm/inbox/macros/{{ macro.id }}/delete">
+                            {% include "components/forms/csrf_input.html" %}
+                            <button type="submit"
+                                    onclick="return confirm('Delete this macro?')"
+                                    class="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20">
+                                Delete
+                            </button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">No macros yet. Create one to speed up repetitive actions.</p>
         {% endif %}
     </section>
 
@@ -1579,12 +1898,14 @@ function copyWidgetEmbed(button) {
 function _presenceDotClass(status) {
     if (status === 'online') return 'bg-emerald-500';
     if (status === 'away') return 'bg-amber-500';
-    return 'bg-slate-400';
+    if (status === 'on_break') return 'bg-slate-400';
+    return 'bg-rose-500';
 }
 
 function _presenceLabel(status) {
     if (status === 'online') return 'Online';
     if (status === 'away') return 'Away';
+    if (status === 'on_break') return 'On break';
     return 'Offline';
 }
 
@@ -1625,7 +1946,7 @@ function updateAgentPresence() {
             const label = cell.querySelector('[data-agent-presence-label]');
             const lastSeen = cell.parentElement?.querySelector('[data-agent-last-seen]');
             if (dot) {
-                dot.classList.remove('bg-emerald-500', 'bg-amber-500', 'bg-slate-400');
+                dot.classList.remove('bg-emerald-500', 'bg-amber-500', 'bg-slate-400', 'bg-rose-500');
                 dot.classList.add(_presenceDotClass(status));
             }
             if (label) {

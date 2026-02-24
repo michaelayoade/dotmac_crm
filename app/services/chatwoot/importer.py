@@ -551,8 +551,23 @@ class ChatwootImporter:
     def _import_messages(self, db: Session, result: ImportResult):
         """Import messages for all conversations."""
         logger.info("Importing messages...")
+        batch_size = 100
+        conversation_items = list(self._conversation_map.items())
+        # Prioritize chat widget imports so affected inboxes are hydrated first.
+        conversation_items.sort(
+            key=lambda item: (
+                0
+                if (
+                    isinstance(item[1].metadata_, dict)
+                    and item[1].metadata_.get("channel_type") == ChannelType.chat_widget.value
+                )
+                else 1
+            )
+        )
 
-        for cw_conv_id, conversation in self._conversation_map.items():
+        processed = 0
+        total = len(conversation_items)
+        for cw_conv_id, conversation in conversation_items:
             try:
                 messages = self.client.get_conversation_messages(cw_conv_id)
 
@@ -562,6 +577,24 @@ class ChatwootImporter:
             except Exception as e:
                 result.messages.errors += 1
                 result.error_details.append(f"Messages fetch error (conv {cw_conv_id}): {e}")
+            finally:
+                processed += 1
+
+            if processed % batch_size == 0:
+                try:
+                    db.commit()
+                except Exception as e:
+                    db.rollback()
+                    result.messages.errors += 1
+                    result.error_details.append(f"Messages batch commit error ({processed}/{total}): {e}")
+
+        if processed % batch_size != 0:
+            try:
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                result.messages.errors += 1
+                result.error_details.append(f"Messages final commit error ({processed}/{total}): {e}")
 
     def _import_single_message(
         self,

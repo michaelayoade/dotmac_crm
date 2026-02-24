@@ -1,23 +1,17 @@
 """Service helpers for vendor portal routes."""
 
-import uuid
-
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.models.projects import Project
-from app.models.rbac import PersonRole, Role
 from app.models.vendor import InstallationProject
 from app.services import vendor as vendor_service
 from app.services import vendor_portal
 from app.services.common import coerce_uuid
 
 templates = Jinja2Templates(directory="templates")
-
-_VENDOR_ROLE_NAME = "vendors"
-
 
 def _coerce_float(value: object | None, default: float) -> float:
     if isinstance(value, bool):
@@ -87,18 +81,6 @@ def _as_built_eligible_project_ids(db: Session, projects: list[InstallationProje
         .all()
     )
     return {str(row[0]) for row in rows}
-
-
-def _has_vendor_role(db: Session, person_id: str, vendor_role: str | None) -> bool:
-    if vendor_role and vendor_role.strip().lower() == _VENDOR_ROLE_NAME:
-        return True
-    role = db.query(Role).filter(Role.name.ilike(_VENDOR_ROLE_NAME)).first()
-    if not role:
-        return False
-    return (
-        db.query(PersonRole).filter(PersonRole.person_id == person_id).filter(PersonRole.role_id == role.id).first()
-        is not None
-    )
 
 
 def vendor_home(request: Request, db: Session):
@@ -280,147 +262,15 @@ def vendor_fiber_map(request: Request, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
-    if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
-        return HTMLResponse(content="Forbidden", status_code=403)
     initial_quote_id = request.query_params.get("quote_id") or ""
 
-    import json
-
-    from sqlalchemy import func
-
     from app.models.domain_settings import SettingDomain
-    from app.models.network import FdhCabinet, FiberSegment, FiberSplice, FiberSpliceClosure, FiberSpliceTray, Splitter
     from app.services import settings_spec
     from app.services.fiber_plant import fiber_plant
 
-    features = []
-
-    # FDH Cabinets
-    fdh_cabinets = (
-        db.query(FdhCabinet)
-        .filter(FdhCabinet.is_active.is_(True), FdhCabinet.latitude.isnot(None), FdhCabinet.longitude.isnot(None))
-        .all()
-    )
-    splitter_counts: dict[uuid.UUID | None, int] = {}
-    if fdh_cabinets:
-        fdh_ids = [fdh.id for fdh in fdh_cabinets]
-        splitter_counts = {
-            row[0]: row[1]
-            for row in (
-                db.query(Splitter.fdh_id, func.count(Splitter.id))
-                .filter(Splitter.fdh_id.in_(fdh_ids))
-                .group_by(Splitter.fdh_id)
-                .all()
-            )
-        }
-    for fdh in fdh_cabinets:
-        splitter_count = splitter_counts.get(fdh.id, 0)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [fdh.longitude, fdh.latitude]},
-                "properties": {
-                    "id": str(fdh.id),
-                    "type": "fdh_cabinet",
-                    "name": fdh.name,
-                    "code": fdh.code,
-                    "splitter_count": splitter_count,
-                },
-            }
-        )
-
-    # Splice Closures
-    closures = (
-        db.query(FiberSpliceClosure)
-        .filter(
-            FiberSpliceClosure.is_active.is_(True),
-            FiberSpliceClosure.latitude.isnot(None),
-            FiberSpliceClosure.longitude.isnot(None),
-        )
-        .all()
-    )
-    splice_counts: dict[uuid.UUID | None, int] = {}
-    tray_counts: dict[uuid.UUID | None, int] = {}
-    if closures:
-        closure_ids = [closure.id for closure in closures]
-        splice_counts = {
-            row[0]: row[1]
-            for row in (
-                db.query(FiberSplice.closure_id, func.count(FiberSplice.id))
-                .filter(FiberSplice.closure_id.in_(closure_ids))
-                .group_by(FiberSplice.closure_id)
-                .all()
-            )
-        }
-        tray_counts = {
-            row[0]: row[1]
-            for row in (
-                db.query(FiberSpliceTray.closure_id, func.count(FiberSpliceTray.id))
-                .filter(FiberSpliceTray.closure_id.in_(closure_ids))
-                .group_by(FiberSpliceTray.closure_id)
-                .all()
-            )
-        }
-    for closure in closures:
-        splice_count = splice_counts.get(closure.id, 0)
-        tray_count = tray_counts.get(closure.id, 0)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [closure.longitude, closure.latitude]},
-                "properties": {
-                    "id": str(closure.id),
-                    "type": "splice_closure",
-                    "name": closure.name,
-                    "splice_count": splice_count,
-                    "tray_count": tray_count,
-                },
-            }
-        )
-
-    # Fiber Segments
-    segments = db.query(FiberSegment).filter(FiberSegment.is_active.is_(True)).all()
-    segment_geoms = (
-        db.query(FiberSegment, func.ST_AsGeoJSON(FiberSegment.route_geom))
-        .filter(
-            FiberSegment.is_active.is_(True),
-            FiberSegment.route_geom.isnot(None),
-        )
-        .all()
-    )
-    for segment, geojson_str in segment_geoms:
-        if not geojson_str:
-            continue
-        geom = json.loads(geojson_str)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": geom,
-                "properties": {
-                    "id": str(segment.id),
-                    "type": "fiber_segment",
-                    "name": segment.name,
-                    "segment_type": segment.segment_type.value if segment.segment_type else None,
-                    "cable_type": segment.cable_type.value if segment.cable_type else None,
-                    "fiber_count": segment.fiber_count,
-                    "length_m": segment.length_m,
-                },
-            }
-        )
-
-    geojson_data = {"type": "FeatureCollection", "features": features}
-
-    stats = {
-        "fdh_cabinets": db.query(func.count(FdhCabinet.id)).filter(FdhCabinet.is_active.is_(True)).scalar(),
-        "fdh_with_location": len(fdh_cabinets),
-        "splice_closures": db.query(func.count(FiberSpliceClosure.id))
-        .filter(FiberSpliceClosure.is_active.is_(True))
-        .scalar(),
-        "closures_with_location": len(closures),
-        "splitters": db.query(func.count(Splitter.id)).filter(Splitter.is_active.is_(True)).scalar(),
-        "total_splices": db.query(func.count(FiberSplice.id)).scalar(),
-        "segments": len(segments),
-    }
+    # Keep vendor map in lockstep with admin map data sources.
+    geojson_data = fiber_plant.get_geojson(db)
+    stats = fiber_plant.get_stats(db)
     qa_stats = fiber_plant.get_quality_stats(db)
 
     cost_settings = {
@@ -463,8 +313,6 @@ async def vendor_fiber_map_update_position(request: Request, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     from app.models.fiber_change_request import FiberChangeRequestOperation
     from app.services import fiber_change_requests as change_request_service
 
@@ -509,12 +357,56 @@ async def vendor_fiber_map_update_position(request: Request, db: Session):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+async def vendor_fiber_map_update_olt_role(request: Request, db: Session):
+    context = _require_vendor_context(request, db)
+    if not context:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    from app.web.admin import network as admin_network
+
+    return await admin_network.fiber_map_update_olt_role(request, db)
+
+
+async def vendor_fiber_map_save_plan(request: Request, db: Session):
+    context = _require_vendor_context(request, db)
+    if not context:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    from app.schemas.vendor import ProposedRouteRevisionCreate
+
+    try:
+        data = await request.json()
+        quote_id = (data.get("quote_id") or "").strip()
+        geojson = data.get("geojson")
+        length_meters = data.get("length_meters")
+
+        if not quote_id:
+            return JSONResponse({"error": "Quote ID is required"}, status_code=400)
+        if not geojson:
+            return JSONResponse({"error": "Route geometry is required"}, status_code=400)
+
+        payload = ProposedRouteRevisionCreate(
+            quote_id=coerce_uuid(quote_id),
+            geojson=geojson,
+            length_meters=length_meters,
+        )
+        revision = vendor_service.proposed_route_revisions.create(
+            db,
+            payload=payload,
+            vendor_id=str(context["vendor"].id),
+        )
+        return JSONResponse(
+            {"success": True, "revision_id": str(revision.id), "revision_number": revision.revision_number}
+        )
+    except HTTPException as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+    except Exception:
+        db.rollback()
+        return JSONResponse({"error": "Failed to save route plan"}, status_code=500)
+
+
 async def vendor_fiber_map_nearest_cabinet(request: Request, lat: float, lng: float, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     from app.web.admin import network as admin_network
 
     return await admin_network.find_nearest_cabinet(request, lat, lng, db)
@@ -524,8 +416,6 @@ async def vendor_fiber_map_plan_options(request: Request, lat: float, lng: float
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     from app.web.admin import network as admin_network
 
     return await admin_network.plan_options(request, lat, lng, db)
@@ -535,8 +425,72 @@ async def vendor_fiber_map_route(request: Request, lat: float, lng: float, cabin
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    if not _has_vendor_role(db, str(context["person"].id), context["vendor_user"].role):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     from app.web.admin import network as admin_network
 
     return await admin_network.plan_route(request, lat, lng, cabinet_id, db)
+
+
+async def vendor_fiber_map_asset_details(request: Request, asset_type: str, asset_id: str, db: Session):
+    context = _require_vendor_context(request, db)
+    if not context:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    from app.services.fiber_plant import fiber_plant
+
+    try:
+        details = fiber_plant.get_asset_details(db, asset_type, asset_id)
+        return JSONResponse(details)
+    except HTTPException as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+    except Exception:
+        return JSONResponse({"error": "Failed to load asset details"}, status_code=500)
+
+
+async def vendor_fiber_map_merge(request: Request, db: Session):
+    context = _require_vendor_context(request, db)
+    if not context:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    from app.services.fiber_plant import fiber_plant
+
+    try:
+        data = await request.json()
+        asset_type = data.get("asset_type")
+        source_id = data.get("source_id")
+        target_id = data.get("target_id")
+        field_choices = data.get("field_choices", {})
+        if not all([asset_type, source_id, target_id]):
+            return JSONResponse({"error": "Missing required fields"}, status_code=400)
+
+        result = fiber_plant.merge_assets(
+            db,
+            asset_type=asset_type,
+            source_id=source_id,
+            target_id=target_id,
+            field_choices=field_choices,
+            merged_by_id=str(context["person"].id),
+        )
+        result["target"] = fiber_plant.get_asset_details(db, asset_type, result["target_id"])
+        return JSONResponse(result)
+    except HTTPException as exc:
+        db.rollback()
+        return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+    except Exception:
+        db.rollback()
+        return JSONResponse({"error": "Merge failed"}, status_code=500)
+
+
+def vendor_fiber_map_closure_duplicates_pdf(request: Request, db: Session):
+    context = _require_vendor_context(request, db)
+    if not context:
+        return RedirectResponse(url="/vendor/auth/login", status_code=303)
+    from app.web.admin import network as admin_network
+
+    return admin_network.fiber_map_closure_duplicates_pdf(request, db)
+
+
+def vendor_fiber_map_segment_geometry(request: Request, segment_id: str, db: Session):
+    context = _require_vendor_context(request, db)
+    if not context:
+        return JSONResponse({"error": "Authentication required"}, status_code=401)
+    from app.web.admin import network as admin_network
+
+    return admin_network.fiber_map_segment_geometry(segment_id, db)

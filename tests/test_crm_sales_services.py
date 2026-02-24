@@ -7,6 +7,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.crm.enums import LeadStatus, QuoteStatus
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import PersonChannel
 from app.schemas.crm.sales import (
     LeadCreate,
     LeadUpdate,
@@ -329,6 +331,34 @@ def test_create_lead_with_status(db_session, person):
         LeadCreate(title="Qualified Lead", person_id=person.id, status=LeadStatus.qualified),
     )
     assert lead.status == LeadStatus.qualified
+
+
+def test_create_lead_with_source(db_session, person):
+    """Test creating a lead with explicit source."""
+    lead = sales_service.Leads.create(
+        db_session,
+        LeadCreate(title="Source Lead", person_id=person.id, lead_source="Facebook Ads"),
+    )
+    assert lead.lead_source == "Facebook Ads"
+
+
+def test_create_lead_infers_source_from_person_channel(db_session, person):
+    """Test creating a lead infers source from known channel when omitted."""
+    db_session.add(
+        PersonChannel(
+            person_id=person.id,
+            channel_type=PersonChannelType.instagram_dm,
+            address=f"ig-{uuid.uuid4().hex}",
+            is_primary=False,
+        )
+    )
+    db_session.commit()
+
+    lead = sales_service.Leads.create(
+        db_session,
+        LeadCreate(title="Inferred Source Lead", person_id=person.id),
+    )
+    assert lead.lead_source == "Instagram"
 
 
 def test_get_lead(db_session, person):

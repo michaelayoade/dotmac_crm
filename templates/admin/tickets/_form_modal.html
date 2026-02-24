@@ -1,4 +1,5 @@
 {% set prefill = prefill or {} %}
 <form id="ticket-create-form" method="POST" action="{{ action_url }}" enctype="multipart/form-data">
     {% include "admin/tickets/_form_body.html" %}
+    <button type="submit" class="hidden" aria-hidden="true" tabindex="-1">Create Ticket</button>
 </form>

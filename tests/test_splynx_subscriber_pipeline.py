@@ -9,11 +9,13 @@ Covers:
 """
 
 import uuid
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from app.models.crm.sales import CrmQuoteLineItem, Quote
 from app.models.person import PartyStatus, Person
 from app.models.projects import Project
-from app.models.sales_order import SalesOrder
+from app.models.sales_order import SalesOrder, SalesOrderLine
 from app.models.subscriber import (
     AccountType,
     Organization,
@@ -23,6 +25,7 @@ from app.models.subscriber import (
 from app.services.events.handlers.splynx_customer import (
     SplynxCustomerHandler,
     _ensure_subscriber,
+    _resolve_installation_amount,
     _resolve_person_for_project,
     _resolve_sales_order_id,
 )
@@ -30,6 +33,7 @@ from app.services.events.types import Event, EventType
 from app.services.splynx import (
     _build_customer_payload,
     _resolve_customer_url,
+    _resolve_invoice_urls,
     ensure_person_customer,
 )
 from app.services.subscriber import subscriber as subscriber_service
@@ -79,6 +83,42 @@ def _make_sales_order(db_session, person_id) -> SalesOrder:
     db_session.commit()
     db_session.refresh(so)
     return so
+
+
+def _make_quote(db_session, person_id) -> Quote:
+    quote = Quote(person_id=person_id)
+    db_session.add(quote)
+    db_session.commit()
+    db_session.refresh(quote)
+    return quote
+
+
+def _make_sales_order_line(db_session, sales_order_id, description, amount) -> SalesOrderLine:
+    line = SalesOrderLine(
+        sales_order_id=sales_order_id,
+        description=description,
+        quantity=Decimal("1.000"),
+        unit_price=Decimal(str(amount)),
+        amount=Decimal(str(amount)),
+    )
+    db_session.add(line)
+    db_session.commit()
+    db_session.refresh(line)
+    return line
+
+
+def _make_quote_line(db_session, quote_id, description, amount) -> CrmQuoteLineItem:
+    line = CrmQuoteLineItem(
+        quote_id=quote_id,
+        description=description,
+        quantity=Decimal("1.000"),
+        unit_price=Decimal(str(amount)),
+        amount=Decimal(str(amount)),
+    )
+    db_session.add(line)
+    db_session.commit()
+    db_session.refresh(line)
+    return line
 
 
 def _make_organization(db_session, *, account_type=AccountType.customer, parent_id=None, **kw) -> Organization:
@@ -169,6 +209,23 @@ class TestResolveCustomerUrl:
         config = {"base_url": "https://splynx.example.com/api/2.0/admin/customers/customer", "customer_url": None}
         url = _resolve_customer_url(config)
         assert url == "https://splynx.example.com/api/2.0/admin/customers/customer"
+
+
+class TestResolveInvoiceUrls:
+    def test_explicit_invoice_url(self):
+        config = {
+            "base_url": "https://splynx.example.com/api/2.0",
+            "invoice_url": "https://splynx.example.com/api/2.0/admin/finance/invoices",
+        }
+        assert _resolve_invoice_urls(config) == ["https://splynx.example.com/api/2.0/admin/finance/invoices"]
+
+    def test_default_candidates(self):
+        config = {"base_url": "https://splynx.example.com/api/2.0", "invoice_url": None}
+        urls = _resolve_invoice_urls(config)
+        assert urls == [
+            "https://splynx.example.com/api/2.0/admin/finance/invoices",
+            "https://splynx.example.com/api/2.0/admin/finance/invoice",
+        ]
 
 
 class TestEnsurePersonCustomer:
@@ -394,6 +451,36 @@ class TestResolveSalesOrderId:
         assert _resolve_sales_order_id(project) is None
 
 
+class TestResolveInstallationAmount:
+    def test_prefers_sales_order_installation_lines(self, db_session):
+        person = _make_person(db_session)
+        so = _make_sales_order(db_session, person.id)
+        quote = _make_quote(db_session, person.id)
+        _make_sales_order_line(db_session, so.id, "Installation - Fiber Setup", "25000.00")
+        _make_sales_order_line(db_session, so.id, "Router", "5000.00")
+        _make_quote_line(db_session, quote.id, "Installation from quote", "99999.00")
+        project = _make_project(
+            db_session,
+            owner_person_id=person.id,
+            metadata_={"sales_order_id": str(so.id), "quote_id": str(quote.id)},
+        )
+        amount = _resolve_installation_amount(db_session, project)
+        assert amount == Decimal("25000.00")
+
+    def test_falls_back_to_quote_installation_lines(self, db_session):
+        person = _make_person(db_session)
+        quote = _make_quote(db_session, person.id)
+        _make_quote_line(db_session, quote.id, "INSTALLATION service", "40000.00")
+        _make_quote_line(db_session, quote.id, "CPE Device", "25000.00")
+        project = _make_project(
+            db_session,
+            owner_person_id=person.id,
+            metadata_={"quote_id": str(quote.id)},
+        )
+        amount = _resolve_installation_amount(db_session, project)
+        assert amount == Decimal("40000.00")
+
+
 class TestEnsureSubscriberHelper:
     def test_creates_subscriber_via_sync(self, db_session):
         person = _make_person(db_session)
@@ -428,11 +515,13 @@ class TestEnsureSubscriberHelper:
 
 class TestSplynxCustomerHandlerHandle:
     @patch("app.services.events.handlers.splynx_customer.create_customer")
+    @patch("app.services.events.handlers.splynx_customer.create_installation_invoice")
     @patch("app.services.events.handlers.splynx_customer.ensure_person_customer")
-    def test_creates_customer_and_subscriber(self, mock_ensure, mock_create, db_session):
+    def test_creates_customer_and_subscriber(self, mock_ensure, mock_invoice, mock_create, db_session):
         person = _make_person(db_session)
         project = _make_project(db_session, owner_person_id=person.id)
         mock_create.return_value = "777"
+        mock_invoice.return_value = None
 
         event = Event(
             event_type=EventType.project_created,
@@ -450,10 +539,12 @@ class TestSplynxCustomerHandlerHandle:
         assert sub.person_id == person.id
 
     @patch("app.services.events.handlers.splynx_customer.create_customer")
+    @patch("app.services.events.handlers.splynx_customer.create_installation_invoice")
     @patch("app.services.events.handlers.splynx_customer.ensure_person_customer")
-    def test_skips_if_splynx_id_exists(self, mock_ensure, mock_create, db_session):
+    def test_skips_if_splynx_id_exists(self, mock_ensure, mock_invoice, mock_create, db_session):
         person = _make_person(db_session, metadata_={"splynx_id": "existing-42"})
         project = _make_project(db_session, owner_person_id=person.id)
+        mock_invoice.return_value = None
 
         event = Event(
             event_type=EventType.project_created,
@@ -492,8 +583,9 @@ class TestSplynxCustomerHandlerHandle:
         mock_create.assert_not_called()
 
     @patch("app.services.events.handlers.splynx_customer.create_customer")
+    @patch("app.services.events.handlers.splynx_customer.create_installation_invoice")
     @patch("app.services.events.handlers.splynx_customer.ensure_person_customer")
-    def test_passes_sales_order_id_from_project_metadata(self, mock_ensure, mock_create, db_session):
+    def test_passes_sales_order_id_from_project_metadata(self, mock_ensure, mock_invoice, mock_create, db_session):
         person = _make_person(db_session)
         so = _make_sales_order(db_session, person.id)
         project = _make_project(
@@ -502,6 +594,7 @@ class TestSplynxCustomerHandlerHandle:
             metadata_={"sales_order_id": str(so.id)},
         )
         mock_create.return_value = "888"
+        mock_invoice.return_value = None
 
         event = Event(
             event_type=EventType.project_created,
@@ -531,6 +624,67 @@ class TestSplynxCustomerHandlerHandle:
 
         subs = db_session.query(Subscriber).filter(Subscriber.person_id == person.id).all()
         assert len(subs) == 0
+
+    @patch("app.services.events.handlers.splynx_customer.create_customer")
+    @patch("app.services.events.handlers.splynx_customer.create_installation_invoice")
+    @patch("app.services.events.handlers.splynx_customer.ensure_person_customer")
+    def test_creates_installation_invoice_from_sales_order_lines(
+        self, mock_ensure, mock_invoice, mock_create, db_session
+    ):
+        person = _make_person(db_session)
+        so = _make_sales_order(db_session, person.id)
+        _make_sales_order_line(db_session, so.id, "Installation Fee", "15000.00")
+        _make_sales_order_line(db_session, so.id, "ONU", "10000.00")
+        project = _make_project(
+            db_session,
+            owner_person_id=person.id,
+            metadata_={"sales_order_id": str(so.id)},
+        )
+        mock_create.return_value = "9901"
+        mock_invoice.return_value = "inv-123"
+
+        event = Event(
+            event_type=EventType.project_created,
+            payload={},
+            project_id=project.id,
+        )
+        handler = SplynxCustomerHandler()
+        handler.handle(db_session, event)
+
+        mock_invoice.assert_called_once()
+        kwargs = mock_invoice.call_args.kwargs
+        assert kwargs["splynx_id"] == "9901"
+        assert kwargs["amount"] == Decimal("15000.00")
+        db_session.refresh(project)
+        assert project.metadata_["splynx_installation_invoice_id"] == "inv-123"
+
+    @patch("app.services.events.handlers.splynx_customer.create_customer")
+    @patch("app.services.events.handlers.splynx_customer.create_installation_invoice")
+    @patch("app.services.events.handlers.splynx_customer.ensure_person_customer")
+    def test_invoice_creation_is_idempotent_per_project(self, mock_ensure, mock_invoice, mock_create, db_session):
+        person = _make_person(db_session)
+        so = _make_sales_order(db_session, person.id)
+        _make_sales_order_line(db_session, so.id, "Installation Fee", "15000.00")
+        project = _make_project(
+            db_session,
+            owner_person_id=person.id,
+            metadata_={
+                "sales_order_id": str(so.id),
+                "splynx_installation_invoice_id": "existing-inv",
+            },
+        )
+        mock_create.return_value = "9902"
+        mock_invoice.return_value = "new-inv"
+
+        event = Event(
+            event_type=EventType.project_created,
+            payload={},
+            project_id=project.id,
+        )
+        handler = SplynxCustomerHandler()
+        handler.handle(db_session, event)
+
+        mock_invoice.assert_not_called()
 
 
 # ===========================================================================

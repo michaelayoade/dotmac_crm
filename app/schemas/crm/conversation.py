@@ -5,16 +5,18 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
+from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus, MessageDirection, MessageStatus
 
 
 class ConversationBase(BaseModel):
     person_id: UUID
     ticket_id: UUID | None = None
     status: ConversationStatus = ConversationStatus.open
+    priority: ConversationPriority | None = ConversationPriority.none
     subject: str | None = Field(default=None, max_length=200)
     last_message_at: datetime | None = None
     is_active: bool = True
+    is_muted: bool = False
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 
@@ -26,9 +28,11 @@ class ConversationUpdate(BaseModel):
     person_id: UUID | None = None
     ticket_id: UUID | None = None
     status: ConversationStatus | None = None
+    priority: ConversationPriority | None = None
     subject: str | None = Field(default=None, max_length=200)
     last_message_at: datetime | None = None
     is_active: bool | None = None
+    is_muted: bool | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 

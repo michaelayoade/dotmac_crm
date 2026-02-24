@@ -54,6 +54,12 @@ def _load_my_performance_metrics(
             agent_id=agent_id,
             team_id=None,
         )
+        presence_hours = crm_reports_service.agent_presence_summary(
+            db=db,
+            start_at=start_at,
+            end_at=end_at,
+            agent_id=agent_id,
+        )
         agent_stats = crm_reports_service.agent_performance_metrics(
             db=db,
             start_at=start_at,
@@ -70,6 +76,8 @@ def _load_my_performance_metrics(
             team_id=None,
             channel_type=None,
         )
+    else:
+        presence_hours = {}
 
     sales_stats = None
     sales_results = crm_reports_service.agent_sales_performance(
@@ -97,6 +105,7 @@ def _load_my_performance_metrics(
     return {
         "agent_id": agent_id,
         "inbox_stats": inbox_stats,
+        "presence_hours": presence_hours,
         "agent_stats": agent_stats,
         "trend_data": trend_data,
         "sales_stats": sales_stats,

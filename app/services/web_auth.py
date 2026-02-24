@@ -405,7 +405,38 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
     return response
 
 
+def _set_agent_offline(db: Session, person_id: str) -> None:
+    """Mark the CRM agent as offline on logout."""
+    try:
+        from app.models.crm.enums import AgentPresenceStatus
+        from app.models.crm.team import CrmAgent
+        from app.services.crm.presence import agent_presence
+
+        agent = (
+            db.query(CrmAgent)
+            .filter(CrmAgent.person_id == person_id)
+            .filter(CrmAgent.is_active.is_(True))
+            .first()
+        )
+        if agent:
+            agent_presence.upsert(db, str(agent.id), status=AgentPresenceStatus.offline, source="logout")
+            logger.info("agent_presence_logout agent_id=%s person_id=%s", agent.id, person_id)
+    except Exception as exc:
+        logger.debug("agent_presence_logout_skip reason=%s", exc)
+
+
 def logout(request: Request, db: Session):
+    # Set CRM agent offline before clearing cookies
+    session_token = request.cookies.get("session_token")
+    if session_token:
+        with contextlib.suppress(Exception):
+            from app.services.auth_flow import decode_access_token
+
+            payload = decode_access_token(db, session_token)
+            person_id = payload.get("sub")
+            if person_id:
+                _set_agent_offline(db, person_id)
+
     refresh_token = AuthFlow.resolve_refresh_token(request, None, db)
     if refresh_token:
         with contextlib.suppress(Exception):

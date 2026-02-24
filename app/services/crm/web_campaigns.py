@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.enums import CampaignChannel, CampaignType
+from app.models.crm.campaign_sender import CampaignSender
+from app.models.crm.campaign_smtp import CampaignSmtpConfig
 from app.models.crm.sales import Pipeline, PipelineStage
 from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import CampaignCreate, CampaignStepCreate, CampaignStepUpdate, CampaignUpdate
@@ -57,8 +59,8 @@ class CampaignUpsertResolution:
     whatsapp_template_name: str | None
     whatsapp_template_language: str | None
     whatsapp_template_components: dict | None
-    sender: object | None
-    smtp_profile: object | None
+    sender: CampaignSender | None
+    smtp_profile: CampaignSmtpConfig | None
     whatsapp_connector: ConnectorConfig | None
     errors: list[str]
 

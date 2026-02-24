@@ -1,6 +1,8 @@
 """Query functions for inbox statistics and conversation listing."""
 
-from sqlalchemy import func, select, true
+from datetime import datetime
+
+from sqlalchemy import case, func, or_, select, true
 from sqlalchemy.orm import Session, aliased, selectinload
 from sqlalchemy.sql import lateral
 
@@ -12,6 +14,7 @@ from app.models.crm.conversation import (
 )
 from app.models.crm.enums import (
     ChannelType,
+    ConversationPriority,
     ConversationStatus,
     MessageDirection,
     MessageStatus,
@@ -19,7 +22,7 @@ from app.models.crm.enums import (
 from app.models.crm.outbox import OutboxMessage
 from app.models.crm.team import CrmAgent
 from app.models.integration import IntegrationTarget
-from app.models.person import Person
+from app.models.person import Person, PersonChannel
 from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
 
@@ -29,12 +32,17 @@ def list_inbox_conversations(
     channel: ChannelType | None = None,
     status: ConversationStatus | None = None,
     statuses: list[ConversationStatus] | None = None,
+    priority: ConversationPriority | None = None,
     outbox_status: str | None = None,
     search: str | None = None,
     assignment: str | None = None,
     assigned_person_id: str | None = None,
     channel_target_id: str | None = None,
     exclude_superseded_resolved: bool = True,
+    filter_agent_id: str | None = None,
+    assigned_from: datetime | None = None,
+    assigned_to: datetime | None = None,
+    sort_by: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[tuple]:
@@ -58,6 +66,9 @@ def list_inbox_conversations(
         query = query.filter(Conversation.status == status)
     elif statuses:
         query = query.filter(Conversation.status.in_(statuses))
+
+    if priority:
+        query = query.filter(Conversation.priority == priority)
 
     if channel:
         subq = db.query(Message.conversation_id).filter(Message.channel_type == channel).distinct()
@@ -130,15 +141,81 @@ def list_inbox_conversations(
             .distinct()
         )
         query = query.filter(Conversation.id.in_(team_conv_subq))
+    elif assignment_filter == "agent":
+        if not filter_agent_id:
+            return []
+        agent_uuid = coerce_uuid(filter_agent_id)
+        agent_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id == agent_uuid)
+        )
+        if assigned_from:
+            agent_subq = agent_subq.filter(ConversationAssignment.assigned_at >= assigned_from)
+        if assigned_to:
+            agent_subq = agent_subq.filter(ConversationAssignment.assigned_at <= assigned_to)
+        query = query.filter(Conversation.id.in_(agent_subq.distinct()))
 
     if search:
-        search_term = f"%{search.strip()}%"
-        query = query.join(Conversation.contact).filter(
-            (Person.display_name.ilike(search_term))
-            | (Person.email.ilike(search_term))
-            | (Person.phone.ilike(search_term))
-            | (Conversation.subject.ilike(search_term))
+        raw_search = search.strip()
+        search_term = f"%{raw_search}%"
+        phone_digits = "".join(ch for ch in raw_search if ch.isdigit())
+
+        def _normalize_phone_sql(expr):
+            # Database-agnostic normalization by stripping common phone punctuation.
+            return func.replace(
+                func.replace(
+                    func.replace(
+                        func.replace(
+                            func.replace(
+                                func.replace(expr, " ", ""),
+                                "-",
+                                "",
+                            ),
+                            "(",
+                            "",
+                        ),
+                        ")",
+                        "",
+                    ),
+                    "+",
+                    "",
+                ),
+                ".",
+                "",
+            )
+
+        person_channel_like_exists = (
+            db.query(PersonChannel.id)
+            .filter(PersonChannel.person_id == Conversation.person_id)
+            .filter(PersonChannel.address.ilike(search_term))
+            .exists()
         )
+
+        search_filters = [
+            Person.display_name.ilike(search_term),
+            Person.email.ilike(search_term),
+            Person.phone.ilike(search_term),
+            Conversation.subject.ilike(search_term),
+            person_channel_like_exists,
+        ]
+
+        if phone_digits:
+            digits_term = f"%{phone_digits}%"
+            person_channel_phone_digits_exists = (
+                db.query(PersonChannel.id)
+                .filter(PersonChannel.person_id == Conversation.person_id)
+                .filter(_normalize_phone_sql(PersonChannel.address).ilike(digits_term))
+                .exists()
+            )
+            search_filters.extend(
+                [
+                    _normalize_phone_sql(Person.phone).ilike(digits_term),
+                    person_channel_phone_digits_exists,
+                ]
+            )
+
+        query = query.join(Conversation.contact).filter(or_(*search_filters))
 
     if exclude_superseded_resolved and (not status or status != ConversationStatus.resolved):
         other = aliased(Conversation)
@@ -162,6 +239,107 @@ def list_inbox_conversations(
             .exists()
         )
         query = query.filter(failed_exists)
+
+    # Priority sort expression: urgent=0, high=1, medium=2, low=3, none=4
+    priority_sort_expr = case(
+        (Conversation.priority == ConversationPriority.urgent, 0),
+        (Conversation.priority == ConversationPriority.high, 1),
+        (Conversation.priority == ConversationPriority.medium, 2),
+        (Conversation.priority == ConversationPriority.low, 3),
+        else_=4,
+    )
+
+    if db.bind is not None and db.bind.dialect.name == "sqlite":
+        if sort_by == "priority":
+            query = query.order_by(
+                priority_sort_expr,
+                Conversation.last_message_at.desc(),
+                Conversation.updated_at.desc(),
+            )
+        else:
+            query = query.order_by(
+                Conversation.last_message_at.desc(),
+                Conversation.updated_at.desc(),
+            )
+        conversations = query.limit(limit).offset(offset).all()
+        if not conversations:
+            return []
+
+        conversation_ids = [c.id for c in conversations]
+        unread_rows = (
+            db.query(
+                Message.conversation_id,
+                func.count(Message.id),
+            )
+            .filter(Message.conversation_id.in_(conversation_ids))
+            .filter(Message.direction == MessageDirection.inbound)
+            .filter(Message.status == MessageStatus.received)
+            .filter(Message.read_at.is_(None))
+            .group_by(Message.conversation_id)
+            .all()
+        )
+        unread_map = {row[0]: int(row[1] or 0) for row in unread_rows}
+
+        result: list[tuple] = []
+        for conv in conversations:
+            has_attachments = db.query(MessageAttachment.id).filter(MessageAttachment.message_id == Message.id).exists()
+            msg_row = (
+                db.query(
+                    Message.body,
+                    Message.channel_type,
+                    Message.channel_target_id,
+                    IntegrationTarget.name,
+                    Message.received_at,
+                    Message.sent_at,
+                    Message.created_at,
+                    func.coalesce(Message.received_at, Message.sent_at, Message.created_at),
+                    Message.metadata_,
+                    has_attachments,
+                )
+                .outerjoin(IntegrationTarget, IntegrationTarget.id == Message.channel_target_id)
+                .filter(Message.conversation_id == conv.id)
+                .order_by(func.coalesce(Message.received_at, Message.sent_at, Message.created_at).desc())
+                .first()
+            )
+            latest_message = None
+            if msg_row is not None:
+                metadata = msg_row[8] if isinstance(msg_row[8], dict) else None
+                latest_message = {
+                    "body": msg_row[0],
+                    "channel_type": msg_row[1],
+                    "channel_target_id": msg_row[2],
+                    "channel_target_name": msg_row[3],
+                    "received_at": msg_row[4],
+                    "sent_at": msg_row[5],
+                    "created_at": msg_row[6],
+                    "last_message_at": msg_row[7],
+                    "metadata": metadata,
+                    "message_type": metadata.get("type") if metadata else None,
+                    "has_attachments": bool(msg_row[9]) if msg_row[9] is not None else False,
+                }
+
+            failed_outbox = None
+            if outbox_status_filter == outbox_service.STATUS_FAILED:
+                fo = (
+                    db.query(OutboxMessage.last_error, OutboxMessage.attempts, OutboxMessage.last_attempt_at)
+                    .filter(OutboxMessage.conversation_id == conv.id)
+                    .filter(OutboxMessage.status == outbox_service.STATUS_FAILED)
+                    .order_by(
+                        (OutboxMessage.last_attempt_at.is_(None)).asc(),
+                        OutboxMessage.last_attempt_at.desc(),
+                        OutboxMessage.updated_at.desc(),
+                    )
+                    .first()
+                )
+                if fo is not None:
+                    failed_outbox = {
+                        "last_error": fo[0],
+                        "attempts": int(fo[1] or 0),
+                        "last_attempt_at": fo[2],
+                    }
+
+            result.append((conv, latest_message, unread_map.get(conv.id, 0), failed_outbox))
+        return result
 
     last_message_ts = func.coalesce(
         Message.received_at,
@@ -235,10 +413,17 @@ def list_inbox_conversations(
             true(),
         )
 
-    query = query.order_by(
-        Conversation.last_message_at.desc().nullslast(),
-        Conversation.updated_at.desc(),
-    )
+    if sort_by == "priority":
+        query = query.order_by(
+            priority_sort_expr,
+            Conversation.last_message_at.desc().nullslast(),
+            Conversation.updated_at.desc(),
+        )
+    else:
+        query = query.order_by(
+            Conversation.last_message_at.desc().nullslast(),
+            Conversation.updated_at.desc(),
+        )
 
     cols = [
         latest_message_subq.c.body,
@@ -426,24 +611,34 @@ class InboxQueries:
         db: Session,
         channel: ChannelType | None = None,
         status: ConversationStatus | None = None,
+        priority: ConversationPriority | None = None,
         outbox_status: str | None = None,
         search: str | None = None,
         assignment: str | None = None,
         assigned_person_id: str | None = None,
         channel_target_id: str | None = None,
         exclude_superseded_resolved: bool = True,
+        filter_agent_id: str | None = None,
+        assigned_from: datetime | None = None,
+        assigned_to: datetime | None = None,
+        sort_by: str | None = None,
         limit: int = 50,
     ) -> list[tuple]:
         return list_inbox_conversations(
             db=db,
             channel=channel,
             status=status,
+            priority=priority,
             outbox_status=outbox_status,
             search=search,
             assignment=assignment,
             assigned_person_id=assigned_person_id,
             channel_target_id=channel_target_id,
             exclude_superseded_resolved=exclude_superseded_resolved,
+            filter_agent_id=filter_agent_id,
+            assigned_from=assigned_from,
+            assigned_to=assigned_to,
+            sort_by=sort_by,
             limit=limit,
         )
 

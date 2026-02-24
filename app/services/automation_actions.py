@@ -23,6 +23,7 @@ from app.models.projects import Project
 from app.models.tickets import Ticket
 from app.models.workforce import WorkOrder
 from app.services.common import coerce_uuid
+from app.services.crm.presence import DEFAULT_STALE_MINUTES
 from app.services.events.types import Event
 
 logger = logging.getLogger(__name__)
@@ -306,15 +307,21 @@ def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -
                 )
             load_statuses.append(ConversationStatus(status))
 
-    cutoff = datetime.now(UTC) - timedelta(minutes=online_window_minutes)
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(minutes=online_window_minutes)
+    # Effective "online" requires a fresh heartbeat. Cap the automation window by the stale cutoff.
+    effective_cutoff = now - timedelta(minutes=DEFAULT_STALE_MINUTES)
+    last_seen_cutoff = max(cutoff, effective_cutoff)
 
     candidate_query = (
         db.query(CrmAgent.id, CrmAgent.created_at)
         .join(AgentPresence, AgentPresence.agent_id == CrmAgent.id)
         .filter(CrmAgent.is_active.is_(True))
+        # Manual overrides ('on_break'/'offline') must always exclude the agent.
+        .filter(AgentPresence.manual_override_status.is_(None))
         .filter(AgentPresence.status.in_(eligible_statuses))
         .filter(AgentPresence.last_seen_at.isnot(None))
-        .filter(AgentPresence.last_seen_at >= cutoff)
+        .filter(AgentPresence.last_seen_at >= last_seen_cutoff)
     )
     if team_id:
         candidate_query = candidate_query.join(CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id).filter(

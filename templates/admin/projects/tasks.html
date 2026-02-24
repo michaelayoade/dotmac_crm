@@ -14,15 +14,19 @@
             <a href="/admin/projects" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 View Projects
             </a>
+            {% if current_user and (('admin' in (current_user.roles or [])) or ('project:task:write' in (current_user.permissions or []))) %}
             <a href="/admin/projects/tasks/new" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 New Task
             </a>
+            {% endif %}
         </div>
     </div>
 
     <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <form class="flex flex-col gap-4 sm:flex-row sm:items-end">
+        <form id="project-tasks-filter-form" class="flex flex-col gap-4">
+            <input type="hidden" name="filters" value="{{ filters or '' }}">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div class="flex-1">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Status</label>
                 <select name="status" data-live-filter="true" class="block w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
@@ -69,6 +73,18 @@
                 <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     Apply Filters
                 </button>
+                {% if project_id or status or priority or assigned or filters %}
+                <a href="/admin/projects/tasks" class="ml-2 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    Clear
+                </a>
+                {% endif %}
+            </div>
+            </div>
+            <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/20">
+                <div class="mb-2 flex items-center justify-between">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Advanced Filters</p>
+                </div>
+                <div id="project-tasks-advanced-filters"></div>
             </div>
         </form>
     </div>
@@ -91,9 +107,15 @@
                 {% if tasks %}
                 {% for task in tasks %}
                 {% set status_val = task.status.value if task.status else 'backlog' %}
+                {% set is_breached = (task.id|string) in (breached_task_ids or []) %}
                 {% call table_row(color="primary") %}
                     <td class="{{ pad }}">
                         <p class="text-sm font-medium text-slate-900 dark:text-white">{{ task.title | default('Task') }}</p>
+                        {% if is_breached %}
+                        <p class="mt-1">
+                            <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">SLA Breached</span>
+                        </p>
+                        {% endif %}
                         <p class="text-xs text-slate-500 dark:text-slate-400">{{ task.number or (task.id|string|truncate(8, True, '')) }}</p>
                     </td>
                     {% set project = project_map.get(task.project_id|string) %}
@@ -134,23 +156,25 @@
                     <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ task.created_at.strftime('%b %d, %Y') if task.created_at else 'N/A' }}</td>
                     <td class="{{ pad }} text-right">
                         <a href="/admin/projects/tasks/{{ task.number or task.id }}" class="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">View</a>
+                        {% if current_user and (('admin' in (current_user.roles or [])) or ('project:task:write' in (current_user.permissions or []))) %}
                         <span class="px-1.5 text-slate-300">|</span>
                         <a href="/admin/projects/tasks/{{ task.number or task.id }}/edit" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Edit</a>
-                            <span class="px-1.5 text-slate-300">|</span>
-                            <form method="post"
-                                  action="/admin/projects/tasks/{{ task.number or task.id }}/delete"
-                                  class="inline"
-                                  onsubmit="return confirm('Delete this task?')">
-                                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-                                <button type="submit"
-                                        class="inline-flex items-center px-3 py-1.5 text-xs gap-1.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
-                                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                    </svg>
-                                    Delete
-                                </button>
-                            </form>
-                        </td>
+                        <span class="px-1.5 text-slate-300">|</span>
+                        <form method="post"
+                              action="/admin/projects/tasks/{{ task.number or task.id }}/delete"
+                              class="inline"
+                              onsubmit="return confirm('Delete this task?')">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                            <button type="submit"
+                                    class="inline-flex items-center px-3 py-1.5 text-xs gap-1.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                                Delete
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
                 {% endcall %}
                 {% endfor %}
                 {% else %}
@@ -167,6 +191,7 @@
         {% set status_param = '&status=' ~ status if status else '' %}
         {% set priority_param = '&priority=' ~ priority if priority else '' %}
         {% set assigned_param = '&assigned=' ~ assigned if assigned else '' %}
+        {% set filters_param = '&filters=' ~ filters|urlencode if filters else '' %}
         <div class="flex flex-col items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row">
             <div class="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
                 <span>Page {{ page }} of {{ total_pages }}</span>
@@ -182,14 +207,55 @@
             </div>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
-                <a href="/admin/projects/tasks?page={{ page - 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}{{ assigned_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                <a href="/admin/projects/tasks?page={{ page - 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}{{ assigned_param }}{{ filters_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
                 {% endif %}
                 {% if page < total_pages %}
-                <a href="/admin/projects/tasks?page={{ page + 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}{{ assigned_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                <a href="/admin/projects/tasks?page={{ page + 1 }}&per_page={{ per_page }}{{ project_param }}{{ status_param }}{{ priority_param }}{{ assigned_param }}{{ filters_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
                 {% endif %}
             </div>
         </div>
         {% endif %}
     {% endcall %}
 </div>
+<script src="/static/js/filter-builder.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    if (!window.DotmacFilterBuilder || !window.DotmacFilterBuilder.init) return;
+    window.DotmacFilterBuilder.init({
+        formId: "project-tasks-filter-form",
+        mountId: "project-tasks-advanced-filters",
+        filtersFieldName: "filters",
+        doctype: "Project Task",
+        initialFilters: {{ (filters or '') | tojson }},
+        fields: [
+            { name: "number", label: "Task Number", type: "string" },
+            { name: "title", label: "Title", type: "string" },
+            { name: "description", label: "Description", type: "string" },
+            { name: "status", label: "Status", type: "select", options: [
+                { value: "backlog", label: "Backlog" },
+                { value: "todo", label: "To Do" },
+                { value: "in_progress", label: "In Progress" },
+                { value: "blocked", label: "Blocked" },
+                { value: "done", label: "Done" },
+                { value: "canceled", label: "Canceled" },
+            ]},
+            { name: "priority", label: "Priority", type: "select", options: [
+                { value: "lower", label: "Lower" },
+                { value: "low", label: "Low" },
+                { value: "medium", label: "Medium" },
+                { value: "normal", label: "Normal" },
+                { value: "high", label: "High" },
+                { value: "urgent", label: "Urgent" },
+            ]},
+            { name: "effort_hours", label: "Effort Hours", type: "number" },
+            { name: "start_at", label: "Start At", type: "date" },
+            { name: "due_at", label: "Due At", type: "date" },
+            { name: "completed_at", label: "Completed At", type: "date" },
+            { name: "created_at", label: "Created At", type: "date" },
+            { name: "updated_at", label: "Updated At", type: "date" },
+            { name: "is_active", label: "Is Active", type: "boolean", operators: ["=", "!=", "is", "is not"] },
+        ],
+    });
+});
+</script>
 {% endblock %}

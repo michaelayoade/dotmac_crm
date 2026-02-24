@@ -224,6 +224,11 @@ async def csrf_middleware(request: Request, call_next):
             content_type = request.headers.get("content-type", "")
             if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
                 try:
+                    # In Starlette's function middleware, calling request.form()
+                    # directly can consume the request stream for downstream
+                    # handlers. Cache the body first so wrapped_receive can
+                    # replay it to FastAPI endpoint form parsing.
+                    await request.body()
                     form = await request.form()
                     raw = form.get("_csrf_token")
                     if isinstance(raw, str):
@@ -422,12 +427,20 @@ async def static_cache_middleware(request: Request, call_next):
     - Images: 1 week cache
     - Other static: 1 day cache
     """
+    def _is_no_response_returned_error(exc: BaseException) -> bool:
+        if isinstance(exc, RuntimeError) and str(exc) == "No response returned.":
+            return True
+        if isinstance(exc, BaseExceptionGroup):
+            return any(_is_no_response_returned_error(sub_exc) for sub_exc in exc.exceptions)
+        return False
+
     try:
         response = await call_next(request)
-    except RuntimeError as exc:
-        # Starlette can raise this when the client disconnects mid-request.
+    except Exception as exc:
+        # Starlette can surface client disconnects as RuntimeError("No response returned.")
+        # and, on newer Python/Starlette combinations, wrap that inside ExceptionGroup.
         # Return a synthetic response so it does not bubble as an unhandled exception.
-        if str(exc) == "No response returned.":
+        if _is_no_response_returned_error(exc):
             return Response(status_code=499)
         raise
     if response is None:

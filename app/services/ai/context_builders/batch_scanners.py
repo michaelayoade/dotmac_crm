@@ -81,7 +81,7 @@ def scan_projects_for_persona(
         db.query(Project.id)
         .filter(Project.is_active.is_(True))
         .filter(Project.updated_at >= since)
-        .filter(Project.status.in_([ProjectStatus.planned, ProjectStatus.active, ProjectStatus.on_hold]))
+        .filter(Project.status.in_([ProjectStatus.open, ProjectStatus.planned, ProjectStatus.active, ProjectStatus.on_hold]))
         .filter(~cast(Project.id, String).in_(db.query(recent_ids.c.entity_id)))
         .order_by(Project.updated_at.desc())
         .limit(max(1, limit))

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Enum,
@@ -78,6 +79,9 @@ class OLTDevice(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
+    # Map/UI classification only (does not change network modeling).
+    # Values: "olt" | "base_station"
+    site_role: Mapped[str] = mapped_column(String(32), nullable=False, default="olt", server_default="olt")
     hostname: Mapped[str | None] = mapped_column(String(160))
     mgmt_ip: Mapped[str | None] = mapped_column(String(64))
     vendor: Mapped[str | None] = mapped_column(String(120))
@@ -553,3 +557,26 @@ class PonPortSplitterLink(Base):
 
     pon_port = relationship("PonPort", back_populates="splitter_link")
     splitter_port = relationship("SplitterPort", back_populates="pon_links")
+
+
+class FiberAssetMergeLog(Base):
+    """Audit log for fiber asset merge operations."""
+
+    __tablename__ = "fiber_asset_merge_logs"
+    __table_args__ = (
+        Index("ix_fiber_asset_merge_logs_asset_type", "asset_type"),
+        Index("ix_fiber_asset_merge_logs_source", "source_asset_id"),
+        Index("ix_fiber_asset_merge_logs_target", "target_asset_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    asset_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    target_asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    merged_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    source_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    field_choices: Mapped[dict | None] = mapped_column(JSON)
+    children_migrated: Mapped[dict | None] = mapped_column(JSON)
+    merged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    merged_by = relationship("Person", foreign_keys=[merged_by_id])

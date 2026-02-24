@@ -8,15 +8,21 @@ class Base(DeclarativeBase):
     pass
 
 
+_engine = None
+
+
 def get_engine():
-    return create_engine(
-        settings.database_url,
-        pool_pre_ping=True,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-        pool_timeout=settings.db_pool_timeout,
-        pool_recycle=settings.db_pool_recycle,
-    )
+    global _engine
+    if _engine is None:
+        _engine = create_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_timeout=settings.db_pool_timeout,
+            pool_recycle=settings.db_pool_recycle,
+        )
+    return _engine
 
 
 SessionLocal = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False)

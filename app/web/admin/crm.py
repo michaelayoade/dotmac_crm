@@ -3,7 +3,7 @@
 import base64
 import mimetypes
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from decimal import Decimal
 from typing import Literal
 from urllib.parse import urljoin, urlparse
@@ -682,6 +682,18 @@ router.include_router(crm_sales_router)
 router.include_router(crm_widget_router)
 
 
+def _parse_inbox_date(value: str | None, *, end_of_day: bool = False) -> datetime | None:
+    """Parse a YYYY-MM-DD string into a timezone-aware datetime."""
+    if not value:
+        return None
+    try:
+        d = datetime.strptime(value.strip(), "%Y-%m-%d")
+        t = time.max if end_of_day else time.min
+        return datetime.combine(d.date(), t, tzinfo=UTC)
+    except ValueError:
+        return None
+
+
 @router.get("/inbox", response_class=HTMLResponse)
 async def inbox(
     request: Request,
@@ -694,6 +706,9 @@ async def inbox(
     target_id: str | None = None,
     conversation_id: str | None = None,
     comment_id: str | None = None,
+    agent_id: str | None = None,
+    assigned_from: str | None = None,
+    assigned_to: str | None = None,
     offset: int | None = None,
     limit: int | None = None,
     page: int | None = None,
@@ -706,6 +721,8 @@ async def inbox(
     safe_limit = max(int(limit or 150), 1)
     safe_page = max(int(page or 1), 1)
     safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
+    assigned_from_dt = _parse_inbox_date(assigned_from)
+    assigned_to_dt = _parse_inbox_date(assigned_to, end_of_day=True)
     context = await build_inbox_page_context(
         db,
         current_user=current_user,
@@ -720,6 +737,9 @@ async def inbox(
         target_id=target_id,
         conversation_id=conversation_id,
         comment_id=comment_id,
+        filter_agent_id=agent_id,
+        assigned_from=assigned_from_dt,
+        assigned_to=assigned_to_dt,
         offset=safe_offset,
         limit=safe_limit,
         page=safe_page,

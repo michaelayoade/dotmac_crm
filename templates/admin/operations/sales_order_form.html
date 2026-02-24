@@ -1,7 +1,7 @@
 {% extends "layouts/admin.html" %}
 
 {% from "components/ui/macros.html" import submit_button, typeahead_input %}
-{% block title %}Edit Sales Order - Operations{% endblock %}
+{% block title %}{{ "Create Sales Order" if is_create else "Edit Sales Order" }} - Operations{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
@@ -10,10 +10,12 @@
             <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
                 <a href="/admin/operations/sales-orders" class="hover:text-primary-600">Sales Orders</a>
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                <span class="text-slate-900 dark:text-white">Edit</span>
+                <span class="text-slate-900 dark:text-white">{{ "Create" if is_create else "Edit" }}</span>
             </nav>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Edit Sales Order</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Update sales order status and billing info</p>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ "Create Sales Order" if is_create else "Edit Sales Order" }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                {{ "Enter customer and billing details to create a sales order" if is_create else "Update sales order status and billing info" }}
+            </p>
         </div>
     </div>
 
@@ -31,11 +33,37 @@
                 {% endif %}
 
                 <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    {% if is_create %}
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Customer</label>
+                        <div class="mt-1">
+                            {{ typeahead_input("person_id", "/api/v1/search/people", value=(order.person_id or ''), display_value=(person_label or ''), placeholder="Search people...", required=true, min_chars=0, id="person_search") }}
+                        </div>
+                    </div>
+                    {% endif %}
+
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Order Number</label>
-                        <input type="text" value="{{ order.order_number|default(order.id|string|truncate(8, True, '')) }}" readonly
+                        <input type="text" value="{{ (order.order_number or 'Auto-generated') if is_create else order.order_number|default(order.id|string|truncate(8, True, '')) }}" readonly
                                class="mt-1 block w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                     </div>
+
+                    {% if is_create %}
+                    <div>
+                        <label for="project_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Project Type</label>
+                        {% set order_project_type = (order.project_type if order and order.project_type is defined else '') %}
+                        <select name="project_type" id="project_type"
+                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="">None</option>
+                            {% for item in project_types or [] %}
+                            <option value="{{ item }}" {% if order_project_type == item %}selected{% endif %}>
+                                {{ item | replace('_', ' ') | title }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Used when auto-creating a project for manual sales orders.</p>
+                    </div>
+                    {% endif %}
 
                     <div>
                         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Account</label>
@@ -49,7 +77,8 @@
                         <select name="status" id="status"
                                 class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                             {% for status in statuses or [] %}
-                            <option value="{{ status }}" {% if order.status and order.status.value == status %}selected{% endif %}>
+                            {% set order_status_value = (order.status.value if order.status and order.status.value is defined else order.status) %}
+                            <option value="{{ status }}" {% if order_status_value == status %}selected{% endif %}>
                                 {{ status|replace('_', ' ')|title }}
                             </option>
                             {% endfor %}
@@ -61,23 +90,102 @@
                         <select name="payment_status" id="payment_status"
                                 class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                             {% for status in payment_statuses or [] %}
-                            <option value="{{ status }}" {% if order.payment_status and order.payment_status.value == status %}selected{% endif %}>
+                            {% set order_payment_status_value = (order.payment_status.value if order.payment_status and order.payment_status.value is defined else order.payment_status) %}
+                            <option value="{{ status }}" {% if order_payment_status_value == status %}selected{% endif %}>
                                 {{ status|replace('_', ' ')|title }}
                             </option>
                             {% endfor %}
                         </select>
                     </div>
 
+                    {% if is_create %}
+                    <div class="sm:col-span-2 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Items</h3>
+                            <button type="button" id="add-sales-order-line" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">
+                                Add Item
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-slate-50 dark:bg-slate-900/40">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-300">Item</th>
+                                        <th class="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-300">Description</th>
+                                        <th class="px-3 py-2 text-right font-medium text-slate-600 dark:text-slate-300">Qty</th>
+                                        <th class="px-3 py-2 text-right font-medium text-slate-600 dark:text-slate-300">Unit Price</th>
+                                        <th class="px-3 py-2 text-right font-medium text-slate-600 dark:text-slate-300">Amount</th>
+                                        <th class="px-3 py-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sales-order-lines-body" class="divide-y divide-slate-200 dark:divide-slate-700">
+                                    {% set draft_lines = order_lines if order_lines and order_lines|length > 0 else [None] %}
+                                    {% for line in draft_lines %}
+                                    {% set line_item_id = (line.inventory_item_id if line and line.inventory_item_id is defined else (line.get('inventory_item_id') if line else '')) %}
+                                    {% set line_desc = (line.description if line and line.description is defined else (line.get('description') if line else '')) %}
+                                    {% set line_qty = (line.quantity if line and line.quantity is defined else (line.get('quantity') if line else '1')) %}
+                                    {% set line_unit = (line.unit_price if line and line.unit_price is defined else (line.get('unit_price') if line else '0')) %}
+                                    {% set line_amt = (line.amount if line and line.amount is defined else (line.get('amount') if line else '0')) %}
+                                    <tr class="sales-order-line">
+                                        <td class="px-3 py-2">
+                                            <select name="line_item_inventory_item_id[]" class="line-item-select w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                                <option value="">Select item</option>
+                                                {% for item in inventory_items or [] %}
+                                                <option value="{{ item.id }}" data-name="{{ item.name }}" {% if line_item_id and (line_item_id|string) == (item.id|string) %}selected{% endif %}>
+                                                    {{ item.name }}{% if item.sku %} ({{ item.sku }}){% endif %}
+                                                </option>
+                                                {% endfor %}
+                                            </select>
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <input type="text" name="line_item_description[]" value="{{ line_desc or '' }}" class="line-item-description w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white" placeholder="Description">
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <input type="number" min="0.001" step="0.001" name="line_item_quantity[]" value="{{ line_qty or '1' }}" class="line-item-qty w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <input type="number" min="0" step="0.01" name="line_item_unit_price[]" value="{{ line_unit or '0' }}" class="line-item-unit-price w-32 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                        </td>
+                                        <td class="px-3 py-2 text-right">
+                                            <input type="number" step="0.01" name="line_item_amount[]" value="{{ line_amt or '0' }}" class="line-item-amount w-32 rounded-lg border border-slate-200 bg-slate-100 px-2 py-1.5 text-right text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" readonly>
+                                        </td>
+                                        <td class="px-3 py-2 text-right">
+                                            <button type="button" class="remove-line rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-red-600 dark:hover:bg-slate-700">Remove</button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Subtotal</label>
+                        <input type="number" step="0.01" name="subtotal" id="subtotal" value="{{ order.subtotal|default('0.00') }}"
+                               class="mt-1 block w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" readonly>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">VAT (7.5%)</label>
+                        <input type="number" step="0.01" name="tax_total" id="tax_total" value="{{ order.tax_total|default('0.00') }}"
+                               class="mt-1 block w-full rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" readonly>
+                    </div>
+                    {% endif %}
+
                     <div>
                         <label for="total" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Total</label>
                         <input type="number" step="0.01" name="total" id="total" value="{{ order.total|default('') }}"
-                               class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                               {% if is_create %}readonly{% endif %}
+                               class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white {% if is_create %}bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300{% endif %}">
                     </div>
 
                     <div>
                         <label for="amount_paid" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Amount Paid</label>
                         <input type="number" step="0.01" name="amount_paid" id="amount_paid" value="{{ order.amount_paid|default('') }}"
                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% if is_create %}
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Auto-filled from total; you can override if needed.</p>
+                        {% endif %}
                     </div>
 
                     <div>
@@ -98,9 +206,114 @@
         </div>
 
         <div class="flex justify-end gap-3">
-            <a href="/admin/operations/sales-orders/{{ order.id }}" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Cancel</a>
-            {{ submit_button("Save Changes") }}
+            <a href="{{ '/admin/operations/sales-orders' if is_create else '/admin/operations/sales-orders/' ~ order.id }}" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700">Cancel</a>
+            {{ submit_button("Create Sales Order" if is_create else "Save Changes") }}
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% if is_create %}
+<script>
+(() => {
+    const body = document.getElementById("sales-order-lines-body");
+    const addBtn = document.getElementById("add-sales-order-line");
+    const subtotalInput = document.getElementById("subtotal");
+    const taxInput = document.getElementById("tax_total");
+    const totalInput = document.getElementById("total");
+    const amountPaidInput = document.getElementById("amount_paid");
+    if (!body || !addBtn || !subtotalInput || !taxInput || !totalInput || !amountPaidInput) return;
+
+    let amountPaidAuto = !amountPaidInput.value;
+    amountPaidInput.addEventListener("input", () => { amountPaidAuto = false; });
+
+    const round2 = (n) => (Math.round((Number(n) + Number.EPSILON) * 100) / 100);
+    const toNum = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+    };
+
+    const recalc = () => {
+        let subtotal = 0;
+        body.querySelectorAll("tr.sales-order-line").forEach((row) => {
+            const qty = Math.max(toNum(row.querySelector(".line-item-qty")?.value), 0);
+            const unit = Math.max(toNum(row.querySelector(".line-item-unit-price")?.value), 0);
+            const amount = round2(qty * unit);
+            const amountInput = row.querySelector(".line-item-amount");
+            if (amountInput) amountInput.value = amount.toFixed(2);
+            subtotal += amount;
+        });
+        subtotal = round2(subtotal);
+        const vat = round2(subtotal * 0.075);
+        const total = round2(subtotal + vat);
+        subtotalInput.value = subtotal.toFixed(2);
+        taxInput.value = vat.toFixed(2);
+        totalInput.value = total.toFixed(2);
+        if (amountPaidAuto) {
+            amountPaidInput.value = total.toFixed(2);
+        }
+    };
+
+    const bindRow = (row) => {
+        const select = row.querySelector(".line-item-select");
+        const desc = row.querySelector(".line-item-description");
+        const removeBtn = row.querySelector(".remove-line");
+        row.querySelectorAll(".line-item-qty, .line-item-unit-price").forEach((el) => {
+            el.addEventListener("input", recalc);
+        });
+        if (select && desc) {
+            select.addEventListener("change", () => {
+                if (!desc.value.trim()) {
+                    const opt = select.options[select.selectedIndex];
+                    desc.value = opt?.dataset?.name || "";
+                }
+            });
+        }
+        if (removeBtn) {
+            removeBtn.addEventListener("click", () => {
+                if (body.querySelectorAll("tr.sales-order-line").length <= 1) {
+                    row.querySelectorAll("input").forEach((input) => { input.value = ""; });
+                    const qty = row.querySelector(".line-item-qty");
+                    const unit = row.querySelector(".line-item-unit-price");
+                    if (qty) qty.value = "1";
+                    if (unit) unit.value = "0";
+                } else {
+                    row.remove();
+                }
+                recalc();
+            });
+        }
+    };
+
+    const makeRow = () => {
+        const template = body.querySelector("tr.sales-order-line");
+        if (!template) return null;
+        const row = template.cloneNode(true);
+        row.querySelectorAll("input").forEach((input) => { input.value = ""; });
+        const qty = row.querySelector(".line-item-qty");
+        const unit = row.querySelector(".line-item-unit-price");
+        const amt = row.querySelector(".line-item-amount");
+        if (qty) qty.value = "1";
+        if (unit) unit.value = "0";
+        if (amt) amt.value = "0.00";
+        const select = row.querySelector(".line-item-select");
+        if (select) select.selectedIndex = 0;
+        return row;
+    };
+
+    body.querySelectorAll("tr.sales-order-line").forEach(bindRow);
+    addBtn.addEventListener("click", () => {
+        const row = makeRow();
+        if (!row) return;
+        body.appendChild(row);
+        bindRow(row);
+        recalc();
+    });
+
+    recalc();
+})();
+</script>
+{% endif %}
 {% endblock %}
