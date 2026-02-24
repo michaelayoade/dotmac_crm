@@ -187,7 +187,9 @@ def agent_detail(request: Request, person_id: str, db: Session = Depends(_get_db
             default_period_start=(
                 latest.score_period_start.date().isoformat() if latest and latest.score_period_start else ""
             ),
-            default_period_end=(latest.score_period_end.date().isoformat() if latest and latest.score_period_end else ""),
+            default_period_end=(
+                latest.score_period_end.date().isoformat() if latest and latest.score_period_end else ""
+            ),
         ),
     )
 
@@ -324,8 +326,12 @@ def performance_controls(request: Request, db: Session = Depends(_get_db)):
             24,
         ),
     }
-    compute_task_id = str(resolve_value(db, SettingDomain.performance, "controls_last_compute_task_id") or "").strip() or None
-    flagged_task_id = str(resolve_value(db, SettingDomain.performance, "controls_last_flagged_task_id") or "").strip() or None
+    compute_task_id = (
+        str(resolve_value(db, SettingDomain.performance, "controls_last_compute_task_id") or "").strip() or None
+    )
+    flagged_task_id = (
+        str(resolve_value(db, SettingDomain.performance, "controls_last_flagged_task_id") or "").strip() or None
+    )
     run_status = {
         "compute_scores": {
             "task_name": "app.tasks.performance.compute_weekly_scores",

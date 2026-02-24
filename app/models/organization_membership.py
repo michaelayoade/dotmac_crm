@@ -25,12 +25,12 @@ class OrganizationMembership(Base):
     """
 
     __tablename__ = "organization_memberships"
-    __table_args__ = (
-        UniqueConstraint("organization_id", "person_id", name="uq_organization_memberships_org_person"),
-    )
+    __table_args__ = (UniqueConstraint("organization_id", "person_id", name="uq_organization_memberships_org_person"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+    )
     person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
     role: Mapped[OrganizationMembershipRole] = mapped_column(
         Enum(OrganizationMembershipRole, name="organizationmembershiprole"),

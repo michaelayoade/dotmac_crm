@@ -302,7 +302,9 @@ class SubscriberManager:
             ]
         else:
             people = (
-                db.query(Person).filter(func.json_extract_path_text(Person.metadata_, "splynx_id").in_(external_ids)).all()
+                db.query(Person)
+                .filter(func.json_extract_path_text(Person.metadata_, "splynx_id").in_(external_ids))
+                .all()
             )
 
         people_by_splynx_id: dict[str, list[Person]] = {}

@@ -338,10 +338,9 @@ async def parse_vendor_reset_payload(request: Request) -> tuple[str | None, str 
         password = _as_str(form.get("password"))
         password_confirm = _as_str(form.get("password_confirm")) or _as_str(form.get("confirm_password"))
 
-    if (
-        (not token or not password or not password_confirm)
-        and "application/json" in request.headers.get("content-type", "").lower()
-    ):
+    if (not token or not password or not password_confirm) and "application/json" in request.headers.get(
+        "content-type", ""
+    ).lower():
         try:
             payload = await request.json()
         except Exception:
@@ -349,8 +348,8 @@ async def parse_vendor_reset_payload(request: Request) -> tuple[str | None, str 
         if isinstance(payload, dict):
             token = token or _as_str(payload.get("token"))
             password = password or _as_str(payload.get("password"))
-            password_confirm = password_confirm or _as_str(payload.get("password_confirm")) or _as_str(
-                payload.get("confirm_password")
+            password_confirm = (
+                password_confirm or _as_str(payload.get("password_confirm")) or _as_str(payload.get("confirm_password"))
             )
 
     return token, password, password_confirm

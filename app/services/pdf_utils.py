@@ -55,4 +55,3 @@ def ensure_pydyf_compat() -> None:
             return self.set_matrix(a, b, c, d, e, f)
 
         pydyf.Stream.text_matrix = _compat_text_matrix
-

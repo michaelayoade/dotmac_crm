@@ -985,9 +985,7 @@ async def ticket_create_post(
                 except Exception:
                     payload_json = None
                 if isinstance(payload_json, dict):
-                    recovered_title = _clean_text(payload_json.get("title")) or _clean_text(
-                        payload_json.get("subject")
-                    )
+                    recovered_title = _clean_text(payload_json.get("title")) or _clean_text(payload_json.get("subject"))
             else:
                 try:
                     form_raw = await request.form()
@@ -1416,9 +1414,7 @@ async def ticket_edit_post(
                 except Exception:
                     payload_json = None
                 if isinstance(payload_json, dict):
-                    recovered_title = _clean_text(payload_json.get("title")) or _clean_text(
-                        payload_json.get("subject")
-                    )
+                    recovered_title = _clean_text(payload_json.get("title")) or _clean_text(payload_json.get("subject"))
             else:
                 try:
                     form_raw = await request.form()

@@ -722,7 +722,9 @@ class Tickets(ListResponseMixin):
                 changed_roles["Site Project Coordinator"] = ticket.assistant_manager_person_id
             role_recipients: set[str] = set()
             if changed_roles:
-                role_recipients = _notify_ticket_role_assignment_in_app(db, ticket=ticket, role_assignments=changed_roles)
+                role_recipients = _notify_ticket_role_assignment_in_app(
+                    db, ticket=ticket, role_assignments=changed_roles
+                )
             if ticket.service_team_id and ticket.service_team_id != previous_service_team:
                 _notify_ticket_service_team_assignment(
                     db,

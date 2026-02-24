@@ -191,11 +191,7 @@ def _derive_lead_source_from_attribution(attribution: dict | None) -> str | None
 
 
 def _derive_lead_source_from_person_channels(db: Session, person_id) -> str | None:
-    channels = (
-        db.query(PersonChannel.channel_type)
-        .filter(PersonChannel.person_id == person_id)
-        .all()
-    )
+    channels = db.query(PersonChannel.channel_type).filter(PersonChannel.person_id == person_id).all()
     channel_types = {row[0] for row in channels}
     if PersonChannelType.instagram_dm in channel_types:
         return "Instagram"
@@ -530,8 +526,10 @@ class Leads(ListResponseMixin):
             person.party_status = PartyStatus.contact
 
         title_value = data.get("title")
-        if not title_value or (isinstance(title_value, str) and not title_value.strip()) or _is_placeholder_lead_title(
-            title_value
+        if (
+            not title_value
+            or (isinstance(title_value, str) and not title_value.strip())
+            or _is_placeholder_lead_title(title_value)
         ):
             data["title"] = _lead_title_from_person(person)
 
@@ -617,8 +615,10 @@ class Leads(ListResponseMixin):
 
         if "title" in data:
             title_value = data.get("title")
-            if not title_value or (isinstance(title_value, str) and not title_value.strip()) or _is_placeholder_lead_title(
-                title_value
+            if (
+                not title_value
+                or (isinstance(title_value, str) and not title_value.strip())
+                or _is_placeholder_lead_title(title_value)
             ):
                 inferred = _lead_title_from_person(person) if person else None
                 data["title"] = inferred

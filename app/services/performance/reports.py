@@ -105,7 +105,9 @@ class PerformanceReportsService:
             query = query.filter(AgentPerformanceSnapshot.score_period_start >= start_at)
         return query.order_by(AgentPerformanceSnapshot.score_period_start.desc()).limit(max(1, min(limit, 104))).all()
 
-    def leaderboard(self, db: Session, person_ids: set[str], period_start: datetime | None = None) -> list[dict[str, Any]]:
+    def leaderboard(
+        self, db: Session, person_ids: set[str], period_start: datetime | None = None
+    ) -> list[dict[str, Any]]:
         if not person_ids:
             return []
         query = db.query(AgentPerformanceSnapshot).filter(
@@ -197,9 +199,7 @@ class PerformanceReportsService:
         try:
             if min_size_raw is None:
                 min_size = 3
-            elif isinstance(min_size_raw, bool):
-                min_size = int(min_size_raw)
-            elif isinstance(min_size_raw, int | float):
+            elif isinstance(min_size_raw, bool | int | float):
                 min_size = int(min_size_raw)
             elif isinstance(min_size_raw, str):
                 min_size = int(min_size_raw.strip())

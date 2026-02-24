@@ -127,41 +127,41 @@ class IntelligenceEngine:
         quality_score = round(max(0.0, min(1.0, quality.score)), 2)
 
         if spec.min_context_quality > 0 and quality.score < spec.min_context_quality and spec.skip_on_low_quality:
-                span.set_attribute("ai.status", "skipped")
-                span.set_attribute("ai.quality_score", quality_score)
-                missing_str = ", ".join(quality.missing_fields[:5])
-                insight = AIInsight(
-                    persona_key=spec.key,
-                    domain=spec.domain,
-                    severity=InsightSeverity.info,
-                    status=AIInsightStatus.skipped,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                    title=f"{spec.name}: insufficient data",
-                    summary=(
-                        f"Skipped — context quality {quality.score:.0%} "
-                        f"below threshold {spec.min_context_quality:.0%}. "
-                        f"Missing: {missing_str}."
-                    ),
-                    structured_output={"quality": quality.field_scores, "missing": quality.missing_fields},
-                    context_quality_score=quality_score,
-                    confidence_score=None,
-                    recommendations=None,
-                    llm_provider="n/a",
-                    llm_model="n/a",
-                    llm_tokens_in=0,
-                    llm_tokens_out=0,
-                    generation_time_ms=0,
-                    trigger=trigger,
-                    triggered_by_person_id=coerce_uuid(triggered_by_person_id) if triggered_by_person_id else None,
-                    acknowledged_at=None,
-                    acknowledged_by_person_id=None,
-                    expires_at=None,
-                )
-                db.add(insight)
-                db.commit()
-                db.refresh(insight)
-                return insight
+            span.set_attribute("ai.status", "skipped")
+            span.set_attribute("ai.quality_score", quality_score)
+            missing_str = ", ".join(quality.missing_fields[:5])
+            insight = AIInsight(
+                persona_key=spec.key,
+                domain=spec.domain,
+                severity=InsightSeverity.info,
+                status=AIInsightStatus.skipped,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                title=f"{spec.name}: insufficient data",
+                summary=(
+                    f"Skipped — context quality {quality.score:.0%} "
+                    f"below threshold {spec.min_context_quality:.0%}. "
+                    f"Missing: {missing_str}."
+                ),
+                structured_output={"quality": quality.field_scores, "missing": quality.missing_fields},
+                context_quality_score=quality_score,
+                confidence_score=None,
+                recommendations=None,
+                llm_provider="n/a",
+                llm_model="n/a",
+                llm_tokens_in=0,
+                llm_tokens_out=0,
+                generation_time_ms=0,
+                trigger=trigger,
+                triggered_by_person_id=coerce_uuid(triggered_by_person_id) if triggered_by_person_id else None,
+                acknowledged_at=None,
+                acknowledged_by_person_id=None,
+                expires_at=None,
+            )
+            db.add(insight)
+            db.commit()
+            db.refresh(insight)
+            return insight
 
         started = time.monotonic()
         context = spec.context_builder(db, params or {})

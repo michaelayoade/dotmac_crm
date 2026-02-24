@@ -51,7 +51,11 @@ class CrmAgent(Base):
 
     teams = relationship("CrmAgentTeam", back_populates="agent")
     assignments = relationship("ConversationAssignment", back_populates="agent")
-    macros = relationship("CrmConversationMacro", back_populates="created_by_agent", foreign_keys="CrmConversationMacro.created_by_agent_id")
+    macros = relationship(
+        "CrmConversationMacro",
+        back_populates="created_by_agent",
+        foreign_keys="CrmConversationMacro.created_by_agent_id",
+    )
 
 
 class CrmAgentTeam(Base):

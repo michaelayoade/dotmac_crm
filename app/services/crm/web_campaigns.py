@@ -12,9 +12,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
-from app.models.crm.enums import CampaignChannel, CampaignType
 from app.models.crm.campaign_sender import CampaignSender
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
+from app.models.crm.enums import CampaignChannel, CampaignType
 from app.models.crm.sales import Pipeline, PipelineStage
 from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import CampaignCreate, CampaignStepCreate, CampaignStepUpdate, CampaignUpdate

@@ -30,9 +30,7 @@ class AIResponse:
 def _coerce_int(value: object | None, default: int, minimum: int = 0) -> int:
     if value is None:
         parsed = default
-    elif isinstance(value, bool):
-        parsed = int(value)
-    elif isinstance(value, int | float):
+    elif isinstance(value, bool | int | float):
         parsed = int(value)
     elif isinstance(value, str):
         try:
@@ -47,9 +45,7 @@ def _coerce_int(value: object | None, default: int, minimum: int = 0) -> int:
 def _coerce_float(value: object | None, default: float, minimum: float = 0.0) -> float:
     if value is None:
         parsed = default
-    elif isinstance(value, bool):
-        parsed = float(value)
-    elif isinstance(value, int | float):
+    elif isinstance(value, bool | int | float):
         parsed = float(value)
     elif isinstance(value, str):
         try:

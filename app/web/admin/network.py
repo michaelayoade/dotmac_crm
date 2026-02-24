@@ -1587,7 +1587,9 @@ def qa_remediations_approve_merge(
                 },
             )
         db.commit()
-        message = "Rename+approved+and+applied+(both+closures+kept)" if keep_both_checked else "Merge+approved+and+applied"
+        message = (
+            "Rename+approved+and+applied+(both+closures+kept)" if keep_both_checked else "Merge+approved+and+applied"
+        )
         return RedirectResponse(
             url=f"/admin/network/qa/remediations?status=pending&message={message}",
             status_code=303,

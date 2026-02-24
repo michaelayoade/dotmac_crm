@@ -32,10 +32,10 @@ class DomainHealthReport:
     label: str
     entity_count: int
     avg_quality: float
-    pct_above_threshold: float         # % scoring >= 0.3
-    pct_high_quality: float            # % scoring >= 0.7
-    top_missing_fields: list[tuple[str, int]]   # (field_name, count) top 5
-    sample_worst: list[EntityQualityResult]     # up to 5 lowest-scoring entities
+    pct_above_threshold: float  # % scoring >= 0.3
+    pct_high_quality: float  # % scoring >= 0.7
+    top_missing_fields: list[tuple[str, int]]  # (field_name, count) top 5
+    sample_worst: list[EntityQualityResult]  # up to 5 lowest-scoring entities
 
     def avg_pct(self) -> int:
         return round(self.avg_quality * 100)
@@ -48,9 +48,14 @@ def _aggregate(
 ) -> DomainHealthReport:
     if not results:
         return DomainHealthReport(
-            domain=domain, label=label, entity_count=0, avg_quality=0.0,
-            pct_above_threshold=0.0, pct_high_quality=0.0,
-            top_missing_fields=[], sample_worst=[],
+            domain=domain,
+            label=label,
+            entity_count=0,
+            avg_quality=0.0,
+            pct_above_threshold=0.0,
+            pct_high_quality=0.0,
+            top_missing_fields=[],
+            sample_worst=[],
         )
 
     total = len(results)
@@ -85,16 +90,11 @@ def _aggregate(
 # Per-domain report builders
 # ---------------------------------------------------------------------------
 
+
 def _ticket_report(db: Session, *, limit: int = 200) -> DomainHealthReport:
     from app.models.tickets import Ticket
 
-    ids = (
-        db.query(Ticket.id)
-        .filter(Ticket.is_active.is_(True))
-        .order_by(Ticket.updated_at.desc())
-        .limit(limit)
-        .all()
-    )
+    ids = db.query(Ticket.id).filter(Ticket.is_active.is_(True)).order_by(Ticket.updated_at.desc()).limit(limit).all()
     results = [score_ticket_quality(db, str(tid)) for (tid,) in ids]
     return _aggregate(results, "tickets", "Support Tickets")
 
@@ -117,11 +117,7 @@ def _project_report(db: Session, *, limit: int = 200) -> DomainHealthReport:
     from app.models.projects import Project
 
     ids = (
-        db.query(Project.id)
-        .filter(Project.is_active.is_(True))
-        .order_by(Project.updated_at.desc())
-        .limit(limit)
-        .all()
+        db.query(Project.id).filter(Project.is_active.is_(True)).order_by(Project.updated_at.desc()).limit(limit).all()
     )
     results = [score_project_quality(db, str(pid)) for (pid,) in ids]
     return _aggregate(results, "projects", "Projects")
@@ -235,7 +231,7 @@ def domain_entity_list(
         full.sort(key=lambda r: r.score, reverse=True)
 
     total = len(full)
-    page = full[offset: offset + limit]
+    page = full[offset : offset + limit]
     return page, total
 
 

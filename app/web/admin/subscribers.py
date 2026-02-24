@@ -41,7 +41,7 @@ def _format_balance_display(value: object) -> str:
 
 def _decorate_balance_display(subscribers: list[Subscriber]) -> None:
     for subscriber in subscribers:
-        setattr(subscriber, "balance_display", _format_balance_display(getattr(subscriber, "balance", None)))
+        subscriber.balance_display = _format_balance_display(getattr(subscriber, "balance", None))
 
 
 def _parse_export_days(value: str | None) -> int:
@@ -231,7 +231,9 @@ def subscriber_export_csv(
         limit=10000,
         offset=0,
     )
-    subscribers = [subscriber for subscriber in subscribers if subscriber.created_at and subscriber.created_at >= cutoff]
+    subscribers = [
+        subscriber for subscriber in subscribers if subscriber.created_at and subscriber.created_at >= cutoff
+    ]
 
     rows: list[dict[str, str]] = []
     for subscriber in subscribers:
@@ -244,7 +246,9 @@ def subscriber_export_csv(
                 "External ID": _clean_export_value(subscriber.external_id),
                 "Source": _clean_export_value(_source_label(subscriber.external_system)),
                 "Status": _clean_export_value(subscriber.status.value.title() if subscriber.status else ""),
-                "Created": _clean_export_value(subscriber.created_at.strftime("%Y-%m-%d") if subscriber.created_at else ""),
+                "Created": _clean_export_value(
+                    subscriber.created_at.strftime("%Y-%m-%d") if subscriber.created_at else ""
+                ),
             }
         )
 

@@ -412,12 +412,7 @@ def _set_agent_offline(db: Session, person_id: str) -> None:
         from app.models.crm.team import CrmAgent
         from app.services.crm.presence import agent_presence
 
-        agent = (
-            db.query(CrmAgent)
-            .filter(CrmAgent.person_id == person_id)
-            .filter(CrmAgent.is_active.is_(True))
-            .first()
-        )
+        agent = db.query(CrmAgent).filter(CrmAgent.person_id == person_id).filter(CrmAgent.is_active.is_(True)).first()
         if agent:
             agent_presence.upsert(db, str(agent.id), status=AgentPresenceStatus.offline, source="logout")
             logger.info("agent_presence_logout agent_id=%s person_id=%s", agent.id, person_id)

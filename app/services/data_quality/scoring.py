@@ -23,15 +23,16 @@ from app.services.common import coerce_uuid
 # Base types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class EntityQualityResult:
     """Quality assessment for a single entity."""
 
     entity_type: str
     entity_id: str
-    score: float                                   # 0.0-1.0 weighted composite
-    field_scores: dict[str, float] = field(default_factory=dict)   # per-signal 0.0-1.0
-    missing_fields: list[str] = field(default_factory=list)        # fields scoring 0
+    score: float  # 0.0-1.0 weighted composite
+    field_scores: dict[str, float] = field(default_factory=dict)  # per-signal 0.0-1.0
+    missing_fields: list[str] = field(default_factory=list)  # fields scoring 0
 
     @property
     def sufficient(self) -> bool:
@@ -55,6 +56,7 @@ def _missing(scores: dict[str, float]) -> list[str]:
 # Ticket
 # ---------------------------------------------------------------------------
 
+
 def score_ticket_quality(db: Session, ticket_id: str) -> EntityQualityResult:
     from app.models.tickets import Ticket, TicketComment, TicketSlaEvent
 
@@ -71,25 +73,24 @@ def score_ticket_quality(db: Session, ticket_id: str) -> EntityQualityResult:
     s["assignee"] = 1.0 if ticket.assigned_to_person_id else 0.0
     s["ticket_type"] = 1.0 if ticket.ticket_type else 0.0
 
-    comment_count = (
-        db.query(func.count(TicketComment.id))
-        .filter(TicketComment.ticket_id == ticket.id)
-        .scalar() or 0
-    )
+    comment_count = db.query(func.count(TicketComment.id)).filter(TicketComment.ticket_id == ticket.id).scalar() or 0
     s["comments"] = min(1.0, comment_count / 2)
 
-    sla_count = (
-        db.query(func.count(TicketSlaEvent.id))
-        .filter(TicketSlaEvent.ticket_id == ticket.id)
-        .scalar() or 0
-    )
+    sla_count = db.query(func.count(TicketSlaEvent.id)).filter(TicketSlaEvent.ticket_id == ticket.id).scalar() or 0
     s["sla_events"] = 1.0 if sla_count > 0 else 0.0
     s["tags"] = 1.0 if ticket.tags else 0.0
 
     weights = {
-        "title": 0.10, "description": 0.20, "status": 0.05, "priority": 0.05,
-        "customer": 0.12, "assignee": 0.10, "ticket_type": 0.08,
-        "comments": 0.15, "sla_events": 0.08, "tags": 0.07,
+        "title": 0.10,
+        "description": 0.20,
+        "status": 0.05,
+        "priority": 0.05,
+        "customer": 0.12,
+        "assignee": 0.10,
+        "ticket_type": 0.08,
+        "comments": 0.15,
+        "sla_events": 0.08,
+        "tags": 0.07,
     }
     return EntityQualityResult("ticket", str(ticket.id), _weighted_score(s, weights), s, _missing(s))
 
@@ -97,6 +98,7 @@ def score_ticket_quality(db: Session, ticket_id: str) -> EntityQualityResult:
 # ---------------------------------------------------------------------------
 # Conversation (CRM Inbox)
 # ---------------------------------------------------------------------------
+
 
 def score_conversation_quality(db: Session, conversation_id: str) -> EntityQualityResult:
     from app.models.crm.conversation import Conversation, ConversationAssignment, Message
@@ -110,24 +112,22 @@ def score_conversation_quality(db: Session, conversation_id: str) -> EntityQuali
     s["status"] = 1.0 if conv.status else 0.0
     s["subject"] = 1.0 if conv.subject and len(conv.subject.strip()) > 3 else 0.0
 
-    msg_count = (
-        db.query(func.count(Message.id))
-        .filter(Message.conversation_id == conv.id)
-        .scalar() or 0
-    )
+    msg_count = db.query(func.count(Message.id)).filter(Message.conversation_id == conv.id).scalar() or 0
     s["messages"] = min(1.0, msg_count / 3)
 
     inbound_count = (
         db.query(func.count(Message.id))
         .filter(Message.conversation_id == conv.id, Message.direction == "inbound")
-        .scalar() or 0
+        .scalar()
+        or 0
     )
     s["has_inbound"] = 1.0 if inbound_count > 0 else 0.0
 
     outbound_count = (
         db.query(func.count(Message.id))
         .filter(Message.conversation_id == conv.id, Message.direction == "outbound")
-        .scalar() or 0
+        .scalar()
+        or 0
     )
     s["has_outbound"] = 1.0 if outbound_count > 0 else 0.0
 
@@ -140,8 +140,13 @@ def score_conversation_quality(db: Session, conversation_id: str) -> EntityQuali
     s["assigned_team"] = 1.0 if assignment and assignment.team_id else 0.0
 
     weights = {
-        "contact": 0.15, "status": 0.05, "subject": 0.05, "messages": 0.30,
-        "has_inbound": 0.15, "has_outbound": 0.10, "assigned_agent": 0.10,
+        "contact": 0.15,
+        "status": 0.05,
+        "subject": 0.05,
+        "messages": 0.30,
+        "has_inbound": 0.15,
+        "has_outbound": 0.10,
+        "assigned_agent": 0.10,
         "assigned_team": 0.10,
     }
     return EntityQualityResult("conversation", str(conv.id), _weighted_score(s, weights), s, _missing(s))
@@ -150,6 +155,7 @@ def score_conversation_quality(db: Session, conversation_id: str) -> EntityQuali
 # ---------------------------------------------------------------------------
 # Project
 # ---------------------------------------------------------------------------
+
 
 def score_project_quality(db: Session, project_id: str) -> EntityQualityResult:
     from app.models.projects import Project, ProjectTask
@@ -171,7 +177,8 @@ def score_project_quality(db: Session, project_id: str) -> EntityQualityResult:
     task_count = (
         db.query(func.count(ProjectTask.id))
         .filter(ProjectTask.project_id == project.id, ProjectTask.is_active.is_(True))
-        .scalar() or 0
+        .scalar()
+        or 0
     )
     s["tasks"] = min(1.0, task_count / 3)
 
@@ -182,14 +189,22 @@ def score_project_quality(db: Session, project_id: str) -> EntityQualityResult:
             ProjectTask.is_active.is_(True),
             ProjectTask.assigned_to_person_id.isnot(None),
         )
-        .scalar() or 0
+        .scalar()
+        or 0
     )
     s["tasks_assigned"] = min(1.0, assigned_task_count / max(task_count, 1))
 
     weights = {
-        "name": 0.05, "description": 0.12, "status": 0.05, "priority": 0.05,
-        "project_type": 0.08, "manager": 0.10, "owner": 0.05, "due_date": 0.10,
-        "tasks": 0.25, "tasks_assigned": 0.15,
+        "name": 0.05,
+        "description": 0.12,
+        "status": 0.05,
+        "priority": 0.05,
+        "project_type": 0.08,
+        "manager": 0.10,
+        "owner": 0.05,
+        "due_date": 0.10,
+        "tasks": 0.25,
+        "tasks_assigned": 0.15,
     }
     return EntityQualityResult("project", str(project.id), _weighted_score(s, weights), s, _missing(s))
 
@@ -197,6 +212,7 @@ def score_project_quality(db: Session, project_id: str) -> EntityQualityResult:
 # ---------------------------------------------------------------------------
 # Work Order (Dispatch / Field Service)
 # ---------------------------------------------------------------------------
+
 
 def score_work_order_quality(db: Session, work_order_id: str) -> EntityQualityResult:
     from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote
@@ -216,24 +232,26 @@ def score_work_order_quality(db: Session, work_order_id: str) -> EntityQualityRe
     s["duration_estimate"] = 1.0 if wo.estimated_duration_minutes else 0.0
     s["skills"] = 1.0 if wo.required_skills else 0.0
 
-    note_count = (
-        db.query(func.count(WorkOrderNote.id))
-        .filter(WorkOrderNote.work_order_id == wo.id)
-        .scalar() or 0
-    )
+    note_count = db.query(func.count(WorkOrderNote.id)).filter(WorkOrderNote.work_order_id == wo.id).scalar() or 0
     s["notes"] = min(1.0, note_count / 1)
 
     assignment_count = (
-        db.query(func.count(WorkOrderAssignment.id))
-        .filter(WorkOrderAssignment.work_order_id == wo.id)
-        .scalar() or 0
+        db.query(func.count(WorkOrderAssignment.id)).filter(WorkOrderAssignment.work_order_id == wo.id).scalar() or 0
     )
     s["crew_assigned"] = min(1.0, assignment_count / 1)
 
     weights = {
-        "title": 0.05, "description": 0.10, "status": 0.05, "priority": 0.05,
-        "work_type": 0.08, "assignee": 0.15, "schedule": 0.15,
-        "duration_estimate": 0.10, "skills": 0.07, "notes": 0.10, "crew_assigned": 0.10,
+        "title": 0.05,
+        "description": 0.10,
+        "status": 0.05,
+        "priority": 0.05,
+        "work_type": 0.08,
+        "assignee": 0.15,
+        "schedule": 0.15,
+        "duration_estimate": 0.10,
+        "skills": 0.07,
+        "notes": 0.10,
+        "crew_assigned": 0.10,
     }
     return EntityQualityResult("work_order", str(wo.id), _weighted_score(s, weights), s, _missing(s))
 
@@ -241,6 +259,7 @@ def score_work_order_quality(db: Session, work_order_id: str) -> EntityQualityRe
 # ---------------------------------------------------------------------------
 # Campaign
 # ---------------------------------------------------------------------------
+
 
 def score_campaign_quality(db: Session, campaign_id: str) -> EntityQualityResult:
     from app.models.crm.campaign import Campaign, CampaignRecipient
@@ -267,16 +286,20 @@ def score_campaign_quality(db: Session, campaign_id: str) -> EntityQualityResult
     s["audience"] = 1.0 if campaign.segment_filter else 0.0
 
     recipient_count = (
-        db.query(func.count(CampaignRecipient.id))
-        .filter(CampaignRecipient.campaign_id == campaign.id)
-        .scalar() or 0
+        db.query(func.count(CampaignRecipient.id)).filter(CampaignRecipient.campaign_id == campaign.id).scalar() or 0
     )
     s["recipients"] = min(1.0, recipient_count / 5)
 
     weights = {
-        "name": 0.05, "channel": 0.05, "status": 0.05, "subject": 0.10,
-        "content": 0.25, "sender_info": 0.10, "schedule": 0.05,
-        "audience": 0.10, "recipients": 0.25,
+        "name": 0.05,
+        "channel": 0.05,
+        "status": 0.05,
+        "subject": 0.10,
+        "content": 0.25,
+        "sender_info": 0.10,
+        "schedule": 0.05,
+        "audience": 0.10,
+        "recipients": 0.25,
     }
     return EntityQualityResult("campaign", str(campaign.id), _weighted_score(s, weights), s, _missing(s))
 
@@ -284,6 +307,7 @@ def score_campaign_quality(db: Session, campaign_id: str) -> EntityQualityResult
 # ---------------------------------------------------------------------------
 # Vendor Quote
 # ---------------------------------------------------------------------------
+
 
 def score_vendor_quote_quality(db: Session, quote_id: str) -> EntityQualityResult:
     from app.models.vendor import ProjectQuote, QuoteLineItem, Vendor
@@ -302,7 +326,8 @@ def score_vendor_quote_quality(db: Session, quote_id: str) -> EntityQualityResul
     line_count = (
         db.query(func.count(QuoteLineItem.id))
         .filter(QuoteLineItem.quote_id == quote.id, QuoteLineItem.is_active.is_(True))
-        .scalar() or 0
+        .scalar()
+        or 0
     )
     s["line_items"] = min(1.0, line_count / 2)
 
@@ -315,8 +340,14 @@ def score_vendor_quote_quality(db: Session, quote_id: str) -> EntityQualityResul
     s["review"] = 1.0 if quote.reviewed_at else 0.0
 
     weights = {
-        "status": 0.05, "vendor": 0.10, "project": 0.10, "total": 0.15,
-        "validity": 0.10, "line_items": 0.25, "vendor_contact": 0.10, "review": 0.15,
+        "status": 0.05,
+        "vendor": 0.10,
+        "project": 0.10,
+        "total": 0.15,
+        "validity": 0.10,
+        "line_items": 0.25,
+        "vendor_contact": 0.10,
+        "review": 0.15,
     }
     return EntityQualityResult("vendor_quote", str(quote.id), _weighted_score(s, weights), s, _missing(s))
 
@@ -324,6 +355,7 @@ def score_vendor_quote_quality(db: Session, quote_id: str) -> EntityQualityResul
 # ---------------------------------------------------------------------------
 # Subscriber / Customer
 # ---------------------------------------------------------------------------
+
 
 def score_subscriber_quality(db: Session, subscriber_id: str) -> EntityQualityResult:
     from app.models.crm.conversation import Conversation
@@ -354,25 +386,22 @@ def score_subscriber_quality(db: Session, subscriber_id: str) -> EntityQualityRe
         s["contact_info"] = 0.0
 
     # Activity signals
-    ticket_count = (
-        db.query(func.count(Ticket.id))
-        .filter(Ticket.subscriber_id == sub.id)
-        .scalar() or 0
-    )
+    ticket_count = db.query(func.count(Ticket.id)).filter(Ticket.subscriber_id == sub.id).scalar() or 0
     s["ticket_history"] = min(1.0, ticket_count / 2)
 
     conv_count = 0
     if sub.person_id:
-        conv_count = (
-            db.query(func.count(Conversation.id))
-            .filter(Conversation.person_id == sub.person_id)
-            .scalar() or 0
-        )
+        conv_count = db.query(func.count(Conversation.id)).filter(Conversation.person_id == sub.person_id).scalar() or 0
     s["conversation_history"] = min(1.0, conv_count / 2)
 
     weights = {
-        "status": 0.05, "person": 0.15, "service_plan": 0.10, "service_address": 0.10,
-        "subscriber_number": 0.05, "contact_info": 0.20, "ticket_history": 0.15,
+        "status": 0.05,
+        "person": 0.15,
+        "service_plan": 0.10,
+        "service_address": 0.10,
+        "subscriber_number": 0.05,
+        "contact_info": 0.20,
+        "ticket_history": 0.15,
         "conversation_history": 0.20,
     }
     return EntityQualityResult("subscriber", str(sub.id), _weighted_score(s, weights), s, _missing(s))
@@ -382,12 +411,13 @@ def score_subscriber_quality(db: Session, subscriber_id: str) -> EntityQualityRe
 # Performance Snapshot (for AI coach readiness)
 # ---------------------------------------------------------------------------
 
-def score_performance_snapshot_quality(db: Session, person_id: str, period_start: str | None = None) -> EntityQualityResult:
+
+def score_performance_snapshot_quality(
+    db: Session, person_id: str, period_start: str | None = None
+) -> EntityQualityResult:
     from app.models.performance import AgentPerformanceSnapshot
 
-    query = db.query(AgentPerformanceSnapshot).filter(
-        AgentPerformanceSnapshot.person_id == coerce_uuid(person_id)
-    )
+    query = db.query(AgentPerformanceSnapshot).filter(AgentPerformanceSnapshot.person_id == coerce_uuid(person_id))
     if period_start:
         query = query.filter(AgentPerformanceSnapshot.score_period_start == period_start)
     snap = query.order_by(AgentPerformanceSnapshot.created_at.desc()).first()
@@ -404,7 +434,9 @@ def score_performance_snapshot_quality(db: Session, person_id: str, period_start
     s["weights"] = 1.0 if snap.weights_json else 0.0
 
     weights = {
-        "domain_coverage": 0.50, "composite_score": 0.20,
-        "team_context": 0.15, "weights": 0.15,
+        "domain_coverage": 0.50,
+        "composite_score": 0.20,
+        "team_context": 0.15,
+        "weights": 0.15,
     }
     return EntityQualityResult("performance_snapshot", str(snap.id), _weighted_score(s, weights), s, _missing(s))

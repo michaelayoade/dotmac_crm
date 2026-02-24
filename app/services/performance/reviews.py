@@ -57,7 +57,6 @@ def _safe_json(text: str) -> dict[str, Any]:
     }
 
 
-
 class PerformanceReviewsService:
     def _llm_ready(self, db: Session) -> bool:
         provider = str(resolve_value(db, SettingDomain.integration, "llm_provider") or "vllm").strip().lower()

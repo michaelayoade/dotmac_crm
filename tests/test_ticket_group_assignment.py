@@ -128,18 +128,8 @@ def test_ticket_query_assigned_to_me_includes_service_team_memberships(db_sessio
         ),
     )
 
-    member_results = (
-        TicketQuery(db_session)
-        .by_assigned_to_or_team_member(member.id)
-        .active_only()
-        .all()
-    )
-    outsider_results = (
-        TicketQuery(db_session)
-        .by_assigned_to_or_team_member(outsider.id)
-        .active_only()
-        .all()
-    )
+    member_results = TicketQuery(db_session).by_assigned_to_or_team_member(member.id).active_only().all()
+    outsider_results = TicketQuery(db_session).by_assigned_to_or_team_member(outsider.id).active_only().all()
 
     member_ids = {str(row.id) for row in member_results}
     outsider_ids = {str(row.id) for row in outsider_results}

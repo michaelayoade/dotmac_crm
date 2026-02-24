@@ -358,7 +358,9 @@ def map_customer_to_subscriber_data(
     next_bill_date = _extract_next_bill_date(customer, billing, primary_service)
 
     candidate_fields: dict[str, Any] = {
-        "subscriber_number": _coalesce_str(customer.get("login"), primary_service.get("login") if primary_service else None),
+        "subscriber_number": _coalesce_str(
+            customer.get("login"), primary_service.get("login") if primary_service else None
+        ),
         "status": status_value,
         "service_name": description,
         "service_plan": description,

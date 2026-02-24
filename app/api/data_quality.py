@@ -96,7 +96,8 @@ def data_quality_entity_list(
     if sort not in ("worst", "best"):
         sort = "worst"
     results, total = domain_entity_list(
-        db, domain,
+        db,
+        domain,
         limit=min(max(int(limit), 1), 100),
         offset=max(int(offset), 0),
         sort=sort,

@@ -16,8 +16,8 @@ from app.logging import get_logger
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person
 from app.models.subscriber import Organization
-from app.services.audit_helpers import recent_activity_for_paths
 from app.services import crm as crm_service
+from app.services.audit_helpers import recent_activity_for_paths
 from app.services.crm.web_contacts import (
     ContactUpsertInput,
     contact_detail_data,
@@ -199,10 +199,14 @@ def crm_contacts_export_csv(
     person_ids = {contact.person_id for contact in contacts if contact.person_id}
     org_ids = {contact.organization_id for contact in contacts if contact.organization_id}
     people_map = (
-        {str(person.id): person for person in db.query(Person).filter(Person.id.in_(person_ids)).all()} if person_ids else {}
+        {str(person.id): person for person in db.query(Person).filter(Person.id.in_(person_ids)).all()}
+        if person_ids
+        else {}
     )
     org_map = (
-        {str(org.id): org for org in db.query(Organization).filter(Organization.id.in_(org_ids)).all()} if org_ids else {}
+        {str(org.id): org for org in db.query(Organization).filter(Organization.id.in_(org_ids)).all()}
+        if org_ids
+        else {}
     )
 
     rows: list[dict[str, str]] = []
@@ -233,7 +237,9 @@ def crm_contacts_export_csv(
                 "Address": _clean_export_value(contact.address_line1),
                 "Gender": _clean_export_value(contact.gender.value.title() if contact.gender else ""),
                 "Marketing Opt-in": _clean_export_value("Yes" if contact.marketing_opt_in else "No"),
-                "Created Date": _clean_export_value(contact.created_at.strftime("%Y-%m-%d") if contact.created_at else ""),
+                "Created Date": _clean_export_value(
+                    contact.created_at.strftime("%Y-%m-%d") if contact.created_at else ""
+                ),
             }
         )
 

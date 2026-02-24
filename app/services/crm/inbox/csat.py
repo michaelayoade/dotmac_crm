@@ -237,11 +237,7 @@ def queue_for_resolved_conversation(
             channel_type=channel_type,
             channel_target_id=coerce_uuid(target_id) if target_id else None,
             reply_to_message_id=last_inbound.id if last_inbound else None,
-            body=(
-                "Your conversation has been resolved. "
-                "Please rate your experience here: "
-                f"{survey_url}"
-            ),
+            body=(f"Your conversation has been resolved. Please rate your experience here: {survey_url}"),
         )
         crm_service.inbox.send_message_with_retry(
             db,
