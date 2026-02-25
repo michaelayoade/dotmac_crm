@@ -2172,6 +2172,13 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=60,
         min_value=10,
     ),
+    SettingSpec(
+        domain=SettingDomain.workflow,
+        key="ticket_auto_assignment_enabled",
+        env_var="TICKET_AUTO_ASSIGNMENT_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
     # ============== Provisioning Domain: NAS/OAuth Tasks ==============
     SettingSpec(
         domain=SettingDomain.provisioning,

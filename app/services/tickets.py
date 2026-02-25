@@ -241,6 +241,16 @@ def _has_field_visit_tag(tags: list | None) -> bool:
     return "field_visit" in tags
 
 
+def _is_truthy(value: object | None, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return default
+
+
 def _normalize_assignee_ids(assignee_ids: list[str] | None) -> list[str]:
     if not assignee_ids:
         return []
@@ -401,6 +411,47 @@ def _get_region_ticket_assignments(db: Session, region: str | None) -> tuple[str
     return manager_id, spc_id
 
 
+def _maybe_auto_assign_ticket(db: Session, ticket: Ticket):
+    """Apply rule-based ticket auto-assignment when enabled."""
+    if ticket.assigned_to_person_id:
+        return None
+    enabled = _is_truthy(
+        settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_auto_assignment_enabled"),
+        False,
+    )
+    if not enabled:
+        return None
+
+    from app.services.audit_helpers import log_audit_event
+    from app.services.ticket_assignment import auto_assign_ticket
+
+    actor_id = str(ticket.created_by_person_id) if ticket.created_by_person_id else None
+    result = auto_assign_ticket(
+        db,
+        str(ticket.id),
+        trigger="create",
+        actor_person_id=actor_id,
+    )
+    if result and result.assigned:
+        db.refresh(ticket)
+        log_audit_event(
+            db,
+            None,
+            action="ticket_auto_assigned",
+            entity_type="ticket",
+            entity_id=str(ticket.id),
+            actor_id=actor_id,
+            metadata={
+                "rule_id": result.rule_id,
+                "assignee_person_id": result.assignee_person_id,
+                "reason": result.reason,
+            },
+            status_code=200,
+            is_success=True,
+        )
+    return result
+
+
 class Tickets(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: TicketCreate):
@@ -462,6 +513,7 @@ class Tickets(ListResponseMixin):
 
         db.commit()
         db.refresh(ticket)
+        _maybe_auto_assign_ticket(db, ticket)
 
         # In-app notifications for internal ticket roles.
         # Ticket has already been committed above, so failures here won't roll back creation.
