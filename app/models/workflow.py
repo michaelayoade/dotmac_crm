@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +26,11 @@ class SlaBreachStatus(enum.Enum):
     open = "open"
     acknowledged = "acknowledged"
     resolved = "resolved"
+
+
+class TicketAssignmentStrategy(enum.Enum):
+    round_robin = "round_robin"
+    least_loaded = "least_loaded"
 
 
 class TicketStatusTransition(Base):
@@ -130,6 +135,40 @@ class SlaBreach(Base):
     breached_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+
+class TicketAssignmentRule(Base):
+    __tablename__ = "ticket_assignment_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    match_config: Mapped[dict | None] = mapped_column(JSON)
+    strategy: Mapped[TicketAssignmentStrategy] = mapped_column(
+        Enum(TicketAssignmentStrategy), default=TicketAssignmentStrategy.round_robin
+    )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("service_teams.id"))
+    assign_manager: Mapped[bool] = mapped_column(Boolean, default=False)
+    assign_spc: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+
+class TicketAssignmentCounter(Base):
+    __tablename__ = "ticket_assignment_counters"
+    __table_args__ = (UniqueConstraint("rule_id", name="uq_ticket_assignment_counters_rule_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    rule_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ticket_assignment_rules.id"), nullable=False
+    )
+    last_assigned_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
