@@ -43,3 +43,27 @@ def test_list_tickets_wires_search_before_created_by(monkeypatch, db_session):
         25,
         5,
     )
+
+
+def test_auto_assign_ticket_manually_wires_actor(monkeypatch, db_session):
+    captured: dict[str, object] = {}
+    expected_ticket = {"id": "ticket-1"}
+
+    def _fake_auto_assign_manual(db, ticket_id, actor_id=None):
+        captured["db"] = db
+        captured["ticket_id"] = ticket_id
+        captured["actor_id"] = actor_id
+        return expected_ticket
+
+    monkeypatch.setattr(tickets_api.tickets_service.tickets, "auto_assign_manual", _fake_auto_assign_manual)
+
+    response = tickets_api.auto_assign_ticket_manually(
+        ticket_id="ticket-1",
+        db=db_session,
+        auth={"person_id": "person-1"},
+    )
+
+    assert response == expected_ticket
+    assert captured["db"] is db_session
+    assert captured["ticket_id"] == "ticket-1"
+    assert captured["actor_id"] == "person-1"

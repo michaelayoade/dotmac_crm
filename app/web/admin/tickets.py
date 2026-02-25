@@ -2079,6 +2079,51 @@ def update_ticket_priority(
 
 
 @router.post(
+    "/tickets/{ticket_ref}/auto-assign",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("support:ticket:update"))],
+)
+def manual_auto_assign_ticket(
+    request: Request,
+    ticket_ref: str,
+    db: Session = Depends(get_db),
+):
+    """Run ticket rule auto-assignment manually for an existing ticket."""
+    from app.web.admin import get_current_user
+
+    try:
+        ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+    except Exception:
+        return templates.TemplateResponse(
+            "admin/errors/404.html",
+            {"request": request, "message": "Ticket not found"},
+            status_code=404,
+        )
+
+    try:
+        current_user = get_current_user(request)
+        actor_id = str(current_user.get("person_id")) if current_user else None
+        tickets_service.tickets.auto_assign_manual(db=db, ticket_id=str(ticket.id), actor_id=actor_id)
+    except Exception as e:
+        logger.exception("ticket_manual_auto_assign_failed ticket_ref=%s", ticket_ref)
+        from app.web.admin import get_current_user, get_sidebar_stats
+
+        sidebar_stats = get_sidebar_stats(db)
+        current_user = get_current_user(request)
+        return templates.TemplateResponse(
+            "admin/errors/500.html",
+            {"request": request, "error": str(e), "current_user": current_user, "sidebar_stats": sidebar_stats},
+            status_code=500,
+        )
+    if request.headers.get("HX-Request"):
+        return HTMLResponse(
+            content="",
+            headers={"HX-Redirect": f"/admin/support/tickets/{ticket.number or ticket.id}"},
+        )
+    return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
+
+
+@router.post(
     "/tickets/{ticket_ref}/comments",
     response_class=HTMLResponse,
     dependencies=[Depends(require_permission("support:ticket:update"))],

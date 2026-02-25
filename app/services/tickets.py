@@ -604,6 +604,40 @@ class Tickets(ListResponseMixin):
         return ticket
 
     @staticmethod
+    def auto_assign_manual(db: Session, ticket_id: str, actor_id: str | None = None):
+        ticket = db.get(Ticket, ticket_id)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        from app.services.audit_helpers import log_audit_event
+        from app.services.ticket_assignment import auto_assign_ticket
+
+        result = auto_assign_ticket(
+            db,
+            str(ticket.id),
+            trigger="manual",
+            actor_person_id=actor_id,
+        )
+        db.refresh(ticket)
+        log_audit_event(
+            db,
+            None,
+            action="ticket_auto_assign_manual",
+            entity_type="ticket",
+            entity_id=str(ticket.id),
+            actor_id=actor_id,
+            metadata={
+                "assigned": bool(result.assigned),
+                "rule_id": result.rule_id,
+                "assignee_person_id": result.assignee_person_id,
+                "reason": result.reason,
+            },
+            status_code=200,
+            is_success=True,
+        )
+        return ticket
+
+    @staticmethod
     def get(db: Session, ticket_id: str):
         ticket = db.get(Ticket, ticket_id)
         if not ticket:
