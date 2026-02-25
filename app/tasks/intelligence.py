@@ -6,6 +6,7 @@ from typing import Any
 from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.models.domain_settings import SettingDomain
+from app.services.ai.data_health import build_data_health_baseline_snapshot, persist_data_health_baseline_snapshot
 from app.services.ai.engine import intelligence_engine
 from app.services.ai.insights import ai_insights
 from app.services.ai.personas import persona_registry
@@ -101,6 +102,25 @@ def expire_stale_insights() -> dict:
     except Exception:
         session.rollback()
         logger.exception("Failed to expire stale insights")
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.intelligence.capture_data_health_baseline")
+def capture_data_health_baseline(sample_limit: int = 20, trend_days: int = 14) -> dict:
+    session = SessionLocal()
+    try:
+        snapshot = build_data_health_baseline_snapshot(
+            session,
+            sample_limit=sample_limit,
+            trend_days=trend_days,
+        )
+        persist_data_health_baseline_snapshot(session, snapshot)
+        return {"captured": True, "snapshot": snapshot}
+    except Exception:
+        session.rollback()
+        logger.exception("Failed to capture data health baseline")
         raise
     finally:
         session.close()

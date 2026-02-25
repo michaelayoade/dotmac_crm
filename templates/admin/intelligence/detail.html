@@ -25,15 +25,36 @@
             </div>
         </div>
         <div class="flex items-center gap-2">
-            {% if not (insight.status and insight.status.value == 'acknowledged') %}
+            {% if insight.status and insight.status.value not in ['acknowledged', 'actioned', 'expired'] %}
             <form method="post" action="/admin/intelligence/insights/{{ insight.id }}/acknowledge">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                 <button class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
                     Acknowledge
                 </button>
             </form>
-            {% else %}
+            {% endif %}
+            {% if insight.status and insight.status.value in ['completed', 'acknowledged'] %}
+            <form method="post" action="/admin/intelligence/insights/{{ insight.id }}/action">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <button class="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+                    Mark Actioned
+                </button>
+            </form>
+            {% endif %}
+            {% if insight.status and insight.status.value in ['completed', 'acknowledged', 'actioned', 'pending', 'failed', 'skipped'] %}
+            <form method="post" action="/admin/intelligence/insights/{{ insight.id }}/expire">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <button class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                    Expire
+                </button>
+            </form>
+            {% endif %}
+            {% if insight.status and insight.status.value == 'acknowledged' %}
             <span class="text-sm font-semibold text-slate-600 dark:text-slate-300">Acknowledged</span>
+            {% elif insight.status and insight.status.value == 'actioned' %}
+            <span class="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Actioned</span>
+            {% elif insight.status and insight.status.value == 'expired' %}
+            <span class="text-sm font-semibold text-slate-600 dark:text-slate-300">Expired</span>
             {% endif %}
         </div>
     </div>
@@ -81,4 +102,3 @@
     </div>
 </div>
 {% endblock %}
-

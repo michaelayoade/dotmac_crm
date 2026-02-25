@@ -12,13 +12,14 @@ from app.logic.crm_inbox_logic import (
     InboundSelfMessageContext,
     LogicService,
 )
-from app.models.crm.conversation import Message
+from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import WhatsAppWebhookPayload
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox.context import get_inbox_logger
+from app.services.crm.inbox.conversation_status import reopen_snooze_on_next_reply
 from app.services.crm.inbox.handlers.base import (
     InboundDuplicateResult,
     InboundHandler,
@@ -144,6 +145,17 @@ class WhatsAppHandler(InboundHandler):
             person_id,
             ChannelType.whatsapp,
         )
+        if not conversation:
+            conversation = (
+                db.query(Conversation)
+                .filter(Conversation.person_id == person_uuid)
+                .filter(Conversation.status == ConversationStatus.snoozed)
+                .order_by(Conversation.updated_at.desc())
+                .first()
+            )
+            if conversation and reopen_snooze_on_next_reply(conversation):
+                db.commit()
+                db.refresh(conversation)
         if not conversation:
             if isinstance(person_uuid, uuid.UUID):
                 conversation_payload = ConversationCreate(

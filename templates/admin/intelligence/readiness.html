@@ -1,0 +1,306 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}AI Readiness - Admin{% endblock %}
+
+{% block breadcrumbs %}
+<a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-700 dark:text-slate-200 truncate">AI Readiness</span>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">AI Readiness</h1>
+            <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">Persona data readiness and trend tracking for intelligence quality.</p>
+        </div>
+        <form method="post" action="/admin/intelligence/readiness/capture-baseline" class="flex items-center gap-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="sample_limit" value="{{ filters.sample_limit }}">
+            <input type="hidden" name="trend_days" value="{{ filters.days }}">
+            <button class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                Capture Baseline
+            </button>
+        </form>
+    </div>
+    {% if request.query_params.get('baseline_status') == 'captured' %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200">
+        Baseline snapshot captured.
+    </div>
+    {% endif %}
+    {% if alert_status == 'acknowledged' %}
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-200">
+        Risk alerts acknowledged for current baseline.
+    </div>
+    {% elif alert_status == 'snoozed' %}
+    <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+        Risk alerts snoozed.
+    </div>
+    {% elif alert_status == 'invalid_snooze' %}
+    <div class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
+        Invalid snooze duration. Use 8h, 24h, or 72h.
+    </div>
+    {% endif %}
+    {% if risk_alerts and risk_alerts.has_alerts %}
+    <div class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
+        <p class="font-semibold">Data quality risk alert: {{ risk_alerts.count }} source{{ '' if risk_alerts.count == 1 else 's' }} worsening.</p>
+        <ul class="mt-1 list-disc pl-5 space-y-0.5">
+            {% for alert in risk_alerts.items %}
+            <li>{{ alert.label }} ({{ alert.failure_count }} failures, +{{ alert.delta_failures }} vs previous baseline, owner: {{ alert.owner_role }})</li>
+            {% endfor %}
+        </ul>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+            <form method="post" action="/admin/intelligence/readiness/alerts/ack">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <button class="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-700 dark:bg-rose-950/20 dark:text-rose-200 dark:hover:bg-rose-950/40">
+                    Acknowledge
+                </button>
+            </form>
+            <form method="post" action="/admin/intelligence/readiness/alerts/snooze" class="flex items-center gap-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="hours" value="8">
+                <button class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50 dark:border-amber-700 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-950/40">
+                    Snooze 8h
+                </button>
+            </form>
+            <form method="post" action="/admin/intelligence/readiness/alerts/snooze" class="flex items-center gap-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="hours" value="24">
+                <button class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50 dark:border-amber-700 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-950/40">
+                    Snooze 24h
+                </button>
+            </form>
+            <form method="post" action="/admin/intelligence/readiness/alerts/snooze" class="flex items-center gap-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="hours" value="72">
+                <button class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-50 dark:border-amber-700 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-950/40">
+                    Snooze 72h
+                </button>
+            </form>
+        </div>
+    </div>
+    {% elif risk_alerts and risk_alerts.suppressed %}
+    <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200">
+        Alerts suppressed:
+        {% if risk_alerts.suppression_reason == 'snoozed' %}
+            snoozed until {{ risk_alerts.snooze_until or "unknown" }}{% if risk_alerts.snoozed_by %} by {{ risk_alerts.snoozed_by }}{% endif %}.
+        {% elif risk_alerts.suppression_reason == 'acknowledged' %}
+            acknowledged at {{ risk_alerts.acknowledged_at or "unknown" }}{% if risk_alerts.acknowledged_by %} by {{ risk_alerts.acknowledged_by }}{% endif %}.
+        {% else %}
+            temporarily hidden.
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Sample Limit</label>
+                <input name="sample_limit" type="number" min="1" max="100" value="{{ filters.sample_limit }}" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Trend Days</label>
+                <input name="days" type="number" min="1" max="90" value="{{ filters.days }}" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Persona</label>
+                <select name="persona_key" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    <option value="">All personas</option>
+                    {% for p in personas %}
+                    <option value="{{ p.key }}" {% if filters.persona_key == p.key %}selected{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-600 dark:text-slate-400">Domain</label>
+                <input name="domain" value="{{ filters.domain }}" placeholder="tickets, inbox, projects" class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+            </div>
+        </div>
+        <div class="mt-4 flex items-center gap-2">
+            <button class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+                Refresh
+            </button>
+            <a href="/admin/intelligence/readiness" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">Reset</a>
+        </div>
+    </form>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Gateway</div>
+            <div class="mt-2 text-lg font-bold {% if health.gateway_enabled %}text-emerald-700 dark:text-emerald-300{% else %}text-rose-700 dark:text-rose-300{% endif %}">
+                {{ "Enabled" if health.gateway_enabled else "Disabled" }}
+            </div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Scheduled Engine</div>
+            <div class="mt-2 text-lg font-bold {% if health.engine_scheduled_enabled %}text-emerald-700 dark:text-emerald-300{% else %}text-amber-700 dark:text-amber-300{% endif %}">
+                {{ "Enabled" if health.engine_scheduled_enabled else "Disabled" }}
+            </div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tokens Used Today</div>
+            <div class="mt-2 text-lg font-bold text-slate-900 dark:text-white">{{ health.daily_tokens_used }}</div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tokens Remaining</div>
+            <div class="mt-2 text-lg font-bold text-slate-900 dark:text-white">{{ health.daily_tokens_remaining if health.daily_tokens_remaining is not none else "unlimited" }}</div>
+        </div>
+    </div>
+
+    {% if health.domain_missing_fields %}
+    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Top Missing Fields by Domain (Live)</h2>
+        <div class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {% for domain, items in health.domain_missing_fields.items() %}
+            <div class="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ domain }}</div>
+                {% if items %}
+                <ul class="mt-2 list-disc pl-4 text-xs text-slate-600 dark:text-slate-300 space-y-1">
+                    {% for item in items %}
+                    <li>{{ item.field }} ({{ item.count }})</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">No missing-field data.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if baseline_snapshot %}
+    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Latest Baseline Snapshot</h2>
+        <div class="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-2 lg:grid-cols-4">
+            <div>Captured: {{ baseline_snapshot.captured_at or "n/a" }}</div>
+            <div>Ready personas: {{ baseline_snapshot.readiness_counts.ready if baseline_snapshot.readiness_counts else 0 }}</div>
+            <div>Degraded personas: {{ baseline_snapshot.readiness_counts.degraded if baseline_snapshot.readiness_counts else 0 }}</div>
+            <div>No candidates: {{ baseline_snapshot.readiness_counts.no_candidates if baseline_snapshot.readiness_counts else 0 }}</div>
+        </div>
+    </div>
+    {% if baseline_snapshot.risk_inventory %}
+    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Risk Inventory (Last Baseline)</h2>
+        <div class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {% for risk in baseline_snapshot.risk_inventory %}
+            <div class="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                <div class="flex items-center justify-between">
+                    <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ risk.label }}</div>
+                    {% if risk.severity == 'high' %}
+                    <span class="inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">high</span>
+                    {% elif risk.severity == 'medium' %}
+                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">medium</span>
+                    {% else %}
+                    <span class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">low</span>
+                    {% endif %}
+                </div>
+                <p class="mt-1 text-xs text-slate-600 dark:text-slate-300">Failures: {{ risk.failure_count }}</p>
+                {% set delta = risk_deltas.get(risk.source_key) if risk_deltas else none %}
+                {% if delta %}
+                <p class="mt-1 text-xs
+                    {% if delta.trend == 'up' %}text-rose-700 dark:text-rose-300
+                    {% elif delta.trend == 'down' %}text-emerald-700 dark:text-emerald-300
+                    {% else %}text-slate-500 dark:text-slate-400{% endif %}">
+                    Trend vs previous baseline:
+                    {% if delta.delta_failures > 0 %}+{% endif %}{{ delta.delta_failures }}
+                    (prev={{ delta.previous_failures }}, current={{ delta.latest_failures }})
+                </p>
+                {% endif %}
+                <p class="mt-1 text-xs text-slate-600 dark:text-slate-300">Owner: {{ risk.owner_role or "Operations" }}</p>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ risk.rationale }}</p>
+                {% if risk.immediate_actions %}
+                <ul class="mt-2 list-disc pl-4 text-xs text-slate-500 dark:text-slate-400 space-y-1">
+                    {% for action in risk.immediate_actions %}
+                    <li>{{ action }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead class="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Persona</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Domain</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Readiness</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Sample</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Avg Quality</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Top Missing Fields</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    {% for p in health.personas %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td class="px-4 py-3 text-sm text-slate-900 dark:text-white">{{ p.name }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ p.domain }}</td>
+                        <td class="px-4 py-3 text-sm">
+                            {% if p.readiness == 'ready' %}
+                            <span class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">ready</span>
+                            {% elif p.readiness == 'degraded' %}
+                            <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">degraded</span>
+                            {% elif p.readiness == 'disabled' %}
+                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">disabled</span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">no_candidates</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ p.sample_size }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ p.avg_quality if p.avg_quality is not none else "n/a" }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                            {% if p.top_missing_fields and p.top_missing_fields | length > 0 %}
+                                {% for item in p.top_missing_fields %}
+                                    <span class="mr-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">{{ item.field }}:{{ item.count }}</span>
+                                {% endfor %}
+                            {% else %}
+                                <span class="text-xs text-slate-500 dark:text-slate-400">none</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Readiness Trend</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead class="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Date</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Avg Quality</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Insights</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Completed</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Skipped</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Failed</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    {% for point in trend.points %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td class="px-4 py-3 text-sm text-slate-900 dark:text-white">{{ point.date }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ point.avg_quality if point.avg_quality is not none else "n/a" }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ point.insight_count }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ point.completed_count }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ point.skipped_count }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ point.failed_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

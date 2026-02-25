@@ -58,6 +58,7 @@ def test_ticket_create_calls_auto_assignment_when_enabled(db_session, monkeypatc
     _, kwargs = mock_assign.call_args
     assert kwargs["trigger"] == "create"
     mock_audit.assert_called_once()
+    assert mock_audit.call_args.kwargs["action"] == "ticket_auto_assigned"
 
 
 def test_ticket_create_does_not_call_auto_assignment_when_disabled(db_session, monkeypatch):
@@ -97,6 +98,56 @@ def test_ticket_create_does_not_call_auto_assignment_when_already_assigned(db_se
     assert ticket is not None
     assert ticket.assigned_to_person_id == assignee.id
     mock_assign.assert_not_called()
+
+
+def test_ticket_create_audits_auto_assignment_noop_when_no_candidate(db_session, monkeypatch):
+    monkeypatch.setattr(ticket_service, "generate_number", lambda **_: None)
+    monkeypatch.setattr(ticket_service, "emit_event", lambda *_, **__: None)
+    monkeypatch.setattr(ticket_service, "_notify_ticket_role_assignment_in_app", lambda *_, **__: set())
+    monkeypatch.setattr(ticket_service, "_notify_ticket_service_team_assignment", lambda *_, **__: set())
+
+    def _resolve_value(_db, domain, key):
+        if domain.value == "workflow" and key == "ticket_auto_assignment_enabled":
+            return True
+        return None
+
+    monkeypatch.setattr(ticket_service.settings_spec, "resolve_value", _resolve_value)
+
+    mock_assign = Mock(
+        return_value=AssignmentResult(
+            assigned=False,
+            ticket_id="unused",
+            rule_id="rule-2",
+            rule_name="North Rule",
+            strategy="least_loaded",
+            candidate_count=0,
+            assignee_person_id=None,
+            fallback_service_team_id="team-1",
+            reason="queue_fallback_team_assigned",
+        )
+    )
+    mock_audit = Mock()
+    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket", mock_assign)
+    monkeypatch.setattr("app.services.audit_helpers.log_audit_event", mock_audit)
+
+    payload = TicketCreate(title="Needs queue fallback")
+    ticket = ticket_service.Tickets.create(db_session, payload)
+
+    assert ticket is not None
+    mock_assign.assert_called_once()
+    mock_audit.assert_called_once()
+    kwargs = mock_audit.call_args.kwargs
+    assert kwargs["action"] == "ticket_auto_assign_noop"
+    assert kwargs["metadata"] == {
+        "assigned": False,
+        "rule_id": "rule-2",
+        "rule_name": "North Rule",
+        "strategy": "least_loaded",
+        "candidate_count": 0,
+        "assignee_person_id": None,
+        "fallback_service_team_id": "team-1",
+        "reason": "queue_fallback_team_assigned",
+    }
 
 
 def test_ticket_manual_auto_assign_calls_engine_with_manual_trigger(db_session, monkeypatch):

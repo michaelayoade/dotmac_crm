@@ -2179,6 +2179,21 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.boolean,
         default=False,
     ),
+    SettingSpec(
+        domain=SettingDomain.workflow,
+        key="ticket_auto_assign_require_presence",
+        env_var="TICKET_AUTO_ASSIGN_REQUIRE_PRESENCE",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
+    SettingSpec(
+        domain=SettingDomain.workflow,
+        key="ticket_auto_assign_max_open_tickets",
+        env_var="TICKET_AUTO_ASSIGN_MAX_OPEN_TICKETS",
+        value_type=SettingValueType.integer,
+        default=None,
+        min_value=0,
+    ),
     # ============== Provisioning Domain: NAS/OAuth Tasks ==============
     SettingSpec(
         domain=SettingDomain.provisioning,

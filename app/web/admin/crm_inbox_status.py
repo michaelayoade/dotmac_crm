@@ -207,6 +207,35 @@ async def toggle_conversation_mute_route(
     return _render_thread_or_error(request, db, conversation_id, current_user)
 
 
+@router.post("/inbox/conversation/{conversation_id}/snooze", response_class=HTMLResponse)
+async def snooze_conversation_route(
+    request: Request,
+    conversation_id: str,
+    preset: str = Query(...),
+    until_at: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Apply a snooze schedule preset to a conversation."""
+    from app.services.crm.inbox.conversation_status import snooze_conversation
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    result = snooze_conversation(
+        db,
+        conversation_id=conversation_id,
+        preset=preset,
+        until_at_raw=until_at,
+        actor_id=(current_user or {}).get("person_id"),
+    )
+    if result.kind == "invalid_option":
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Invalid snooze preset</div>", status_code=400)
+    if result.kind == "invalid_until":
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Invalid snooze time</div>", status_code=400)
+    if result.kind == "not_found":
+        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>", status_code=404)
+    return _render_thread_or_error(request, db, conversation_id, current_user)
+
+
 @router.post("/inbox/conversation/{conversation_id}/transcript", response_class=HTMLResponse)
 async def send_conversation_transcript(
     request: Request,

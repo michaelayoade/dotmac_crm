@@ -155,6 +155,88 @@ class TestConversationMute:
         assert conv.is_muted is False
 
 
+class TestConversationSnooze:
+    def test_snooze_next_reply_sets_metadata(self, db_session):
+        from app.services.crm.inbox.conversation_status import snooze_conversation
+
+        contact = _create_person(db_session)
+        conv = _create_conversation(db_session, contact, status=ConversationStatus.open)
+
+        result = snooze_conversation(
+            db_session,
+            conversation_id=str(conv.id),
+            preset="next_reply",
+            actor_id=str(contact.id),
+        )
+
+        assert result.kind == "updated"
+        db_session.refresh(conv)
+        assert conv.status == ConversationStatus.snoozed
+        assert isinstance(conv.metadata_, dict)
+        snooze = conv.metadata_.get("snooze")
+        assert isinstance(snooze, dict)
+        assert snooze.get("mode") == "next_reply"
+        assert snooze.get("until_at") is None
+
+    def test_reopen_due_snoozed_conversations_reopens_due_items(self, db_session):
+        from app.services.crm.inbox.conversation_status import reopen_due_snoozed_conversations
+
+        contact = _create_person(db_session)
+        conv = _create_conversation(db_session, contact, status=ConversationStatus.snoozed)
+        conv.metadata_ = {
+            "snooze": {
+                "mode": "custom",
+                "until_at": (datetime.now(UTC) - timedelta(minutes=10)).isoformat(),
+                "set_at": datetime.now(UTC).isoformat(),
+            }
+        }
+        db_session.flush()
+
+        reopened = reopen_due_snoozed_conversations(db_session)
+        assert reopened == 1
+        db_session.refresh(conv)
+        assert conv.status == ConversationStatus.open
+        assert "snooze" not in (conv.metadata_ or {})
+
+    def test_reopen_snooze_on_next_reply_only_for_next_reply_mode(self, db_session):
+        from app.services.crm.inbox.conversation_status import reopen_snooze_on_next_reply
+
+        contact = _create_person(db_session)
+        conv = _create_conversation(db_session, contact, status=ConversationStatus.snoozed)
+        conv.metadata_ = {
+            "snooze": {
+                "mode": "next_reply",
+                "until_at": None,
+                "set_at": datetime.now(UTC).isoformat(),
+            }
+        }
+        db_session.flush()
+
+        changed = reopen_snooze_on_next_reply(conv)
+        assert changed is True
+        assert conv.status == ConversationStatus.open
+        assert "snooze" not in (conv.metadata_ or {})
+
+    def test_status_update_clears_snooze_metadata(self, db_session):
+        from app.services.crm.inbox.conversation_status import update_conversation_status
+
+        contact = _create_person(db_session)
+        conv = _create_conversation(db_session, contact, status=ConversationStatus.snoozed)
+        conv.metadata_ = {"snooze": {"mode": "custom", "until_at": datetime.now(UTC).isoformat()}}
+        db_session.flush()
+
+        result = update_conversation_status(
+            db_session,
+            conversation_id=str(conv.id),
+            new_status=ConversationStatus.open.value,
+            actor_id=str(contact.id),
+        )
+        assert result.kind == "updated"
+        db_session.refresh(conv)
+        assert conv.status == ConversationStatus.open
+        assert "snooze" not in (conv.metadata_ or {})
+
+
 # ── Mute Notification Suppression Tests ──────────────────────
 
 

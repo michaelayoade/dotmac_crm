@@ -351,6 +351,55 @@
             </div>
         </div>
 
+        <div class="px-4 py-3 border-b border-slate-200/60 dark:border-slate-700/60">
+            <div class="flex items-center justify-between gap-2">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Saved Views</p>
+                <form method="post" action="/admin/crm/inbox/saved-filters" class="flex items-center gap-1">
+                    <input name="name"
+                           required
+                           maxlength="80"
+                           placeholder="New view"
+                           class="w-24 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    <input type="hidden" name="channel" :value="currentChannel || ''">
+                    <input type="hidden" name="status" :value="currentStatus || ''">
+                    <input type="hidden" name="outbox_status" :value="currentOutboxStatus || ''">
+                    <input type="hidden" name="search" :value="searchQuery || ''">
+                    <input type="hidden" name="assignment" :value="currentAssignment || ''">
+                    <input type="hidden" name="target_id" :value="currentInboxTargetId || ''">
+                    <input type="hidden" name="agent_id" :value="currentFilterAgentId || ''">
+                    <input type="hidden" name="assigned_from" :value="currentAssignedFrom || ''">
+                    <input type="hidden" name="assigned_to" :value="currentAssignedTo || ''">
+                    <input type="hidden" name="limit" :value="paginationLimit || ''">
+                    <button type="submit"
+                            class="rounded-md bg-amber-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-amber-500">
+                        Save
+                    </button>
+                </form>
+            </div>
+
+            {% if saved_filters %}
+            <div class="mt-2 flex flex-wrap gap-1.5">
+                {% for view in saved_filters %}
+                <div class="inline-flex items-center rounded-lg border {% if current_saved_filter_id and current_saved_filter_id == view.id %}border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+                    <a href="/admin/crm/inbox?saved_filter_id={{ view.id }}"
+                       class="px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                        {{ view.name }}
+                    </a>
+                    <form method="post" action="/admin/crm/inbox/saved-filters/{{ view.id }}/delete">
+                        <button type="submit"
+                                class="px-1.5 py-1 text-[11px] text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
+                                title="Delete view">
+                            ×
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="mt-2 text-[11px] text-slate-500 dark:text-slate-400">No saved views yet.</p>
+            {% endif %}
+        </div>
+
         <div class="px-4 py-2 border-b border-slate-200/60 dark:border-slate-700/60"
              x-show="listStale"
              x-transition
@@ -362,6 +411,51 @@
                     Refresh list
                 </button>
             </div>
+        </div>
+
+        <div id="bulk-toolbar"
+             class="hidden px-4 py-2 border-b border-slate-200/60 bg-white/80 dark:border-slate-700/60 dark:bg-slate-900/70">
+            <form id="bulk-actions-form"
+                  method="post"
+                  action="/admin/crm/inbox/conversations/bulk"
+                  hx-post="/admin/crm/inbox/conversations/bulk"
+                  hx-swap="none"
+                  class="flex items-center gap-2">
+                <input type="hidden" name="current_agent_id" value="{{ current_agent_id or '' }}">
+                <span id="bulk-selected-count"
+                      class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">0 selected</span>
+                <select id="bulk-action-select"
+                        name="bulk_action"
+                        class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    <option value="status:open">Mark Open</option>
+                    <option value="status:pending">Mark Pending</option>
+                    <option value="status:resolved">Mark Resolved</option>
+                    <option value="priority:none">Priority None</option>
+                    <option value="priority:low">Priority Low</option>
+                    <option value="priority:medium">Priority Medium</option>
+                    <option value="priority:high">Priority High</option>
+                    <option value="priority:urgent">Priority Urgent</option>
+                    <option value="assign:me">Assign to Me</option>
+                    <option value="label:add">Add Label</option>
+                    <option value="label:remove">Remove Label</option>
+                </select>
+                <input id="bulk-label-input"
+                       name="bulk_label"
+                       type="text"
+                       placeholder="label"
+                       class="hidden rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <button id="bulk-apply-btn"
+                        type="submit"
+                        disabled
+                        class="rounded-lg bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400 dark:disabled:bg-slate-700">
+                    Apply
+                </button>
+                <button id="bulk-clear-btn"
+                        type="button"
+                        class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    Clear
+                </button>
+            </form>
         </div>
 
         <!-- Conversation List -->
@@ -673,6 +767,14 @@
                            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
                 </div>
 
+                <div x-show="newConversationChannel === 'email'">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">BCC</label>
+                    <input name="bcc_addresses"
+                           type="text"
+                           placeholder="audit@company.com, manager@company.com"
+                           class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
+                </div>
+
                 <div>
                     <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message</label>
                     <textarea name="message"
@@ -770,6 +872,7 @@
     </aside>
 
     {% include "admin/crm/_keyboard_shortcuts_modal.html" %}
+    {% include "admin/crm/_command_palette.html" %}
 </div>
 
 <script>
@@ -789,6 +892,8 @@ function inboxController() {
         selectedCommentId: {{ ((selected_comment.id | string) if selected_comment else None) | tojson }},
         paginationLimit: {{ (pagination_limit or 150) | tojson }},
         stats: {{ (stats or {}) | tojson }},
+        showCommandPalette: false,
+        commandQuery: '',
         showContactPanel: false,
         sidePanel: null,
         showNewConversation: {{ (new_error is not none) | tojson }},
@@ -826,6 +931,13 @@ function inboxController() {
         isTyping: false,
         typingConversationId: null,
         typingTimer: null,
+        presenceByConversation: {},
+        presenceTtlMs: 30000,
+        presenceHeartbeatMs: 15000,
+        presenceCleanupTimer: null,
+        presenceHeartbeatTimer: null,
+        currentPersonId: {{ (current_user.person_id if current_user and current_user.person_id else "") | tojson }},
+        localPresenceState: 'viewing',
         // Ticket form in the right-side panel is loaded via HTMX; don't allow submits until it's present.
         ticketFormLoaded: false,
         typingSendTimer: null,
@@ -968,14 +1080,17 @@ function inboxController() {
                 this.wsDisconnectedPermanently = false;
                 if (this.selectedConversation && this.inboxWs) {
                     this.inboxWs.subscribe(this.selectedConversation);
+                    this.publishPresence(this.selectedConversation, this.localPresenceState, true);
                 }
                 this.subscribeVisibleConversations();
+                this.startPresenceHeartbeat();
             });
             window.addEventListener('inbox-ws-reconnected', () => {
                 this.refreshConversations();
             });
             window.addEventListener('inbox-ws-disconnected', () => {
                 this.wsConnected = false;
+                this.stopPresenceHeartbeat();
             });
             window.addEventListener('inbox-ws-max-retries', () => {
                 this.wsDisconnectedPermanently = true;
@@ -987,6 +1102,8 @@ function inboxController() {
                 const payload = e.detail || {};
                 if (!payload.conversation_id) return;
                 if (this.selectedConversation !== payload.conversation_id) return;
+                if (payload.user_id && this.currentPersonId && String(payload.user_id) === String(this.currentPersonId)) return;
+                if (!this.supportsTypingIndicator(this.getSelectedConversationChannel())) return;
                 if (payload.is_typing) {
                     this.isTyping = true;
                     this.typingConversationId = payload.conversation_id;
@@ -1001,6 +1118,9 @@ function inboxController() {
                     this.isTyping = false;
                     this.typingConversationId = null;
                 }
+            });
+            window.addEventListener('inbox-user-presence', (e) => {
+                this.handlePresenceEvent(e.detail || {});
             });
             window.addEventListener('inbox-list-refresh', () => {
                 this.refreshConversations();
@@ -1018,7 +1138,18 @@ function inboxController() {
 
             this.restoreConversationCache();
             this.subscribeVisibleConversations();
+            this.startPresenceCleanup();
+            if (!this._presenceUnloadBound) {
+                this._presenceUnloadBound = true;
+                window.addEventListener('beforeunload', () => {
+                    if (this.selectedConversation) {
+                        this.publishPresence(this.selectedConversation, this.localPresenceState, false);
+                    }
+                });
+            }
             if (this.selectedConversation && this.currentChannel !== 'comments') {
+                this.publishPresence(this.selectedConversation, this.localPresenceState, true);
+                this.startPresenceHeartbeat();
                 requestAnimationFrame(() => {
                     this.refreshThread(true);
                 });
@@ -1027,7 +1158,7 @@ function inboxController() {
             // Initialize keyboard shortcuts
             this._inboxShortcuts = new InboxShortcuts();
             document.addEventListener('inbox-shortcut-reply', () => {
-                const textarea = document.getElementById('reply-textarea');
+                const textarea = this.getReplyTextarea();
                 if (textarea) textarea.focus();
             });
             document.addEventListener('inbox-shortcut-resolve', () => {
@@ -1041,22 +1172,28 @@ function inboxController() {
             document.addEventListener('inbox-shortcut-help', () => {
                 this.showShortcutsHelp = !this.showShortcutsHelp;
             });
+            document.addEventListener('inbox-command-palette', () => {
+                if (this.showCommandPalette) {
+                    this.closeCommandPalette();
+                    return;
+                }
+                this.openCommandPalette();
+            });
             document.addEventListener('inbox-shortcut-escape', () => {
+                if (this.showCommandPalette) {
+                    this.closeCommandPalette();
+                    return;
+                }
                 if (this.showShortcutsHelp) this.showShortcutsHelp = false;
             });
 
             // Initialize shortcodes on reply textarea after thread loads
             document.body.addEventListener('htmx:afterSwap', (e) => {
                 if (e.detail.target.id === 'message-thread') {
-                    this.$nextTick(() => {
-                        const textarea = document.getElementById('reply-textarea');
-                        if (textarea && !textarea._shortcodesInitialized) {
-                            new InboxShortcodes(textarea);
-                            textarea._shortcodesInitialized = true;
-                        }
-                    });
+                    this.$nextTick(() => this.ensureReplyShortcodesInitialized());
                 }
             });
+            this.$nextTick(() => this.ensureReplyShortcodesInitialized());
         },
         initViewportMode() {
             this.viewportMediaQuery = window.matchMedia('(max-width: 639px)');
@@ -1108,15 +1245,119 @@ function inboxController() {
                 console.log('[Inbox] draft restore failed', err);
             }
         },
-        sendTypingIndicator(conversationId) {
+        sendTypingIndicator(conversationId, channelType = null) {
             if (!conversationId || !this.inboxWs) return;
+            const channel = channelType || this.getSelectedConversationChannel();
+            if (!this.supportsTypingIndicator(channel)) return;
             this.inboxWs.sendTyping(conversationId, true);
+            this.localPresenceState = 'replying';
+            this.publishPresence(conversationId, 'replying', true);
             if (this.typingSendTimer) {
                 clearTimeout(this.typingSendTimer);
             }
             this.typingSendTimer = setTimeout(() => {
                 this.inboxWs.sendTyping(conversationId, false);
+                this.localPresenceState = 'viewing';
+                this.publishPresence(conversationId, 'viewing', true);
             }, 2000);
+        },
+        getReplyTextarea() {
+            return document.getElementById('reply-textarea') || document.querySelector('#message-thread textarea[name="message"]');
+        },
+        ensureReplyShortcodesInitialized() {
+            const textarea = this.getReplyTextarea();
+            if (textarea && !textarea._shortcodesInitialized) {
+                new InboxShortcodes(textarea);
+                textarea._shortcodesInitialized = true;
+            }
+        },
+        getSelectedConversationChannel() {
+            const textarea = this.getReplyTextarea();
+            if (!textarea || !textarea.dataset) return null;
+            return (textarea.dataset.channelType || '').trim() || null;
+        },
+        supportsTypingIndicator(channelType) {
+            const channel = (channelType || '').trim().toLowerCase();
+            return ['whatsapp', 'facebook_messenger', 'instagram_dm', 'chat_widget', 'sms', 'telegram', 'webchat'].includes(channel);
+        },
+        publishPresence(conversationId, state = 'viewing', active = true) {
+            if (!conversationId || !this.inboxWs || !this.inboxWs.isConnected()) return;
+            this.inboxWs.sendPresence(conversationId, state, active);
+        },
+        startPresenceHeartbeat() {
+            this.stopPresenceHeartbeat();
+            this.presenceHeartbeatTimer = setInterval(() => {
+                if (!this.selectedConversation || !this.wsConnected) return;
+                this.publishPresence(this.selectedConversation, this.localPresenceState, true);
+            }, this.presenceHeartbeatMs);
+        },
+        stopPresenceHeartbeat() {
+            if (this.presenceHeartbeatTimer) {
+                clearInterval(this.presenceHeartbeatTimer);
+                this.presenceHeartbeatTimer = null;
+            }
+        },
+        startPresenceCleanup() {
+            if (this.presenceCleanupTimer) return;
+            this.presenceCleanupTimer = setInterval(() => {
+                this.prunePresence();
+            }, 5000);
+        },
+        prunePresence() {
+            const now = Date.now();
+            const next = {};
+            Object.entries(this.presenceByConversation || {}).forEach(([conversationId, users]) => {
+                const activeUsers = Object.values(users || {}).filter((entry) => entry && entry.expiresAt > now);
+                if (!activeUsers.length) return;
+                const remapped = {};
+                activeUsers.forEach((entry) => {
+                    remapped[entry.userId] = entry;
+                });
+                next[conversationId] = remapped;
+            });
+            this.presenceByConversation = next;
+        },
+        handlePresenceEvent(payload) {
+            const conversationId = payload.conversation_id ? String(payload.conversation_id) : '';
+            const userId = payload.user_id ? String(payload.user_id) : '';
+            if (!conversationId || !userId) return;
+            if (this.currentPersonId && this.currentPersonId === userId) return;
+
+            const existing = { ...(this.presenceByConversation[conversationId] || {}) };
+            if (payload.active === false) {
+                delete existing[userId];
+            } else {
+                existing[userId] = {
+                    userId,
+                    state: payload.state === 'replying' ? 'replying' : 'viewing',
+                    expiresAt: Date.now() + this.presenceTtlMs
+                };
+            }
+            const next = { ...(this.presenceByConversation || {}) };
+            if (Object.keys(existing).length) {
+                next[conversationId] = existing;
+            } else {
+                delete next[conversationId];
+            }
+            this.presenceByConversation = next;
+        },
+        activePresenceUsers(conversationId) {
+            if (!conversationId) return [];
+            const now = Date.now();
+            const users = Object.values((this.presenceByConversation[conversationId] || {}));
+            return users.filter((entry) => entry && entry.expiresAt > now);
+        },
+        hasActivePresence(conversationId) {
+            return this.activePresenceUsers(conversationId).length > 0;
+        },
+        presenceSummaryText(conversationId) {
+            const peers = this.activePresenceUsers(conversationId);
+            if (!peers.length) return '';
+            const replyingCount = peers.filter((entry) => entry.state === 'replying').length;
+            if (replyingCount > 0) {
+                return replyingCount === 1 ? '1 agent replying' : `${replyingCount} agents replying`;
+            }
+            return peers.length === 1 ? '1 agent viewing' : `${peers.length} agents viewing`;
         },
         initQuoteHandlers() {
             if (!this._quoteDelegated) {
@@ -2112,6 +2353,7 @@ function inboxController() {
         selectConversation(convId, contactId) {
             // Unsubscribe from previous conversation
             if (this.inboxWs && this.selectedConversation) {
+                this.publishPresence(this.selectedConversation, this.localPresenceState, false);
                 this.inboxWs.unsubscribe(this.selectedConversation);
             }
 
@@ -2122,6 +2364,7 @@ function inboxController() {
             this.sidePanel = null;
             this.clearQuote();
             this.threadStale = false;
+            this.localPresenceState = 'viewing';
             this.pendingMessageAttachments = [];
             this.pendingPrivateAttachments = [];
             this.syncMessageAttachmentField();
@@ -2130,6 +2373,8 @@ function inboxController() {
             if (this.inboxWs && convId) {
                 this.inboxWs.subscribe(convId);
             }
+            this.publishPresence(convId, this.localPresenceState, true);
+            this.startPresenceHeartbeat();
 
             // Load conversation thread
             htmx.ajax('GET', `/admin/crm/inbox/conversation/${convId}`, {
@@ -2160,6 +2405,7 @@ function inboxController() {
 
         selectComment(commentId) {
             if (this.inboxWs && this.selectedConversation) {
+                this.publishPresence(this.selectedConversation, this.localPresenceState, false);
                 this.inboxWs.unsubscribe(this.selectedConversation);
             }
 
@@ -2170,6 +2416,8 @@ function inboxController() {
             this.sidePanel = null;
             this.clearQuote();
             this.threadStale = false;
+            this.localPresenceState = 'viewing';
+            this.stopPresenceHeartbeat();
 
             const params = new URLSearchParams();
             params.set('comment_id', commentId);
@@ -2510,9 +2758,165 @@ function inboxController() {
                 target: '#contact-details',
                 swap: 'innerHTML transition:false'
             });
+        },
+
+        openCommandPalette() {
+            this.showCommandPalette = true;
+            this.commandQuery = '';
+            this.$nextTick(() => {
+                const input = document.getElementById('inbox-command-palette-input');
+                if (input) input.focus();
+            });
+        },
+
+        closeCommandPalette() {
+            this.showCommandPalette = false;
+            this.commandQuery = '';
+        },
+
+        commandActions() {
+            return [
+                { id: 'new-conversation', label: 'New Conversation', hint: 'Open composer modal', group: 'General', keywords: 'new compose message' },
+                { id: 'focus-reply', label: 'Focus Reply Composer', hint: 'Jump to reply textbox', group: 'General', keywords: 'reply compose' },
+                { id: 'status-open', label: 'Set Status: Open', hint: 'Current conversation', group: 'Status', keywords: 'status open' },
+                { id: 'status-pending', label: 'Set Status: Pending', hint: 'Current conversation', group: 'Status', keywords: 'status pending' },
+                { id: 'status-resolved', label: 'Set Status: Resolved', hint: 'Current conversation', group: 'Status', keywords: 'status resolved done' },
+                { id: 'assign-me', label: 'Assign Conversation to Me', hint: 'Current conversation', group: 'Assignment', keywords: 'assign me owner' },
+                { id: 'next-conversation', label: 'Next Conversation', hint: 'Move down the list', group: 'Navigation', keywords: 'next down j' },
+                { id: 'prev-conversation', label: 'Previous Conversation', hint: 'Move up the list', group: 'Navigation', keywords: 'previous up k' },
+                { id: 'toggle-help', label: 'Toggle Keyboard Help', hint: 'Show shortcuts modal', group: 'General', keywords: 'help shortcuts' },
+            ];
+        },
+
+        filteredCommandActions() {
+            const query = (this.commandQuery || '').trim().toLowerCase();
+            if (!query) return this.commandActions();
+            return this.commandActions().filter((action) => {
+                const haystack = `${action.label} ${action.hint || ''} ${action.group || ''} ${action.keywords || ''}`.toLowerCase();
+                return haystack.includes(query);
+            });
+        },
+
+        runCommand(commandId) {
+            this.closeCommandPalette();
+            if (commandId === 'new-conversation') {
+                this.showNewConversation = true;
+                return;
+            }
+            if (commandId === 'focus-reply') {
+                const textarea = this.getReplyTextarea();
+                if (textarea) textarea.focus();
+                return;
+            }
+            if (commandId === 'next-conversation') {
+                this.navigateConversation('next');
+                return;
+            }
+            if (commandId === 'prev-conversation') {
+                this.navigateConversation('prev');
+                return;
+            }
+            if (commandId === 'toggle-help') {
+                this.showShortcutsHelp = !this.showShortcutsHelp;
+                return;
+            }
+            if (!this.selectedConversation) {
+                return;
+            }
+            if (commandId.startsWith('status-')) {
+                const status = commandId.replace('status-', '');
+                const button = document.querySelector(`[hx-post="/admin/crm/inbox/conversation/${this.selectedConversation}/status?new_status=${status}"]`);
+                if (button) button.click();
+                return;
+            }
+            if (commandId === 'assign-me') {
+                const button = document.querySelector(`[hx-post="/admin/crm/inbox/conversation/${this.selectedConversation}/assignment"]`);
+                if (button) button.click();
+            }
         }
     }
 }
+
+function initInboxBulkToolbar() {
+    const toolbar = document.getElementById('bulk-toolbar');
+    const form = document.getElementById('bulk-actions-form');
+    const actionSelect = document.getElementById('bulk-action-select');
+    const labelInput = document.getElementById('bulk-label-input');
+    const selectedCount = document.getElementById('bulk-selected-count');
+    const applyBtn = document.getElementById('bulk-apply-btn');
+    const clearBtn = document.getElementById('bulk-clear-btn');
+    if (!toolbar || !form || !actionSelect || !labelInput || !selectedCount || !applyBtn || !clearBtn) {
+        return;
+    }
+
+    const listContainer = document.getElementById('conversation-list');
+    if (!listContainer) {
+        return;
+    }
+
+    const getChecked = () => Array.from(
+        listContainer.querySelectorAll('input[data-bulk-checkbox="true"]:checked')
+    );
+
+    const isLabelAction = () => actionSelect.value === 'label:add' || actionSelect.value === 'label:remove';
+
+    const syncState = () => {
+        const checked = getChecked();
+        const count = checked.length;
+        toolbar.classList.toggle('hidden', count === 0);
+        selectedCount.textContent = `${count} selected`;
+        labelInput.classList.toggle('hidden', !isLabelAction());
+        const labelRequired = isLabelAction() && !labelInput.value.trim();
+        applyBtn.disabled = count === 0 || labelRequired;
+    };
+
+    listContainer.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) {
+            return;
+        }
+        if (target.matches('input[data-bulk-checkbox="true"]')) {
+            syncState();
+        }
+    });
+
+    actionSelect.addEventListener('change', syncState);
+    labelInput.addEventListener('input', syncState);
+
+    clearBtn.addEventListener('click', () => {
+        getChecked().forEach((input) => {
+            input.checked = false;
+        });
+        syncState();
+    });
+
+    form.addEventListener('submit', () => {
+        form.querySelectorAll('input[name="conversation_ids"]').forEach((node) => node.remove());
+        getChecked().forEach((input) => {
+            const hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = 'conversation_ids';
+            hidden.value = input.value;
+            form.appendChild(hidden);
+        });
+    });
+
+    document.body.addEventListener('inboxBulkApplied', () => {
+        clearBtn.click();
+        htmx.ajax('GET', '/admin/crm/inbox/conversations', { target: '#conversation-list', swap: 'innerHTML' });
+    });
+
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+        const target = event.detail && event.detail.target;
+        if (target && target.id === 'conversation-list') {
+            syncState();
+        }
+    });
+
+    syncState();
+}
+
+document.addEventListener('DOMContentLoaded', initInboxBulkToolbar);
 </script>
 
 {% endblock %}

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.workflow import SlaBreachStatus, SlaClockStatus, WorkflowEntityType
+from app.models.workflow import SlaBreachStatus, SlaClockStatus, TicketAssignmentStrategy, WorkflowEntityType
 
 
 class StatusTransitionBase(BaseModel):
@@ -191,6 +191,87 @@ class SlaBreachRead(SlaBreachBase):
     updated_at: datetime
 
 
+class SlaReportBucket(BaseModel):
+    key: str
+    total: int
+    breached: int
+    breach_rate: float
+
+
+class SlaReportSummary(BaseModel):
+    total_clocks: int
+    total_breaches: int
+    breach_rate: float
+    by_entity_type: list[SlaReportBucket]
+    by_status: list[SlaReportBucket]
+    ticket_by_service_team: list[SlaReportBucket]
+    ticket_by_assignee: list[SlaReportBucket]
+
+
+class SlaTrendPoint(BaseModel):
+    date: str
+    total: int
+    breached: int
+    breach_rate: float
+
+
+class SlaTrendResponse(BaseModel):
+    points: list[SlaTrendPoint]
+
+
 class StatusTransitionRequest(BaseModel):
     to_status: str = Field(min_length=1, max_length=40)
     note: str | None = None
+
+
+class TicketAssignmentRuleBase(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    priority: int = 0
+    is_active: bool = True
+    match_config: dict | None = None
+    strategy: TicketAssignmentStrategy = TicketAssignmentStrategy.round_robin
+    team_id: UUID | None = None
+    assign_manager: bool = False
+    assign_spc: bool = False
+
+
+class TicketAssignmentRuleCreate(TicketAssignmentRuleBase):
+    pass
+
+
+class TicketAssignmentRuleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    priority: int | None = None
+    is_active: bool | None = None
+    match_config: dict | None = None
+    strategy: TicketAssignmentStrategy | None = None
+    team_id: UUID | None = None
+    assign_manager: bool | None = None
+    assign_spc: bool | None = None
+
+
+class TicketAssignmentRuleRead(TicketAssignmentRuleBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class TicketAssignmentRuleReorderRequest(BaseModel):
+    rule_ids: list[UUID] = Field(default_factory=list)
+
+
+class TicketAssignmentRuleTestRequest(BaseModel):
+    ticket_ref: str = Field(min_length=1, max_length=120)
+
+
+class TicketAssignmentRuleTestResult(BaseModel):
+    rule_id: UUID
+    ticket_id: UUID
+    matched: bool
+    strategy: TicketAssignmentStrategy
+    candidate_count: int = 0
+    candidate_person_ids: list[str] = Field(default_factory=list)
+    preview_assignee_person_id: str | None = None
+    reason: str

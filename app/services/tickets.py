@@ -432,18 +432,24 @@ def _maybe_auto_assign_ticket(db: Session, ticket: Ticket):
         trigger="create",
         actor_person_id=actor_id,
     )
-    if result and result.assigned:
+    if result:
+        action = "ticket_auto_assigned" if result.assigned else "ticket_auto_assign_noop"
         db.refresh(ticket)
         log_audit_event(
             db,
             None,
-            action="ticket_auto_assigned",
+            action=action,
             entity_type="ticket",
             entity_id=str(ticket.id),
             actor_id=actor_id,
             metadata={
+                "assigned": bool(result.assigned),
                 "rule_id": result.rule_id,
+                "rule_name": result.rule_name,
+                "strategy": result.strategy,
+                "candidate_count": result.candidate_count,
                 "assignee_person_id": result.assignee_person_id,
+                "fallback_service_team_id": result.fallback_service_team_id,
                 "reason": result.reason,
             },
             status_code=200,
@@ -629,7 +635,11 @@ class Tickets(ListResponseMixin):
             metadata={
                 "assigned": bool(result.assigned),
                 "rule_id": result.rule_id,
+                "rule_name": result.rule_name,
+                "strategy": result.strategy,
+                "candidate_count": result.candidate_count,
                 "assignee_person_id": result.assignee_person_id,
+                "fallback_service_team_id": result.fallback_service_team_id,
                 "reason": result.reason,
             },
             status_code=200,

@@ -20,6 +20,7 @@ from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.schemas.crm.inbox import EmailWebhookPayload
 from app.services.common import coerce_uuid
 from app.services.crm import inbox as inbox_service
+from app.services.crm.inbox.normalizers import _normalize_email_address
 
 logger = get_logger(__name__)
 
@@ -38,13 +39,6 @@ def _decode_header(value: str | None) -> str | None:
         else:
             decoded += fragment
     return decoded.strip()
-
-
-def _normalize_email_address(address: str | None) -> str | None:
-    if not address:
-        return None
-    candidate = address.strip().lower()
-    return candidate or None
 
 
 def _self_addresses_from_config(config: ConnectorConfig, auth_config: dict) -> set[str]:

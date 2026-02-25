@@ -1,9 +1,10 @@
 """CRM inbox core action routes (assignment and resolve)."""
 
+import json
 from typing import cast
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,7 @@ from app.db import SessionLocal
 from app.logging import get_logger
 from app.models.person import Person
 from app.services import crm as crm_service
+from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm.inbox.formatting import format_contact_for_template
 
@@ -47,6 +49,116 @@ def _get_current_scopes(request: Request) -> list[str]:
 
 def _load_crm_agent_team_options(db: Session) -> dict:
     return crm_service.get_agent_team_options(db)
+
+
+@router.post("/inbox/conversations/bulk", response_class=HTMLResponse)
+def inbox_conversations_bulk_action(
+    request: Request,
+    conversation_ids: list[str] = Form(default=[]),
+    bulk_action: str = Form(...),
+    bulk_label: str | None = Form(None),
+    current_agent_id: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    from app.services.crm.inbox.bulk_actions import apply_bulk_action
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request) or {}
+    actor_id = (current_user.get("person_id") or "").strip() or None
+    result = apply_bulk_action(
+        db,
+        conversation_ids=conversation_ids,
+        action=bulk_action,
+        actor_id=actor_id,
+        current_agent_id=(current_agent_id or "").strip() or None,
+        label=bulk_label,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if request.headers.get("HX-Request"):
+        message = (
+            result.detail
+            if result.kind == "invalid_action"
+            else f"Bulk action complete: {result.applied} applied, {result.skipped} skipped, {result.failed} failed"
+        )
+        trigger = {
+            "showToast": {
+                "type": "error" if result.kind == "invalid_action" else "success",
+                "title": "Bulk action",
+                "message": message,
+            },
+            "inboxBulkApplied": {
+                "ok": result.kind == "success",
+                "applied": result.applied,
+                "skipped": result.skipped,
+                "failed": result.failed,
+            },
+        }
+        return Response(status_code=204, headers={"HX-Trigger": json.dumps(trigger)})
+
+    return RedirectResponse(url="/admin/crm/inbox", status_code=303)
+
+
+@router.post("/inbox/saved-filters", response_class=HTMLResponse)
+def inbox_save_filter(
+    request: Request,
+    name: str = Form(...),
+    channel: str | None = Form(None),
+    status: str | None = Form(None),
+    outbox_status: str | None = Form(None),
+    search: str | None = Form(None),
+    assignment: str | None = Form(None),
+    target_id: str | None = Form(None),
+    agent_id: str | None = Form(None),
+    assigned_from: str | None = Form(None),
+    assigned_to: str | None = Form(None),
+    limit: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    from app.services.crm.inbox import saved_filters as saved_filters_service
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request) or {}
+    person_id_raw = (current_user.get("person_id") or "").strip()
+    if not person_id_raw:
+        return RedirectResponse(url="/admin/crm/inbox", status_code=303)
+
+    saved = saved_filters_service.save_saved_filter(
+        db,
+        coerce_uuid(person_id_raw),
+        name=name,
+        params={
+            "channel": channel,
+            "status": status,
+            "outbox_status": outbox_status,
+            "search": search,
+            "assignment": assignment,
+            "target_id": target_id,
+            "agent_id": agent_id,
+            "assigned_from": assigned_from,
+            "assigned_to": assigned_to,
+            "limit": limit,
+        },
+    )
+    if saved and saved.get("id"):
+        return RedirectResponse(url=f"/admin/crm/inbox?saved_filter_id={saved['id']}", status_code=303)
+    return RedirectResponse(url="/admin/crm/inbox", status_code=303)
+
+
+@router.post("/inbox/saved-filters/{filter_id}/delete", response_class=HTMLResponse)
+def inbox_delete_filter(
+    request: Request,
+    filter_id: str,
+    db: Session = Depends(get_db),
+):
+    from app.services.crm.inbox import saved_filters as saved_filters_service
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request) or {}
+    person_id_raw = (current_user.get("person_id") or "").strip()
+    if person_id_raw:
+        saved_filters_service.delete_saved_filter(db, coerce_uuid(person_id_raw), filter_id)
+    return RedirectResponse(url="/admin/crm/inbox", status_code=303)
 
 
 @router.post("/inbox/conversation/{conversation_id}/assignment", response_class=HTMLResponse)

@@ -467,6 +467,17 @@ def format_conversation_for_template(
     if contact and contact.metadata_:
         splynx_id = contact.metadata_.get("splynx_id")
 
+    snooze = None
+    if isinstance(conv.metadata_, dict):
+        raw_snooze = conv.metadata_.get("snooze")
+        if isinstance(raw_snooze, dict):
+            mode = str(raw_snooze.get("mode") or "").strip().lower() or None
+            until_at = raw_snooze.get("until_at")
+            snooze = {
+                "mode": mode,
+                "until_at": str(until_at) if until_at else None,
+            }
+
     return {
         "id": str(conv.id),
         "contact": {
@@ -482,6 +493,7 @@ def format_conversation_for_template(
         "status": conv.status.value if conv.status else "open",
         "priority": conv.priority.value if conv.priority else "none",
         "is_muted": bool(getattr(conv, "is_muted", False)),
+        "snooze": snooze,
         "subject": conv.subject,
         "preview": preview,
         "unread_count": unread_count or 0,
@@ -490,6 +502,7 @@ def format_conversation_for_template(
         "assigned_team": assigned_team,
         "assigned_agent_id": assigned_agent_id,
         "assigned_agent_name": assigned_agent_name,
+        "tags": sorted({tag.tag for tag in (conv.tags or []) if tag.tag})[:5],
         "inbox": {
             "id": str(channel_target_id) if channel_target_id else None,
             "label": inbox_label,

@@ -27,6 +27,25 @@
                         {{ conversation.inbox.label }}
                     </span>
                     {% endif %}
+                    {% if conversation.labels %}
+                    {% set label_colors = {
+                        'slate': 'border-slate-200/70 bg-white/70 text-slate-600 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-300',
+                        'blue': 'border-blue-500/20 bg-blue-500/10 text-blue-600 dark:text-blue-400',
+                        'indigo': 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
+                        'violet': 'border-violet-500/20 bg-violet-500/10 text-violet-600 dark:text-violet-400',
+                        'emerald': 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                        'teal': 'border-teal-500/20 bg-teal-500/10 text-teal-600 dark:text-teal-400',
+                        'amber': 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                        'orange': 'border-orange-500/20 bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                        'rose': 'border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-400',
+                        'red': 'border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400',
+                    } %}
+                    {% for label in conversation.labels[:4] %}
+                    <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold {{ label_colors.get(label.color, label_colors['slate']) }}">
+                        {{ label.name }}
+                    </span>
+                    {% endfor %}
+                    {% endif %}
                 </div>
                 {% if conversation.channel == 'whatsapp' %}
                 <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-400">
@@ -35,6 +54,12 @@
                 {% else %}
                 <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-400">{{ conversation.contact.email }}</p>
                 {% endif %}
+                <p x-show="$root && $root.hasActivePresence && $root.hasActivePresence('{{ conversation.id }}')"
+                   x-cloak
+                   class="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                    <span x-text="$root.presenceSummaryText('{{ conversation.id }}')"></span>
+                </p>
             </div>
         </div>
     </div>
@@ -129,6 +154,76 @@
                 </button>
             </div>
         </div>
+
+        <!-- Snooze scheduler -->
+        <div x-data="{ open: false }" class="relative">
+            <button @click="open = !open"
+                    :aria-expanded="open"
+                    aria-haspopup="true"
+                    aria-label="Snooze conversation"
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-orange-500/20 bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 transition-colors dark:bg-orange-500/20 dark:text-orange-300">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z"/>
+                </svg>
+                Snooze
+            </button>
+            <div x-show="open"
+                 @click.outside="open = false"
+                 x-transition
+                 role="menu"
+                 class="absolute right-0 mt-2 w-56 py-1 bg-slate-50 border border-slate-200 rounded-xl shadow-xl z-50 dark:bg-slate-800 dark:border-slate-700">
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/snooze?preset=1h"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">In 1 hour</button>
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/snooze?preset=tomorrow"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">Tomorrow 9:00</button>
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/snooze?preset=next_week"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">Next week</button>
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/snooze?preset=next_reply"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">Until next reply</button>
+                <form method="post"
+                      action="/admin/crm/inbox/conversation/{{ conversation.id }}/snooze?preset=custom"
+                      hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/snooze?preset=custom"
+                      hx-target="#message-thread"
+                      hx-swap="innerHTML"
+                      hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                      @submit="open = false"
+                      class="border-t border-slate-200 px-3 py-2 dark:border-slate-700">
+                    <label class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Custom</label>
+                    <input type="datetime-local"
+                           name="until_at"
+                           required
+                           class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200" />
+                    <button type="submit"
+                            class="mt-2 inline-flex items-center rounded-md bg-orange-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-orange-500">Set snooze</button>
+                </form>
+            </div>
+        </div>
+
+        {% if conversation.snooze and conversation.status == 'snoozed' %}
+        <span class="inline-flex items-center gap-1 rounded-lg border border-orange-500/20 bg-orange-500/10 px-2 py-1 text-[10px] font-medium text-orange-500 dark:bg-orange-500/20 dark:text-orange-300">
+            {% if conversation.snooze.until_at %}
+            Snoozed until {{ conversation.snooze.until_at }}
+            {% else %}
+            Snoozed until next reply
+            {% endif %}
+        </span>
+        {% endif %}
 
         <!-- Priority dropdown -->
         <div x-data="{ open: false }" class="relative">
@@ -825,7 +920,8 @@
             <!-- Message input -->
             <div class="flex-1 relative">
                 <textarea x-ref="messageInput"
-                          id="conversation-message-input-{{ conversation.id }}"
+                          id="reply-textarea"
+                          data-channel-type="{{ conversation.channel }}"
                           name="message"
                           rows="1"
                           placeholder="Type your message..."
@@ -838,13 +934,17 @@
                               form.requestSubmit();
                           "
                           @keydown="onMentionKeydown('message', $event)"
-                          @blur="if ($root && $root.flushPendingThreadRefresh) { $root.flushPendingThreadRefresh(); }"
+                          @focus="if ($root && $root.publishPresence) { $root.localPresenceState = 'replying'; $root.publishPresence('{{ conversation.id }}', 'replying', true); }"
+                          @blur="
+                              if ($root && $root.flushPendingThreadRefresh) { $root.flushPendingThreadRefresh(); }
+                              if ($root && $root.publishPresence) { $root.localPresenceState = 'viewing'; $root.publishPresence('{{ conversation.id }}', 'viewing', true); }
+                          "
                           @input="
                               $el.style.height = 'auto';
                               $el.style.height = Math.min($el.scrollHeight, 150) + 'px';
                               if ($refs.messageError) { $refs.messageError.textContent = ''; }
                               if ($root && $root.storeDraft) { $root.storeDraft('{{ conversation.id }}', $el.value); }
-                              if ($root && $root.sendTypingIndicator) { $root.sendTypingIndicator('{{ conversation.id }}'); }
+                              if ($root && $root.sendTypingIndicator) { $root.sendTypingIndicator('{{ conversation.id }}', '{{ conversation.channel }}'); }
                           onMentionInput('message', $event);
                           "></textarea>
                 <input type="hidden" name="mentions" x-ref="messageMentions" value="[]">

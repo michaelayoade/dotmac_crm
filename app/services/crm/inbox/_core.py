@@ -32,6 +32,13 @@ from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm import email_polling
+from app.services.crm.inbox.normalizers import (
+    _normalize_channel_address,
+    _normalize_email_address,
+    _normalize_email_message_id,
+    _normalize_external_id,
+    _normalize_phone_address,
+)
 from app.services.settings_spec import resolve_value
 
 _DEFAULT_WHATSAPP_TIMEOUT = 10  # fallback when settings unavailable
@@ -51,24 +58,6 @@ def _get_whatsapp_api_timeout(db: Session) -> int:
 
 def _now():
     return datetime.now(UTC)
-
-
-def _normalize_external_id(raw_id: str | None) -> str | None:
-    if not raw_id:
-        return None
-    candidate = raw_id.strip()
-    if not candidate:
-        return None
-    if len(candidate) > 120:
-        return hashlib.sha256(candidate.encode("utf-8")).hexdigest()
-    return candidate
-
-
-def _normalize_email_message_id(raw_id: str | None) -> str | None:
-    if not raw_id:
-        return None
-    cleaned = raw_id.strip().strip("<>").strip()
-    return _normalize_external_id(cleaned)
 
 
 def _get_metadata_value(metadata: dict | None, key: str):
@@ -337,32 +326,6 @@ def _smtp_config_from_connector(config: ConnectorConfig) -> dict | None:
 
 def _resolve_person_for_contact(contact: Person) -> str:
     return str(contact.id)
-
-
-def _normalize_email_address(address: str | None) -> str | None:
-    if not address:
-        return None
-    candidate = address.strip().lower()
-    return candidate or None
-
-
-def _normalize_phone_address(value: str | None) -> str | None:
-    if not value:
-        return None
-    digits = "".join(ch for ch in value if ch.isdigit())
-    if not digits:
-        return None
-    return f"+{digits}"
-
-
-def _normalize_channel_address(channel_type: ChannelType, address: str | None) -> str | None:
-    if not address:
-        return None
-    if channel_type == ChannelType.email:
-        return _normalize_email_address(address)
-    if channel_type == ChannelType.whatsapp:
-        return _normalize_phone_address(address)
-    return address.strip()
 
 
 def _extract_self_email_addresses(config: ConnectorConfig | None) -> set[str]:

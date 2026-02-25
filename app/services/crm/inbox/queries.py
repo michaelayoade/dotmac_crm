@@ -57,6 +57,7 @@ def list_inbox_conversations(
         .options(
             selectinload(Conversation.contact).selectinload(Person.channels),
             selectinload(Conversation.assignments),
+            selectinload(Conversation.tags),
         )
         .select_from(Conversation)
         .filter(Conversation.is_active.is_(True))

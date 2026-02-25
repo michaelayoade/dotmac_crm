@@ -14,6 +14,7 @@ from app.services.crm.inbox.comments_context import (
     build_comment_list_items,
     load_comments_context,
 )
+from app.services.crm.inbox.conversation_status import reopen_due_snoozed_conversations
 from app.services.crm.inbox.queries import list_inbox_conversations
 from app.services.crm.inbox.search import normalize_search
 
@@ -52,6 +53,8 @@ async def load_inbox_list(
     include_thread: bool = False,
     fetch_comments: bool = False,
 ) -> InboxListResult:
+    # Keep snooze schedules current whenever inbox lists are loaded.
+    reopen_due_snoozed_conversations(db)
     normalized_search = normalize_search(search)
     safe_offset = max(int(offset or 0), 0)
     safe_limit = max(int(limit or 0), 1)

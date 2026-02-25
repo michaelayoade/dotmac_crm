@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.models.crm.team import CrmAgent, CrmAgentTeam
@@ -16,6 +16,8 @@ from app.models.workflow import (
     SlaClockStatus,
     SlaPolicy,
     SlaTarget,
+    TicketAssignmentRule,
+    TicketAssignmentStrategy,
     TicketStatusTransition,
     WorkflowEntityType,
     WorkOrderStatusTransition,
@@ -33,6 +35,10 @@ from app.schemas.workflow import (
     SlaTargetCreate,
     SlaTargetUpdate,
     StatusTransitionRequest,
+    TicketAssignmentRuleCreate,
+    TicketAssignmentRuleReorderRequest,
+    TicketAssignmentRuleTestRequest,
+    TicketAssignmentRuleUpdate,
     TicketStatusTransitionCreate,
     TicketStatusTransitionUpdate,
     WorkOrderStatusTransitionCreate,
@@ -43,6 +49,12 @@ from app.services.common import apply_ordering, apply_pagination, coerce_uuid, v
 from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.response import ListResponseMixin
+from app.services.ticket_assignment.rules import build_context, matches_rule
+from app.services.ticket_assignment.selectors import (
+    list_team_candidate_person_ids,
+    pick_least_loaded,
+    resolve_assignment_candidate_guards,
+)
 
 
 def _get_by_id(db: Session, model, value):
@@ -600,6 +612,278 @@ class SlaBreaches(ListResponseMixin):
         db.commit()
 
 
+class TicketAssignmentRules(ListResponseMixin):
+    @staticmethod
+    def create(db: Session, payload: TicketAssignmentRuleCreate):
+        rule = TicketAssignmentRule(**payload.model_dump())
+        db.add(rule)
+        db.commit()
+        db.refresh(rule)
+        return rule
+
+    @staticmethod
+    def get(db: Session, rule_id: str):
+        rule = _get_by_id(db, TicketAssignmentRule, rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail="Ticket assignment rule not found")
+        return rule
+
+    @staticmethod
+    def list(
+        db: Session,
+        strategy: str | None,
+        is_active: bool | None,
+        order_by: str,
+        order_dir: str,
+        limit: int,
+        offset: int,
+    ):
+        query = db.query(TicketAssignmentRule)
+        if strategy:
+            query = query.filter(
+                TicketAssignmentRule.strategy == validate_enum(strategy, TicketAssignmentStrategy, "strategy")
+            )
+        if is_active is None:
+            query = query.filter(TicketAssignmentRule.is_active.is_(True))
+        else:
+            query = query.filter(TicketAssignmentRule.is_active == is_active)
+        query = apply_ordering(
+            query,
+            order_by,
+            order_dir,
+            {
+                "created_at": TicketAssignmentRule.created_at,
+                "updated_at": TicketAssignmentRule.updated_at,
+                "priority": TicketAssignmentRule.priority,
+                "name": TicketAssignmentRule.name,
+            },
+        )
+        return apply_pagination(query, limit, offset).all()
+
+    @staticmethod
+    def update(db: Session, rule_id: str, payload: TicketAssignmentRuleUpdate):
+        rule = _get_by_id(db, TicketAssignmentRule, rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail="Ticket assignment rule not found")
+        for key, value in payload.model_dump(exclude_unset=True).items():
+            setattr(rule, key, value)
+        db.commit()
+        db.refresh(rule)
+        return rule
+
+    @staticmethod
+    def delete(db: Session, rule_id: str):
+        rule = _get_by_id(db, TicketAssignmentRule, rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail="Ticket assignment rule not found")
+        rule.is_active = False
+        db.commit()
+
+    @staticmethod
+    def reorder(db: Session, payload: TicketAssignmentRuleReorderRequest) -> list[TicketAssignmentRule]:
+        ordered_rules = (
+            db.query(TicketAssignmentRule)
+            .order_by(TicketAssignmentRule.priority.desc(), TicketAssignmentRule.created_at.asc())
+            .all()
+        )
+        if not ordered_rules:
+            return []
+        rules_by_id = {str(rule.id): rule for rule in ordered_rules}
+        requested_ids: list[str] = []
+        seen: set[str] = set()
+        for rule_id in payload.rule_ids:
+            key = str(rule_id)
+            if key in seen:
+                continue
+            if key not in rules_by_id:
+                raise HTTPException(status_code=404, detail=f"Ticket assignment rule not found: {key}")
+            seen.add(key)
+            requested_ids.append(key)
+        new_order: list[TicketAssignmentRule] = [rules_by_id[key] for key in requested_ids]
+        new_order.extend(rule for rule in ordered_rules if str(rule.id) not in seen)
+        priority = len(new_order)
+        for rule in new_order:
+            rule.priority = priority
+            priority -= 1
+        db.commit()
+        for rule in new_order:
+            db.refresh(rule)
+        return new_order
+
+    @staticmethod
+    def test_rule(db: Session, rule_id: str, payload: TicketAssignmentRuleTestRequest) -> dict:
+        rule = _get_by_id(db, TicketAssignmentRule, rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail="Ticket assignment rule not found")
+        ticket = TicketAssignmentRules._resolve_ticket_ref(db, payload.ticket_ref)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        ctx = build_context(ticket)
+        matched = matches_rule(rule, ctx)
+        if not matched:
+            return {
+                "rule_id": rule.id,
+                "ticket_id": ticket.id,
+                "matched": False,
+                "strategy": rule.strategy,
+                "candidate_count": 0,
+                "candidate_person_ids": [],
+                "preview_assignee_person_id": None,
+                "reason": "rule_not_matched",
+            }
+
+        require_presence, max_open_tickets = resolve_assignment_candidate_guards(db)
+        team_id = str(rule.team_id) if rule.team_id else (str(ticket.service_team_id) if ticket.service_team_id else None)
+        candidates = list_team_candidate_person_ids(
+            db,
+            team_id,
+            require_presence=require_presence,
+            max_open_tickets=max_open_tickets,
+        )
+        preview_assignee_person_id = None
+        if candidates:
+            if rule.strategy == TicketAssignmentStrategy.least_loaded:
+                preview_assignee_person_id = pick_least_loaded(db, candidates)
+            else:
+                preview_assignee_person_id = sorted(candidates)[0]
+        return {
+            "rule_id": rule.id,
+            "ticket_id": ticket.id,
+            "matched": True,
+            "strategy": rule.strategy,
+            "candidate_count": len(candidates),
+            "candidate_person_ids": candidates,
+            "preview_assignee_person_id": preview_assignee_person_id,
+            "reason": "preview_ready" if candidates else "no_eligible_candidates",
+        }
+
+    @staticmethod
+    def _resolve_ticket_ref(db: Session, ticket_ref: str) -> Ticket | None:
+        raw = (ticket_ref or "").strip()
+        if not raw:
+            return None
+        try:
+            ticket = _get_by_id(db, Ticket, raw)
+        except Exception:
+            ticket = None
+        if ticket:
+            return ticket
+        return db.query(Ticket).filter(Ticket.number == raw).first()
+
+
+class SlaReports:
+    @staticmethod
+    def summary(db: Session, start_at: datetime | None = None, end_at: datetime | None = None) -> dict:
+        base = db.query(SlaClock)
+        if start_at:
+            base = base.filter(SlaClock.started_at >= start_at)
+        if end_at:
+            base = base.filter(SlaClock.started_at <= end_at)
+
+        total_clocks = int(base.count())
+        total_breaches = int(base.filter(SlaClock.status == SlaClockStatus.breached).count())
+        breach_rate = (float(total_breaches) / float(total_clocks)) if total_clocks else 0.0
+
+        by_entity_type_rows = (
+            base.with_entities(
+                SlaClock.entity_type,
+                func.count(SlaClock.id),
+                func.sum(case((SlaClock.status == SlaClockStatus.breached, 1), else_=0)),
+            )
+            .group_by(SlaClock.entity_type)
+            .all()
+        )
+        by_status_rows = (
+            base.with_entities(
+                SlaClock.status,
+                func.count(SlaClock.id),
+                func.sum(case((SlaClock.status == SlaClockStatus.breached, 1), else_=0)),
+            )
+            .group_by(SlaClock.status)
+            .all()
+        )
+
+        ticket_base = base.filter(SlaClock.entity_type == WorkflowEntityType.ticket).join(
+            Ticket, Ticket.id == SlaClock.entity_id
+        )
+        ticket_team_rows = (
+            ticket_base.with_entities(
+                Ticket.service_team_id,
+                func.count(SlaClock.id),
+                func.sum(case((SlaClock.status == SlaClockStatus.breached, 1), else_=0)),
+            )
+            .group_by(Ticket.service_team_id)
+            .all()
+        )
+        ticket_assignee_rows = (
+            ticket_base.with_entities(
+                Ticket.assigned_to_person_id,
+                func.count(SlaClock.id),
+                func.sum(case((SlaClock.status == SlaClockStatus.breached, 1), else_=0)),
+            )
+            .group_by(Ticket.assigned_to_person_id)
+            .all()
+        )
+
+        return {
+            "total_clocks": total_clocks,
+            "total_breaches": total_breaches,
+            "breach_rate": round(breach_rate, 4),
+            "by_entity_type": _format_report_buckets(by_entity_type_rows),
+            "by_status": _format_report_buckets(by_status_rows),
+            "ticket_by_service_team": _format_report_buckets(ticket_team_rows, none_key="unassigned_team"),
+            "ticket_by_assignee": _format_report_buckets(ticket_assignee_rows, none_key="unassigned_person"),
+        }
+
+    @staticmethod
+    def trend_daily(db: Session, start_at: datetime | None = None, end_at: datetime | None = None) -> list[dict]:
+        base = db.query(SlaClock)
+        if start_at:
+            base = base.filter(SlaClock.started_at >= start_at)
+        if end_at:
+            base = base.filter(SlaClock.started_at <= end_at)
+        rows = (
+            base.with_entities(
+                func.date(SlaClock.started_at),
+                func.count(SlaClock.id),
+                func.sum(case((SlaClock.status == SlaClockStatus.breached, 1), else_=0)),
+            )
+            .group_by(func.date(SlaClock.started_at))
+            .order_by(func.date(SlaClock.started_at).asc())
+            .all()
+        )
+        points: list[dict] = []
+        for day_value, total, breached in rows:
+            total_count = int(total or 0)
+            breached_count = int(breached or 0)
+            points.append(
+                {
+                    "date": str(day_value),
+                    "total": total_count,
+                    "breached": breached_count,
+                    "breach_rate": round((float(breached_count) / float(total_count)) if total_count else 0.0, 4),
+                }
+            )
+        return points
+
+
+def _format_report_buckets(rows, *, none_key: str = "unknown") -> list[dict]:
+    items: list[dict] = []
+    for key, total, breached in rows:
+        total_count = int(total or 0)
+        breached_count = int(breached or 0)
+        items.append(
+            {
+                "key": str(getattr(key, "value", key) or none_key),
+                "total": total_count,
+                "breached": breached_count,
+                "breach_rate": round((float(breached_count) / float(total_count)) if total_count else 0.0, 4),
+            }
+        )
+    return sorted(items, key=lambda item: item["key"])
+
+
 def _requires_transition(
     db: Session,
     transition_model,
@@ -957,4 +1241,6 @@ sla_policies = SlaPolicies()
 sla_targets = SlaTargets()
 sla_clocks = SlaClocks()
 sla_breaches = SlaBreaches()
+sla_reports = SlaReports()
+ticket_assignment_rules = TicketAssignmentRules()
 ticket_assignments = TicketAssignments()

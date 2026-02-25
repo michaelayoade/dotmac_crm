@@ -56,6 +56,12 @@
        @keydown.enter.prevent="selectConversation('{{ conv.id }}', '{{ conv.contact.id }}')">
         <div class="px-4 py-3.5 cursor-pointer">
             <div class="flex items-start gap-3">
+                <input type="checkbox"
+                       class="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-600 dark:bg-slate-800"
+                       data-bulk-checkbox="true"
+                       value="{{ conv.id }}"
+                       @click.stop
+                       @keydown.enter.stop>
                 <!-- Avatar with channel indicator -->
                 <button type="button"
                         class="relative flex-shrink-0"
@@ -153,6 +159,26 @@
                             <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-500/10 text-slate-500 border border-slate-500/20 dark:text-slate-400">
                                 {{ conv.inbox.label }}
                             </span>
+                            {% endif %}
+
+                            {% if conv.labels %}
+                            {% set label_colors = {
+                                'slate': 'bg-slate-500/10 text-slate-600 border-slate-500/20 dark:text-slate-300',
+                                'blue': 'bg-blue-500/10 text-blue-600 border-blue-500/20 dark:text-blue-400',
+                                'indigo': 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20 dark:text-indigo-400',
+                                'violet': 'bg-violet-500/10 text-violet-600 border-violet-500/20 dark:text-violet-400',
+                                'emerald': 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400',
+                                'teal': 'bg-teal-500/10 text-teal-600 border-teal-500/20 dark:text-teal-400',
+                                'amber': 'bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400',
+                                'orange': 'bg-orange-500/10 text-orange-600 border-orange-500/20 dark:text-orange-400',
+                                'rose': 'bg-rose-500/10 text-rose-600 border-rose-500/20 dark:text-rose-400',
+                                'red': 'bg-red-500/10 text-red-600 border-red-500/20 dark:text-red-400',
+                            } %}
+                            {% for label in conv.labels[:3] %}
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium border {{ label_colors.get(label.color, label_colors['slate']) }}">
+                                {{ label.name }}
+                            </span>
+                            {% endfor %}
                             {% endif %}
 
                             {% if conv.priority is defined and conv.priority not in ('none', None) %}

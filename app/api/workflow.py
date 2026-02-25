@@ -18,10 +18,18 @@ from app.schemas.workflow import (
     SlaPolicyCreate,
     SlaPolicyRead,
     SlaPolicyUpdate,
+    SlaReportSummary,
     SlaTargetCreate,
     SlaTargetRead,
     SlaTargetUpdate,
+    SlaTrendResponse,
     StatusTransitionRequest,
+    TicketAssignmentRuleCreate,
+    TicketAssignmentRuleRead,
+    TicketAssignmentRuleReorderRequest,
+    TicketAssignmentRuleTestRequest,
+    TicketAssignmentRuleTestResult,
+    TicketAssignmentRuleUpdate,
     TicketStatusTransitionCreate,
     TicketStatusTransitionRead,
     TicketStatusTransitionUpdate,
@@ -429,6 +437,120 @@ def update_sla_breach(breach_id: str, payload: SlaBreachUpdate, db: Session = De
 )
 def delete_sla_breach(breach_id: str, db: Session = Depends(get_db)):
     workflow_service.sla_breaches.delete(db, breach_id)
+
+
+@router.get(
+    "/sla-reports/summary",
+    response_model=SlaReportSummary,
+    tags=["sla-reports"],
+)
+def get_sla_report_summary(
+    start_at: str | None = None,
+    end_at: str | None = None,
+    db: Session = Depends(get_db),
+):
+    from datetime import datetime
+
+    start_dt = datetime.fromisoformat(start_at) if start_at else None
+    end_dt = datetime.fromisoformat(end_at) if end_at else None
+    return workflow_service.sla_reports.summary(db, start_dt, end_dt)
+
+
+@router.get(
+    "/sla-reports/trend",
+    response_model=SlaTrendResponse,
+    tags=["sla-reports"],
+)
+def get_sla_report_trend(
+    start_at: str | None = None,
+    end_at: str | None = None,
+    db: Session = Depends(get_db),
+):
+    from datetime import datetime
+
+    start_dt = datetime.fromisoformat(start_at) if start_at else None
+    end_dt = datetime.fromisoformat(end_at) if end_at else None
+    points = workflow_service.sla_reports.trend_daily(db, start_dt, end_dt)
+    return {"points": points}
+
+
+@router.post(
+    "/ticket-assignment-rules",
+    response_model=TicketAssignmentRuleRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["ticket-assignment-rules"],
+)
+def create_ticket_assignment_rule(payload: TicketAssignmentRuleCreate, db: Session = Depends(get_db)):
+    return workflow_service.ticket_assignment_rules.create(db, payload)
+
+
+@router.get(
+    "/ticket-assignment-rules/{rule_id}",
+    response_model=TicketAssignmentRuleRead,
+    tags=["ticket-assignment-rules"],
+)
+def get_ticket_assignment_rule(rule_id: str, db: Session = Depends(get_db)):
+    return workflow_service.ticket_assignment_rules.get(db, rule_id)
+
+
+@router.get(
+    "/ticket-assignment-rules",
+    response_model=ListResponse[TicketAssignmentRuleRead],
+    tags=["ticket-assignment-rules"],
+)
+def list_ticket_assignment_rules(
+    strategy: str | None = None,
+    is_active: bool | None = None,
+    order_by: str = Query(default="priority"),
+    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    items = workflow_service.ticket_assignment_rules.list(
+        db, strategy, is_active, order_by, order_dir, limit, offset
+    )
+    return list_response(items, limit, offset)
+
+
+@router.patch(
+    "/ticket-assignment-rules/{rule_id}",
+    response_model=TicketAssignmentRuleRead,
+    tags=["ticket-assignment-rules"],
+)
+def update_ticket_assignment_rule(
+    rule_id: str,
+    payload: TicketAssignmentRuleUpdate,
+    db: Session = Depends(get_db),
+):
+    return workflow_service.ticket_assignment_rules.update(db, rule_id, payload)
+
+
+@router.delete(
+    "/ticket-assignment-rules/{rule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["ticket-assignment-rules"],
+)
+def delete_ticket_assignment_rule(rule_id: str, db: Session = Depends(get_db)):
+    workflow_service.ticket_assignment_rules.delete(db, rule_id)
+
+
+@router.post(
+    "/ticket-assignment-rules/reorder",
+    response_model=list[TicketAssignmentRuleRead],
+    tags=["ticket-assignment-rules"],
+)
+def reorder_ticket_assignment_rules(payload: TicketAssignmentRuleReorderRequest, db: Session = Depends(get_db)):
+    return workflow_service.ticket_assignment_rules.reorder(db, payload)
+
+
+@router.post(
+    "/ticket-assignment-rules/{rule_id}/test",
+    response_model=TicketAssignmentRuleTestResult,
+    tags=["ticket-assignment-rules"],
+)
+def test_ticket_assignment_rule(rule_id: str, payload: TicketAssignmentRuleTestRequest, db: Session = Depends(get_db)):
+    return workflow_service.ticket_assignment_rules.test_rule(db, rule_id, payload)
 
 
 @router.post(

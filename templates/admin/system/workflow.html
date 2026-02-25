@@ -12,6 +12,17 @@
         {{ error }}
     </div>
     {% endif %}
+    {% if test_result %}
+    <div class="animate-fade-in-up rounded-2xl border border-sky-200/60 bg-sky-50 p-4 text-sm text-sky-700 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-200">
+        Rule test for ticket <span class="font-semibold">{{ test_result.ticket_id }}</span>:
+        {% if test_result.matched %}matched{% else %}not matched{% endif %},
+        reason: <span class="font-semibold">{{ test_result.reason }}</span>,
+        candidates: <span class="font-semibold">{{ test_result.candidate_count }}</span>
+        {% if test_result.preview_assignee_person_id %}
+        , preview assignee: <span class="font-semibold">{{ test_result.preview_assignee_person_id }}</span>
+        {% endif %}
+    </div>
+    {% endif %}
 
     {# ── Stats Row ── #}
     <div class="grid gap-4 sm:grid-cols-3">
@@ -23,6 +34,103 @@
         </div>
         <div class="animate-fade-in-up" style="animation-delay: 150ms">
             {{ stats_card("Transitions", ticket_transitions | length + work_order_transitions | length + project_task_transitions | length, color="indigo", color2="violet", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/></svg>') }}
+        </div>
+    </div>
+
+    {# ── SLA Report Summary ── #}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 175ms">
+        <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+                <h2 class="text-sm font-semibold text-slate-900 dark:text-white">SLA Report Summary</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Filter by SLA clock start datetime (ISO format).</p>
+            </div>
+            <form method="get" action="/admin/system/workflow" class="grid gap-2 sm:grid-cols-4">
+                <input type="text" name="report_start" value="{{ sla_report_start or '' }}" placeholder="2026-02-01T00:00:00+00:00" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                <input type="text" name="report_end" value="{{ sla_report_end or '' }}" placeholder="2026-02-25T23:59:59+00:00" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700 transition-colors hover:bg-teal-100 dark:border-teal-800/40 dark:bg-teal-900/20 dark:text-teal-300">Apply</button>
+                <a href="/admin/system/workflow/sla-reports/export?report_start={{ (sla_report_start or '') | urlencode }}&report_end={{ (sla_report_end or '') | urlencode }}" class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Export CSV</a>
+            </form>
+        </div>
+        {% if sla_report_filter_error %}
+        <div class="mb-4 rounded-xl border border-amber-200/60 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300">
+            {{ sla_report_filter_error }}
+        </div>
+        {% endif %}
+        <div class="mb-4 grid gap-3 sm:grid-cols-3">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+                <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Clocks</p>
+                <p class="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{{ sla_report_summary.total_clocks }}</p>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+                <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Breaches</p>
+                <p class="mt-1 text-lg font-semibold text-rose-700 dark:text-rose-300">{{ sla_report_summary.total_breaches }}</p>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+                <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Breach Rate</p>
+                <p class="mt-1 text-lg font-semibold text-amber-700 dark:text-amber-300">{{ (sla_report_summary.breach_rate * 100) | round(2) }}%</p>
+            </div>
+        </div>
+        <div class="grid gap-4 lg:grid-cols-2">
+            <div class="rounded-xl border border-slate-200 dark:border-slate-700">
+                <div class="border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">By Entity Type</div>
+                <div class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% for item in sla_report_summary.by_entity_type %}
+                    <div class="flex items-center justify-between px-4 py-2 text-xs">
+                        <span class="font-medium text-slate-700 dark:text-slate-300">{{ item.key }}</span>
+                        <span class="text-slate-500 dark:text-slate-400">{{ item.breached }}/{{ item.total }} ({{ (item.breach_rate * 100) | round(2) }}%)</span>
+                    </div>
+                    {% else %}
+                    <div class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">No data.</div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="rounded-xl border border-slate-200 dark:border-slate-700">
+                <div class="border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">By Status</div>
+                <div class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% for item in sla_report_summary.by_status %}
+                    <div class="flex items-center justify-between px-4 py-2 text-xs">
+                        <span class="font-medium text-slate-700 dark:text-slate-300">{{ item.key }}</span>
+                        <span class="text-slate-500 dark:text-slate-400">{{ item.breached }}/{{ item.total }} ({{ (item.breach_rate * 100) | round(2) }}%)</span>
+                    </div>
+                    {% else %}
+                    <div class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">No data.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="mt-4 grid gap-4 lg:grid-cols-2">
+            <div class="rounded-xl border border-slate-200 dark:border-slate-700">
+                <div class="border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">Ticket SLA by Service Team</div>
+                <div class="max-h-56 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700">
+                    {% for item in sla_report_summary.ticket_by_service_team %}
+                    <div class="flex items-center justify-between px-4 py-2 text-xs">
+                        <span class="font-medium text-slate-700 dark:text-slate-300">{{ item.key }}</span>
+                        <span class="text-slate-500 dark:text-slate-400">{{ item.breached }}/{{ item.total }} ({{ (item.breach_rate * 100) | round(2) }}%)</span>
+                    </div>
+                    {% else %}
+                    <div class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">No ticket SLA team data.</div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="rounded-xl border border-slate-200 dark:border-slate-700">
+                <div class="border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">Ticket SLA by Assignee</div>
+                <div class="max-h-56 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700">
+                    {% for item in sla_report_summary.ticket_by_assignee %}
+                    <div class="flex items-center justify-between px-4 py-2 text-xs">
+                        <span class="font-medium text-slate-700 dark:text-slate-300">{{ item.key }}</span>
+                        <span class="text-slate-500 dark:text-slate-400">{{ item.breached }}/{{ item.total }} ({{ (item.breach_rate * 100) | round(2) }}%)</span>
+                    </div>
+                    {% else %}
+                    <div class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">No ticket SLA assignee data.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="mt-4 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div class="border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">Daily Breach Trend</div>
+            <div id="sla-trend-chart" class="px-4 py-4">
+                <div class="text-xs text-slate-500 dark:text-slate-400">Loading trend...</div>
+            </div>
         </div>
     </div>
 
@@ -153,6 +261,199 @@
                 {% endcall %}
                 {% else %}
                 {{ empty_state("No SLA targets", "Create an SLA target to get started.", colspan=4) }}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
+    </div>
+
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 260ms">
+        <div class="mb-3">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Ticket Auto-assignment Settings</h2>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Configure candidate guards for rule-based assignment.</p>
+        </div>
+        <form method="post" action="/admin/system/workflow/ticket-assignment-settings" class="grid gap-3 sm:grid-cols-4">
+            {% include "components/forms/csrf_input.html" %}
+            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                <input type="checkbox"
+                       name="ticket_auto_assignment_enabled"
+                       value="true"
+                       {% if ticket_auto_assignment_enabled %}checked{% endif %}
+                       class="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />
+                Enable auto-assignment
+            </label>
+            <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                <input type="checkbox"
+                       name="ticket_auto_assign_require_presence"
+                       value="true"
+                       {% if ticket_auto_assign_require_presence %}checked{% endif %}
+                       class="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />
+                Require agent presence
+            </label>
+            <div class="sm:col-span-1">
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="ticket_auto_assign_max_open_tickets">Max open tickets</label>
+                <input id="ticket_auto_assign_max_open_tickets"
+                       name="ticket_auto_assign_max_open_tickets"
+                       type="number"
+                       min="0"
+                       value="{{ ticket_auto_assign_max_open_tickets if ticket_auto_assign_max_open_tickets is not none else '' }}"
+                       placeholder="No limit"
+                       class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+            </div>
+            <div class="flex items-end">
+                <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700 transition-colors hover:bg-teal-100 dark:border-teal-800/40 dark:bg-teal-900/20 dark:text-teal-300">
+                    Save Settings
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {# ── Ticket Assignment Rules ── #}
+    {% set assignment_actions %}
+    <details class="rounded-xl border border-slate-200/60 bg-slate-50 px-4 py-2 text-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-300">New Ticket Assignment Rule</summary>
+        <form method="post" action="/admin/system/workflow/ticket-assignment-rules" class="mt-4 space-y-3">
+            {% include "components/forms/csrf_input.html" %}
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_rule_name">Name</label>
+                <input id="assignment_rule_name" name="name" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+            </div>
+            <div class="grid gap-3 sm:grid-cols-3">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_strategy">Strategy</label>
+                    <select id="assignment_strategy" name="strategy" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for strategy in assignment_strategies %}
+                        <option value="{{ strategy }}">{{ strategy | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_priority">Priority</label>
+                    <input id="assignment_priority" name="priority" type="number" value="0" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_team">Team (optional)</label>
+                    <select id="assignment_team" name="team_id" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">No team</option>
+                        {% for team in assignment_teams %}
+                        <option value="{{ team.id }}">{{ team.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_match_config">Match Config (JSON)</label>
+                <textarea id="assignment_match_config" name="match_config" rows="4" placeholder='{"regions":["north"],"priorities":["high"]}' class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-3">
+                <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                    <input type="checkbox" name="is_active" value="true" checked class="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />
+                    Active
+                </label>
+                <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                    <input type="checkbox" name="assign_manager" value="true" class="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />
+                    Assign manager
+                </label>
+                <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                    <input type="checkbox" name="assign_spc" value="true" class="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />
+                    Assign SPC
+                </label>
+            </div>
+            {{ submit_button("Create Rule", size="sm", loading_label="Creating...") }}
+        </form>
+    </details>
+    <form id="ticket-rule-reorder-form" method="post" action="/admin/system/workflow/ticket-assignment-rules/reorder" class="rounded-xl border border-slate-200/60 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700/60 dark:bg-slate-800">
+        {% include "components/forms/csrf_input.html" %}
+        <div class="flex items-center justify-between gap-3">
+            <p class="text-xs text-slate-500 dark:text-slate-400">Drag rows by handle, then save order.</p>
+            <button type="submit" class="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300">Save Order</button>
+        </div>
+        <div id="ticket-rule-reorder-inputs"></div>
+    </form>
+    {% endset %}
+
+    <div class="animate-fade-in-up" style="animation-delay: 275ms">
+    {% call table_shell(table_id="ticket-assignment-rules-table", title="Ticket Assignment Rules", color="sky", actions=assignment_actions, count=ticket_assignment_rules | length) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} w-10 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Order</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Strategy</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Team</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="ticket-rule-table-body" class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for rule in ticket_assignment_rules %}
+                {% call table_row(color="sky") %}
+                    <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">
+                        <button type="button" class="ticket-rule-drag-handle inline-flex cursor-grab items-center rounded-md border border-slate-200 bg-white px-1.5 py-1 text-slate-400 hover:text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-500 dark:hover:text-slate-300" title="Drag to reorder">↕</button>
+                    </td>
+                    <td class="{{ pad }} text-sm font-semibold text-slate-900 dark:text-white" data-rule-id="{{ rule.id }}">{{ rule.name }}</td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ rule.priority }}</td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ rule.strategy.value if rule.strategy else '—' }}</td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ rule.team_id or '—' }}</td>
+                    <td class="{{ pad }}">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <details class="rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-600 dark:bg-slate-700">
+                                <summary class="cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-200">Edit/Test</summary>
+                                <div class="mt-2 space-y-2">
+                                    <form method="post" action="/admin/system/workflow/ticket-assignment-rules/{{ rule.id }}/update" class="space-y-2">
+                                        {% include "components/forms/csrf_input.html" %}
+                                        <input type="text" name="name" value="{{ rule.name }}" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <input type="number" name="priority" value="{{ rule.priority }}" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+                                            <select name="strategy" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                                {% for strategy in assignment_strategies %}
+                                                <option value="{{ strategy }}" {% if rule.strategy and rule.strategy.value == strategy %}selected{% endif %}>{{ strategy | replace('_', ' ') | title }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <select name="team_id" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                            <option value="">No team</option>
+                                            {% for team in assignment_teams %}
+                                            <option value="{{ team.id }}" {% if rule.team_id and rule.team_id == team.id %}selected{% endif %}>{{ team.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <textarea name="match_config" rows="3" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">{{ rule.match_config | tojson if rule.match_config else '' }}</textarea>
+                                        <div class="grid grid-cols-3 gap-2 text-xs text-slate-600 dark:text-slate-400">
+                                            <label class="inline-flex items-center gap-1">
+                                                <input type="checkbox" name="is_active" value="true" {% if rule.is_active %}checked{% endif %} class="h-3 w-3 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />
+                                                Active
+                                            </label>
+                                            <label class="inline-flex items-center gap-1">
+                                                <input type="checkbox" name="assign_manager" value="true" {% if rule.assign_manager %}checked{% endif %} class="h-3 w-3 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />
+                                                Manager
+                                            </label>
+                                            <label class="inline-flex items-center gap-1">
+                                                <input type="checkbox" name="assign_spc" value="true" {% if rule.assign_spc %}checked{% endif %} class="h-3 w-3 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />
+                                                SPC
+                                            </label>
+                                        </div>
+                                        <button type="submit" class="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300">Save</button>
+                                    </form>
+                                    <form method="post" action="/admin/system/workflow/ticket-assignment-rules/{{ rule.id }}/test" class="space-y-2">
+                                        {% include "components/forms/csrf_input.html" %}
+                                        <input type="text" name="ticket_ref" placeholder="Ticket number or UUID" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+                                        <button type="submit" class="inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 dark:border-indigo-800/40 dark:bg-indigo-900/20 dark:text-indigo-300">Test</button>
+                                    </form>
+                                </div>
+                            </details>
+                            {% if rule.is_active %}
+                            <form method="post" action="/admin/system/workflow/ticket-assignment-rules/{{ rule.id }}/delete">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100 dark:border-rose-800/40 dark:bg-rose-900/20 dark:text-rose-300">
+                                    Deactivate
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state("No ticket assignment rules", "Create a rule to enable criteria-based assignment.", colspan=6) }}
                 {% endfor %}
             </tbody>
         </table>
@@ -340,4 +641,110 @@
         </div>
     </div>
 </div>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script>
+(() => {
+  const body = document.getElementById("ticket-rule-table-body");
+  const reorderForm = document.getElementById("ticket-rule-reorder-form");
+  const inputsHost = document.getElementById("ticket-rule-reorder-inputs");
+  if (!body || !reorderForm || !inputsHost) return;
+
+  const getRows = () => Array.from(body.querySelectorAll("tr"));
+  const rowId = (row) => row.querySelector("[data-rule-id]")?.getAttribute("data-rule-id");
+
+  const syncHiddenInputs = () => {
+    inputsHost.innerHTML = "";
+    getRows().forEach((row) => {
+      const id = rowId(row);
+      if (!id) return;
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "rule_ids[]";
+      input.value = id;
+      inputsHost.appendChild(input);
+    });
+  };
+
+  let draggingRow = null;
+  getRows().forEach((row) => {
+    const handle = row.querySelector(".ticket-rule-drag-handle");
+    if (!handle || !rowId(row)) return;
+    row.draggable = true;
+    handle.addEventListener("mousedown", () => {
+      row.classList.add("cursor-grabbing");
+    });
+    row.addEventListener("dragstart", () => {
+      draggingRow = row;
+      row.classList.add("opacity-60");
+    });
+    row.addEventListener("dragend", () => {
+      row.classList.remove("opacity-60");
+      row.classList.remove("cursor-grabbing");
+      draggingRow = null;
+      syncHiddenInputs();
+    });
+    row.addEventListener("dragover", (event) => {
+      event.preventDefault();
+    });
+    row.addEventListener("drop", (event) => {
+      event.preventDefault();
+      if (!draggingRow || draggingRow === row) return;
+      const rect = row.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      body.insertBefore(draggingRow, before ? row : row.nextSibling);
+      syncHiddenInputs();
+    });
+  });
+
+  reorderForm.addEventListener("submit", syncHiddenInputs);
+  syncHiddenInputs();
+})();
+
+(() => {
+  const chartRoot = document.getElementById("sla-trend-chart");
+  if (!chartRoot) return;
+  const params = new URLSearchParams(window.location.search);
+  const reportStart = params.get("report_start") || "";
+  const reportEnd = params.get("report_end") || "";
+  const url = `/admin/system/workflow/sla-reports/trend?report_start=${encodeURIComponent(reportStart)}&report_end=${encodeURIComponent(reportEnd)}`;
+
+  fetch(url, { headers: { "Accept": "application/json" } })
+    .then((res) => res.json())
+    .then((payload) => {
+      const points = Array.isArray(payload.points) ? payload.points : [];
+      if (!points.length) {
+        chartRoot.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400">No trend data for selected range.</div>';
+        return;
+      }
+      const maxTotal = Math.max(...points.map((item) => Number(item.total || 0)), 1);
+      const rows = points
+        .map((item) => {
+          const total = Number(item.total || 0);
+          const breached = Number(item.breached || 0);
+          const totalPct = Math.max(4, Math.round((total / maxTotal) * 100));
+          const breachedPct = total > 0 ? Math.round((breached / total) * totalPct) : 0;
+          return `
+            <div class="space-y-1">
+              <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span>${item.date}</span>
+                <span>${breached}/${total} (${Math.round((Number(item.breach_rate || 0) * 10000)) / 100}%)</span>
+              </div>
+              <div class="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                <div class="h-full rounded-full bg-slate-400 dark:bg-slate-500" style="width:${totalPct}%">
+                  <div class="h-full rounded-full bg-rose-500" style="width:${breachedPct}%"></div>
+                </div>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+      chartRoot.innerHTML = `<div class="space-y-3">${rows}</div>`;
+    })
+    .catch(() => {
+      chartRoot.innerHTML = '<div class="text-xs text-rose-600 dark:text-rose-300">Unable to load trend data.</div>';
+    });
+})();
+</script>
 {% endblock %}

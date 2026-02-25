@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_insight import AIInsight
 from app.models.crm.campaign import Campaign
+from app.models.crm.conversation import Conversation
 from app.models.crm.enums import CampaignStatus
 from app.models.dispatch import WorkOrderAssignmentQueue
 from app.models.performance import AgentPerformanceSnapshot
@@ -91,6 +92,33 @@ def scan_projects_for_persona(
     )
 
     return [("project", str(project_id), {"project_id": str(project_id)}) for (project_id,) in rows]
+
+
+def scan_inbox_for_persona(
+    db: Session, persona_key: str, *, lookback_hours: int = 48, limit: int = 50
+) -> list[tuple[str, str, dict[str, Any]]]:
+    since = datetime.now(UTC) - timedelta(hours=max(1, lookback_hours))
+
+    recent_ids = (
+        db.query(AIInsight.entity_id)
+        .filter(AIInsight.persona_key == persona_key)
+        .filter(AIInsight.entity_type == "conversation")
+        .filter(AIInsight.created_at >= since)
+        .filter(AIInsight.entity_id.isnot(None))
+        .subquery()
+    )
+
+    rows = (
+        db.query(Conversation.id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.updated_at >= since)
+        .filter(~cast(Conversation.id, String).in_(db.query(recent_ids.c.entity_id)))
+        .order_by(Conversation.updated_at.desc())
+        .limit(max(1, limit))
+        .all()
+    )
+
+    return [("conversation", str(conversation_id), {"conversation_id": str(conversation_id)}) for (conversation_id,) in rows]
 
 
 def scan_campaigns_for_persona(
@@ -267,6 +295,7 @@ def scan_subscribers_for_persona(
 
 batch_scanners: dict[str, Any] = {
     "tickets": scan_tickets_for_persona,
+    "inbox": scan_inbox_for_persona,
     "projects": scan_projects_for_persona,
     "campaigns": scan_campaigns_for_persona,
     "dispatch": scan_dispatch_for_persona,

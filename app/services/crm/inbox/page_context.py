@@ -31,6 +31,7 @@ from app.services.crm.inbox.formatting import (
     format_message_for_template,
 )
 from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel_targets
+from app.services.crm.inbox.labels import enrich_formatted_conversations_with_labels
 from app.services.crm.inbox.listing import load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
 from app.services.crm.inbox.templates import message_templates
@@ -203,6 +204,10 @@ async def build_inbox_page_context(
 
             conversations.sort(key=_sort_key, reverse=True)
             conversations = conversations[:page_limit]
+        enrich_formatted_conversations_with_labels(
+            db,
+            [item for item in conversations if item.get("kind") != "comment"],
+        )
 
         if comment_id:
             comment_context = await load_comments_context(
@@ -388,6 +393,10 @@ async def build_inbox_conversations_partial_context(
 
         conversations.sort(key=_sort_key, reverse=True)
         conversations = conversations[:page_limit]
+    enrich_formatted_conversations_with_labels(
+        db,
+        [item for item in conversations if item.get("kind") != "comment"],
+    )
 
     template_name = "admin/crm/_conversation_list_page.html" if safe_offset > 0 else "admin/crm/_conversation_list.html"
     context = {
@@ -475,6 +484,7 @@ def build_inbox_conversation_detail_context(
         return None
 
     conversation = format_conversation_for_template(thread.conversation, db, include_inbox_label=True)
+    enrich_formatted_conversations_with_labels(db, [conversation])
     messages = [format_message_for_template(m, db) for m in (thread.messages or [])]
     assignment_events, latest_manual_assignment = _load_assignment_activity(
         db,

@@ -10,6 +10,7 @@ from app.models.crm.conversation import (
     Message,
     MessageAttachment,
 )
+from app.models.crm.conversation_label import ConversationLabel
 from app.models.crm.enums import (
     AgentPresenceStatus,
     CampaignChannel,
@@ -51,6 +52,7 @@ __all__ = [
     "ChatWidgetConfig",
     "Conversation",
     "ConversationAssignment",
+    "ConversationLabel",
     "ConversationPriority",
     "ConversationStatus",
     "ConversationTag",

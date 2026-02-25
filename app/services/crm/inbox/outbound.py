@@ -143,19 +143,25 @@ def _resolve_meta_public_attachment_url(db: Session, attachment: dict) -> str:
             stored_name = inferred
 
     # Prefer signed storage-backed URLs; fall back to static path only if signing fails.
-    if isinstance(stored_name, str) and public_media.is_valid_stored_name(stored_name):
-        if not attachment_url or (
-            isinstance(attachment_url, str)
-            and (
-                attachment_url.startswith(("/static/uploads/messages/", "/admin/storage/"))
-                or "/admin/storage/" in attachment_url
+    if (
+        isinstance(stored_name, str)
+        and public_media.is_valid_stored_name(stored_name)
+        and (
+            not attachment_url
+            or (
+                isinstance(attachment_url, str)
+                and (
+                    attachment_url.startswith(("/static/uploads/messages/", "/admin/storage/"))
+                    or "/admin/storage/" in attachment_url
+                )
             )
-        ):
-            try:
-                return _build_meta_signed_attachment_url(db, stored_name)
-            except Exception:
-                logger.warning("meta_signed_media_url_fallback_static stored_name=%s", stored_name)
-                return _build_meta_static_attachment_url(db, stored_name)
+        )
+    ):
+        try:
+            return _build_meta_signed_attachment_url(db, stored_name)
+        except Exception:
+            logger.warning("meta_signed_media_url_fallback_static stored_name=%s", stored_name)
+            return _build_meta_static_attachment_url(db, stored_name)
 
     if isinstance(attachment_url, str) and attachment_url.startswith(("http://", "https://")):
         return attachment_url
@@ -567,6 +573,8 @@ def _send_email_message(
     message_metadata = _merge_reply_metadata(reply_context) or {}
     if payload.cc_addresses:
         message_metadata["cc"] = list(payload.cc_addresses)
+    if payload.bcc_addresses:
+        message_metadata["bcc"] = list(payload.bcc_addresses)
 
     message = conversation_service.Messages.create(
         db,
@@ -599,6 +607,7 @@ def _send_email_message(
                 rendered_body,
                 rendered_body,
                 cc_emails=payload.cc_addresses,
+                bcc_emails=payload.bcc_addresses,
                 in_reply_to=reply_context.get("email_in_reply_to") if reply_context else None,
                 references=reply_context.get("email_references") if reply_context else None,
                 attachments=email_attachments,
@@ -617,6 +626,7 @@ def _send_email_message(
             rendered_body,
             rendered_body,
             cc_emails=payload.cc_addresses,
+            bcc_emails=payload.bcc_addresses,
             in_reply_to=reply_context.get("email_in_reply_to") if reply_context else None,
             references=reply_context.get("email_references") if reply_context else None,
             attachments=email_attachments,

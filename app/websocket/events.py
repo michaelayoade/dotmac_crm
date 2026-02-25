@@ -16,6 +16,7 @@ class EventType(StrEnum):
     CONVERSATION_CREATED = "conversation_created"
     CONVERSATION_SUMMARY = "conversation_summary"
     USER_TYPING = "user_typing"
+    USER_PRESENCE = "user_presence"
     CONNECTION_ACK = "connection_ack"
     HEARTBEAT = "heartbeat"
     AGENT_NOTIFICATION = "agent_notification"
@@ -40,6 +41,7 @@ class InboundMessageType(StrEnum):
     SUBSCRIBE = "subscribe"
     UNSUBSCRIBE = "unsubscribe"
     TYPING = "typing"
+    PRESENCE = "presence"
     PING = "ping"
 
 

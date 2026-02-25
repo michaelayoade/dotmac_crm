@@ -62,6 +62,24 @@ class AIInsights(ListResponseMixin):
         db.refresh(insight)
         return insight
 
+    def action(self, db: Session, insight_id: str, person_id: str | None = None) -> AIInsight:
+        insight = self.get(db, insight_id)
+        insight.status = AIInsightStatus.actioned
+        if person_id:
+            # Reuse existing lifecycle actor fields when explicit action is recorded.
+            insight.acknowledged_at = datetime.now(UTC)
+            insight.acknowledged_by_person_id = coerce_uuid(person_id)
+        db.commit()
+        db.refresh(insight)
+        return insight
+
+    def expire(self, db: Session, insight_id: str) -> AIInsight:
+        insight = self.get(db, insight_id)
+        insight.status = AIInsightStatus.expired
+        db.commit()
+        db.refresh(insight)
+        return insight
+
     def expire_stale(self, db: Session) -> int:
         now = datetime.now(UTC)
         rows = (
