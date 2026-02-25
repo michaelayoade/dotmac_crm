@@ -10,8 +10,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
-logger = logging.getLogger(__name__)
-
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -24,6 +22,8 @@ from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm.sales.service import LEAD_SOURCE_OPTIONS
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)

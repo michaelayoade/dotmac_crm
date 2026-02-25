@@ -9,8 +9,6 @@ import re
 import tempfile
 import uuid
 from dataclasses import dataclass
-
-logger = logging.getLogger(__name__)
 from datetime import UTC, datetime
 from decimal import Decimal
 from html import escape as html_escape
@@ -35,6 +33,8 @@ from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm import inbox as inbox_service
 from app.services.settings_spec import resolve_value
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
