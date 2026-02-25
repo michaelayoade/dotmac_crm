@@ -5,8 +5,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.models.person import Person
 from app.models.projects import Project
-from app.models.vendor import InstallationProject
+from app.models.vendor import InstallationProject, InstallationProjectNote
 from app.services import vendor as vendor_service
 from app.services import vendor_portal
 from app.services.common import coerce_uuid
@@ -61,6 +62,51 @@ def _resolve_installation_project(db: Session, project_ref: str) -> Installation
             return project
 
     raise HTTPException(status_code=404, detail="Installation project not found")
+
+
+def _person_label(person: Person) -> str:
+    label = (person.display_name or "").strip()
+    if label:
+        return label
+    name = f"{(person.first_name or '').strip()} {(person.last_name or '').strip()}".strip()
+    if name:
+        return name
+    return person.email
+
+
+def _quote_comments_for_project(db: Session, project_id: str, quote_id: str) -> list[dict[str, str | None]]:
+    notes = (
+        db.query(InstallationProjectNote)
+        .filter(InstallationProjectNote.project_id == coerce_uuid(project_id))
+        .filter(InstallationProjectNote.is_internal.is_(True))
+        .order_by(InstallationProjectNote.created_at.desc())
+        .all()
+    )
+    if not notes:
+        return []
+
+    author_ids = {note.author_person_id for note in notes if note.author_person_id}
+    author_labels: dict[object, str] = {}
+    if author_ids:
+        people = db.query(Person).filter(Person.id.in_(author_ids)).all()
+        author_labels = {person.id: _person_label(person) for person in people}
+
+    quote_id_lower = str(quote_id).lower()
+    comments: list[dict[str, str | None]] = []
+    for note in notes:
+        parsed = vendor_service.parse_quote_comment_body(note.body or "")
+        comment_quote_id = str(parsed.get("quote_id") or "").lower()
+        if comment_quote_id != quote_id_lower:
+            continue
+        comments.append(
+            {
+                "body": str(parsed.get("body") or "").strip(),
+                "action": str(parsed.get("action") or "").strip().lower() or None,
+                "created_at": note.created_at.isoformat() if note.created_at else None,
+                "author": author_labels.get(note.author_person_id) if note.author_person_id else None,
+            }
+        )
+    return comments
 
 
 def _as_built_eligible_project_ids(db: Session, projects: list[InstallationProject], vendor_id: str) -> set[str]:
@@ -203,6 +249,7 @@ def quote_builder(request: Request, project_id: str, db: Session):
         limit=200,
         offset=0,
     )
+    quote_comments = _quote_comments_for_project(db, project_id=str(project.id), quote_id=str(quote.id))
     return templates.TemplateResponse(
         "vendor/quotes/builder.html",
         {
@@ -214,6 +261,7 @@ def quote_builder(request: Request, project_id: str, db: Session):
             "quote": quote,
             "route_revisions": route_revisions,
             "line_items": line_items,
+            "quote_comments": quote_comments,
         },
     )
 

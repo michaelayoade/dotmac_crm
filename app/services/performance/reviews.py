@@ -46,8 +46,8 @@ def _safe_json(text: str) -> dict[str, Any]:
         data = json.loads(text)
         if isinstance(data, dict):
             return data
-    except Exception:
-        pass
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass  # nosec B110 — fallback to default structure for malformed AI output
     return {
         "summary": text.strip()[:500] or "No summary generated.",
         "strengths": [],

@@ -800,6 +800,7 @@ function inboxController() {
         whatsappInboxes: {{ (whatsapp_inboxes or []) | tojson }},
         facebookInboxes: {{ (facebook_inboxes or []) | tojson }},
         instagramInboxes: {{ (instagram_inboxes or []) | tojson }},
+        widgetInboxes: [{ target_id: 'channel:chat_widget', name: 'Chat Widget', channel: 'chat_widget', kind: 'inbox' }],
         facebookCommentInboxes: {{ (facebook_comment_inboxes or []) | tojson }},
         instagramCommentInboxes: {{ (instagram_comment_inboxes or []) | tojson }},
         whatsappTemplates: [],
@@ -1259,6 +1260,7 @@ function inboxController() {
             if (channel === 'whatsapp') return this.whatsappInboxes || [];
             if (channel === 'facebook_messenger') return this.facebookInboxes || [];
             if (channel === 'instagram_dm') return this.instagramInboxes || [];
+            if (channel === 'chat_widget') return this.widgetInboxes || [];
             if (channel === 'comments') {
                 return [...(this.facebookCommentInboxes || []), ...(this.instagramCommentInboxes || [])];
             }
@@ -1267,6 +1269,7 @@ function inboxController() {
                 ...(this.whatsappInboxes || []),
                 ...(this.facebookInboxes || []),
                 ...(this.instagramInboxes || []),
+                ...(this.widgetInboxes || []),
                 ...(this.facebookCommentInboxes || []),
                 ...(this.instagramCommentInboxes || [])
             ];
@@ -1279,7 +1282,8 @@ function inboxController() {
                 email: 'Email',
                 whatsapp: 'WhatsApp',
                 facebook: 'Facebook',
-                instagram: 'Instagram'
+                instagram: 'Instagram',
+                chat_widget: 'Chat Widget'
             };
             const kindLabel = kind === 'comments' ? 'Comments' : 'Inbox';
             if (this.currentChannel && this.currentChannel !== 'comments') {

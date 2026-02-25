@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date as date_type
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -222,8 +225,8 @@ def new_lead_form_data(
             try:
                 person = person_svc.get(db, resolved_person_id)
                 options["people"] = [person] + options["people"]
-            except Exception:
-                pass
+            except Exception:  # nosec B110 — person lookup failure is non-fatal
+                logger.debug("lead_form_person_lookup_failed person_id=%s", resolved_person_id)
 
     lead: dict[str, Any] = {
         "id": "",
@@ -551,8 +554,8 @@ def edit_lead_form_data(
         try:
             person = person_svc.get(db, str(lead_obj.person_id))
             options["people"] = [person] + options["people"]
-        except Exception:
-            pass
+        except Exception:  # nosec B110 — person lookup failure is non-fatal
+            logger.debug("lead_edit_person_lookup_failed person_id=%s", lead_obj.person_id)
 
     return {
         "lead": lead,

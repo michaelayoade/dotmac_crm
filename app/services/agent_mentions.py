@@ -116,21 +116,21 @@ def resolve_mentioned_person_ids(db: Session, mentioned_agent_ids: list[str] | N
             token = token.split(":", 1)[1].strip()
             try:
                 person_uuids.append(coerce_uuid(token))
-            except Exception:
+            except (ValueError, AttributeError):
                 continue
             continue
         if token.startswith("group:"):
             token = token.split(":", 1)[1].strip()
             try:
                 group_uuids.append(coerce_uuid(token))
-            except Exception:
+            except (ValueError, AttributeError):
                 continue
             continue
         if token.startswith("agent:"):
             token = token.split(":", 1)[1].strip()
         try:
             agent_uuids.append(coerce_uuid(token))
-        except Exception:
+        except (ValueError, AttributeError):
             continue
 
     recipient_person_ids = []

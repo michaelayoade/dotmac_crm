@@ -9,6 +9,7 @@ All datetimes returned are timezone-aware.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -56,8 +57,8 @@ def resolve_company_timezone(db: Session) -> str:
         setting = settings_service.scheduler_settings.get_by_key(db, "timezone")
         if getattr(setting, "value_text", None):
             return str(setting.value_text).strip() or "UTC"
-    except Exception:
-        pass
+    except Exception:  # nosec B110 — fallback to env var if DB unavailable
+        logging.getLogger(__name__).debug("timezone_setting_lookup_failed")
 
     return (os.getenv("CELERY_TIMEZONE", "") or "UTC").strip() or "UTC"
 

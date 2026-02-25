@@ -92,6 +92,12 @@
     or 'support:ticket' in user_permissions
     or 'support' in user_permissions
 %}
+{% set can_vendor_quotes = is_admin
+    or 'vendors:quotes:read' in user_permissions
+    or 'vendors:quotes:update' in user_permissions
+    or 'vendors:quotes:create' in user_permissions
+    or 'vendors:quotes:delete' in user_permissions
+%}
 {% set can_projects = is_admin
     or 'project:read' in user_permissions
     or 'project:create' in user_permissions
@@ -101,6 +107,7 @@
     or 'project:task:write' in user_permissions
     or 'project:task' in user_permissions
     or 'project' in user_permissions
+    or can_vendor_quotes
 %}
 {% set can_inventory = is_admin
     or 'inventory:read' in user_permissions
@@ -426,7 +433,7 @@
         </button>
         <div x-show="openMenu === 'projects' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
             <a href="/admin/projects" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'projects' else '' }}">Projects</a>
-            {% if is_admin %}
+            {% if can_vendor_quotes %}
             <a href="/admin/vendors/quotes" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'vendor-quotes' or request.url.path.startswith('/admin/vendors/quotes') else '' }}">Vendor Quotes</a>
             {% endif %}
         </div>

@@ -106,6 +106,22 @@ def _calculate_nps(nps_values: list[int]) -> float | None:
     return round((promoters / total * 100) - (detractors / total * 100))
 
 
+def _normalize_questions_for_storage(questions: object) -> list[dict] | None:
+    """Convert question payload into JSON-serializable dicts."""
+    if not isinstance(questions, list):
+        return None
+    normalized: list[dict] = []
+    for item in questions:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        qtype = row.get("type")
+        if hasattr(qtype, "value"):
+            row["type"] = qtype.value
+        normalized.append(row)
+    return normalized
+
+
 # ── Survey Manager ────────────────────────────────────────────────
 
 
@@ -113,9 +129,7 @@ class SurveyManager:
     @staticmethod
     def create(db: Session, payload: SurveyCreate, created_by_id: str | None = None) -> Survey:
         data = payload.model_dump()
-        # Convert SurveyQuestion objects to dicts for JSON storage
-        if data.get("questions"):
-            data["questions"] = list(data["questions"])
+        data["questions"] = _normalize_questions_for_storage(data.get("questions"))
         if created_by_id:
             data["created_by_id"] = coerce_uuid(created_by_id)
         survey = Survey(**data)
@@ -176,6 +190,8 @@ class SurveyManager:
         if not survey:
             raise HTTPException(status_code=404, detail="Survey not found")
         for key, value in payload.model_dump(exclude_unset=True).items():
+            if key == "questions":
+                value = _normalize_questions_for_storage(value)
             setattr(survey, key, value)
         db.commit()
         db.refresh(survey)

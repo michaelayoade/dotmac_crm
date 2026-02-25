@@ -1,5 +1,5 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import page_header, stats_card %}
+{% from "components/ui/macros.html" import page_header, stats_card, progress_bar %}
 
 {% block title %}{{ report.label }} Quality - Admin{% endblock %}
 
@@ -68,9 +68,7 @@
             {% set field_pct = (count / report.entity_count * 100) | round(1) if report.entity_count > 0 else 0 %}
             <div class="flex items-center gap-3">
                 <span class="w-32 text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ field_name }}</span>
-                <div class="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                    <div class="h-full rounded-full bg-amber-500 transition-all" style="width: {{ field_pct }}%"></div>
-                </div>
+                <div class="flex-1">{{ progress_bar(field_pct, color="amber", size="sm", show_label=false) }}</div>
                 <span class="w-20 text-right text-xs text-slate-500 dark:text-slate-400">{{ count }} ({{ field_pct }}%)</span>
             </div>
             {% endfor %}

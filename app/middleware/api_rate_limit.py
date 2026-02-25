@@ -69,6 +69,12 @@ class APIRateLimitMiddleware:
         # Public inbound webhooks must not be throttled by generic API limits.
         "/webhooks/",
     )
+    API_PREFIXES: ClassVar[tuple[str, ...]] = (
+        "/api",
+        "/api/",
+        "/api/v1",
+        "/api/v1/",
+    )
 
     def __init__(
         self,
@@ -133,6 +139,11 @@ class APIRateLimitMiddleware:
 
         request = Request(scope, receive)
         path = request.url.path
+
+        # This middleware is for API traffic only; skip admin/web page routes.
+        if not path.startswith(self.API_PREFIXES):
+            await self.app(scope, receive, send)
+            return
 
         # Skip rate limiting for exempt paths
         if self._should_skip(path):

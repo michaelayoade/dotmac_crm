@@ -584,8 +584,8 @@ def _resolve_brand_logo_src(branding: dict, request: Request) -> str | None:
             mime, _ = mimetypes.guess_type(key)
             encoded = base64.b64encode(data).decode("ascii")
             return f"data:{mime or 'image/png'};base64,{encoded}"
-        except Exception:
-            pass  # Fall through to URL-based return
+        except Exception:  # nosec B110 — fall through to URL-based return
+            logger.debug("logo_inline_encoding_failed key=%s", key)
 
     if logo_url.startswith("/"):
         return urljoin(str(request.base_url), logo_url.lstrip("/"))

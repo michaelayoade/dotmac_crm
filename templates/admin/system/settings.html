@@ -375,7 +375,119 @@
                 <span class="inline-flex items-center rounded-lg bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400">Settings</span>
             </div>
             {% set hidden_keys = ['brand_logo_url', 'brand_favicon_url', 'ticket_types', 'quote_banking_details'] %}
-            {% if sections %}
+            {% if sections and domain == 'integration' %}
+            {# ── Integration domain: render each section as its own card ── #}
+            </div>{# close the outer card #}
+            {% set section_icons = {
+                "Splynx": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 5H4m0 0l4 4m-4-4l4-4"/></svg>',
+                "DotMac ERP": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>',
+                "Chatwoot": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>',
+                "AI & Intelligence": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>',
+                "AI Personas": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
+                "LLM Primary": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>',
+                "LLM Secondary": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>',
+            } %}
+            {% set section_colors = {
+                "Splynx": {"from": "from-cyan-500/10", "to": "to-blue-500/10", "dark_from": "dark:from-cyan-500/20", "dark_to": "dark:to-blue-500/20", "text": "text-cyan-600", "dark_text": "dark:text-cyan-400"},
+                "DotMac ERP": {"from": "from-teal-500/10", "to": "to-emerald-500/10", "dark_from": "dark:from-teal-500/20", "dark_to": "dark:to-emerald-500/20", "text": "text-teal-600", "dark_text": "dark:text-teal-400"},
+                "Chatwoot": {"from": "from-amber-500/10", "to": "to-orange-500/10", "dark_from": "dark:from-amber-500/20", "dark_to": "dark:to-orange-500/20", "text": "text-amber-600", "dark_text": "dark:text-amber-400"},
+                "AI & Intelligence": {"from": "from-violet-500/10", "to": "to-purple-500/10", "dark_from": "dark:from-violet-500/20", "dark_to": "dark:to-purple-500/20", "text": "text-violet-600", "dark_text": "dark:text-violet-400"},
+                "AI Personas": {"from": "from-violet-500/10", "to": "to-purple-500/10", "dark_from": "dark:from-violet-500/20", "dark_to": "dark:to-purple-500/20", "text": "text-violet-600", "dark_text": "dark:text-violet-400"},
+                "LLM Primary": {"from": "from-indigo-500/10", "to": "to-violet-500/10", "dark_from": "dark:from-indigo-500/20", "dark_to": "dark:to-violet-500/20", "text": "text-indigo-600", "dark_text": "dark:text-indigo-400"},
+                "LLM Secondary": {"from": "from-slate-500/10", "to": "to-slate-400/10", "dark_from": "dark:from-slate-500/20", "dark_to": "dark:to-slate-400/20", "text": "text-slate-600", "dark_text": "dark:text-slate-400"},
+            } %}
+            {% set section_descriptions = {
+                "Splynx": "Customer and subscriber data synchronisation with Splynx ISP platform.",
+                "DotMac ERP": "Sync technicians, agents, contacts, teams, shifts, and inventory with DotMac ERP.",
+                "Chatwoot": "Import CRM conversations from Chatwoot omni-channel platform.",
+                "AI & Intelligence": "AI-powered insights, coaching, and reply suggestions powered by LLM.",
+                "AI Personas": "Enable or disable individual AI analysis personas. Requires AI Features to be enabled.",
+                "LLM Primary": "Primary LLM endpoint (OpenAI-compatible). Used for all AI features.",
+                "LLM Secondary": "Optional failover/load-balancing LLM endpoint.",
+            } %}
+            {% for section in sections %}
+            {% set sc = section_colors.get(section.title, {"from": "from-indigo-500/10", "to": "to-violet-500/10", "dark_from": "dark:from-indigo-500/20", "dark_to": "dark:to-violet-500/20", "text": "text-indigo-600", "dark_text": "dark:text-indigo-400"}) %}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: {{ loop.index * 50 + 150 }}ms">
+                <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br {{ sc.from }} {{ sc.to }} {{ sc.dark_from }} {{ sc.dark_to }}">
+                            <span class="{{ sc.text }} {{ sc.dark_text }}">{{ section_icons.get(section.title, '') | safe }}</span>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <h3 class="text-base font-semibold text-slate-900 dark:text-white">{{ section.title }}</h3>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">{{ section_descriptions.get(section.title, '') }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6">
+                    {% if section.title == 'AI Personas' %}
+                    {# Special grid layout for persona toggles #}
+                    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {% for setting in section.settings %}
+                        <label class="flex items-center gap-3 rounded-xl border border-slate-200/60 bg-slate-50/30 px-4 py-3 transition-all hover:border-violet-300 hover:bg-violet-50/30 dark:border-slate-700/60 dark:bg-slate-800/30 dark:hover:border-violet-500/50 dark:hover:bg-violet-900/10 cursor-pointer">
+                            <input type="checkbox" name="{{ setting.key }}" value="true"
+                                   {% if setting.value %}checked{% endif %}
+                                   class="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-700">
+                            <span class="text-sm font-medium text-slate-700 dark:text-slate-300">{{ setting.label }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="grid gap-5 sm:grid-cols-2">
+                        {% for setting in section.settings %}
+                        {% if setting.key not in hidden_keys %}
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                                {{ setting.label }}
+                                {% if setting.required %}
+                                <span class="text-red-500">*</span>
+                                {% endif %}
+                            </label>
+                            {% if setting.help_text %}
+                            <p class="mb-1.5 text-xs text-slate-500 dark:text-slate-400">{{ setting.help_text }}</p>
+                            {% endif %}
+                            {% if setting.value_type == 'boolean' %}
+                                <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" name="{{ setting.key }}" value="true"
+                                           {% if setting.value %}checked{% endif %}
+                                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
+                                    Enabled
+                                </label>
+                            {% elif setting.allowed %}
+                                <select name="{{ setting.key }}"
+                                        {% if setting.required %}required{% endif %}
+                                        class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+                                    {% for option in setting.allowed %}
+                                    <option value="{{ option }}" {% if option == setting.value %}selected{% endif %}>{{ option | replace('_', ' ') | title }}</option>
+                                    {% endfor %}
+                                </select>
+                            {% elif setting.value_type == 'integer' %}
+                                <input type="number" name="{{ setting.key }}" value="{{ setting.value }}"
+                                       {% if setting.min_value is not none %}min="{{ setting.min_value }}"{% endif %}
+                                       {% if setting.max_value is not none %}max="{{ setting.max_value }}"{% endif %}
+                                       {% if setting.required %}required{% endif %}
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+                            {% else %}
+                                <input type="{% if setting.is_secret %}password{% else %}text{% endif %}" name="{{ setting.key }}"
+                                       value="{% if setting.is_secret %}{% else %}{{ setting.value }}{% endif %}"
+                                       placeholder="{% if setting.is_secret %}••••••{% endif %}"
+                                       {% if setting.required and not (setting.is_secret and setting.value) %}required{% endif %}
+                                       class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
+                                {% if setting.is_secret and setting.value %}
+                                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Stored value hidden.</p>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+            {# Open a dummy div to balance the closing tag below #}
+            <div class="hidden">
+            {% elif sections %}
             <div class="mt-6 space-y-8">
                 {% for section in sections %}
                 <div>
@@ -432,11 +544,6 @@
                             {% elif setting.allowed %}
                                 <select name="{{ setting.key }}"
                                         {% if setting.required %}required{% endif %}
-                                        class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
-                                    {% for option in setting.allowed %}
-                                    <option value="{{ option }}" {% if option == setting.value %}selected{% endif %}>{{ option | replace('_', ' ') | title }}</option>
-                                    {% endfor %}
-                                </select>
                             {% elif setting.value_type == 'json' %}
                                 {% if domain == 'projects' and setting.key == 'region_pm_assignments' %}
                                 <div class="rounded-xl border border-slate-200/60 bg-slate-50/50 p-4 dark:border-slate-700/60 dark:bg-slate-800/60 sm:col-span-2">

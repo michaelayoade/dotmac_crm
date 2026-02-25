@@ -26,6 +26,7 @@ from app.services.crm.inbox.comments_summary import (
 from app.services.crm.inbox.permissions import can_view_private_note
 
 logger = logging.getLogger(__name__)
+_URL_RE = re.compile(r"(https?://[^\s<]+)", flags=re.IGNORECASE)
 
 
 def get_initials(name: str | None) -> str:
@@ -133,6 +134,30 @@ def _sanitize_message_html(value: str) -> str:
     sanitizer.feed(value)
     sanitizer.close()
     return sanitizer.get_html()
+
+
+def _linkify_plain_text(value: str) -> str:
+    """Escape plain text and convert safe URLs to clickable links."""
+    if not value:
+        return ""
+    escaped = html.escape(value)
+
+    def _replace(match: re.Match[str]) -> str:
+        raw = match.group(1)
+        trailing = ""
+        while raw and raw[-1] in ".,!?;:)]":
+            trailing = raw[-1] + trailing
+            raw = raw[:-1]
+        if not raw or not _is_safe_url(raw):
+            return match.group(0)
+        href = html.escape(raw, quote=True)
+        label = html.escape(raw)
+        return (
+            f'<a href="{href}" target="_blank" rel="noreferrer noopener" '
+            f'style="text-decoration:underline;cursor:pointer;pointer-events:auto;">{label}</a>{trailing}'
+        )
+
+    return _URL_RE.sub(_replace, escaped)
 
 
 def _normalize_storage_attachment_url(url: str | None) -> str | None:
@@ -660,7 +685,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     if html_body:
         content_html = _sanitize_message_html(html_source)
     else:
-        content_html = html.escape(content or "")
+        content_html = _linkify_plain_text(content or "")
 
     reply_to = metadata.get("reply_to") if isinstance(metadata, dict) else None
     if not reply_to and msg.reply_to_message_id:

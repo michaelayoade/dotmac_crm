@@ -16,6 +16,7 @@ from app.schemas.vendor import (
     QuoteLineItemCreateRequest,
     QuoteLineItemRead,
     QuoteLineItemUpdate,
+    QuoteVatUpdateRequest,
 )
 from app.services import vendor as vendor_service
 from app.services import vendor_portal
@@ -222,6 +223,25 @@ def submit_quote(
 ):
     context = require_vendor_context(request, db)
     return vendor_service.project_quotes.submit(db, quote_id, vendor_id=str(context["vendor"].id))
+
+
+@router.patch(
+    "/quotes/{quote_id}/vat",
+    response_model=ProjectQuoteRead,
+)
+def update_quote_vat(
+    request: Request,
+    quote_id: str,
+    payload: QuoteVatUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.project_quotes.set_vat_rate(
+        db,
+        quote_id=quote_id,
+        vendor_id=str(context["vendor"].id),
+        vat_rate_percent=payload.vat_rate_percent,
+    )
 
 
 @router.post(

@@ -469,6 +469,7 @@ async def update_inbox_routing_rule(
     result = update_routing_rule(
         db,
         rule_id=rule_id,
+        team_id=team_id,
         channel_type=channel_type,
         keywords=keywords,
         target_id=target_id,

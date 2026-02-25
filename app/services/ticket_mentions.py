@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.services.agent_mentions import list_active_users_for_mentions, resolve_mentioned_person_ids
 from app.services.common import coerce_uuid
@@ -75,6 +79,5 @@ def notify_ticket_comment_mentions(
         from app.services.agent_mentions import queue_mention_email_notifications
 
         queue_mention_email_notifications(db, recipient_person_ids=recipient_person_ids, payload=payload)
-    except Exception:
-        # Email mention notifications are best-effort.
-        pass
+    except Exception:  # nosec B110 — email mention notifications are best-effort
+        logger.debug("ticket_mention_email_notification_failed")

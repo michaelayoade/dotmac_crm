@@ -51,7 +51,7 @@ def get_db():
 
 
 def _should_sample() -> bool:
-    return random.random() < _WEBHOOK_SAMPLE_RATE
+    return random.random() < _WEBHOOK_SAMPLE_RATE  # nosec B311 — sampling, not security
 
 
 def _record_channel_stat(channel: str, ok: bool, events: int | None = None) -> None:

@@ -107,6 +107,7 @@ class RoutingRuleCreate(RoutingRuleBase):
 
 
 class RoutingRuleUpdate(BaseModel):
+    team_id: UUID | None = None
     channel_type: ChannelType | None = None
     rule_config: dict | None = None
     is_active: bool | None = None

@@ -27,6 +27,22 @@
         </div>
     </div>
 
+    {% if quote_comments %}
+    <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+        <h2 class="text-sm font-semibold text-amber-800 dark:text-amber-200">Reviewer comments</h2>
+        <div class="mt-2 space-y-2">
+            {% for comment in quote_comments %}
+            <div class="rounded-lg border border-amber-200/70 bg-white/70 px-3 py-2 text-sm dark:border-amber-500/30 dark:bg-slate-900/40">
+                <div class="text-[11px] uppercase tracking-wide text-amber-700/90 dark:text-amber-300/90">
+                    {{ comment.action or 'comment' }}{% if comment.created_at %} • {{ comment.created_at }}{% endif %}
+                </div>
+                <div class="mt-1 whitespace-pre-wrap text-slate-700 dark:text-slate-200">{{ comment.body }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div class="grid gap-4 md:grid-cols-2">
             <div class="space-y-3">
@@ -213,9 +229,34 @@
                         </table>
                     </div>
 
-                    <div class="mt-3 flex items-center justify-between text-sm">
-                        <div class="text-slate-500 dark:text-slate-400">Subtotal (client):</div>
-                        <div id="lineitems-subtotal" class="font-semibold text-slate-900 dark:text-white"></div>
+                    <div class="mt-3 space-y-2 text-sm">
+                        <div class="flex items-center justify-between">
+                            <div class="text-slate-500 dark:text-slate-400">Subtotal (client):</div>
+                            <div id="lineitems-subtotal" class="font-semibold text-slate-900 dark:text-white"></div>
+                        </div>
+                        <div class="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                            <div class="grid gap-2 sm:grid-cols-[1fr_120px] sm:items-end">
+                                <div>
+                                    <label for="vat-rate-percent" class="block text-xs font-semibold text-slate-700 dark:text-slate-200">VAT (%)</label>
+                                    <input id="vat-rate-percent" type="number" step="0.01" min="0" max="100"
+                                           value="{{ '%.2f'|format(quote.vat_rate_percent if quote.vat_rate_percent is not none else 0) }}"
+                                           class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                                </div>
+                                <button id="vat-apply" type="button"
+                                        class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                                    Apply VAT
+                                </button>
+                            </div>
+                            <div id="vat-message" class="text-xs text-slate-500 dark:text-slate-400"></div>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <div class="text-slate-500 dark:text-slate-400">VAT amount:</div>
+                            <div id="lineitems-vat" class="font-semibold text-slate-900 dark:text-white"></div>
+                        </div>
+                        <div class="flex items-center justify-between border-t border-slate-200 pt-2 dark:border-slate-700">
+                            <div class="font-semibold text-slate-700 dark:text-slate-200">Total:</div>
+                            <div id="lineitems-total" class="text-base font-bold text-slate-900 dark:text-white"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -298,6 +339,11 @@
     const msg = document.getElementById('li-message');
     const tbody = document.getElementById('lineitems-body');
     const subtotalEl = document.getElementById('lineitems-subtotal');
+    const vatEl = document.getElementById('lineitems-vat');
+    const totalEl = document.getElementById('lineitems-total');
+    const vatRateInput = document.getElementById('vat-rate-percent');
+    const vatApplyBtn = document.getElementById('vat-apply');
+    const vatMsg = document.getElementById('vat-message');
     const submitBtn = document.getElementById('quote-submit');
     const submitMsg = document.getElementById('quote-submit-message');
     const routeSubmitMsg = document.getElementById('route-submit-message');
@@ -322,6 +368,7 @@
     const eNotes = document.getElementById('li-edit-notes');
 
     let editingRow = null;
+    let lastSavedVatRate = moneyToNumber(vatRateInput?.value || '0');
     const submittableStatuses = new Set(['draft', 'revision_requested']);
 
     function withCsrf(headers = {}) {
@@ -365,13 +412,65 @@
         return Number.isFinite(n) ? n : 0;
     }
 
-    function updateSubtotal() {
-        if (!subtotalEl) return;
+    function quoteSubtotal() {
         const amounts = Array.from(document.querySelectorAll('[data-lineitem-row] [data-amount]')).map((el) =>
             moneyToNumber(el.textContent)
         );
-        const sum = amounts.reduce((a, b) => a + b, 0);
-        subtotalEl.textContent = sum.toFixed(2);
+        return amounts.reduce((a, b) => a + b, 0);
+    }
+
+    function renderTotals(subtotal) {
+        const rate = moneyToNumber(vatRateInput?.value || '0');
+        const safeRate = Math.min(100, Math.max(0, rate));
+        const vatAmount = subtotal * (safeRate / 100);
+        const total = subtotal + vatAmount;
+        if (subtotalEl) subtotalEl.textContent = subtotal.toFixed(2);
+        if (vatEl) vatEl.textContent = vatAmount.toFixed(2);
+        if (totalEl) totalEl.textContent = total.toFixed(2);
+    }
+
+    function updateTotalsPreview() {
+        renderTotals(quoteSubtotal());
+    }
+
+    async function saveVatRate({ showMessage = true } = {}) {
+        const rawRate = vatRateInput?.value || '0';
+        const vatRatePercent = moneyToNumber(rawRate);
+        if (!Number.isFinite(vatRatePercent) || vatRatePercent < 0 || vatRatePercent > 100) {
+            throw new Error('VAT must be between 0 and 100.');
+        }
+        if (Math.abs(vatRatePercent - lastSavedVatRate) < 0.000001) {
+            if (showMessage) setText(vatMsg, 'VAT already applied.');
+            updateTotalsPreview();
+            return;
+        }
+        setText(vatMsg, '');
+        if (vatApplyBtn) {
+            vatApplyBtn.disabled = true;
+            vatApplyBtn.textContent = 'Applying...';
+        }
+        if (vatRateInput) vatRateInput.disabled = true;
+        try {
+            const res = await fetch(`/api/vendor/quotes/${quoteId}/vat`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: withCsrf({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ vat_rate_percent: vatRatePercent.toFixed(2) })
+            });
+            const data = await readJsonIfPossible(res);
+            if (!res.ok) throw new Error(buildErrorMessage(res, data));
+            const savedRate = moneyToNumber(data?.vat_rate_percent);
+            lastSavedVatRate = savedRate;
+            if (vatRateInput) vatRateInput.value = savedRate.toFixed(2);
+            renderTotals(moneyToNumber(data?.subtotal));
+            if (showMessage) setText(vatMsg, 'VAT saved.');
+        } finally {
+            if (vatApplyBtn) {
+                vatApplyBtn.disabled = false;
+                vatApplyBtn.textContent = 'Apply VAT';
+            }
+            if (vatRateInput) vatRateInput.disabled = false;
+        }
     }
 
     function rowHtml(item) {
@@ -463,7 +562,7 @@
             fQty.value = '1.000';
             fUnit.value = '0.00';
             fNotes.value = '';
-            updateSubtotal();
+            updateTotalsPreview();
             setText(msg, 'Added.');
         } catch (e) {
             setText(msg, e.message || 'Failed to add line item.');
@@ -503,7 +602,7 @@
                         `<tr id="lineitems-empty"><td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No line items yet. Add one above.</td></tr>`
                     );
                 }
-                updateSubtotal();
+                updateTotalsPreview();
             } catch (err) {
                 alert(err.message || 'Failed to delete line item.');
             } finally {
@@ -541,7 +640,7 @@
             tmp.innerHTML = rowHtml(data);
             const newRow = tmp.firstElementChild;
             editingRow.replaceWith(newRow);
-            updateSubtotal();
+            updateTotalsPreview();
             closeModal();
         } catch (err) {
             setText(editMsg, err.message || 'Failed to update line item.');
@@ -551,11 +650,22 @@
         }
     });
 
+    vatApplyBtn?.addEventListener('click', async () => {
+        try {
+            await saveVatRate({ showMessage: true });
+        } catch (err) {
+            setText(vatMsg, err.message || 'Failed to save VAT.');
+        }
+    });
+
+    vatRateInput?.addEventListener('input', updateTotalsPreview);
+
     submitBtn?.addEventListener('click', async () => {
         setText(submitMsg, '');
         submitBtn.disabled = true;
         submitBtn.textContent = 'Submitting...';
         try {
+            await saveVatRate({ showMessage: false });
             const res = await fetch(`/api/vendor/quotes/${quoteId}/submit`, {
                 method: 'POST',
                 credentials: 'include',
@@ -607,7 +717,7 @@
         }
     });
 
-    updateSubtotal();
+    updateTotalsPreview();
     setQuoteStatus(quoteStatus);
 })();
 </script>

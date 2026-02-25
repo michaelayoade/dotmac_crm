@@ -9,6 +9,8 @@ from fastapi import HTTPException
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import PersonChannel
+from app.models.projects import Project
+from app.models.sales_order import SalesOrder
 from app.schemas.crm.sales import (
     LeadCreate,
     LeadUpdate,
@@ -813,6 +815,34 @@ def test_update_quote(db_session, person):
     )
     assert updated.notes == "Updated Notes"
     assert updated.status == QuoteStatus.sent
+
+
+def test_update_quote_acceptance_is_idempotent_for_project_and_sales_order(db_session, person):
+    """Repeated accepted updates should not create duplicate project/sales order."""
+    quote = sales_service.Quotes.create(
+        db_session,
+        QuoteCreate(person_id=person.id, status=QuoteStatus.sent, notes="Before acceptance"),
+    )
+
+    sales_service.Quotes.update(
+        db_session,
+        str(quote.id),
+        QuoteUpdate(status=QuoteStatus.accepted),
+    )
+    sales_service.Quotes.update(
+        db_session,
+        str(quote.id),
+        QuoteUpdate(status=QuoteStatus.accepted, notes="Post-acceptance edit"),
+    )
+
+    orders = db_session.query(SalesOrder).filter(SalesOrder.quote_id == quote.id).all()
+    assert len(orders) == 1
+
+    projects = db_session.query(Project).filter(Project.is_active.is_(True)).all()
+    linked_projects = [
+        row for row in projects if isinstance(row.metadata_, dict) and str(row.metadata_.get("quote_id")) == str(quote.id)
+    ]
+    assert len(linked_projects) == 1
 
 
 def test_update_quote_not_found(db_session):

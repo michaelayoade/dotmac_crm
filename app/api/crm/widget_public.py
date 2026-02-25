@@ -49,7 +49,7 @@ _WEBCHAT_METRICS_INTERVAL_SECONDS = 60.0
 
 
 def _should_sample_webchat() -> bool:
-    return random.random() < _WEBCHAT_SAMPLE_RATE
+    return random.random() < _WEBCHAT_SAMPLE_RATE  # nosec B311 — sampling, not security
 
 
 def _record_webchat_stat(ok: bool) -> None:

@@ -489,6 +489,22 @@ def test_update_routing_rule(db_session, crm_team):
     assert updated.is_active is False
 
 
+def test_update_routing_rule_team_id(db_session, crm_team):
+    """Test updating routing rule team assignment."""
+    other_team = team_service.Teams.create(db_session, TeamCreate(name="Routing Team 2"))
+    rule = team_service.RoutingRules.create(
+        db_session,
+        RoutingRuleCreate(team_id=crm_team.id, channel_type=ChannelType.email),
+    )
+
+    updated = team_service.RoutingRules.update(
+        db_session,
+        str(rule.id),
+        RoutingRuleUpdate(team_id=other_team.id),
+    )
+    assert updated.team_id == other_team.id
+
+
 def test_update_routing_rule_not_found(db_session):
     """Test updating non-existent routing rule raises 404."""
     with pytest.raises(HTTPException) as exc_info:

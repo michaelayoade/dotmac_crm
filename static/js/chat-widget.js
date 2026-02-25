@@ -59,6 +59,27 @@
   }
 
   /**
+   * Escape text and convert http(s) URLs into clickable links.
+   */
+  function renderMessageBody(text) {
+    const escaped = sanitizeHtml(text || '');
+    const urlRegex = /(https?:\/\/[^\s<]+)/gi;
+    return escaped.replace(urlRegex, (rawUrl) => {
+      let url = rawUrl;
+      let trailing = '';
+      while (url && /[.,!?;:)\]]/.test(url[url.length - 1])) {
+        trailing = url[url.length - 1] + trailing;
+        url = url.slice(0, -1);
+      }
+      if (!url) {
+        return rawUrl;
+      }
+      const safeHref = sanitizeHtml(url);
+      return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${safeHref}</a>${trailing}`;
+    });
+  }
+
+  /**
    * Format timestamp for display
    */
   function formatTime(dateStr) {
@@ -629,6 +650,21 @@
           opacity: 0.9;
         }
 
+        .dotmac-widget-message-body a {
+          text-decoration: underline;
+          cursor: pointer;
+          word-break: break-all;
+        }
+
+        .dotmac-widget-message-inbound .dotmac-widget-message-body a {
+          color: #ffffff;
+        }
+
+        .dotmac-widget-message-outbound .dotmac-widget-message-body a,
+        .dotmac-widget-message-system .dotmac-widget-message-body a {
+          color: #1d4ed8;
+        }
+
         .dotmac-widget-prechat {
           border: 1px solid #e5e7eb;
           border-radius: 12px;
@@ -790,6 +826,8 @@
       this.isOpen = !this.isOpen;
 
       if (this.isOpen) {
+        // Prevent launcher overlap with footer/send controls while chat is open.
+        this.bubble.style.display = 'none';
         // Open panel with animation
         this.panel.style.display = 'flex';
         this.panel.classList.remove('panel-leave');
@@ -811,6 +849,7 @@
           if (!this.isOpen) {
             this.panel.style.display = 'none';
             this.panel.classList.remove('panel-leave');
+            this.bubble.style.display = 'flex';
           }
         }, animationDuration);
       }
@@ -975,7 +1014,7 @@
         return `
           <div class="${classes.join(' ')}">
             ${authorHtml}
-            <div class="dotmac-widget-message-body">${sanitizeHtml(msg.body)}</div>
+            <div class="dotmac-widget-message-body">${renderMessageBody(msg.body)}</div>
             <div class="dotmac-widget-message-time">${formatTime(msg.created_at)}</div>
           </div>
         `;
@@ -991,7 +1030,7 @@
     addSystemMessage(text) {
       const msg = document.createElement('div');
       msg.className = 'dotmac-widget-message dotmac-widget-message-system';
-      msg.innerHTML = `<div class="dotmac-widget-message-body">${sanitizeHtml(text)}</div>`;
+      msg.innerHTML = `<div class="dotmac-widget-message-body">${renderMessageBody(text)}</div>`;
       this.messagesContainer.appendChild(msg);
     }
 

@@ -106,7 +106,7 @@ def notify_agents_mentioned(
     for raw in mentioned_agent_ids:
         try:
             agent_uuids.append(coerce_uuid(raw))
-        except Exception:
+        except (ValueError, AttributeError):
             continue
     if not agent_uuids:
         return
@@ -165,9 +165,8 @@ def notify_agents_mentioned(
         from app.services.agent_mentions import queue_mention_email_notifications
 
         queue_mention_email_notifications(db, recipient_person_ids=recipient_person_ids, payload=payload)
-    except Exception:
-        # Email mention notifications are best-effort.
-        pass
+    except Exception:  # nosec B110 — email mention notifications are best-effort
+        logger.debug("mention_email_notification_failed")
 
 
 def notify_assigned_agent_new_reply(db: Session, conversation: Conversation, message: Message) -> None:

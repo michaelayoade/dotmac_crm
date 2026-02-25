@@ -13,6 +13,7 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from typing import cast as typing_cast
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import func
@@ -66,6 +67,42 @@ USE_INBOX_LOGIC_SERVICE = os.getenv("USE_INBOX_LOGIC_SERVICE", "0") == "1"
 _logic_service = LogicService()
 WHATSAPP_CIRCUIT = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
 META_CIRCUIT = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+_META_MEDIA_URL_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+def _infer_stored_name_from_attachment_url(attachment_url: str | None) -> str | None:
+    """Infer stored file name from known internal attachment URL formats."""
+    if not isinstance(attachment_url, str) or not attachment_url:
+        return None
+    try:
+        parsed = urlparse(attachment_url)
+        path = parsed.path or attachment_url
+    except ValueError:
+        path = attachment_url
+    lower_path = path.lower()
+    if "/uploads/messages/" not in lower_path and "/public/media/messages/" not in lower_path:
+        return None
+    candidate = path.rsplit("/", 1)[-1].strip()
+    if not candidate:
+        return None
+    return candidate
+
+
+def _build_meta_static_attachment_url(db: Session, stored_name: str) -> str:
+    """Build a direct static URL for provider media fetches."""
+    app_url = email_service.get_app_url(db).rstrip("/")
+    if app_url:
+        return f"{app_url}/static/uploads/messages/{stored_name}"
+    return f"/static/uploads/messages/{stored_name}"
+
+
+def _build_meta_signed_attachment_url(db: Session, stored_name: str) -> str:
+    """Build a signed public media URL for provider media fetches."""
+    return public_media.build_public_media_url(
+        db,
+        stored_name=stored_name,
+        ttl_seconds=_META_MEDIA_URL_TTL_SECONDS,
+    )
 
 
 class OutboundSendError(InboxError):
@@ -99,6 +136,27 @@ class PermanentOutboundError(OutboundSendError):
 def _resolve_meta_public_attachment_url(db: Session, attachment: dict) -> str:
     """Return a public URL that Meta can fetch for media messages."""
     attachment_url = attachment.get("url") or ""
+    stored_name = attachment.get("stored_name")
+    if not (isinstance(stored_name, str) and public_media.is_valid_stored_name(stored_name)):
+        inferred = _infer_stored_name_from_attachment_url(attachment_url)
+        if isinstance(inferred, str) and public_media.is_valid_stored_name(inferred):
+            stored_name = inferred
+
+    # Prefer signed storage-backed URLs; fall back to static path only if signing fails.
+    if isinstance(stored_name, str) and public_media.is_valid_stored_name(stored_name):
+        if not attachment_url or (
+            isinstance(attachment_url, str)
+            and (
+                attachment_url.startswith(("/static/uploads/messages/", "/admin/storage/"))
+                or "/admin/storage/" in attachment_url
+            )
+        ):
+            try:
+                return _build_meta_signed_attachment_url(db, stored_name)
+            except Exception:
+                logger.warning("meta_signed_media_url_fallback_static stored_name=%s", stored_name)
+                return _build_meta_static_attachment_url(db, stored_name)
+
     if isinstance(attachment_url, str) and attachment_url.startswith(("http://", "https://")):
         return attachment_url
 
@@ -110,9 +168,12 @@ def _resolve_meta_public_attachment_url(db: Session, attachment: dict) -> str:
             return f"{app_url}{attachment_url}"
         return attachment_url
 
-    stored_name = attachment.get("stored_name")
     if isinstance(stored_name, str) and public_media.is_valid_stored_name(stored_name):
-        return public_media.build_public_media_url(db, stored_name=stored_name, ttl_seconds=1800)
+        try:
+            return _build_meta_signed_attachment_url(db, stored_name)
+        except Exception:
+            logger.warning("meta_signed_media_url_fallback_static stored_name=%s", stored_name)
+            return _build_meta_static_attachment_url(db, stored_name)
 
     if isinstance(attachment_url, str) and attachment_url:
         if not attachment_url.startswith(("http://", "https://")):
@@ -917,6 +978,11 @@ def _send_instagram_message(
             file_links.append(resolved_url)
 
     outbound_body = _append_attachment_links_to_body(rendered_body, file_links)
+    message_metadata = _merge_reply_metadata(reply_context) or {}
+    if image_url:
+        message_metadata["outbound_image_url"] = image_url
+    if file_links:
+        message_metadata["outbound_file_links"] = file_links
 
     message = conversation_service.Messages.create(
         db,
@@ -929,7 +995,7 @@ def _send_instagram_message(
             direction=MessageDirection.outbound,
             status=MessageStatus.queued,
             body=outbound_body,
-            metadata_=_merge_reply_metadata(reply_context),
+            metadata_=message_metadata or None,
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),

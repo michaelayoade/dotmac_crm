@@ -114,6 +114,23 @@ def _is_instagram_login_token(token: str | None) -> bool:
     return token.strip().upper().startswith("IG")
 
 
+def _build_instagram_login_message_payload(message_text: str, image_url: str | None) -> dict[str, Any]:
+    """Build a payload for Instagram Login API.
+
+    The Login API path currently renders media attachments from URL as blank (1x1)
+    in this deployment. Send a clickable URL as text instead, so recipients can
+    access the media reliably.
+    """
+    if not image_url:
+        return {"text": message_text}
+    text = (message_text or "").strip()
+    if text:
+        text = f"{text}\n{image_url}"
+    else:
+        text = image_url
+    return {"text": text}
+
+
 def _get_token_for_channel(
     db: Session,
     channel_type: ChannelType,
@@ -316,10 +333,18 @@ async def send_instagram_message(
     if token and not override_token and token.is_token_expired():
         raise ValueError(f"Instagram token has expired. Please reconnect. (Account: {token.external_account_name})")
 
-    access_token = override_token or (token.access_token if token else None)
+    use_instagram_login_api = bool(_is_instagram_login_token(override_token) and not token)
+    if use_instagram_login_api:
+        access_token = override_token
+    else:
+        access_token = token.access_token if token else override_token
+        if _is_instagram_login_token(override_token) and token:
+            logger.info(
+                "instagram_override_token_ignored_linked_token_present account_id=%s",
+                token.external_account_id,
+            )
     if not access_token:
         raise ValueError("No access token available for Instagram message send")
-    use_instagram_login_api = _is_instagram_login_token(override_token)
 
     payload: dict[str, Any]
     message_payload: dict[str, Any]
@@ -337,10 +362,11 @@ async def send_instagram_message(
         endpoint = f"{_get_instagram_graph_base_url(db).rstrip('/')}/me/messages"
         params = None
         headers = {"Authorization": f"Bearer {access_token}"}
+        login_message_payload = _build_instagram_login_message_payload(message_text, image_url)
         # Instagram Login API expects recipient/message as JSON-encoded strings.
         payload = {
             "recipient": json.dumps({"id": recipient_igsid}, separators=(",", ":")),
-            "message": json.dumps(message_payload, separators=(",", ":")),
+            "message": json.dumps(login_message_payload, separators=(",", ":")),
         }
         log_account_id = "me"
     else:
@@ -368,6 +394,42 @@ async def send_instagram_message(
             timeout=30,
         )
         status_code = _safe_status_code(response)
+        if (
+            status_code is not None
+            and status_code >= 400
+            and not use_instagram_login_api
+            and _is_instagram_login_token(override_token)
+        ):
+            error_code = None
+            try:
+                error_payload = response.json().get("error", {})
+                if isinstance(error_payload, dict):
+                    error_code = error_payload.get("code")
+            except Exception:
+                error_code = None
+
+            if error_code == 3:
+                logger.warning(
+                    "instagram_business_api_capability_missing_fallback_login_api ig_account_id=%s",
+                    log_account_id,
+                )
+                fallback_endpoint = f"{_get_instagram_graph_base_url(db).rstrip('/')}/me/messages"
+                fallback_message_payload = _build_instagram_login_message_payload(message_text, image_url)
+                fallback_payload = {
+                    "recipient": json.dumps({"id": recipient_igsid}, separators=(",", ":")),
+                    "message": json.dumps(fallback_message_payload, separators=(",", ":")),
+                }
+                response = await _post_with_retry(
+                    client,
+                    fallback_endpoint,
+                    params=None,
+                    json=fallback_payload,
+                    headers={"Authorization": f"Bearer {override_token}"},
+                    timeout=30,
+                )
+                status_code = _safe_status_code(response)
+                log_account_id = "me"
+
         if status_code is not None and status_code >= 400:
             logger.error(
                 "instagram_message_send_failed ig_account_id=%s recipient=%s status=%s body=%s",

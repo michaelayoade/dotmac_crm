@@ -245,7 +245,21 @@ async def csrf_middleware(request: Request, call_next):
                 status_code=403,
             )
 
-    response = await call_next(request)
+    def _is_no_response_returned_error(exc: BaseException) -> bool:
+        if isinstance(exc, RuntimeError) and str(exc) == "No response returned.":
+            return True
+        if isinstance(exc, BaseExceptionGroup):
+            return any(_is_no_response_returned_error(sub_exc) for sub_exc in exc.exceptions)
+        return False
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        # Mirror static_cache_middleware behavior for client disconnect/runtime edge-cases
+        # surfaced by Starlette as RuntimeError("No response returned.").
+        if _is_no_response_returned_error(exc):
+            return Response(status_code=499)
+        raise
     if response is None:
         return Response(
             content='{"detail":"No response returned"}',
@@ -454,7 +468,10 @@ async def static_cache_middleware(request: Request, call_next):
     path = request.url.path
 
     if path.startswith("/static/") and "cache-control" not in response.headers:
-        if any(path.endswith(ext) for ext in (".css", ".js", ".woff2", ".woff")):
+        # Widget script must update quickly on customer sites that embed a fixed URL.
+        if path == "/static/js/chat-widget.js":
+            response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
+        elif any(path.endswith(ext) for ext in (".css", ".js", ".woff2", ".woff")):
             # Long cache for versioned assets
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         elif any(path.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")):

@@ -80,8 +80,8 @@ def _derive_fallback_ticket_title(
                 subject = conversation.subject.strip()
                 if subject:
                     return subject[:200]
-        except Exception:
-            pass
+        except Exception:  # nosec B110 — conversation lookup is optional context
+            logger.debug("ticket_conversation_subject_lookup_failed")
 
     return None
 
@@ -103,8 +103,8 @@ async def _collect_attachment_uploads(
     try:
         form = await request.form()
         uploads.extend([item for item in form.getlist("attachments") if isinstance(item, UploadFile)])
-    except Exception:
-        pass
+    except Exception:  # nosec B110 — form attachment collection is best-effort
+        logger.debug("ticket_attachment_form_parse_failed")
 
     # De-dupe while preserving order.
     deduped: list[UploadFile] = []
@@ -2137,8 +2137,8 @@ async def add_ticket_comment(
                     mentioned_agent_ids=list(mentioned_agent_ids),
                     actor_person_id=actor_id,
                 )
-            except Exception:
-                pass
+            except Exception:  # nosec B110 — mention notifications are best-effort
+                logger.debug("ticket_comment_mention_failed ticket_id=%s", ticket.id)
 
         _log_activity(
             db=db,
@@ -2226,8 +2226,8 @@ def edit_ticket_comment(
                     mentioned_agent_ids=list(mentioned_agent_ids),
                     actor_person_id=actor_id,
                 )
-            except Exception:
-                pass
+            except Exception:  # nosec B110 — mention notifications are best-effort
+                logger.debug("ticket_comment_edit_mention_failed ticket_id=%s", ticket.id)
 
         _log_activity(
             db=db,

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.crm.sales import CrmQuoteLineItem, Lead
@@ -168,6 +168,19 @@ def _ensure_installation_invoice(db: Session, project: Project, splynx_id: str) 
         return
     if _has_existing_installation_invoice(project):
         return
+    related_invoice = _find_existing_related_installation_invoice(db, project)
+    if related_invoice:
+        invoice_id, amount = related_invoice
+        _store_invoice_metadata(project, invoice_id, amount)
+        db.add(project)
+        db.commit()
+        db.refresh(project)
+        logger.info(
+            "splynx_installation_invoice_reused project_id=%s invoice_id=%s",
+            project.id,
+            invoice_id,
+        )
+        return
 
     amount = _resolve_installation_amount(db, project)
     if amount <= 0:
@@ -203,11 +216,67 @@ def _has_existing_installation_invoice(project: Project) -> bool:
     return bool(str(invoice_id or "").strip())
 
 
-def _store_invoice_metadata(project: Project, invoice_id: str, amount: Decimal) -> None:
+def _find_existing_related_installation_invoice(db: Session, project: Project) -> tuple[str, Decimal | None] | None:
+    sales_order_id = _resolve_sales_order_id(project)
+    quote_id = _resolve_quote_id(project)
+    if not sales_order_id and not quote_id:
+        return None
+
+    filters = []
+    if sales_order_id:
+        filters.append(Project.metadata_["sales_order_id"].as_string() == str(sales_order_id))
+    if quote_id:
+        filters.append(Project.metadata_["quote_id"].as_string() == str(quote_id))
+
+    if filters:
+        rows = (
+            db.query(Project)
+            .filter(Project.id != project.id)
+            .filter(or_(*filters))
+            .order_by(Project.created_at.desc())
+            .all()
+        )
+        for row in rows:
+            metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+            invoice_id = str(metadata.get("splynx_installation_invoice_id") or "").strip()
+            if invoice_id:
+                amount = _parse_invoice_amount(metadata.get("splynx_installation_invoice_amount"))
+                return invoice_id, amount
+
+    # SQLite JSON path comparisons are not reliable across SQLAlchemy/SQLite builds.
+    # Fall back to an in-Python metadata check to keep this idempotent in tests/dev.
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "sqlite":
+        rows = db.query(Project).filter(Project.id != project.id).all()
+        for row in rows:
+            metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+            same_sales_order = sales_order_id and str(metadata.get("sales_order_id")) == str(sales_order_id)
+            same_quote = quote_id and str(metadata.get("quote_id")) == str(quote_id)
+            if not (same_sales_order or same_quote):
+                continue
+            invoice_id = str(metadata.get("splynx_installation_invoice_id") or "").strip()
+            if invoice_id:
+                amount = _parse_invoice_amount(metadata.get("splynx_installation_invoice_amount"))
+                return invoice_id, amount
+    return None
+
+
+def _store_invoice_metadata(project: Project, invoice_id: str, amount: Decimal | None) -> None:
     metadata = dict(project.metadata_ or {})
     metadata["splynx_installation_invoice_id"] = str(invoice_id)
-    metadata["splynx_installation_invoice_amount"] = str(amount)
+    if amount is not None:
+        metadata["splynx_installation_invoice_amount"] = str(amount)
     project.metadata_ = metadata
+
+
+def _parse_invoice_amount(value: object) -> Decimal | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _resolve_installation_amount(db: Session, project: Project) -> Decimal:

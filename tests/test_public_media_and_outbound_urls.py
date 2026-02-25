@@ -20,9 +20,52 @@ def test_outbound_resolve_meta_public_attachment_uses_signed_url(monkeypatch):
     monkeypatch.setattr(
         outbound.public_media,
         "build_public_media_url",
-        lambda _db, *, stored_name, ttl_seconds=900: f"https://crm.dotmac.io/public/media/messages/{stored_name}",
+        lambda _db, *, stored_name, ttl_seconds: (
+            f"https://crm.dotmac.io/public/media/messages/{stored_name}?exp=1&sig=signed&ttl={ttl_seconds}"
+        ),
     )
 
     url = outbound._resolve_meta_public_attachment_url(None, {"stored_name": "abc123.png", "url": "/x"})
 
-    assert url == "https://crm.dotmac.io/public/media/messages/abc123.png"
+    assert url == "https://crm.dotmac.io/public/media/messages/abc123.png?exp=1&sig=signed&ttl=604800"
+
+
+def test_outbound_resolve_meta_public_attachment_prefers_signed_url_for_admin_storage(monkeypatch):
+    monkeypatch.setattr(outbound.public_media, "is_valid_stored_name", lambda value: value == "abc123.png")
+    monkeypatch.setattr(
+        outbound.public_media,
+        "build_public_media_url",
+        lambda _db, *, stored_name, ttl_seconds: (
+            f"https://crm.dotmac.io/public/media/messages/{stored_name}?exp=1&sig=signed&ttl={ttl_seconds}"
+        ),
+    )
+
+    url = outbound._resolve_meta_public_attachment_url(
+        None,
+        {
+            "stored_name": "abc123.png",
+            "url": "https://crm.dotmac.io/admin/storage/dotmac-uploads/uploads/messages/abc123.png",
+        },
+    )
+
+    assert url == "https://crm.dotmac.io/public/media/messages/abc123.png?exp=1&sig=signed&ttl=604800"
+
+
+def test_outbound_resolve_meta_public_attachment_infers_stored_name_from_admin_storage_url(monkeypatch):
+    monkeypatch.setattr(outbound.public_media, "is_valid_stored_name", lambda value: value == "abc123.png")
+    monkeypatch.setattr(
+        outbound.public_media,
+        "build_public_media_url",
+        lambda _db, *, stored_name, ttl_seconds: (
+            f"https://crm.dotmac.io/public/media/messages/{stored_name}?exp=1&sig=signed&ttl={ttl_seconds}"
+        ),
+    )
+
+    url = outbound._resolve_meta_public_attachment_url(
+        None,
+        {
+            "url": "https://crm.dotmac.io/admin/storage/dotmac-uploads/uploads/messages/abc123.png",
+        },
+    )
+
+    assert url == "https://crm.dotmac.io/public/media/messages/abc123.png?exp=1&sig=signed&ttl=604800"

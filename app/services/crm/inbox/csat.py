@@ -215,22 +215,21 @@ def queue_for_resolved_conversation(
         if not survey:
             return CsatQueueResult(kind="no_active_survey")
 
-        existing = (
-            db.query(SurveyInvitation.id)
+        invitation = (
+            db.query(SurveyInvitation)
             .filter(SurveyInvitation.survey_id == survey.id, SurveyInvitation.person_id == person.id)
             .first()
         )
-        if existing:
-            return CsatQueueResult(kind="already_invited")
-
-        invitation = survey_invitations.create_for_person(
-            db,
-            survey_id=str(survey.id),
-            person_id=str(person.id),
-            email=person.email or f"csat+{person.id}@local.invalid",
-            ticket_id=str(conversation.ticket_id) if conversation.ticket_id else None,
-            expires_at=survey.expires_at,
-        )
+        created_new_invitation = invitation is None
+        if not invitation:
+            invitation = survey_invitations.create_for_person(
+                db,
+                survey_id=str(survey.id),
+                person_id=str(person.id),
+                email=person.email or f"csat+{person.id}@local.invalid",
+                ticket_id=str(conversation.ticket_id) if conversation.ticket_id else None,
+                expires_at=survey.expires_at,
+            )
         survey_url = _resolve_survey_link(db, invitation.token)
         outbound_payload = InboxSendRequest(
             conversation_id=conversation.id,
@@ -245,7 +244,8 @@ def queue_for_resolved_conversation(
             author_id=author_id,
         )
         survey_invitations.mark_sent(db, invitation)
-        survey.total_invited = (survey.total_invited or 0) + 1
+        if created_new_invitation:
+            survey.total_invited = (survey.total_invited or 0) + 1
         db.commit()
         return CsatQueueResult(kind="queued")
     except Exception as exc:
