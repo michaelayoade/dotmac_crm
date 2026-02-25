@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.schemas.common import ListResponse
 from app.schemas.tickets import (
     TicketBulkUpdateRequest,
@@ -99,6 +99,17 @@ def list_tickets(
 )
 def update_ticket(ticket_id: str, payload: TicketUpdate, db: Session = Depends(get_db)):
     return tickets_service.tickets.update(db, ticket_id, payload)
+
+
+@router.post(
+    "/tickets/{ticket_id}/auto-assign",
+    response_model=TicketRead,
+    tags=["tickets"],
+    dependencies=[Depends(require_permission("support:ticket:update"))],
+)
+def auto_assign_ticket_manually(ticket_id: str, db: Session = Depends(get_db), auth=Depends(get_current_user)):
+    actor_id = str(auth.get("person_id")) if auth else None
+    return tickets_service.tickets.auto_assign_manual(db, ticket_id, actor_id=actor_id)
 
 
 @router.delete(

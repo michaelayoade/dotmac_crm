@@ -5,6 +5,8 @@ from __future__ import annotations
 from unittest.mock import Mock
 from uuid import uuid4
 
+from fastapi import HTTPException
+
 from app.models.person import Person
 from app.schemas.tickets import TicketCreate
 from app.services import tickets as ticket_service
@@ -95,3 +97,46 @@ def test_ticket_create_does_not_call_auto_assignment_when_already_assigned(db_se
     assert ticket is not None
     assert ticket.assigned_to_person_id == assignee.id
     mock_assign.assert_not_called()
+
+
+def test_ticket_manual_auto_assign_calls_engine_with_manual_trigger(db_session, monkeypatch):
+    monkeypatch.setattr(ticket_service, "generate_number", lambda **_: None)
+    monkeypatch.setattr(ticket_service, "emit_event", lambda *_, **__: None)
+    monkeypatch.setattr(ticket_service, "_notify_ticket_role_assignment_in_app", lambda *_, **__: set())
+    monkeypatch.setattr(ticket_service, "_notify_ticket_service_team_assignment", lambda *_, **__: set())
+    monkeypatch.setattr(ticket_service.settings_spec, "resolve_value", lambda *_: False)
+
+    ticket = ticket_service.Tickets.create(db_session, TicketCreate(title="Manual assignment"))
+    assert ticket is not None
+
+    mock_assign = Mock(
+        return_value=AssignmentResult(
+            assigned=False,
+            ticket_id=str(ticket.id),
+            reason="no_matching_rule_or_candidate",
+        )
+    )
+    mock_audit = Mock()
+    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket", mock_assign)
+    monkeypatch.setattr("app.services.audit_helpers.log_audit_event", mock_audit)
+
+    updated = ticket_service.Tickets.auto_assign_manual(db_session, str(ticket.id), actor_id="person-42")
+
+    assert updated.id == ticket.id
+    mock_assign.assert_called_once()
+    _, kwargs = mock_assign.call_args
+    assert kwargs["trigger"] == "manual"
+    assert kwargs["actor_person_id"] == "person-42"
+    mock_audit.assert_called_once()
+    assert mock_audit.call_args.kwargs["action"] == "ticket_auto_assign_manual"
+
+
+def test_ticket_manual_auto_assign_raises_when_ticket_not_found(db_session):
+    missing_ticket_id = str(uuid4())
+    try:
+        ticket_service.Tickets.auto_assign_manual(db_session, missing_ticket_id, actor_id=None)
+    except HTTPException as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "Ticket not found"
+    else:
+        raise AssertionError("Expected HTTPException for missing ticket")
