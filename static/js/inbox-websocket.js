@@ -122,6 +122,9 @@ class InboxWebSocket {
                 case 'user_typing':
                     this._emitEvent('inbox-user-typing', eventData);
                     break;
+                case 'user_presence':
+                    this._emitEvent('inbox-user-presence', eventData);
+                    break;
                 case 'agent_notification':
                     if (!hasConversationId) {
                         console.warn('[InboxWS] agent_notification missing conversation_id', eventData);
@@ -235,6 +238,24 @@ class InboxWebSocket {
             type: 'typing',
             conversation_id: conversationId,
             data: { is_typing: isTyping }
+        });
+    }
+
+    /**
+     * Send presence state for a conversation.
+     * @param {string} conversationId - Conversation ID
+     * @param {string} state - Presence state: viewing|replying
+     * @param {boolean} active - True for present, false for leaving
+     */
+    sendPresence(conversationId, state = 'viewing', active = true) {
+        if (!conversationId) return;
+        this.send({
+            type: 'presence',
+            conversation_id: conversationId,
+            data: {
+                state: state || 'viewing',
+                active: !!active
+            }
         });
     }
 

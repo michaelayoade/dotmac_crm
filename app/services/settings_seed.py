@@ -537,6 +537,18 @@ def seed_workflow_settings(db: Session) -> None:
         value_type=SettingValueType.boolean,
         value_text=os.getenv("TICKET_AUTO_ASSIGNMENT_ENABLED", "false"),
     )
+    workflow_settings.ensure_by_key(
+        db,
+        key="ticket_auto_assign_require_presence",
+        value_type=SettingValueType.boolean,
+        value_text=os.getenv("TICKET_AUTO_ASSIGN_REQUIRE_PRESENCE", "false"),
+    )
+    workflow_settings.ensure_by_key(
+        db,
+        key="ticket_auto_assign_max_open_tickets",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("TICKET_AUTO_ASSIGN_MAX_OPEN_TICKETS"),
+    )
 
 
 def seed_network_policy_settings(db: Session) -> None:

@@ -17,6 +17,7 @@ from app.logging import get_logger
 from app.models.crm.conversation import MessageAttachment
 from app.schemas.crm.inbox import EmailWebhookPayload
 from app.services.crm import inbox as inbox_service
+from app.services.crm.inbox.normalizers import _normalize_email_address
 from app.services.webhook_dead_letter import write_dead_letter
 
 SMTPController: Any
@@ -101,13 +102,6 @@ def _extract_attachments(msg) -> list[dict]:
 def _parse_addresses(values: Iterable[str]) -> list[str]:
     """Parse a list of address headers into email addresses."""
     return [addr for _, addr in getaddresses(values) if addr]
-
-
-def _normalize_email_address(address: str | None) -> str | None:
-    if not address:
-        return None
-    candidate = address.strip().lower()
-    return candidate or None
 
 
 def _handle_message(

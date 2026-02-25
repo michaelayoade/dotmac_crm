@@ -9,6 +9,7 @@
  *   e — Resolve current conversation
  *   j — Navigate to next conversation
  *   k — Navigate to previous conversation
+ *   Cmd/Ctrl+K — Toggle command palette
  *   ? — Show/hide help modal
  *   Escape — Close help modal
  */
@@ -23,6 +24,12 @@ class InboxShortcuts {
     }
 
     _onKeydown(e) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            this._dispatch('inbox-command-palette');
+            return;
+        }
+
         // Skip when typing in form elements
         const tag = (e.target.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea' || tag === 'select') return;

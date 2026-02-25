@@ -23,6 +23,7 @@ async def inbox_websocket(websocket: WebSocket):
     - subscribe: Subscribe to conversation updates
     - unsubscribe: Unsubscribe from conversation
     - typing: Broadcast typing indicator
+    - presence: Broadcast conversation viewer presence
     - ping: Keep-alive ping
     """
     await websocket.accept()
@@ -75,6 +76,41 @@ async def _handle_client_message(user_id: str, websocket: WebSocket, raw_data: s
                     },
                 )
                 await manager.broadcast_to_conversation(message.conversation_id, typing_event)
+
+        elif message.type == InboundMessageType.PRESENCE:
+            if message.conversation_id:
+                state = "viewing"
+                active = True
+                if message.data:
+                    requested_state = str(message.data.get("state") or "").strip().lower()
+                    if requested_state in {"viewing", "replying"}:
+                        state = requested_state
+                    requested_active = message.data.get("active")
+                    if requested_active is not None:
+                        if isinstance(requested_active, bool):
+                            active = requested_active
+                        elif isinstance(requested_active, (int, float)):
+                            active = bool(requested_active)
+                        elif isinstance(requested_active, str):
+                            active = requested_active.strip().lower() not in {
+                                "",
+                                "0",
+                                "false",
+                                "no",
+                                "off",
+                            }
+                        else:
+                            active = bool(requested_active)
+                presence_event = WebSocketEvent(
+                    event=EventType.USER_PRESENCE,
+                    data={
+                        "user_id": user_id,
+                        "conversation_id": message.conversation_id,
+                        "state": state,
+                        "active": active,
+                    },
+                )
+                await manager.broadcast_to_conversation(message.conversation_id, presence_event)
 
         elif message.type == InboundMessageType.PING:
             await manager.send_heartbeat(user_id, websocket)

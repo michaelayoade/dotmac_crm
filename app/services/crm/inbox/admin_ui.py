@@ -123,6 +123,26 @@ def _parse_cc_addresses(raw: str | None) -> list[str] | None:
     return deduped or None
 
 
+def _parse_bcc_addresses(raw: str | None) -> list[str] | None:
+    if not raw:
+        return None
+    normalized = str(raw).replace("\n", ",").replace(";", ",")
+    parts = [part.strip() for part in normalized.split(",") if part and part.strip()]
+    if not parts:
+        return None
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for email in parts:
+        candidate = email.lower()
+        if not _BASIC_EMAIL_RE.match(candidate):
+            raise ValueError(f"Invalid BCC email: {email}")
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return deduped or None
+
+
 def send_conversation_message(
     db: Session,
     conversation_id: str,
@@ -338,6 +358,7 @@ def start_new_conversation(
     contact_address: str,
     contact_name: str | None,
     cc_addresses_raw: str | None,
+    bcc_addresses_raw: str | None,
     subject: str | None,
     message_text: str | None,
     attachments_payload: list[dict] | None = None,
@@ -407,9 +428,11 @@ def start_new_conversation(
         )
 
     cc_addresses: list[str] | None = None
+    bcc_addresses: list[str] | None = None
     if channel_enum == ChannelType.email:
         try:
             cc_addresses = _parse_cc_addresses(cc_addresses_raw)
+            bcc_addresses = _parse_bcc_addresses(bcc_addresses_raw)
         except ValueError as exc:
             return StartConversationResult(
                 kind="error",
@@ -496,6 +519,7 @@ def start_new_conversation(
                 person_channel_id=selected_person_channel.id if selected_person_channel else None,
                 subject=subject.strip() if subject and channel_enum == ChannelType.email else None,
                 cc_addresses=cc_addresses,
+                bcc_addresses=bcc_addresses,
                 body=body,
                 attachments=new_attachments or None,
                 whatsapp_template_name=template_name,

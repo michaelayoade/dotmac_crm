@@ -5,13 +5,26 @@ from __future__ import annotations
 import json
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.services.ai.client import AIClientError
+from app.services.ai.data_health import (
+    ALERT_SNOOZE_HOURS_ALLOWED,
+    acknowledge_risk_alerts,
+    build_data_health_baseline_snapshot,
+    compute_effective_risk_alerts,
+    compute_risk_inventory_deltas,
+    get_data_health_report,
+    get_data_health_trend,
+    get_latest_data_health_baseline_snapshot,
+    get_previous_data_health_baseline_snapshot,
+    persist_data_health_baseline_snapshot,
+    snooze_risk_alerts,
+)
 from app.services.ai.engine import intelligence_engine
 from app.services.ai.insights import ai_insights
 from app.services.ai.personas import persona_registry
@@ -252,3 +265,142 @@ def acknowledge_insight(
 
     redirect_to = next or f"/admin/intelligence/insights/{insight_id}"
     return RedirectResponse(url=redirect_to, status_code=303)
+
+
+@router.post("/insights/{insight_id}/action")
+def action_insight(
+    request: Request,
+    insight_id: str,
+    next: str | None = None,
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not _can_reports_ops(user):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+    person_id = str(user.get("person_id") or "").strip() or None
+    ai_insights.action(db, insight_id, person_id=person_id)
+    redirect_to = next or f"/admin/intelligence/insights/{insight_id}"
+    return RedirectResponse(url=redirect_to, status_code=303)
+
+
+@router.post("/insights/{insight_id}/expire")
+def expire_insight(
+    request: Request,
+    insight_id: str,
+    next: str | None = None,
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not _can_reports_ops(user):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+    ai_insights.expire(db, insight_id)
+    redirect_to = next or f"/admin/intelligence/insights/{insight_id}"
+    return RedirectResponse(url=redirect_to, status_code=303)
+
+
+@router.get("/readiness", response_class=HTMLResponse)
+def readiness_dashboard(
+    request: Request,
+    sample_limit: int = 20,
+    days: int = 14,
+    persona_key: str | None = None,
+    domain: str | None = None,
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not _can_reports_ops(user):
+        return templates.TemplateResponse(
+            "admin/errors/403.html",
+            {
+                "request": request,
+                "current_user": user,
+                "sidebar_stats": get_sidebar_stats(db),
+                "active_page": "ai-readiness",
+            },
+            status_code=403,
+        )
+
+    health = get_data_health_report(db, sample_limit=sample_limit)
+    trend = get_data_health_trend(db, days=days, persona_key=persona_key, domain=domain)
+    baseline_snapshot = get_latest_data_health_baseline_snapshot(db)
+    previous_baseline_snapshot = get_previous_data_health_baseline_snapshot(db)
+    risk_deltas = compute_risk_inventory_deltas(baseline_snapshot, previous_baseline_snapshot)
+    risk_alerts = compute_effective_risk_alerts(
+        db,
+        latest_snapshot=baseline_snapshot,
+        previous_snapshot=previous_baseline_snapshot,
+    )
+
+    return templates.TemplateResponse(
+        "admin/intelligence/readiness.html",
+        {
+            "request": request,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "ai-readiness",
+            "health": health,
+            "trend": trend,
+            "baseline_snapshot": baseline_snapshot,
+            "previous_baseline_snapshot": previous_baseline_snapshot,
+            "risk_deltas": risk_deltas,
+            "risk_alerts": risk_alerts,
+            "personas": sorted(persona_registry.list_all(), key=lambda p: p.name.lower()),
+            "filters": {
+                "sample_limit": max(1, min(int(sample_limit), 100)),
+                "days": max(1, min(int(days), 90)),
+                "persona_key": persona_key or "",
+                "domain": domain or "",
+            },
+            "alert_status": request.query_params.get("alert_status", "").strip(),
+        },
+    )
+
+
+@router.post("/readiness/capture-baseline")
+def readiness_capture_baseline(
+    request: Request,
+    sample_limit: int = Form(20),
+    trend_days: int = Form(14),
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not _can_reports_ops(user):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+    snapshot = build_data_health_baseline_snapshot(db, sample_limit=sample_limit, trend_days=trend_days)
+    persist_data_health_baseline_snapshot(db, snapshot)
+    return RedirectResponse(
+        url="/admin/intelligence/readiness?baseline_status=captured",
+        status_code=303,
+    )
+
+
+@router.post("/readiness/alerts/ack")
+def readiness_ack_alerts(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not _can_reports_ops(user):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+    actor_person_id = str(user.get("person_id") or "").strip() or None
+    acknowledge_risk_alerts(db, actor_person_id=actor_person_id)
+    return RedirectResponse(url="/admin/intelligence/readiness?alert_status=acknowledged", status_code=303)
+
+
+@router.post("/readiness/alerts/snooze")
+def readiness_snooze_alerts(
+    request: Request,
+    hours: int = Form(24),
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request)
+    if not _can_reports_ops(user):
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+    if int(hours) not in ALERT_SNOOZE_HOURS_ALLOWED:
+        return RedirectResponse(url="/admin/intelligence/readiness?alert_status=invalid_snooze", status_code=303)
+    actor_person_id = str(user.get("person_id") or "").strip() or None
+    snooze_risk_alerts(db, hours=hours, actor_person_id=actor_person_id)
+    return RedirectResponse(url="/admin/intelligence/readiness?alert_status=snoozed", status_code=303)

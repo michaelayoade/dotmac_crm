@@ -19,6 +19,7 @@ from app.schemas.crm.inbox import EmailWebhookPayload
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox.context import get_inbox_logger
+from app.services.crm.inbox.conversation_status import reopen_snooze_on_next_reply
 from app.services.crm.inbox.handlers.base import (
     InboundDuplicateResult,
     InboundHandler,
@@ -231,6 +232,9 @@ class EmailHandler(InboundHandler):
         elif not conversation.is_active:
             conversation.is_active = True
             apply_status_transition(conversation, ConversationStatus.open)
+            db.commit()
+            db.refresh(conversation)
+        elif reopen_snooze_on_next_reply(conversation):
             db.commit()
             db.refresh(conversation)
         elif conversation.status != ConversationStatus.open:

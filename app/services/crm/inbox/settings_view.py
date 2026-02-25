@@ -20,6 +20,7 @@ from app.services.crm.inbox.inboxes import (
     get_whatsapp_channel_state,
     list_channel_targets,
 )
+from app.services.crm.inbox.labels import list_managed_labels
 from app.services.crm.inbox.macros import conversation_macros
 from app.services.crm.inbox.meta_status import get_meta_connection_status
 from app.services.crm.inbox.permissions import (
@@ -77,6 +78,9 @@ def build_inbox_settings_context(
     macro_setup = query_params.get("macro_setup")
     macro_error = query_params.get("macro_error")
     macro_error_detail = query_params.get("macro_error_detail")
+    label_setup = query_params.get("label_setup")
+    label_error = query_params.get("label_error")
+    label_error_detail = query_params.get("label_error_detail")
 
     meta_setup = query_params.get("meta_setup")
     meta_error = query_params.get("meta_error")
@@ -242,4 +246,8 @@ def build_inbox_settings_context(
         "macro_setup": macro_setup,
         "macro_error": macro_error,
         "macro_error_detail": macro_error_detail,
+        "conversation_labels": list_managed_labels(db),
+        "label_setup": label_setup,
+        "label_error": label_error,
+        "label_error_detail": label_error_detail,
     }

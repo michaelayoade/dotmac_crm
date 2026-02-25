@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.services.crm.inbox.csat import update_inbox_toggle
+from app.services.crm.inbox.labels import create_or_reactivate_label, delete_label, update_label
+from app.services.crm.inbox.permissions import can_manage_inbox_settings
 from app.services.crm.inbox.settings_admin import (
     bulk_update_agents,
     create_agent,
@@ -510,6 +512,82 @@ async def delete_inbox_routing_rule(
     detail = quote(result.error_detail or "Failed to delete routing rule", safe="")
     return RedirectResponse(
         url=f"/admin/crm/inbox/settings?routing_error=1&routing_error_detail={detail}",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/labels", response_class=HTMLResponse)
+async def create_inbox_label(
+    request: Request,
+    name: str = Form(...),
+    color: str = Form("slate"),
+    db: Session = Depends(get_db),
+):
+    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
+        detail = quote("Not authorized to manage labels", safe="")
+        return RedirectResponse(
+            url=f"/admin/crm/inbox/settings?label_error=1&label_error_detail={detail}",
+            status_code=303,
+        )
+    result = create_or_reactivate_label(db, name=name, color=color)
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?label_setup=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to save label", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?label_error=1&label_error_detail={detail}",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/labels/{label_id}", response_class=HTMLResponse)
+async def update_inbox_label(
+    request: Request,
+    label_id: str,
+    name: str = Form(...),
+    color: str = Form("slate"),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
+        detail = quote("Not authorized to manage labels", safe="")
+        return RedirectResponse(
+            url=f"/admin/crm/inbox/settings?label_error=1&label_error_detail={detail}",
+            status_code=303,
+        )
+    result = update_label(
+        db,
+        label_id=label_id,
+        name=name,
+        color=color,
+        is_active=bool(is_active),
+    )
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?label_setup=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to update label", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?label_error=1&label_error_detail={detail}",
+        status_code=303,
+    )
+
+
+@router.post("/inbox/labels/{label_id}/delete", response_class=HTMLResponse)
+async def delete_inbox_label(
+    request: Request,
+    label_id: str,
+    db: Session = Depends(get_db),
+):
+    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
+        detail = quote("Not authorized to manage labels", safe="")
+        return RedirectResponse(
+            url=f"/admin/crm/inbox/settings?label_error=1&label_error_detail={detail}",
+            status_code=303,
+        )
+    result = delete_label(db, label_id=label_id)
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?label_setup=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to delete label", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?label_error=1&label_error_detail={detail}",
         status_code=303,
     )
 

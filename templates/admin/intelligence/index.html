@@ -107,7 +107,7 @@
                         <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Persona</th>
                         <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
                         <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Entity</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ack</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
@@ -137,11 +137,27 @@
                         <td class="px-4 py-3 text-sm whitespace-nowrap">
                             {% if it.status and it.status.value == 'acknowledged' %}
                                 <span class="text-xs text-slate-500 dark:text-slate-400">Acknowledged</span>
+                                <form method="post" action="/admin/intelligence/insights/{{ it.id }}/action?next=/admin/intelligence/insights" class="inline ml-1">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                    <button class="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                        Action
+                                    </button>
+                                </form>
+                            {% elif it.status and it.status.value == 'actioned' %}
+                                <span class="text-xs text-emerald-700 dark:text-emerald-300">Actioned</span>
+                            {% elif it.status and it.status.value == 'expired' %}
+                                <span class="text-xs text-slate-500 dark:text-slate-400">Expired</span>
                             {% else %}
                                 <form method="post" action="/admin/intelligence/insights/{{ it.id }}/acknowledge?next=/admin/intelligence/insights" class="inline">
                                     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                                     <button class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
                                         Ack
+                                    </button>
+                                </form>
+                                <form method="post" action="/admin/intelligence/insights/{{ it.id }}/expire?next=/admin/intelligence/insights" class="inline ml-1">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                                    <button class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                        Expire
                                     </button>
                                 </form>
                             {% endif %}

@@ -764,6 +764,13 @@ def build_beat_schedule() -> dict:
             enabled=ai_enabled and intelligence_enabled,
             interval_seconds=86400,
         )
+        _sync_scheduled_task(
+            session,
+            name="intelligence_data_health_baseline",
+            task_name="app.tasks.intelligence.capture_data_health_baseline",
+            enabled=ai_enabled and intelligence_enabled,
+            interval_seconds=86400,
+        )
 
         tasks = session.query(ScheduledTask).filter(ScheduledTask.enabled.is_(True)).all()
         for task in tasks:

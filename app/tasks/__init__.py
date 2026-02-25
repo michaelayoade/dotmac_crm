@@ -36,7 +36,12 @@ from app.tasks.integrations import (
     sync_dotmac_erp_technicians,
     sync_material_request_to_erp,
 )
-from app.tasks.intelligence import expire_stale_insights, invoke_persona_async, run_scheduled_analysis
+from app.tasks.intelligence import (
+    capture_data_health_baseline,
+    expire_stale_insights,
+    invoke_persona_async,
+    run_scheduled_analysis,
+)
 from app.tasks.notifications import deliver_notification_queue
 from app.tasks.oauth import check_token_health, refresh_expiring_tokens
 from app.tasks.performance import compute_weekly_scores, generate_flagged_reviews, update_goal_progress
@@ -58,6 +63,7 @@ from app.tasks.workflow import detect_sla_breaches
 
 __all__ = [
     "aggregate_bandwidth_to_metrics",
+    "capture_data_health_baseline",
     "check_token_health",
     "cleanup_bandwidth_hot_data",
     "cleanup_old_outbox_task",

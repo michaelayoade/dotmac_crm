@@ -23,6 +23,7 @@ class InboxSendRequest(BaseModel):
     whatsapp_template_components: list[dict] | None = None
     subject: str | None = Field(default=None, max_length=200)
     cc_addresses: list[EmailStr] | None = Field(default=None, max_length=MAX_CC_ADDRESSES)
+    bcc_addresses: list[EmailStr] | None = Field(default=None, max_length=MAX_CC_ADDRESSES)
     body: str | None = None
     scheduled_at: datetime | None = None
     personalization: dict | None = None

@@ -6,10 +6,10 @@ import uuid
 from datetime import UTC, datetime, time
 from decimal import Decimal
 from typing import Literal
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -709,6 +709,7 @@ async def inbox(
     agent_id: str | None = None,
     assigned_from: str | None = None,
     assigned_to: str | None = None,
+    saved_filter_id: str | None = None,
     offset: int | None = None,
     limit: int | None = None,
     page: int | None = None,
@@ -718,6 +719,24 @@ async def inbox(
 
     current_user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
+    query_params_map = {k: str(v) for k, v in request.query_params.items()}
+    person_id_raw = (current_user.get("person_id") or "").strip() if current_user else ""
+    saved_filters: list[dict] = []
+    if person_id_raw:
+        from app.services.crm.inbox import saved_filters as saved_filters_service
+
+        person_uuid = coerce_uuid(person_id_raw)
+        saved_filters = saved_filters_service.list_saved_filters(db, person_uuid)
+        if saved_filter_id and not saved_filters_service.has_managed_params(query_params_map):
+            saved = saved_filters_service.get_saved_filter(db, person_uuid, saved_filter_id)
+            if saved and isinstance(saved.get("params"), dict):
+                merged = saved_filters_service.merge_query_with_saved_filter(
+                    query_params_map,
+                    saved["params"],
+                )
+                merged["saved_filter_id"] = str(saved_filter_id)
+                return RedirectResponse(url=f"/admin/crm/inbox?{urlencode(merged)}", status_code=303)
+
     safe_limit = max(int(limit or 150), 1)
     safe_page = max(int(page or 1), 1)
     safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
@@ -748,6 +767,8 @@ async def inbox(
         "admin/crm/inbox.html",
         {
             "request": request,
+            "saved_filters": saved_filters,
+            "current_saved_filter_id": saved_filter_id or "",
             **context,
         },
     )

@@ -42,6 +42,7 @@ from app.models.crm import (  # noqa: F401
     ChannelType,
     Conversation,
     ConversationAssignment,
+    ConversationLabel,
     ConversationStatus,
     ConversationTag,
     CrmAgent,

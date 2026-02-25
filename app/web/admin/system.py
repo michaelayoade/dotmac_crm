@@ -1,16 +1,19 @@
 """Admin system management web routes."""
 
 import contextlib
+import csv
 import html
+import io
 import json
 import logging
 import secrets
 from datetime import UTC, datetime
 from typing import Any, cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy import or_
@@ -26,9 +29,10 @@ from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.projects import Project, ProjectComment, ProjectTask, ProjectTaskComment, TaskStatus
 from app.models.rbac import Permission, PersonRole, Role, RolePermission
+from app.models.service_team import ServiceTeam
 from app.models.tickets import Ticket, TicketComment, TicketStatus
 from app.models.webhook import WebhookDelivery, WebhookDeliveryStatus, WebhookEndpoint
-from app.models.workflow import WorkflowEntityType
+from app.models.workflow import TicketAssignmentStrategy, WorkflowEntityType
 from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote, WorkOrderStatus
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.crm.campaign_sender import CampaignSenderCreate, CampaignSenderUpdate
@@ -47,6 +51,10 @@ from app.schemas.workflow import (
     ProjectTaskStatusTransitionCreate,
     SlaPolicyCreate,
     SlaTargetCreate,
+    TicketAssignmentRuleCreate,
+    TicketAssignmentRuleReorderRequest,
+    TicketAssignmentRuleTestRequest,
+    TicketAssignmentRuleUpdate,
     TicketStatusTransitionCreate,
     WorkOrderStatusTransitionCreate,
 )
@@ -514,7 +522,7 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
 
         section_map: OrderedDict[str, list[dict]] = OrderedDict()
         unsectioned: list[dict] = []
-        for spec, setting_dict in zip(domain_specs, settings):
+        for spec, setting_dict in zip(domain_specs, settings, strict=False):
             if spec.section:
                 section_map.setdefault(spec.section, []).append(setting_dict)
             else:
@@ -981,6 +989,58 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
         limit=200,
         offset=0,
     )
+    ticket_assignment_rules = workflow_service.ticket_assignment_rules.list(
+        db=db,
+        strategy=None,
+        is_active=None,
+        order_by="priority",
+        order_dir="desc",
+        limit=200,
+        offset=0,
+    )
+    assignment_teams = (
+        db.query(ServiceTeam)
+        .filter(ServiceTeam.is_active.is_(True))
+        .order_by(ServiceTeam.name.asc())
+        .all()
+    )
+    auto_assignment_enabled = _form_bool(
+        settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_auto_assignment_enabled")
+    )
+    auto_assignment_require_presence = _form_bool(
+        settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_auto_assign_require_presence")
+    )
+    auto_assignment_max_open_raw = settings_spec.resolve_value(
+        db, SettingDomain.workflow, "ticket_auto_assign_max_open_tickets"
+    )
+    auto_assignment_max_open_tickets: int | None = None
+    if isinstance(auto_assignment_max_open_raw, int):
+        auto_assignment_max_open_tickets = auto_assignment_max_open_raw
+    elif isinstance(auto_assignment_max_open_raw, str):
+        try:
+            parsed = int(auto_assignment_max_open_raw.strip())
+            auto_assignment_max_open_tickets = parsed if parsed >= 0 else None
+        except ValueError:
+            auto_assignment_max_open_tickets = None
+    report_start_raw = (request.query_params.get("report_start") or "").strip()
+    report_end_raw = (request.query_params.get("report_end") or "").strip()
+
+    def _parse_iso_datetime(value: str) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    report_start = _parse_iso_datetime(report_start_raw)
+    report_end = _parse_iso_datetime(report_end_raw)
+    report_filter_error = None
+    if report_start_raw and report_start is None:
+        report_filter_error = "Invalid report_start format. Use ISO datetime, e.g. 2026-02-01T00:00:00+00:00."
+    elif report_end_raw and report_end is None:
+        report_filter_error = "Invalid report_end format. Use ISO datetime, e.g. 2026-02-25T23:59:59+00:00."
+    sla_report_summary = workflow_service.sla_reports.summary(db, report_start, report_end)
     context: dict[str, object] = {
         "request": request,
         "active_page": "workflow",
@@ -992,11 +1052,32 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
         "ticket_transitions": ticket_transitions,
         "work_order_transitions": work_order_transitions,
         "project_task_transitions": project_task_transitions,
+        "ticket_assignment_rules": ticket_assignment_rules,
+        "assignment_teams": assignment_teams,
+        "assignment_strategies": [item.value for item in TicketAssignmentStrategy],
+        "ticket_auto_assignment_enabled": auto_assignment_enabled,
+        "ticket_auto_assign_require_presence": auto_assignment_require_presence,
+        "ticket_auto_assign_max_open_tickets": auto_assignment_max_open_tickets,
         "workflow_entities": [item.value for item in WorkflowEntityType],
         "ticket_statuses": [item.value for item in TicketStatus],
         "work_order_statuses": [item.value for item in WorkOrderStatus],
         "task_statuses": [item.value for item in TaskStatus],
+        "sla_report_summary": sla_report_summary,
+        "sla_report_start": report_start_raw,
+        "sla_report_end": report_end_raw,
+        "sla_report_filter_error": report_filter_error,
     }
+    test_rule_id = (request.query_params.get("test_rule_id") or "").strip()
+    test_ticket_id = (request.query_params.get("test_ticket_id") or "").strip()
+    if test_rule_id and test_ticket_id:
+        context["test_result"] = {
+            "rule_id": test_rule_id,
+            "ticket_id": test_ticket_id,
+            "matched": _form_bool(request.query_params.get("test_matched")),
+            "reason": (request.query_params.get("test_reason") or "").strip() or "unknown",
+            "candidate_count": request.query_params.get("test_candidates") or "0",
+            "preview_assignee_person_id": (request.query_params.get("test_preview_assignee") or "").strip() or None,
+        }
     if error:
         context["error"] = error
     return context
@@ -3046,6 +3127,121 @@ def workflow_overview(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/system/workflow.html", context)
 
 
+@router.get(
+    "/workflow/sla-reports/export",
+    dependencies=[Depends(require_permission("system:settings:read"))],
+)
+def workflow_sla_report_export_csv(
+    report_start: str | None = None,
+    report_end: str | None = None,
+    db: Session = Depends(get_db),
+):
+    def _parse_iso_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.strip())
+        except ValueError:
+            return None
+
+    start_dt = _parse_iso_datetime(report_start)
+    end_dt = _parse_iso_datetime(report_end)
+    if report_start and start_dt is None:
+        return Response(
+            "Invalid report_start format. Use ISO datetime, e.g. 2026-02-01T00:00:00+00:00.",
+            status_code=400,
+            media_type="text/plain",
+        )
+    if report_end and end_dt is None:
+        return Response(
+            "Invalid report_end format. Use ISO datetime, e.g. 2026-02-25T23:59:59+00:00.",
+            status_code=400,
+            media_type="text/plain",
+        )
+
+    summary = workflow_service.sla_reports.summary(db, start_dt, end_dt)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "section",
+            "key",
+            "total",
+            "breached",
+            "breach_rate",
+            "window_start",
+            "window_end",
+        ]
+    )
+    writer.writerow(
+        [
+            "overall",
+            "all",
+            summary.get("total_clocks", 0),
+            summary.get("total_breaches", 0),
+            summary.get("breach_rate", 0.0),
+            report_start or "",
+            report_end or "",
+        ]
+    )
+    for section, items in (
+        ("by_entity_type", summary.get("by_entity_type", [])),
+        ("by_status", summary.get("by_status", [])),
+        ("ticket_by_service_team", summary.get("ticket_by_service_team", [])),
+        ("ticket_by_assignee", summary.get("ticket_by_assignee", [])),
+    ):
+        for item in items:
+            writer.writerow(
+                [
+                    section,
+                    item.get("key", ""),
+                    item.get("total", 0),
+                    item.get("breached", 0),
+                    item.get("breach_rate", 0.0),
+                    report_start or "",
+                    report_end or "",
+                ]
+            )
+
+    filename = "sla_report_summary.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(output.getvalue(), media_type="text/csv", headers=headers)
+
+
+@router.get(
+    "/workflow/sla-reports/trend",
+    response_class=JSONResponse,
+    dependencies=[Depends(require_permission("system:settings:read"))],
+)
+def workflow_sla_report_trend(
+    report_start: str | None = None,
+    report_end: str | None = None,
+    db: Session = Depends(get_db),
+):
+    def _parse_iso_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.strip())
+        except ValueError:
+            return None
+
+    start_dt = _parse_iso_datetime(report_start)
+    end_dt = _parse_iso_datetime(report_end)
+    if report_start and start_dt is None:
+        return JSONResponse(
+            {"error": "Invalid report_start format", "points": []},
+            status_code=400,
+        )
+    if report_end and end_dt is None:
+        return JSONResponse(
+            {"error": "Invalid report_end format", "points": []},
+            status_code=400,
+        )
+    points = workflow_service.sla_reports.trend_daily(db, start_dt, end_dt)
+    return {"points": points}
+
+
 @router.post(
     "/workflow/policies",
     response_class=HTMLResponse,
@@ -3165,6 +3361,267 @@ async def workflow_project_task_transition_create(request: Request, db: Session 
         error = exc.detail if hasattr(exc, "detail") else str(exc)
         context = _workflow_context(request, db, error or "Unable to create project task transition.")
         return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/ticket-assignment-settings",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_ticket_assignment_settings_update(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(SettingDomain.workflow)
+        if not service:
+            raise ValueError("Workflow settings service not configured.")
+
+        enabled_value = _form_bool(form.get("ticket_auto_assignment_enabled"))
+        require_presence_value = _form_bool(form.get("ticket_auto_assign_require_presence"))
+        max_open_raw = _form_str(form.get("ticket_auto_assign_max_open_tickets")).strip()
+
+        enabled_spec = settings_spec.get_spec(SettingDomain.workflow, "ticket_auto_assignment_enabled")
+        presence_spec = settings_spec.get_spec(SettingDomain.workflow, "ticket_auto_assign_require_presence")
+        max_open_spec = settings_spec.get_spec(SettingDomain.workflow, "ticket_auto_assign_max_open_tickets")
+        if not enabled_spec or not presence_spec or not max_open_spec:
+            raise ValueError("Workflow setting specification is missing.")
+
+        enabled_text, enabled_json = settings_spec.normalize_for_db(enabled_spec, enabled_value)
+        service.upsert_by_key(
+            db,
+            enabled_spec.key,
+            DomainSettingUpdate(
+                value_type=enabled_spec.value_type,
+                value_text=enabled_text,
+                value_json=cast(Any, enabled_json),
+                is_secret=enabled_spec.is_secret,
+                is_active=True,
+            ),
+        )
+
+        presence_text, presence_json = settings_spec.normalize_for_db(presence_spec, require_presence_value)
+        service.upsert_by_key(
+            db,
+            presence_spec.key,
+            DomainSettingUpdate(
+                value_type=presence_spec.value_type,
+                value_text=presence_text,
+                value_json=cast(Any, presence_json),
+                is_secret=presence_spec.is_secret,
+                is_active=True,
+            ),
+        )
+
+        if max_open_raw:
+            try:
+                max_open_value = int(max_open_raw)
+            except ValueError as exc:
+                raise ValueError("Max open tickets must be an integer.") from exc
+            if max_open_value < 0:
+                raise ValueError("Max open tickets must be 0 or greater.")
+            max_open_text, max_open_json = settings_spec.normalize_for_db(max_open_spec, max_open_value)
+        else:
+            # Store empty text; resolver falls back to default(None) for invalid integer raw.
+            max_open_text, max_open_json = "", None
+        service.upsert_by_key(
+            db,
+            max_open_spec.key,
+            DomainSettingUpdate(
+                value_type=max_open_spec.value_type,
+                value_text=max_open_text,
+                value_json=cast(Any, max_open_json),
+                is_secret=max_open_spec.is_secret,
+                is_active=True,
+            ),
+        )
+
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+        context = _workflow_context(request, db, error or "Unable to update ticket assignment settings.")
+        return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/ticket-assignment-rules",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_ticket_assignment_rule_create(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        match_config_raw = _form_str_opt(form.get("match_config"))
+        match_config = None
+        if match_config_raw:
+            try:
+                parsed = json.loads(match_config_raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError("Match config must be valid JSON.") from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("Match config must be a JSON object.")
+            match_config = parsed
+
+        priority_raw = _form_str(form.get("priority")).strip()
+        priority = int(priority_raw) if priority_raw else 0
+        team_id_raw = _form_str_opt(form.get("team_id"))
+        payload = TicketAssignmentRuleCreate(
+            name=_form_str(form.get("name")).strip(),
+            priority=priority,
+            is_active=_form_bool(form.get("is_active")),
+            match_config=match_config,
+            strategy=TicketAssignmentStrategy(_form_str(form.get("strategy")).strip() or "round_robin"),
+            team_id=coerce_uuid(team_id_raw) if team_id_raw else None,
+            assign_manager=_form_bool(form.get("assign_manager")),
+            assign_spc=_form_bool(form.get("assign_spc")),
+        )
+        workflow_service.ticket_assignment_rules.create(db=db, payload=payload)
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+        context = _workflow_context(request, db, error or "Unable to create ticket assignment rule.")
+        return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/ticket-assignment-rules/{rule_id}/update",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_ticket_assignment_rule_update(rule_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        existing = workflow_service.ticket_assignment_rules.get(db=db, rule_id=rule_id)
+        match_config_raw = _form_str_opt(form.get("match_config"))
+        match_config = existing.match_config
+        if match_config_raw:
+            try:
+                parsed = json.loads(match_config_raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError("Match config must be valid JSON.") from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("Match config must be a JSON object.")
+            match_config = parsed
+        if match_config_raw == "":
+            match_config = None
+        priority_raw = _form_str(form.get("priority")).strip()
+        team_id_raw = _form_str_opt(form.get("team_id"))
+        strategy_raw = _form_str_opt(form.get("strategy"))
+        is_active = existing.is_active
+        assign_manager = existing.assign_manager
+        assign_spc = existing.assign_spc
+        if "is_active" in form:
+            is_active = _form_bool(form.get("is_active"))
+        if "assign_manager" in form:
+            assign_manager = _form_bool(form.get("assign_manager"))
+        if "assign_spc" in form:
+            assign_spc = _form_bool(form.get("assign_spc"))
+        payload = TicketAssignmentRuleUpdate(
+            name=(_form_str(form.get("name")).strip() or existing.name),
+            priority=int(priority_raw) if priority_raw else None,
+            is_active=is_active,
+            match_config=match_config,
+            strategy=TicketAssignmentStrategy(strategy_raw.strip()) if strategy_raw else existing.strategy,
+            team_id=coerce_uuid(team_id_raw) if team_id_raw else None,
+            assign_manager=assign_manager,
+            assign_spc=assign_spc,
+        )
+        workflow_service.ticket_assignment_rules.update(db=db, rule_id=rule_id, payload=payload)
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+        context = _workflow_context(request, db, error or "Unable to update ticket assignment rule.")
+        return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/ticket-assignment-rules/{rule_id}/move",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_ticket_assignment_rule_move(rule_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    direction = (_form_str(form.get("direction")) or "up").strip().lower()
+    rules = workflow_service.ticket_assignment_rules.list(
+        db=db,
+        strategy=None,
+        is_active=True,
+        order_by="priority",
+        order_dir="desc",
+        limit=500,
+        offset=0,
+    )
+    ids = [str(item.id) for item in rules]
+    if rule_id not in ids:
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    idx = ids.index(rule_id)
+    swap_idx = idx - 1 if direction == "up" else idx + 1
+    if swap_idx < 0 or swap_idx >= len(ids):
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    ids[idx], ids[swap_idx] = ids[swap_idx], ids[idx]
+    workflow_service.ticket_assignment_rules.reorder(
+        db=db,
+        payload=TicketAssignmentRuleReorderRequest(rule_ids=[coerce_uuid(item) for item in ids]),
+    )
+    return RedirectResponse(url="/admin/system/workflow", status_code=303)
+
+
+@router.post(
+    "/workflow/ticket-assignment-rules/reorder",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_ticket_assignment_rule_reorder(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    raw_ids = [value for value in form.getlist("rule_ids[]") if _form_str(value).strip()]
+    if not raw_ids:
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    workflow_service.ticket_assignment_rules.reorder(
+        db=db,
+        payload=TicketAssignmentRuleReorderRequest(rule_ids=[coerce_uuid(_form_str(item).strip()) for item in raw_ids]),
+    )
+    return RedirectResponse(url="/admin/system/workflow", status_code=303)
+
+
+@router.post(
+    "/workflow/ticket-assignment-rules/{rule_id}/test",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_ticket_assignment_rule_test(rule_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        ticket_ref_raw = _form_str(form.get("ticket_ref")).strip()
+        if not ticket_ref_raw:
+            raise ValueError("Ticket reference is required.")
+        result = workflow_service.ticket_assignment_rules.test_rule(
+            db=db,
+            rule_id=rule_id,
+            payload=TicketAssignmentRuleTestRequest(ticket_ref=ticket_ref_raw),
+        )
+        query = urlencode(
+            {
+                "test_rule_id": str(result["rule_id"]),
+                "test_ticket_id": str(result["ticket_id"]),
+                "test_matched": "1" if result["matched"] else "0",
+                "test_reason": str(result["reason"]),
+                "test_candidates": str(result["candidate_count"]),
+                "test_preview_assignee": str(result["preview_assignee_person_id"] or ""),
+            }
+        )
+        return RedirectResponse(url=f"/admin/system/workflow?{query}", status_code=303)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+        context = _workflow_context(request, db, error or "Unable to test ticket assignment rule.")
+        return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/ticket-assignment-rules/{rule_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def workflow_ticket_assignment_rule_delete(rule_id: str, db: Session = Depends(get_db)):
+    workflow_service.ticket_assignment_rules.delete(db=db, rule_id=rule_id)
+    return RedirectResponse(url="/admin/system/workflow", status_code=303)
 
 
 @router.get(
