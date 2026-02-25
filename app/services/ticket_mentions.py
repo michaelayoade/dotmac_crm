@@ -6,10 +6,10 @@ import logging
 
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger(__name__)
-
 from app.services.agent_mentions import list_active_users_for_mentions, resolve_mentioned_person_ids
 from app.services.common import coerce_uuid
+
+logger = logging.getLogger(__name__)
 
 
 def list_ticket_mention_users(db: Session, *, limit: int = 200) -> list[dict]:

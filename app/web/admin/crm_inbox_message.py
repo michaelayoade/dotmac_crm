@@ -4,8 +4,6 @@ import logging
 import uuid
 from urllib.parse import quote
 
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -18,6 +16,8 @@ from app.services.crm.inbox.formatting import (
     format_conversation_for_template,
     format_message_for_template,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")

@@ -7,14 +7,14 @@ from typing import cast
 
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger(__name__)
-
 from app.logic.private_note_logic import Visibility
 from app.services.crm import conversation as conversation_service
 from app.services.crm import private_notes as private_notes_service
 from app.services.crm.inbox.attachments_processing import apply_message_attachments
 from app.services.crm.inbox.audit import log_note_action
 from app.services.crm.inbox.permissions import can_manage_private_notes
+
+logger = logging.getLogger(__name__)
 
 
 def create_private_note(
