@@ -297,7 +297,7 @@ class ChatWidgetConfigManager:
     @staticmethod
     def generate_embed_code(config: ChatWidgetConfig, base_url: str) -> str:
         """Generate the HTML embed code for the widget."""
-        script_url = f"{base_url.rstrip('/')}/static/js/chat-widget.js"
+        script_url = f"{base_url.rstrip('/')}/static/js/chat-widget.js?v=20260224-2"
         return f"""<!-- DotMac Chat Widget -->
 <script>
   window.DotMacChatWidgetConfig = {{

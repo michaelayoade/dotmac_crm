@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.logic.private_note_logic import Visibility
 from app.services.crm import conversation as conversation_service
@@ -91,9 +94,8 @@ def create_private_note_with_attachments(
                     mentioned_agent_ids=list(mentions),
                     actor_person_id=author_id,
                 )
-        except Exception:
-            # Mentions should never break note creation.
-            pass
+        except Exception:  # nosec B110 — mentions should never break note creation
+            logger.debug("private_note_mention_notification_failed")
     return note
 
 

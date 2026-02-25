@@ -1,9 +1,11 @@
 """Admin vendor portal web routes."""
 
+import json
 import os
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.parse import quote as urlquote
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -16,16 +18,25 @@ from app.models.auth import AuthProvider, UserCredential
 from app.models.person import Person, PersonStatus
 from app.models.projects import Project
 from app.models.rbac import PersonRole, Role
-from app.models.vendor import InstallationProject, ProjectQuoteStatus, ProposedRouteRevision, Vendor, VendorUser
+from app.models.vendor import (
+    InstallationProject,
+    InstallationProjectNote,
+    ProjectQuoteStatus,
+    ProposedRouteRevision,
+    Vendor,
+    VendorUser,
+)
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.person import PersonCreate
 from app.schemas.rbac import PersonRoleCreate
-from app.schemas.vendor import VendorCreate, VendorUpdate
+from app.schemas.vendor import InstallationProjectNoteCreate, VendorCreate, VendorUpdate
 from app.services import auth as auth_service
 from app.services import person as person_service
 from app.services import rbac as rbac_service
 from app.services import vendor as vendor_service
+from app.services.agent_mentions import list_active_users_for_mentions, notify_agent_mentions
 from app.services.audit_helpers import recent_activity_for_paths
+from app.services.auth_dependencies import require_permission
 from app.services.auth_flow import hash_password
 from app.services.common import coerce_uuid
 
@@ -88,6 +99,108 @@ def _is_admin_user(request: Request) -> bool:
         return False
     role_names = {str(role).strip().lower() for role in roles if role}
     return "admin" in role_names or "superadmin" in role_names
+
+
+def _safe_quote_redirect_target(redirect_to: str | None) -> str | None:
+    if not redirect_to:
+        return None
+    target = str(redirect_to).strip()
+    if not target or "://" in target or target.startswith("//"):
+        return None
+    if not target.startswith("/admin/vendors/quotes"):
+        return None
+    return target
+
+
+def _append_query_param(url: str, key: str, value: str) -> str:
+    parts = urlsplit(url)
+    query_pairs = parse_qsl(parts.query, keep_blank_values=True)
+    query_pairs.append((key, value))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query_pairs), parts.fragment))
+
+
+async def _collect_attachment_uploads(
+    request: Request,
+    attachments: list[UploadFile] | None,
+) -> list[UploadFile]:
+    uploads: list[UploadFile] = []
+    if attachments:
+        uploads.extend(attachments)
+    try:
+        form = await request.form()
+        uploads.extend([item for item in form.getlist("attachments") if isinstance(item, UploadFile)])
+    except Exception:
+        pass
+    deduped: list[UploadFile] = []
+    seen: set[tuple[str, int]] = set()
+    for item in uploads:
+        name = getattr(item, "filename", "") or ""
+        file_obj = getattr(item, "file", None)
+        marker = (name, id(file_obj) if file_obj is not None else id(item))
+        if marker in seen:
+            continue
+        seen.add(marker)
+        if name:
+            deduped.append(item)
+    return deduped
+
+
+def _person_label(person: Person) -> str:
+    label = (person.display_name or "").strip()
+    if label:
+        return label
+    name = f"{(person.first_name or '').strip()} {(person.last_name or '').strip()}".strip()
+    if name:
+        return name
+    return person.email
+
+
+def _build_quote_comments(
+    db: Session,
+    quote_ids: set[str],
+    installation_project_ids: set[object],
+) -> dict[str, list[dict[str, object]]]:
+    comments_by_quote: dict[str, list[dict[str, object]]] = {quote_id: [] for quote_id in quote_ids}
+    if not quote_ids or not installation_project_ids:
+        return comments_by_quote
+
+    notes = (
+        db.query(InstallationProjectNote)
+        .filter(InstallationProjectNote.project_id.in_(installation_project_ids))
+        .filter(InstallationProjectNote.is_internal.is_(True))
+        .order_by(InstallationProjectNote.created_at.desc())
+        .all()
+    )
+    if not notes:
+        return comments_by_quote
+
+    author_ids = {note.author_person_id for note in notes if note.author_person_id}
+    author_labels: dict[object, str] = {}
+    if author_ids:
+        people = db.query(Person).filter(Person.id.in_(author_ids)).all()
+        author_labels = {person.id: _person_label(person) for person in people}
+
+    for note in notes:
+        parsed = vendor_service.parse_quote_comment_body(note.body or "")
+        comment_quote_id = str(parsed.get("quote_id") or "").lower()
+        if not comment_quote_id or comment_quote_id not in comments_by_quote:
+            continue
+        comments_by_quote[comment_quote_id].append(
+            {
+                "id": str(note.id),
+                "body": str(parsed.get("body") or "").strip(),
+                "action": str(parsed.get("action") or "").strip().lower() or None,
+                "created_at": note.created_at.isoformat() if note.created_at else None,
+                "author": author_labels.get(note.author_person_id) if note.author_person_id else None,
+                "attachments": (
+                    [item for item in note.attachments if isinstance(item, dict)]
+                    if isinstance(note.attachments, list)
+                    else ([note.attachments] if isinstance(note.attachments, dict) else [])
+                ),
+            }
+        )
+
+    return comments_by_quote
 
 
 def _create_person_credential(
@@ -524,7 +637,11 @@ def vendor_projects_list(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/vendors/projects/index.html", context)
 
 
-@router.get("/quotes", response_class=HTMLResponse)
+@router.get(
+    "/quotes",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:read"))],
+)
 def vendor_quotes_list(
     request: Request,
     db: Session = Depends(get_db),
@@ -563,6 +680,7 @@ def vendor_quotes_list(
             for installation_project_id, project_name, project_code in project_rows
         }
     quote_ids = [quote.id for quote in quotes]
+    quote_id_set = {str(quote_id).lower() for quote_id in quote_ids}
     route_revisions_by_quote: dict[object, list[ProposedRouteRevision]] = {quote_id: [] for quote_id in quote_ids}
     if quote_ids:
         revisions = (
@@ -573,6 +691,11 @@ def vendor_quotes_list(
         )
         for revision in revisions:
             route_revisions_by_quote.setdefault(revision.quote_id, []).append(revision)
+    quote_comments_by_quote = _build_quote_comments(
+        db,
+        quote_ids=quote_id_set,
+        installation_project_ids=installation_project_ids,
+    )
     context = _base_context(request, db, active_page="vendor-quotes")
     context.update(
         {
@@ -584,28 +707,300 @@ def vendor_quotes_list(
             "quote_error_detail": quote_error_detail,
             "route_error_detail": route_error_detail,
             "route_revisions_by_quote": route_revisions_by_quote,
+            "quote_comments_by_quote": quote_comments_by_quote,
         }
     )
     return templates.TemplateResponse("admin/vendors/quotes/review.html", context)
 
 
-@router.post("/quotes/{quote_id}/approve", response_class=HTMLResponse)
+@router.get(
+    "/quotes/{quote_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:read"))],
+)
+def vendor_quote_detail(
+    quote_id: str,
+    request: Request,
+    quote_action: str | None = None,
+    quote_error_detail: str | None = None,
+    quote_comment_error: str | None = None,
+    db: Session = Depends(get_db),
+):
+    quote = vendor_service.project_quotes.get(db, quote_id)
+    line_items = vendor_service.quote_line_items.list(
+        db,
+        quote_id=quote_id,
+        is_active=True,
+        order_by="created_at",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+    route_revisions = vendor_service.proposed_route_revisions.list(
+        db,
+        quote_id=quote_id,
+        status=None,
+        order_by="revision_number",
+        order_dir="desc",
+        limit=100,
+        offset=0,
+    )
+
+    project_label = str(quote.project_id)
+    if quote.project_id:
+        project_row = (
+            db.query(Project.name, Project.code)
+            .join(InstallationProject, InstallationProject.project_id == Project.id)
+            .filter(InstallationProject.id == quote.project_id)
+            .first()
+        )
+        if project_row:
+            project_label = f"{project_row.name} ({project_row.code})" if project_row.code else project_row.name
+
+    vendor_label = str(quote.vendor_id)
+    if quote.vendor_id:
+        vendor_row = db.query(Vendor.name).filter(Vendor.id == quote.vendor_id).first()
+        if vendor_row and vendor_row.name:
+            vendor_label = vendor_row.name
+    quote_comments = _build_quote_comments(
+        db,
+        quote_ids={str(quote.id).lower()},
+        installation_project_ids={quote.project_id},
+    ).get(str(quote.id).lower(), [])
+    mention_agents = list_active_users_for_mentions(db)
+
+    reviewer_label: str | None = None
+    if quote.reviewed_by:
+        reviewer_label = (quote.reviewed_by.display_name or "").strip()
+        if not reviewer_label:
+            first = (quote.reviewed_by.first_name or "").strip()
+            last = (quote.reviewed_by.last_name or "").strip()
+            reviewer_label = f"{first} {last}".strip()
+        if not reviewer_label:
+            reviewer_label = quote.reviewed_by.email
+
+    context = _base_context(request, db, active_page="vendor-quotes")
+    context.update(
+        {
+            "quote": quote,
+            "project_label": project_label,
+            "vendor_label": vendor_label,
+            "line_items": line_items,
+            "route_revisions": route_revisions,
+            "reviewer_label": reviewer_label,
+            "quote_action": quote_action,
+            "quote_error_detail": quote_error_detail,
+            "quote_comment_error": quote_comment_error,
+            "quote_comments": quote_comments,
+            "mention_agents": mention_agents,
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/quotes/detail.html", context)
+
+
+@router.post(
+    "/quotes/{quote_id}/comments",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+async def vendor_quote_add_comment(
+    quote_id: str,
+    request: Request,
+    body: str | None = Form(None),
+    mentions: str | None = Form(None),
+    attachments: list[UploadFile] = File(default_factory=list),
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    from app.services import ticket_attachments as ticket_attachment_service
+
+    success_redirect = _safe_quote_redirect_target(redirect_to) or f"/admin/vendors/quotes/{quote_id}"
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing commenter identity.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_comment_error", detail),
+            status_code=303,
+        )
+
+    quote = vendor_service.project_quotes.get(db, quote_id)
+    comment_body = (body or "").strip()
+    if not comment_body:
+        detail = urlquote("Comment body is required.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_comment_error", detail),
+            status_code=303,
+        )
+
+    upload_list = await _collect_attachment_uploads(request, attachments)
+    prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
+    try:
+        saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
+        note_body = vendor_service.build_quote_review_comment(str(quote.id), comment_body, "comment")
+        vendor_service.installation_project_notes.create(
+            db,
+            payload=InstallationProjectNoteCreate(
+                project_id=quote.project_id,
+                author_person_id=coerce_uuid(reviewer_person_id),
+                body=note_body,
+                is_internal=True,
+                attachments=saved_attachments or None,
+            ),
+        )
+    except Exception:
+        ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
+        raise
+
+    if mentions:
+        try:
+            parsed = json.loads(mentions)
+            mentioned_agent_ids = parsed if isinstance(parsed, list) else []
+            preview = comment_body if len(comment_body) <= 140 else f"{comment_body[:137].rstrip()}..."
+            notify_agent_mentions(
+                db,
+                mentioned_agent_ids=list(mentioned_agent_ids),
+                actor_person_id=reviewer_person_id,
+                payload={
+                    "kind": "mention",
+                    "title": "Mentioned in vendor quote",
+                    "subtitle": f"Quote {str(quote.id)[:8]}",
+                    "preview": preview,
+                    "target_url": f"/admin/vendors/quotes/{quote.id}",
+                    "quote_id": str(quote.id),
+                },
+            )
+        except Exception:
+            pass
+
+    return RedirectResponse(url=_append_query_param(success_redirect, "quote_action", "commented"), status_code=303)
+
+
+@router.post(
+    "/quotes/{quote_id}/comments/{comment_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+async def vendor_quote_edit_comment(
+    quote_id: str,
+    comment_id: str,
+    request: Request,
+    body: str | None = Form(None),
+    mentions: str | None = Form(None),
+    attachments: list[UploadFile] = File(default_factory=list),
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    from app.services import ticket_attachments as ticket_attachment_service
+
+    success_redirect = _safe_quote_redirect_target(redirect_to) or f"/admin/vendors/quotes/{quote_id}"
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing editor identity.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_comment_error", detail),
+            status_code=303,
+        )
+    comment_body = (body or "").strip()
+    if not comment_body:
+        detail = urlquote("Comment body is required.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_comment_error", detail),
+            status_code=303,
+        )
+
+    quote = vendor_service.project_quotes.get(db, quote_id)
+    note = db.get(InstallationProjectNote, coerce_uuid(comment_id))
+    if not note or str(note.project_id) != str(quote.project_id):
+        detail = urlquote("Comment not found.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_comment_error", detail),
+            status_code=303,
+        )
+
+    parsed_existing = vendor_service.parse_quote_comment_body(note.body or "")
+    if str(parsed_existing.get("quote_id") or "").lower() != str(quote.id).lower():
+        detail = urlquote("Comment does not belong to this quote.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_comment_error", detail),
+            status_code=303,
+        )
+    if str(parsed_existing.get("action") or "").lower() not in {"", "comment"}:
+        detail = urlquote("Only quote comments can be edited.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_comment_error", detail),
+            status_code=303,
+        )
+
+    upload_list = await _collect_attachment_uploads(request, attachments)
+    prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
+    try:
+        saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
+        if isinstance(note.attachments, list):
+            existing_attachments = [item for item in note.attachments if isinstance(item, dict)]
+        elif isinstance(note.attachments, dict):
+            existing_attachments = [note.attachments]
+        else:
+            existing_attachments = []
+        note.attachments = existing_attachments + (saved_attachments or [])
+        note.body = vendor_service.build_quote_review_comment(str(quote.id), comment_body, "comment")
+        db.commit()
+    except Exception:
+        db.rollback()
+        ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
+        raise
+
+    if mentions:
+        try:
+            parsed = json.loads(mentions)
+            mentioned_agent_ids = parsed if isinstance(parsed, list) else []
+            preview = comment_body if len(comment_body) <= 140 else f"{comment_body[:137].rstrip()}..."
+            notify_agent_mentions(
+                db,
+                mentioned_agent_ids=list(mentioned_agent_ids),
+                actor_person_id=reviewer_person_id,
+                payload={
+                    "kind": "mention",
+                    "title": "Mentioned in vendor quote",
+                    "subtitle": f"Quote {str(quote.id)[:8]}",
+                    "preview": preview,
+                    "target_url": f"/admin/vendors/quotes/{quote.id}",
+                    "quote_id": str(quote.id),
+                },
+            )
+        except Exception:
+            pass
+    return RedirectResponse(url=_append_query_param(success_redirect, "quote_action", "commented"), status_code=303)
+
+
+@router.post(
+    "/quotes/{quote_id}/approve",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
 def vendor_quote_approve(
     quote_id: str,
     request: Request,
     review_notes: str | None = Form(None),
     override_threshold: str | None = Form(None),
+    redirect_to: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    success_redirect = _safe_quote_redirect_target(redirect_to) or "/admin/vendors/quotes"
     reviewer_person_id = _current_person_id(request)
     if not reviewer_person_id:
         detail = urlquote("Missing reviewer identity.", safe="")
-        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_error_detail", detail),
+            status_code=303,
+        )
 
     quote = vendor_service.project_quotes.get(db, quote_id)
     if quote.status not in {ProjectQuoteStatus.submitted, ProjectQuoteStatus.under_review}:
         detail = urlquote("Only submitted quotes can be approved.", safe="")
-        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_error_detail", detail),
+            status_code=303,
+        )
 
     try:
         override_approval_threshold = bool(override_threshold) or _is_admin_user(request)
@@ -618,27 +1013,42 @@ def vendor_quote_approve(
         )
     except HTTPException as exc:
         detail = urlquote(str(exc.detail or "Failed to approve quote."), safe="")
-        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_error_detail", detail),
+            status_code=303,
+        )
 
-    return RedirectResponse(url="/admin/vendors/quotes?quote_action=approved", status_code=303)
+    return RedirectResponse(url=_append_query_param(success_redirect, "quote_action", "approved"), status_code=303)
 
 
-@router.post("/quotes/{quote_id}/reject", response_class=HTMLResponse)
+@router.post(
+    "/quotes/{quote_id}/reject",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
 def vendor_quote_reject(
     quote_id: str,
     request: Request,
     review_notes: str | None = Form(None),
+    redirect_to: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    success_redirect = _safe_quote_redirect_target(redirect_to) or "/admin/vendors/quotes"
     reviewer_person_id = _current_person_id(request)
     if not reviewer_person_id:
         detail = urlquote("Missing reviewer identity.", safe="")
-        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_error_detail", detail),
+            status_code=303,
+        )
 
     quote = vendor_service.project_quotes.get(db, quote_id)
     if quote.status not in {ProjectQuoteStatus.submitted, ProjectQuoteStatus.under_review}:
         detail = urlquote("Only submitted quotes can be rejected.", safe="")
-        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_error_detail", detail),
+            status_code=303,
+        )
 
     try:
         vendor_service.project_quotes.reject(
@@ -649,12 +1059,19 @@ def vendor_quote_reject(
         )
     except HTTPException as exc:
         detail = urlquote(str(exc.detail or "Failed to reject quote."), safe="")
-        return RedirectResponse(url=f"/admin/vendors/quotes?quote_error_detail={detail}", status_code=303)
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "quote_error_detail", detail),
+            status_code=303,
+        )
 
-    return RedirectResponse(url="/admin/vendors/quotes?quote_action=rejected", status_code=303)
+    return RedirectResponse(url=_append_query_param(success_redirect, "quote_action", "rejected"), status_code=303)
 
 
-@router.post("/quotes/{quote_id}/route-revisions/{revision_id}/approve", response_class=HTMLResponse)
+@router.post(
+    "/quotes/{quote_id}/route-revisions/{revision_id}/approve",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
 def vendor_route_revision_approve(
     quote_id: str,
     revision_id: str,
@@ -686,7 +1103,11 @@ def vendor_route_revision_approve(
     return RedirectResponse(url="/admin/vendors/quotes?route_action=approved", status_code=303)
 
 
-@router.post("/quotes/{quote_id}/route-revisions/{revision_id}/reject", response_class=HTMLResponse)
+@router.post(
+    "/quotes/{quote_id}/route-revisions/{revision_id}/reject",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
 def vendor_route_revision_reject(
     quote_id: str,
     revision_id: str,
@@ -718,7 +1139,11 @@ def vendor_route_revision_reject(
     return RedirectResponse(url="/admin/vendors/quotes?route_action=rejected", status_code=303)
 
 
-@router.get("/quotes/{quote_id}/route-revisions/{revision_id}/view", response_class=HTMLResponse)
+@router.get(
+    "/quotes/{quote_id}/route-revisions/{revision_id}/view",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:read"))],
+)
 def vendor_route_revision_view(
     quote_id: str,
     revision_id: str,

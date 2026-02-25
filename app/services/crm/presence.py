@@ -282,7 +282,8 @@ class AgentPresenceManager(ListResponseMixin):
         presence.location_sharing_enabled = bool(sharing_enabled)
 
         if sharing_enabled:
-            assert lat is not None and lng is not None
+            if lat is None or lng is None:
+                raise ValueError("lat and lng are required when location sharing is enabled")
             ping = AgentLocationPing(
                 agent_id=coerce_uuid(agent_id),
                 latitude=lat,

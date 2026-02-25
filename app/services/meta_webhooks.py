@@ -166,6 +166,89 @@ def _fetch_profile_name(
         return None
 
 
+def _normalize_meta_message_attachments(raw_attachments: object) -> list[dict]:
+    """Normalize Meta attachment payloads to a list format used by inbox metadata."""
+    if isinstance(raw_attachments, list):
+        return [item for item in raw_attachments if isinstance(item, dict)]
+    if not isinstance(raw_attachments, dict):
+        return []
+    data = raw_attachments.get("data")
+    if not isinstance(data, list):
+        return []
+
+    normalized: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        payload: dict = {}
+        image_data = item.get("image_data") if isinstance(item.get("image_data"), dict) else {}
+        video_data = item.get("video_data") if isinstance(item.get("video_data"), dict) else {}
+        if image_data.get("url"):
+            payload["url"] = image_data.get("url")
+        elif video_data.get("url"):
+            payload["url"] = video_data.get("url")
+        elif item.get("file_url"):
+            payload["url"] = item.get("file_url")
+        elif item.get("url"):
+            payload["url"] = item.get("url")
+
+        attachment_type = item.get("type")
+        if not attachment_type:
+            if image_data:
+                attachment_type = "image"
+            elif video_data:
+                attachment_type = "video"
+            elif payload.get("url"):
+                attachment_type = "file"
+
+        normalized_item: dict = {}
+        if attachment_type:
+            normalized_item["type"] = attachment_type
+        if payload:
+            normalized_item["payload"] = payload
+            if payload.get("url"):
+                normalized_item["url"] = payload.get("url")
+        if item.get("id"):
+            normalized_item["id"] = item.get("id")
+        if item.get("title"):
+            normalized_item["title"] = item.get("title")
+        if normalized_item:
+            normalized.append(normalized_item)
+    return normalized
+
+
+def _fetch_instagram_message_attachments(
+    access_token: str | None,
+    message_id: str | None,
+    base_url: str,
+) -> list[dict]:
+    """Fetch Instagram message details and extract attachment URLs."""
+    if not access_token or not message_id:
+        return []
+    try:
+        with httpx.Client(timeout=8) as client:
+            response = client.get(
+                f"{base_url.rstrip('/')}/{message_id}",
+                params={
+                    "fields": "id,attachments{type,payload,url,title,image_data,video_data,file_url}",
+                    "access_token": access_token,
+                },
+            )
+        if response.status_code >= 400:
+            logger.debug(
+                "instagram_message_lookup_failed message_id=%s status=%s body=%s",
+                message_id,
+                response.status_code,
+                response.text,
+            )
+            return []
+        data = response.json()
+        return _normalize_meta_message_attachments(data.get("attachments"))
+    except Exception as exc:
+        logger.debug("instagram_message_lookup_exception message_id=%s error=%s", message_id, exc)
+        return []
+
+
 def _coerce_identity_dict(value: object) -> dict:
     if value is None:
         return {}
@@ -771,7 +854,15 @@ def process_instagram_webhook(
             message = messaging_event.message
             sender = messaging_event.sender or {}
 
-            attachments = message.get("attachments", [])
+            attachments = _normalize_meta_message_attachments(message.get("attachments"))
+            if not attachments:
+                fetched_attachments = _fetch_instagram_message_attachments(
+                    ig_token,
+                    message.get("mid"),
+                    base_url,
+                )
+                if fetched_attachments:
+                    attachments = fetched_attachments
             logger.info(
                 "instagram_webhook_message_keys message_id=%s keys=%s attachments_count=%s",
                 message.get("mid"),

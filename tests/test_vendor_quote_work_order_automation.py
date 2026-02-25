@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
@@ -219,3 +220,94 @@ def test_quote_submit_requires_non_empty_line_item_description(db_session, proje
 
     assert exc.value.status_code == 400
     assert "missing description" in str(exc.value.detail).lower()
+
+
+def test_vendor_quote_set_vat_rate_recalculates_totals(db_session, project):
+    vendor = vendor_service.vendors.create(db_session, VendorCreate(name="Acme Vendor"))
+    installation_project = vendor_service.installation_projects.create(
+        db_session,
+        InstallationProjectCreate(
+            project_id=project.id,
+            assigned_vendor_id=vendor.id,
+        ),
+    )
+    quote = vendor_service.project_quotes.create(
+        db_session,
+        ProjectQuoteCreate(project_id=installation_project.id),
+        vendor_id=str(vendor.id),
+        created_by_person_id=None,
+    )
+    vendor_service.quote_line_items.create(
+        db_session,
+        QuoteLineItemCreate(
+            quote_id=quote.id,
+            description="Drop cable",
+            quantity=Decimal("2"),
+            unit_price=Decimal("100.00"),
+        ),
+        vendor_id=str(vendor.id),
+    )
+
+    quote = vendor_service.project_quotes.set_vat_rate(db_session, str(quote.id), str(vendor.id), Decimal("7.5"))
+
+    assert quote.vat_rate_percent == Decimal("7.50")
+    assert quote.subtotal == Decimal("200.00")
+    assert quote.tax_total == Decimal("15.00")
+    assert quote.total == Decimal("215.00")
+
+
+def test_vendor_quote_line_item_changes_recalculate_vat_total(db_session, project):
+    vendor = vendor_service.vendors.create(db_session, VendorCreate(name="Acme Vendor"))
+    installation_project = vendor_service.installation_projects.create(
+        db_session,
+        InstallationProjectCreate(
+            project_id=project.id,
+            assigned_vendor_id=vendor.id,
+        ),
+    )
+    quote = vendor_service.project_quotes.create(
+        db_session,
+        ProjectQuoteCreate(project_id=installation_project.id),
+        vendor_id=str(vendor.id),
+        created_by_person_id=None,
+    )
+    quote = vendor_service.project_quotes.set_vat_rate(db_session, str(quote.id), str(vendor.id), Decimal("7.5"))
+
+    vendor_service.quote_line_items.create(
+        db_session,
+        QuoteLineItemCreate(
+            quote_id=quote.id,
+            description="Drop cable",
+            quantity=Decimal("1"),
+            unit_price=Decimal("200.00"),
+        ),
+        vendor_id=str(vendor.id),
+    )
+
+    refreshed = vendor_service.project_quotes.get(db_session, str(quote.id))
+    assert refreshed.subtotal == Decimal("200.00")
+    assert refreshed.tax_total == Decimal("15.00")
+    assert refreshed.total == Decimal("215.00")
+
+
+def test_vendor_quote_set_vat_rate_rejects_out_of_range(db_session, project):
+    vendor = vendor_service.vendors.create(db_session, VendorCreate(name="Acme Vendor"))
+    installation_project = vendor_service.installation_projects.create(
+        db_session,
+        InstallationProjectCreate(
+            project_id=project.id,
+            assigned_vendor_id=vendor.id,
+        ),
+    )
+    quote = vendor_service.project_quotes.create(
+        db_session,
+        ProjectQuoteCreate(project_id=installation_project.id),
+        vendor_id=str(vendor.id),
+        created_by_person_id=None,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        vendor_service.project_quotes.set_vat_rate(db_session, str(quote.id), str(vendor.id), Decimal("150"))
+
+    assert exc.value.status_code == 400
+    assert "between 0 and 100" in str(exc.value.detail)

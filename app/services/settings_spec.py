@@ -22,6 +22,8 @@ class SettingSpec(ListResponseMixin):
     min_value: int | None = None
     max_value: int | None = None
     is_secret: bool = False
+    section: str | None = None
+    help_text: str | None = None
 
 
 SETTINGS_SPECS: list[SettingSpec] = [
@@ -2211,7 +2213,6 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=None,
         label="Default TR-069 ACS Server ID",
     ),
-    # ============== Integration Domain: DotMac ERP Sync ==============
     # ============== Integration Domain: Splynx Customer Sync ==============
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2220,6 +2221,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.boolean,
         default=False,
         label="Enable Splynx Customer Sync",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2229,6 +2231,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default="basic",
         allowed={"basic"},
         label="Splynx Auth Type",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2237,6 +2240,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default=None,
         label="Splynx Base URL",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2245,6 +2249,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default=None,
         label="Splynx Customer Endpoint URL",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2253,6 +2258,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default=None,
         label="Splynx Invoice Endpoint URL",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2262,6 +2268,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=None,
         is_secret=True,
         label="Splynx Basic Auth Token (base64)",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2272,6 +2279,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         min_value=5,
         max_value=120,
         label="Splynx Request Timeout (seconds)",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2279,7 +2287,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="SPLYNX_SUBSCRIBER_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
         default=False,
-        label="Enable Splynx Subscriber Reconciliation Sync",
+        label="Enable Subscriber Reconciliation Sync",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2290,6 +2299,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         min_value=1,
         max_value=168,
         label="Splynx Subscriber Sync Interval (hours)",
+        section="Splynx",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2298,6 +2308,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.boolean,
         default=False,
         label="Enable DotMac ERP Sync",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2305,7 +2316,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="DOTMAC_ERP_BASE_URL",
         value_type=SettingValueType.string,
         default=None,
-        label="DotMac ERP Base URL",
+        label="Base URL",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2314,7 +2326,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default=None,
         is_secret=True,
-        label="DotMac ERP API Token",
+        label="API Token",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2324,7 +2337,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=30,
         min_value=5,
         max_value=120,
-        label="DotMac ERP Request Timeout (seconds)",
+        label="Request Timeout (seconds)",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2333,16 +2347,18 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.integer,
         default=60,
         min_value=5,
-        label="DotMac ERP Sync Interval (minutes)",
+        label="Sync Interval (minutes)",
+        section="DotMac ERP",
     ),
-    # ============== Integration Domain: DotMac ERP Inventory Sync ==============
+    # ---- ERP Inventory Sync ----
     SettingSpec(
         domain=SettingDomain.integration,
         key="dotmac_erp_inventory_sync_enabled",
         env_var="DOTMAC_ERP_INVENTORY_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
         default=False,
-        label="Enable ERP Inventory Sync",
+        label="Enable Inventory Sync",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2352,15 +2368,17 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=120,
         min_value=5,
         label="Inventory Sync Interval (minutes)",
+        section="DotMac ERP",
     ),
-    # ============== Integration Domain: DotMac ERP Shift Sync ==============
+    # ---- ERP Shift Sync ----
     SettingSpec(
         domain=SettingDomain.integration,
         key="dotmac_erp_shift_sync_enabled",
         env_var="DOTMAC_ERP_SHIFT_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
         default=False,
-        label="Enable DotMac ERP Shift Sync",
+        label="Enable Shift Sync",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2369,7 +2387,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.integer,
         default=60,
         min_value=5,
-        label="DotMac ERP Shift Sync Interval (minutes)",
+        label="Shift Sync Interval (minutes)",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2379,6 +2398,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=14,
         min_value=1,
         label="Shift Sync Days Ahead",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2388,15 +2408,17 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=30,
         min_value=1,
         label="Time-Off Sync Days Ahead",
+        section="DotMac ERP",
     ),
-    # ============== Integration Domain: DotMac ERP Technician Sync ==============
+    # ---- ERP Technician Sync ----
     SettingSpec(
         domain=SettingDomain.integration,
         key="dotmac_erp_technician_sync_enabled",
         env_var="DOTMAC_ERP_TECHNICIAN_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
         default=False,
-        label="Enable ERP Technician Sync",
+        label="Enable Technician Sync",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2406,6 +2428,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=60,
         min_value=5,
         label="Technician Sync Interval (minutes)",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2413,7 +2436,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="DOTMAC_ERP_TECHNICIAN_SYNC_DEPARTMENT",
         value_type=SettingValueType.string,
         default="Projects",
-        label="Technician Department Name (ERP)",
+        label="Technician Department Name",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2422,16 +2446,19 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default=None,
         is_secret=True,
-        label="DotMac ERP HR API Key (optional, for technician title/designation sync)",
+        label="HR API Key",
+        section="DotMac ERP",
+        help_text="Optional. Used for technician title/designation sync.",
     ),
-    # ============== Integration Domain: DotMac ERP CRM Agent Sync ==============
+    # ---- ERP CRM Agent Sync ----
     SettingSpec(
         domain=SettingDomain.integration,
         key="dotmac_erp_agent_sync_enabled",
         env_var="DOTMAC_ERP_AGENT_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
         default=False,
-        label="Enable ERP CRM Agent Sync",
+        label="Enable CRM Agent Sync",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2440,7 +2467,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.integer,
         default=60,
         min_value=5,
-        label="CRM Agent Sync Interval (minutes)",
+        label="Agent Sync Interval (minutes)",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2448,16 +2476,18 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="DOTMAC_ERP_AGENT_SYNC_DEPARTMENT",
         value_type=SettingValueType.string,
         default="Customer Experience",
-        label="CRM Agent Department Name (ERP)",
+        label="Agent Department Name",
+        section="DotMac ERP",
     ),
-    # ============== Integration Domain: DotMac ERP Contact Sync ==============
+    # ---- ERP Contact Sync ----
     SettingSpec(
         domain=SettingDomain.integration,
         key="dotmac_erp_contact_sync_enabled",
         env_var="DOTMAC_ERP_CONTACT_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
         default=False,
-        label="Enable ERP Contact Sync",
+        label="Enable Contact Sync",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2467,15 +2497,17 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=60,
         min_value=5,
         label="Contact Sync Interval (minutes)",
+        section="DotMac ERP",
     ),
-    # ============== Integration Domain: DotMac ERP Team Sync ==============
+    # ---- ERP Team Sync ----
     SettingSpec(
         domain=SettingDomain.integration,
         key="dotmac_erp_team_sync_enabled",
         env_var="DOTMAC_ERP_TEAM_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
         default=False,
-        label="Enable ERP Team Sync",
+        label="Enable Team Sync",
+        section="DotMac ERP",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2485,6 +2517,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=60,
         min_value=5,
         label="Team Sync Interval (minutes)",
+        section="DotMac ERP",
     ),
     # ============== Integration Domain: Chatwoot CRM Sync ==============
     SettingSpec(
@@ -2494,6 +2527,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.boolean,
         default=False,
         label="Enable Chatwoot CRM Sync",
+        section="Chatwoot",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2501,7 +2535,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="CHATWOOT_BASE_URL",
         value_type=SettingValueType.string,
         default=None,
-        label="Chatwoot Base URL",
+        label="Base URL",
+        section="Chatwoot",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2510,7 +2545,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default=None,
         is_secret=True,
-        label="Chatwoot Access Token",
+        label="Access Token",
+        section="Chatwoot",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2519,7 +2555,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.integer,
         default=1,
         min_value=1,
-        label="Chatwoot Account ID",
+        label="Account ID",
+        section="Chatwoot",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2528,7 +2565,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.integer,
         default=60,
         min_value=5,
-        label="Chatwoot Sync Interval (minutes)",
+        label="Sync Interval (minutes)",
+        section="Chatwoot",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2537,9 +2575,10 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.integer,
         default=5000,
         min_value=100,
-        label="Chatwoot Max Conversations per Sync",
+        label="Max Conversations per Sync",
+        section="Chatwoot",
     ),
-    # ============== Integration Domain: LLM Provider ==============
+    # ============== Integration Domain: AI & Intelligence ==============
     SettingSpec(
         domain=SettingDomain.integration,
         key="llm_provider",
@@ -2548,6 +2587,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default="vllm",
         allowed={"vllm"},
         label="LLM Provider",
+        section="AI & Intelligence",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2556,6 +2596,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.boolean,
         default=False,
         label="Enable AI Features",
+        section="AI & Intelligence",
+        help_text="Master switch for all AI-powered features (reply suggestions, summaries, etc.).",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2564,6 +2606,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.boolean,
         default=False,
         label="Enable Intelligence Engine (Scheduled)",
+        section="AI & Intelligence",
+        help_text="Runs AI analysis on a schedule. Requires AI Features to be enabled.",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2571,7 +2615,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="INTELLIGENCE_TICKET_ANALYST_ENABLED",
         value_type=SettingValueType.boolean,
         default=True,
-        label="Enable Ticket Analyst Persona",
+        label="Ticket Analyst",
+        section="AI Personas",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2579,7 +2624,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="INTELLIGENCE_PROJECT_ADVISOR_ENABLED",
         value_type=SettingValueType.boolean,
         default=True,
-        label="Enable Project Advisor Persona",
+        label="Project Advisor",
+        section="AI Personas",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2587,7 +2633,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="INTELLIGENCE_INBOX_ANALYST_ENABLED",
         value_type=SettingValueType.boolean,
         default=True,
-        label="Enable Inbox Analyst Persona",
+        label="Inbox Analyst",
+        section="AI Personas",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2595,7 +2642,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="INTELLIGENCE_CAMPAIGN_OPTIMIZER_ENABLED",
         value_type=SettingValueType.boolean,
         default=True,
-        label="Enable Campaign Optimizer Persona",
+        label="Campaign Optimizer",
+        section="AI Personas",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2603,7 +2651,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="INTELLIGENCE_DISPATCH_PLANNER_ENABLED",
         value_type=SettingValueType.boolean,
         default=True,
-        label="Enable Dispatch Planner Persona",
+        label="Dispatch Planner",
+        section="AI Personas",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2611,7 +2660,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="INTELLIGENCE_VENDOR_ANALYST_ENABLED",
         value_type=SettingValueType.boolean,
         default=True,
-        label="Enable Vendor Analyst Persona",
+        label="Vendor Analyst",
+        section="AI Personas",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2619,7 +2669,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="INTELLIGENCE_PERFORMANCE_COACH_ENABLED",
         value_type=SettingValueType.boolean,
         default=True,
-        label="Enable Performance Coach Persona",
+        label="Performance Coach",
+        section="AI Personas",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2627,7 +2678,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="INTELLIGENCE_CUSTOMER_SUCCESS_ENABLED",
         value_type=SettingValueType.boolean,
         default=True,
-        label="Enable Customer Success Persona",
+        label="Customer Success",
+        section="AI Personas",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2637,7 +2689,9 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=0,
         min_value=0,
         max_value=10000000,
-        label="Intelligence Daily Token Budget (0=unlimited)",
+        label="Daily Token Budget",
+        section="AI & Intelligence",
+        help_text="Set to 0 for unlimited. Controls total LLM tokens consumed per day.",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2647,15 +2701,18 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=50,
         min_value=1,
         max_value=500,
-        label="Intelligence Max Insights per Scheduled Run",
+        label="Max Insights per Scheduled Run",
+        section="AI & Intelligence",
     ),
+    # ============== Integration Domain: LLM Primary ==============
     SettingSpec(
         domain=SettingDomain.integration,
         key="vllm_label",
         env_var="VLLM_LABEL",
         value_type=SettingValueType.string,
         default="primary",
-        label="LLM Label (Primary)",
+        label="Label",
+        section="LLM Primary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2663,7 +2720,9 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="VLLM_BASE_URL",
         value_type=SettingValueType.string,
         default=None,
-        label="vLLM Base URL",
+        label="Base URL",
+        section="LLM Primary",
+        help_text="OpenAI-compatible endpoint. e.g. https://api.deepseek.com",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2671,7 +2730,9 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="VLLM_MODEL",
         value_type=SettingValueType.string,
         default=None,
-        label="vLLM Model",
+        label="Model",
+        section="LLM Primary",
+        help_text="Model identifier. e.g. deepseek-chat, gpt-4o",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2680,7 +2741,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default=None,
         is_secret=True,
-        label="vLLM API Key (Optional)",
+        label="API Key",
+        section="LLM Primary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2688,7 +2750,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="VLLM_REQUIRE_API_KEY",
         value_type=SettingValueType.boolean,
         default=False,
-        label="vLLM Require API Key",
+        label="Require API Key",
+        section="LLM Primary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2698,7 +2761,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=30,
         min_value=1,
         max_value=300,
-        label="vLLM Timeout (seconds)",
+        label="Timeout (seconds)",
+        section="LLM Primary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2708,7 +2772,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=2,
         min_value=0,
         max_value=10,
-        label="vLLM Max Retries",
+        label="Max Retries",
+        section="LLM Primary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2718,15 +2783,18 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=2048,
         min_value=1,
         max_value=16384,
-        label="vLLM Max Tokens",
+        label="Max Tokens",
+        section="LLM Primary",
     ),
+    # ============== Integration Domain: LLM Secondary (Failover) ==============
     SettingSpec(
         domain=SettingDomain.integration,
         key="vllm_secondary_label",
         env_var="VLLM_SECONDARY_LABEL",
         value_type=SettingValueType.string,
         default="secondary",
-        label="LLM Label (Secondary)",
+        label="Label",
+        section="LLM Secondary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2734,7 +2802,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="VLLM_SECONDARY_BASE_URL",
         value_type=SettingValueType.string,
         default=None,
-        label="vLLM Secondary Base URL",
+        label="Base URL",
+        section="LLM Secondary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2742,7 +2811,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="VLLM_SECONDARY_MODEL",
         value_type=SettingValueType.string,
         default=None,
-        label="vLLM Secondary Model",
+        label="Model",
+        section="LLM Secondary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2751,7 +2821,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default=None,
         is_secret=True,
-        label="vLLM Secondary API Key (Optional)",
+        label="API Key",
+        section="LLM Secondary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2759,7 +2830,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="VLLM_SECONDARY_REQUIRE_API_KEY",
         value_type=SettingValueType.boolean,
         default=False,
-        label="vLLM Secondary Require API Key",
+        label="Require API Key",
+        section="LLM Secondary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2769,7 +2841,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=30,
         min_value=1,
         max_value=300,
-        label="vLLM Secondary Timeout (seconds)",
+        label="Timeout (seconds)",
+        section="LLM Secondary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2779,7 +2852,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=1,
         min_value=0,
         max_value=10,
-        label="vLLM Secondary Max Retries",
+        label="Max Retries",
+        section="LLM Secondary",
     ),
     SettingSpec(
         domain=SettingDomain.integration,
@@ -2789,7 +2863,8 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=2048,
         min_value=1,
         max_value=16384,
-        label="vLLM Secondary Max Tokens",
+        label="Max Tokens",
+        section="LLM Secondary",
     ),
     # ============== Performance Domain ==============
     SettingSpec(

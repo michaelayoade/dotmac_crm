@@ -18,7 +18,7 @@
           x-data="questionBuilder()"
           class="space-y-6">
 
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token(request) if csrf_token is defined else '' }}">
+        {% include "components/forms/csrf_input.html" %}
 
         <!-- Basic Info -->
         <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 space-y-4">
@@ -142,7 +142,7 @@
         <!-- Submit -->
         <div class="flex items-center justify-between">
             <a href="{{ '/admin/surveys/' + survey.id | string if survey else '/admin/surveys' }}" class="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200">Cancel</a>
-            <button type="submit" class="rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-teal-700 transition-colors">
+            <button type="submit" class="rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-medium text-black shadow-sm hover:bg-teal-700 transition-colors">
                 {{ 'Update Survey' if survey else 'Create Survey' }}
             </button>
         </div>

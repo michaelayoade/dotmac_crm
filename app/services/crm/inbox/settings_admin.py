@@ -524,6 +524,7 @@ def update_routing_rule(
     db: Session,
     *,
     rule_id: str,
+    team_id: str,
     channel_type: str,
     keywords: str | None,
     target_id: str | None,
@@ -546,6 +547,7 @@ def update_routing_rule(
             "strategy": (strategy or "round_robin").strip(),
         }
         payload = RoutingRuleUpdate(
+            team_id=coerce_uuid(team_id),
             channel_type=channel_enum,
             rule_config=rule_config,
             is_active=bool(is_active),

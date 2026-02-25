@@ -166,6 +166,7 @@ class ProjectQuote(Base):
     status: Mapped[ProjectQuoteStatus] = mapped_column(Enum(ProjectQuoteStatus), default=ProjectQuoteStatus.draft)
     currency: Mapped[str] = mapped_column(String(3), default="NGN")
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    vat_rate_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     tax_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

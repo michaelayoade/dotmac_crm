@@ -63,7 +63,7 @@ def _notify_ticket_role_assignment_in_app(
             continue
         try:
             person_uuid = coerce_uuid(person_id)
-        except Exception:
+        except (ValueError, AttributeError):
             continue
         if person_uuid not in roles_by_person_id:
             roles_by_person_id[person_uuid] = []

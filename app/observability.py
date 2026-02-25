@@ -68,8 +68,8 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             span = otel_trace.get_current_span()
             if span and span.is_recording():
                 span.set_attribute("app.request_id", request_id)
-        except Exception:
-            pass
+        except Exception:  # nosec B110 — OTel span attribute is best-effort
+            logger.debug("otel_span_attribute_failed")
         token = _extract_bearer_token(request)
         actor_id = getattr(request.state, "actor_id", None) or _extract_actor_id_from_jwt(token)
         start = time.monotonic()

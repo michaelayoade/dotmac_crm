@@ -318,12 +318,25 @@ def _resolve_project_type(value: str | None) -> ProjectType | None:
 
 
 def _find_existing_project_for_quote(db: Session, quote_id) -> Project | None:
-    return (
+    existing = (
         db.query(Project)
         .filter(Project.is_active.is_(True))
-        .filter(cast(Project.metadata_["quote_id"], String) == str(quote_id))
+        .filter(Project.metadata_["quote_id"].as_string() == str(quote_id))
         .first()
     )
+    if existing:
+        return existing
+
+    # SQLite JSON path comparisons are not reliable across SQLAlchemy/SQLite builds.
+    # Fall back to an in-Python metadata check to keep this idempotent in tests/dev.
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "sqlite":
+        rows = db.query(Project).filter(Project.is_active.is_(True)).all()
+        for row in rows:
+            metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+            if str(metadata.get("quote_id")) == str(quote_id):
+                return row
+    return None
 
 
 def _find_template_for_project_type(db: Session, project_type: ProjectType) -> ProjectTemplate | None:
@@ -907,6 +920,7 @@ class Quotes(ListResponseMixin):
         quote = db.get(Quote, coerce_uuid(quote_id))
         if not quote:
             raise HTTPException(status_code=404, detail="Quote not found")
+        previous_status = quote.status
         data = payload.model_dump(exclude_unset=True)
         if "status" in data:
             data["status"] = validate_enum(data["status"], QuoteStatus, "status")
@@ -932,7 +946,8 @@ class Quotes(ListResponseMixin):
         db.refresh(quote)
         if "status" in data:
             _apply_lead_status_from_quote(db, quote, quote.status)
-        if data.get("status") == QuoteStatus.accepted:
+        transitioned_to_accepted = previous_status != QuoteStatus.accepted and quote.status == QuoteStatus.accepted
+        if transitioned_to_accepted:
             from app.services import sales_orders as sales_order_service
 
             sales_order = sales_order_service.sales_orders.create_from_quote(db, str(quote.id))

@@ -75,15 +75,26 @@ def list_inbox_conversations(
         query = query.filter(Conversation.id.in_(subq))
 
     if channel_target_id:
-        try:
-            target_uuid = coerce_uuid(channel_target_id)
-        except Exception:
-            target_uuid = None
-        if target_uuid:
-            target_subq = db.query(Message.conversation_id).filter(Message.channel_target_id == target_uuid)
-            if channel:
-                target_subq = target_subq.filter(Message.channel_type == channel)
-            query = query.filter(Conversation.id.in_(target_subq.distinct()))
+        target_raw = str(channel_target_id).strip()
+        if target_raw.startswith("channel:"):
+            synthetic_channel_name = target_raw.split(":", 1)[1].strip()
+            try:
+                synthetic_channel = ChannelType(synthetic_channel_name)
+            except ValueError:
+                synthetic_channel = None
+            if synthetic_channel:
+                target_subq = db.query(Message.conversation_id).filter(Message.channel_type == synthetic_channel)
+                query = query.filter(Conversation.id.in_(target_subq.distinct()))
+        else:
+            try:
+                target_uuid = coerce_uuid(target_raw)
+            except Exception:
+                target_uuid = None
+            if target_uuid:
+                target_subq = db.query(Message.conversation_id).filter(Message.channel_target_id == target_uuid)
+                if channel:
+                    target_subq = target_subq.filter(Message.channel_type == channel)
+                query = query.filter(Conversation.id.in_(target_subq.distinct()))
 
     assignment_filter = (assignment or "").strip().lower()
     if assignment_filter in ("assigned", "assigned_to_me", "mine"):

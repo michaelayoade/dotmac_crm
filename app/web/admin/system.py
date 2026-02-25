@@ -502,15 +502,34 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
                 "max_value": spec.max_value,
                 "is_secret": spec.is_secret,
                 "required": spec.required,
+                "help_text": spec.help_text,
             }
         )
     settings_by_key = {item["key"]: item for item in settings}
+    # Build sections from specs that have a section field
+    has_sections = any(spec.section for spec in domain_specs)
+    sections: list[dict] = []
+    if has_sections:
+        from collections import OrderedDict
+
+        section_map: OrderedDict[str, list[dict]] = OrderedDict()
+        unsectioned: list[dict] = []
+        for spec, setting_dict in zip(domain_specs, settings):
+            if spec.section:
+                section_map.setdefault(spec.section, []).append(setting_dict)
+            else:
+                unsectioned.append(setting_dict)
+        for title, section_settings in section_map.items():
+            sections.append({"title": title, "settings": section_settings})
+        if unsectioned:
+            sections.append({"title": "Other", "settings": unsectioned})
     context = {
         "domain": selected_domain.value,
         "domains": _settings_domains(),
         "grouped_domains": _grouped_settings_domains(),
-        "settings": settings,
+        "settings": settings if not has_sections else [],
         "settings_by_key": settings_by_key,
+        "sections": sections,
     }
     if selected_domain == SettingDomain.projects:
         from app.services import dispatch as dispatch_service
@@ -3235,6 +3254,7 @@ async def settings_update(
                 errors.append(f"{spec.key}: Settings service not configured.")
                 continue
             raw = form.get(spec.key)
+            raw_is_empty_string = isinstance(raw, str) and raw.strip() == ""
             raw_value = _form_str_opt(raw)
             if spec.is_secret and not raw_value:
                 continue
@@ -3252,7 +3272,10 @@ async def settings_update(
                         continue
             else:
                 if not raw_value:
-                    if spec.value_type == settings_spec.SettingValueType.string:
+                    # Allow explicit empty threshold to mean "no limit".
+                    if spec.key == "vendor_quote_approval_threshold" and raw_is_empty_string:
+                        value = ""
+                    elif spec.value_type == settings_spec.SettingValueType.string:
                         value = cast(SettingValue, spec.default) if spec.default is not None else ""
                     elif spec.value_type == settings_spec.SettingValueType.json:
                         value = cast(SettingValue, spec.default) if spec.default is not None else {}
@@ -3340,6 +3363,7 @@ async def settings_update(
                     value_setting = overrides[spec.key]
                 else:
                     raw = form.get(spec.key)
+                    raw_is_empty_string = isinstance(raw, str) and raw.strip() == ""
                     raw_value = _form_str_opt(raw)
                 if spec.is_secret and not raw_value:
                     continue
@@ -3357,7 +3381,10 @@ async def settings_update(
                                 continue
                     else:
                         if not raw_value:
-                            if spec.value_type == settings_spec.SettingValueType.string:
+                            # Allow explicit empty threshold to mean "no limit".
+                            if spec.key == "vendor_quote_approval_threshold" and raw_is_empty_string:
+                                value_setting = ""
+                            elif spec.value_type == settings_spec.SettingValueType.string:
                                 value_setting = cast(SettingValue, spec.default) if spec.default is not None else ""
                             elif spec.value_type == settings_spec.SettingValueType.json:
                                 value_setting = cast(SettingValue, spec.default) if spec.default is not None else {}

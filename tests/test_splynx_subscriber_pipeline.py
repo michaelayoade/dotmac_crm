@@ -686,6 +686,45 @@ class TestSplynxCustomerHandlerHandle:
 
         mock_invoice.assert_not_called()
 
+    @patch("app.services.events.handlers.splynx_customer.create_customer")
+    @patch("app.services.events.handlers.splynx_customer.create_installation_invoice")
+    @patch("app.services.events.handlers.splynx_customer.ensure_person_customer")
+    def test_reuses_existing_invoice_for_related_project(self, mock_ensure, mock_invoice, mock_create, db_session):
+        person = _make_person(db_session, metadata_={"splynx_id": "4242"})
+        so = _make_sales_order(db_session, person.id)
+        _make_sales_order_line(db_session, so.id, "Installation Fee", "15000.00")
+        _make_project(
+            db_session,
+            owner_person_id=person.id,
+            metadata_={
+                "sales_order_id": str(so.id),
+                "splynx_installation_invoice_id": "inv-existing",
+                "splynx_installation_invoice_amount": "15000.00",
+            },
+        )
+        project = _make_project(
+            db_session,
+            owner_person_id=person.id,
+            metadata_={"sales_order_id": str(so.id)},
+        )
+        mock_create.return_value = "new-id-should-not-be-used"
+        mock_invoice.return_value = "inv-new-should-not-be-used"
+
+        event = Event(
+            event_type=EventType.project_created,
+            payload={},
+            project_id=project.id,
+        )
+        handler = SplynxCustomerHandler()
+        handler.handle(db_session, event)
+
+        mock_create.assert_not_called()
+        mock_invoice.assert_not_called()
+        mock_ensure.assert_called_once_with(db_session, person, "4242")
+        db_session.refresh(project)
+        assert project.metadata_["splynx_installation_invoice_id"] == "inv-existing"
+        assert project.metadata_["splynx_installation_invoice_amount"] == "15000.00"
+
 
 # ===========================================================================
 # Splynx sync task tests

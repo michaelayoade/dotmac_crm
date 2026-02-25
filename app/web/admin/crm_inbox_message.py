@@ -1,7 +1,10 @@
 """CRM inbox message send route."""
 
+import logging
 import uuid
 from urllib.parse import quote
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -125,8 +128,8 @@ async def send_message(
                 mentioned_agent_ids=list(mentioned_agent_ids),
                 actor_person_id=author_id,
             )
-        except Exception:
-            pass
+        except Exception:  # nosec B110 — mention notifications are best-effort
+            logger.debug("inbox_message_mention_notification_failed")
 
     try:
         if not result.conversation:

@@ -1,7 +1,8 @@
 import html
 import json
+import re
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -50,6 +51,36 @@ _AS_BUILT_ELIGIBLE_QUOTE_STATUSES = {
     ProjectQuoteStatus.under_review,
     ProjectQuoteStatus.approved,
 }
+_QUOTE_COMMENT_PATTERN = re.compile(
+    r"^\[QUOTE:(?P<quote_id>[0-9a-fA-F-]{36})\]\s*(?:\[(?P<action>[A-Z_]+)\]\s*)?(?P<body>.*)$",
+    re.DOTALL,
+)
+
+
+def _quote_comment_prefix(quote_id: str) -> str:
+    return f"[QUOTE:{quote_id}]"
+
+
+def build_quote_review_comment(
+    quote_id: str,
+    review_notes: str,
+    action: str,
+) -> str:
+    notes = (review_notes or "").strip()
+    return f"{_quote_comment_prefix(quote_id)} [{action.upper()}] {notes}"
+
+
+def parse_quote_comment_body(raw: str) -> dict[str, str | None]:
+    value = (raw or "").strip()
+    match = _QUOTE_COMMENT_PATTERN.match(value)
+    if not match:
+        return {"quote_id": None, "action": None, "body": value}
+    body = (match.group("body") or "").strip()
+    return {
+        "quote_id": (match.group("quote_id") or "").lower(),
+        "action": match.group("action"),
+        "body": body,
+    }
 
 
 def _now() -> datetime:
@@ -145,6 +176,32 @@ def _quote_total_from_items(db: Session, quote_id: str) -> Decimal:
     return round_money(Decimal(total))
 
 
+def _coerce_vat_rate_percent(value: Decimal | int | float | str | None) -> Decimal | None:
+    if value is None:
+        return None
+    rate = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if rate < Decimal("0.00") or rate > Decimal("100.00"):
+        raise HTTPException(status_code=400, detail="VAT rate must be between 0 and 100 percent")
+    return rate
+
+
+def _quote_tax_total_from_subtotal(subtotal: Decimal, vat_rate_percent: Decimal | None, fallback: Decimal) -> Decimal:
+    if vat_rate_percent is None:
+        return round_money(fallback)
+    return round_money(subtotal * (vat_rate_percent / Decimal("100.00")))
+
+
+def _recalculate_quote_totals(db: Session, quote: ProjectQuote) -> None:
+    subtotal = _quote_total_from_items(db, str(quote.id))
+    quote.subtotal = subtotal
+    quote.tax_total = _quote_tax_total_from_subtotal(
+        subtotal,
+        _coerce_vat_rate_percent(quote.vat_rate_percent),
+        Decimal(quote.tax_total or Decimal("0.00")),
+    )
+    quote.total = round_money(subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+
+
 def _coerce_int(value: object | None, default: int) -> int:
     if isinstance(value, int):
         return value
@@ -171,7 +228,13 @@ def _apply_validity_defaults(db: Session, quote: ProjectQuote) -> None:
 
 def check_approval_required(db: Session, quote: ProjectQuote) -> bool:
     threshold = settings_spec.resolve_value(db, SettingDomain.network, "vendor_quote_approval_threshold")
-    threshold_value = Decimal(str(threshold or "5000"))
+    # Empty threshold means "no approval threshold".
+    if isinstance(threshold, str) and not threshold.strip():
+        return False
+    try:
+        threshold_value = Decimal(str(threshold or "5000"))
+    except (InvalidOperation, ValueError, TypeError):
+        threshold_value = Decimal("5000")
     return Decimal(quote.total or Decimal("0.00")) > threshold_value
 
 
@@ -503,8 +566,25 @@ class ProjectQuotes(ListResponseMixin):
     def update(db: Session, quote_id: str, payload: ProjectQuoteUpdate):
         quote = _ensure_quote(db, quote_id)
         data = payload.model_dump(exclude_unset=True)
+        if "vat_rate_percent" in data:
+            data["vat_rate_percent"] = _coerce_vat_rate_percent(data.get("vat_rate_percent"))
         for key, value in data.items():
             setattr(quote, key, value)
+        if "vat_rate_percent" in data:
+            _recalculate_quote_totals(db, quote)
+        db.commit()
+        db.refresh(quote)
+        return quote
+
+    @staticmethod
+    def set_vat_rate(db: Session, quote_id: str, vendor_id: str, vat_rate_percent: Decimal):
+        quote = _ensure_quote(db, quote_id)
+        if str(quote.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Quote ownership required")
+        if quote.status not in {ProjectQuoteStatus.draft, ProjectQuoteStatus.revision_requested}:
+            raise HTTPException(status_code=400, detail="VAT can only be edited while quote is draft or revision requested")
+        quote.vat_rate_percent = _coerce_vat_rate_percent(vat_rate_percent)
+        _recalculate_quote_totals(db, quote)
         db.commit()
         db.refresh(quote)
         return quote
@@ -540,8 +620,7 @@ class ProjectQuotes(ListResponseMixin):
         quote.status = ProjectQuoteStatus.submitted
         quote.submitted_at = _now()
         _apply_validity_defaults(db, quote)
-        quote.subtotal = _quote_total_from_items(db, quote_id)
-        quote.total = round_money(quote.subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+        _recalculate_quote_totals(db, quote)
         if quote.project.status == InstallationProjectStatus.open_for_bidding:
             quote.project.status = InstallationProjectStatus.quoted
         db.commit()
@@ -576,8 +655,7 @@ class ProjectQuotes(ListResponseMixin):
         quote = _ensure_quote(db, quote_id)
         _ensure_person(db, reviewer_person_id)
         previous_status = quote.status
-        quote.subtotal = _quote_total_from_items(db, quote_id)
-        quote.total = round_money(quote.subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+        _recalculate_quote_totals(db, quote)
         if check_approval_required(db, quote) and not override:
             raise HTTPException(
                 status_code=400,
@@ -620,10 +698,21 @@ class ProjectQuotes(ListResponseMixin):
     def reject(db: Session, quote_id: str, reviewer_person_id: str, review_notes: str | None):
         quote = _ensure_quote(db, quote_id)
         _ensure_person(db, reviewer_person_id)
+        reviewer_uuid = coerce_uuid(reviewer_person_id)
         quote.status = ProjectQuoteStatus.rejected
         quote.reviewed_at = _now()
-        quote.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
+        quote.reviewed_by_person_id = reviewer_uuid
         quote.review_notes = review_notes
+
+        replacement_quote = ProjectQuote(
+            project_id=quote.project_id,
+            vendor_id=quote.vendor_id,
+            status=ProjectQuoteStatus.revision_requested,
+            currency=quote.currency,
+            created_by_person_id=quote.created_by_person_id,
+        )
+        _apply_validity_defaults(db, replacement_quote)
+        db.add(replacement_quote)
         db.commit()
         db.refresh(quote)
         return quote
@@ -643,8 +732,7 @@ class QuoteLineItems(ListResponseMixin):
         db.add(item)
         db.commit()
         db.refresh(item)
-        quote.subtotal = _quote_total_from_items(db, str(quote.id))
-        quote.total = round_money(quote.subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+        _recalculate_quote_totals(db, quote)
         db.commit()
         return item
 
@@ -699,8 +787,7 @@ class QuoteLineItems(ListResponseMixin):
         db.commit()
         db.refresh(item)
 
-        quote.subtotal = _quote_total_from_items(db, str(quote.id))
-        quote.total = round_money(quote.subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+        _recalculate_quote_totals(db, quote)
         db.commit()
         return item
 
@@ -722,8 +809,7 @@ class QuoteLineItems(ListResponseMixin):
         db.commit()
         db.refresh(item)
 
-        quote.subtotal = _quote_total_from_items(db, str(quote.id))
-        quote.total = round_money(quote.subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+        _recalculate_quote_totals(db, quote)
         db.commit()
         return item
 

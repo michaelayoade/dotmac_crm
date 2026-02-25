@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import tempfile
 import uuid
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 from datetime import UTC, datetime
 from decimal import Decimal
 from html import escape as html_escape
@@ -957,7 +960,8 @@ def bulk_status(db: Session, body_raw: bytes) -> tuple[int, dict[str, Any]]:
     for quote_id in quote_ids:
         try:
             crm_service.quotes.update(db, quote_id, QuoteUpdate(status=new_status))
-        except Exception:
+        except Exception:  # nosec B112 — skip individual failures in bulk operation
+            logger.warning("bulk_quote_status_update_failed quote_id=%s", quote_id)
             continue
     return 200, {"success": True, "updated": len(quote_ids)}
 
@@ -976,7 +980,8 @@ def bulk_delete(db: Session, body_raw: bytes) -> tuple[int, dict[str, Any]]:
         try:
             crm_service.quotes.delete(db, quote_id)
             deleted += 1
-        except Exception:
+        except Exception:  # nosec B112 — skip individual failures in bulk operation
+            logger.warning("bulk_quote_delete_failed quote_id=%s", quote_id)
             continue
     return 200, {"success": True, "deleted": deleted}
 

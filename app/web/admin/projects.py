@@ -154,7 +154,7 @@ def _resolve_current_person_id(request: Request, current_user: dict | None) -> s
             continue
         try:
             return str(coerce_uuid(str(raw_id)))
-        except Exception:
+        except (ValueError, AttributeError):
             continue
     return None
 

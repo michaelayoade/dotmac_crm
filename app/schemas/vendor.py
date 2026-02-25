@@ -101,6 +101,7 @@ class ProjectQuoteBase(BaseModel):
     status: ProjectQuoteStatus = ProjectQuoteStatus.draft
     currency: str = Field(default="NGN", max_length=3)
     subtotal: Decimal = Decimal("0.00")
+    vat_rate_percent: Decimal | None = Field(default=None, ge=0, le=100)
     tax_total: Decimal = Decimal("0.00")
     total: Decimal = Decimal("0.00")
     valid_from: datetime | None = None
@@ -121,6 +122,7 @@ class ProjectQuoteUpdate(BaseModel):
     status: ProjectQuoteStatus | None = None
     review_notes: str | None = None
     reviewed_by_person_id: UUID | None = None
+    vat_rate_percent: Decimal | None = Field(default=None, ge=0, le=100)
 
 
 class ProjectQuoteRead(ProjectQuoteBase):
@@ -276,3 +278,7 @@ class QuoteRejectRequest(BaseModel):
 class AsBuiltCompareResponse(BaseModel):
     proposed_geojson: dict | None = None
     as_built_geojson: dict | None = None
+
+
+class QuoteVatUpdateRequest(BaseModel):
+    vat_rate_percent: Decimal = Field(ge=0, le=100)
