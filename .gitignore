@@ -63,3 +63,13 @@ reports/
 
 # Seabone agent bootstrap (auto-generated, never commit)
 .agent-run.sh
+
+# Local tooling/artifacts
+.mcp.json
+.playwright-mcp/
+maps/
+static/avatars/
+*.kmz
+
+# Local screenshots/debug captures (repo root)
+/*.png
