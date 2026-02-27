@@ -3,14 +3,14 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 # ---- Injected at spawn time ----
-WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c1-2-3
+WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/hotfix-poetry-lock
 PROJECT_DIR=/home/dotmac/projects/dotmac_crm
 SCRIPT_DIR=/home/dotmac/projects/dotmac_crm/scripts
 ACTIVE_FILE=/home/dotmac/projects/dotmac_crm/.seabone/active-tasks.json
-LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c1-2-3.log
-TASK_ID=fix-security-c1-2-3
-DESCRIPTION=Fix\ cookie\ secure\ flags:\ both\ the\ CSRF\ cookie\ and\ session/MFA\ cookies\ are\ hardcoded\ to\ secure=False.\ Steps:\ 1\)\ In\ app/config.py\ add:\ cookie_secure:\ bool\ =\ bool\(os.getenv\(\'COOKIE_SECURE\'\,\ \'\'\)\)\ to\ the\ Settings\ class.\ 2\)\ In\ app/csrf.py\ line\ 37\,\ change\ secure=False\ to\ secure=settings.cookie_secure\ \(import\ settings\ from\ app.config\).\ 3\)\ In\ app/services/web_auth.py\ replace\ all\ 4\ hardcoded\ secure=False\ occurrences\ at\ lines\ 201\,\ 213\,\ 290\,\ 393\ with\ secure=settings.cookie_secure\ \(import\ settings\).\ 4\)\ In\ .env.example\ add\ COOKIE_SECURE=true\ comment\ explaining\ it\ should\ be\ set\ in\ production.\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ and\ python\ -c\ \'from\ app.main\ import\ app\'\ to\ verify\ app\ boots.
-BRANCH=agent/fix-security-c1-2-3
+LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/hotfix-poetry-lock.log
+TASK_ID=hotfix-poetry-lock
+DESCRIPTION=CRITICAL:\ Fix\ poetry.lock\ out\ of\ sync\ with\ pyproject.toml\ —\ CI\ has\ been\ red\ on\ main\ since\ multiple\ deps\ PRs\ merged\ without\ regenerating\ the\ lock\ file.\ THE\ FIX\ IS\ PURELY\ MECHANICAL\ —\ NO\ CODE\ CHANGES\ NEEDED.\ Steps:\ 1\)\ In\ the\ worktree\,\ run:\ poetry\ lock\ \(this\ regenerates\ poetry.lock\ from\ pyproject.toml\ —\ may\ take\ 2-5\ minutes\).\ 2\)\ Run:\ git\ add\ poetry.lock.\ 3\)\ Run:\ git\ commit\ -m\ \'fix\(deps\):\ regenerate\ poetry.lock\ after\ dep\ upgrades\'.\ 4\)\ Run:\ git\ push\ -u\ origin\ agent/hotfix-poetry-lock.\ 5\)\ Run:\ gh\ pr\ create\ --title\ \'fix\(deps\):\ regenerate\ poetry.lock\'\ --body\ \'Regenerate\ poetry.lock\ after\ Jinja2\,\ cryptography\,\ paramiko\,\ weasyprint\ upgrades\ were\ merged\ without\ updating\ the\ lock\ file.\ Fixes\ CI\ failure:\ poetry.lock\ out\ of\ sync\ with\ pyproject.toml.\'\ --base\ main.\ That\ is\ all\ —\ no\ other\ files\ to\ change.
+BRANCH=agent/hotfix-poetry-lock
 ENGINE=codex
 MODEL=gpt-5.3-codex
 EVENT_LOG=/home/dotmac/projects/dotmac_crm/.seabone/logs/events.log
