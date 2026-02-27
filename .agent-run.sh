@@ -3,14 +3,14 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 # ---- Injected at spawn time ----
-WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-deps-002-003
+WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c1-2-3
 PROJECT_DIR=/home/dotmac/projects/dotmac_crm
 SCRIPT_DIR=/home/dotmac/projects/dotmac_crm/scripts
 ACTIVE_FILE=/home/dotmac/projects/dotmac_crm/.seabone/active-tasks.json
-LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-deps-002-003.log
-TASK_ID=fix-deps-002-003
-DESCRIPTION=SECURITY:\ Upgrade\ Jinja2\ and\ cryptography\ to\ fix\ known\ CVEs.\ Jinja2\ 3.1.4\ has\ CVE-2024-56201\ and\ CVE-2024-56326\ \(sandbox\ escape\).\ cryptography\ 42.0.8\ is\ affected\ by\ GHSA-h4gh-qq45-vh27\ and\ multiple\ other\ CVEs\ fixed\ in\ 44.x+.\ Steps:\ 1\)\ In\ pyproject.toml\ change\ jinja2\ version\ to\ \'\>=3.1.6\'.\ 2\)\ In\ pyproject.toml\ change\ cryptography\ version\ to\ \'\>=44.0.0\'.\ 3\)\ Run:\ poetry\ update\ jinja2\ cryptography.\ 4\)\ Verify:\ python\ -c\ \'import\ jinja2\;\ print\(jinja2.__version__\)\'\ should\ show\ 3.1.6+.\ 5\)\ Verify:\ python\ -c\ \'import\ cryptography\;\ print\(cryptography.__version__\)\'\ should\ show\ 44+.\ 6\)\ Run:\ pytest\ -x\ -q\ to\ verify\ no\ regressions.
-BRANCH=agent/fix-deps-002-003
+LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c1-2-3.log
+TASK_ID=fix-security-c1-2-3
+DESCRIPTION=Fix\ cookie\ secure\ flags:\ both\ the\ CSRF\ cookie\ and\ session/MFA\ cookies\ are\ hardcoded\ to\ secure=False.\ Steps:\ 1\)\ In\ app/config.py\ add:\ cookie_secure:\ bool\ =\ bool\(os.getenv\(\'COOKIE_SECURE\'\,\ \'\'\)\)\ to\ the\ Settings\ class.\ 2\)\ In\ app/csrf.py\ line\ 37\,\ change\ secure=False\ to\ secure=settings.cookie_secure\ \(import\ settings\ from\ app.config\).\ 3\)\ In\ app/services/web_auth.py\ replace\ all\ 4\ hardcoded\ secure=False\ occurrences\ at\ lines\ 201\,\ 213\,\ 290\,\ 393\ with\ secure=settings.cookie_secure\ \(import\ settings\).\ 4\)\ In\ .env.example\ add\ COOKIE_SECURE=true\ comment\ explaining\ it\ should\ be\ set\ in\ production.\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ and\ python\ -c\ \'from\ app.main\ import\ app\'\ to\ verify\ app\ boots.
+BRANCH=agent/fix-security-c1-2-3
 ENGINE=codex
 MODEL=gpt-5.3-codex
 EVENT_LOG=/home/dotmac/projects/dotmac_crm/.seabone/logs/events.log

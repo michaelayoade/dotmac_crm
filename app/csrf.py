@@ -5,6 +5,8 @@ import secrets
 from fastapi import HTTPException, Request
 from starlette.responses import Response
 
+from app.config import settings
+
 CSRF_TOKEN_NAME = "csrf_token"  # nosec B105 - CSRF token field name, not a credential
 CSRF_COOKIE_NAME = "csrf_token"  # nosec B105 - CSRF cookie name, not a credential
 CSRF_HEADER_NAME = "X-CSRF-Token"
@@ -34,7 +36,7 @@ def set_csrf_cookie(response: Response, token: str) -> None:
         value=token,
         httponly=False,  # Must be readable by JS for HTMX/fetch
         samesite="strict",
-        secure=False,  # Set to True in production with HTTPS
+        secure=settings.cookie_secure,
         max_age=3600 * 24,  # 24 hours
     )
 

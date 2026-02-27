@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.services import auth_flow as auth_flow_service
 from app.services.auth_flow import AuthFlow
 from app.services.email import send_password_reset_email
@@ -51,16 +52,16 @@ def _safe_next(next_url: str | None, fallback: str = "/admin/dashboard") -> str:
 
 
 def _set_refresh_cookie(response, db: Session, refresh_token: str):
-    settings = AuthFlow.refresh_cookie_settings(db)
+    refresh_settings = AuthFlow.refresh_cookie_settings(db)
     response.set_cookie(
-        key=settings["key"],
+        key=refresh_settings["key"],
         value=refresh_token,
-        httponly=settings["httponly"],
-        secure=settings["secure"],
-        samesite=settings["samesite"],
-        domain=settings["domain"],
-        path=settings["path"],
-        max_age=settings["max_age"],
+        httponly=refresh_settings["httponly"],
+        secure=refresh_settings["secure"],
+        samesite=refresh_settings["samesite"],
+        domain=refresh_settings["domain"],
+        path=refresh_settings["path"],
+        max_age=refresh_settings["max_age"],
     )
 
 
@@ -198,7 +199,7 @@ def login_submit(
                 key="mfa_pending",
                 value=result.get("mfa_token", ""),
                 httponly=True,
-                secure=False,  # Set to True in production with HTTPS
+                secure=settings.cookie_secure,
                 samesite="lax",
                 max_age=300,
             )
@@ -210,7 +211,7 @@ def login_submit(
             key="session_token",
             value=result.get("access_token", ""),
             httponly=True,
-            secure=False,  # Set to True in production with HTTPS
+            secure=settings.cookie_secure,
             samesite="lax",
             max_age=max_age,
         )
@@ -287,7 +288,7 @@ def mfa_submit(
             key="session_token",
             value=result.get("access_token", ""),
             httponly=True,
-            secure=False,  # Set to True in production with HTTPS
+            secure=settings.cookie_secure,
             samesite="lax",
         )
         refresh_token = result.get("refresh_token")
@@ -390,7 +391,7 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
         key="session_token",
         value=result.get("access_token", ""),
         httponly=True,
-        secure=False,  # Set to True in production with HTTPS
+        secure=settings.cookie_secure,
         samesite="lax",
     )
     refresh_token = result.get("refresh_token")
@@ -439,10 +440,10 @@ def logout(request: Request, db: Session):
     response = RedirectResponse(url="/auth/login", status_code=303)
     response.delete_cookie("session_token")
     response.delete_cookie("mfa_pending")
-    settings = AuthFlow.refresh_cookie_settings(db)
+    refresh_settings = AuthFlow.refresh_cookie_settings(db)
     response.delete_cookie(
-        key=settings["key"],
-        domain=settings["domain"],
-        path=settings["path"],
+        key=refresh_settings["key"],
+        domain=refresh_settings["domain"],
+        path=refresh_settings["path"],
     )
     return response
