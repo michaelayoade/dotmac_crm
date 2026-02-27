@@ -7,11 +7,11 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import bcrypt
 import pyotp
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException, Request, Response, status
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,12 +33,6 @@ from app.services.auth_cache import invalidate_session
 from app.services.common import coerce_uuid
 from app.services.response import ListResponseMixin
 from app.services.secrets import resolve_secret
-
-PASSWORD_CONTEXT = CryptContext(
-    schemes=["pbkdf2_sha256", "bcrypt"],
-    default="pbkdf2_sha256",
-    deprecated="auto",
-)
 
 # Cache for JWT settings - these rarely change and are queried on every request
 _JWT_SETTINGS_CACHE: dict[str, str | None] = {}
@@ -384,13 +378,13 @@ def _decrypt_secret(db: Session | None, secret: str) -> str:
 
 
 def hash_password(password: str) -> str:
-    return PASSWORD_CONTEXT.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(password: str, password_hash: str | None) -> bool:
     if not password_hash:
         return False
-    return PASSWORD_CONTEXT.verify(password, password_hash)
+    return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
 class AuthFlow(ListResponseMixin):
