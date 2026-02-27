@@ -75,5 +75,8 @@ class Settings:
     erpnext_api_key: str | None = os.getenv("ERPNEXT_API_KEY")
     erpnext_api_secret: str | None = os.getenv("ERPNEXT_API_SECRET")
 
+    # Cookie security settings
+    cookie_secure: bool = bool(os.getenv("COOKIE_SECURE", ""))
+
 
 settings = Settings()
