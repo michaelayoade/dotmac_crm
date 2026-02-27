@@ -1,9 +1,14 @@
 import os
 from dataclasses import dataclass
+from dataclasses import field as Field
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _parse_csv_list(raw: str) -> list[str]:
+    return [value.strip() for value in raw.split(",") if value.strip()]
 
 
 @dataclass(frozen=True)
@@ -77,6 +82,14 @@ class Settings:
 
     # Cookie security settings
     cookie_secure: bool = bool(os.getenv("COOKIE_SECURE", ""))
+    trusted_proxies: list[str] = Field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.trusted_proxies:
+            return
+        trusted_proxies = os.getenv("TRUSTED_PROXIES", "")
+        if trusted_proxies:
+            object.__setattr__(self, "trusted_proxies", _parse_csv_list(trusted_proxies))
 
 
 settings = Settings()

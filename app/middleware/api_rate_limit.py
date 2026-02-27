@@ -6,6 +6,7 @@ with fallback to in-memory storage.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import time
 from collections import defaultdict
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, ClassVar
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.config import settings
 from app.logging import get_logger
 
 if TYPE_CHECKING:
@@ -78,6 +80,7 @@ class APIRateLimitMiddleware:
         self.limit = limit
         self.window_seconds = window_seconds
         self.key_func = key_func or self._default_key_func
+        self._trusted_proxy_networks = self._parse_trusted_proxies(settings.trusted_proxies)
         self._redis = None
         self._redis_available = None
 
@@ -92,12 +95,52 @@ class APIRateLimitMiddleware:
             return f"user:{user_id}"
 
         # Fall back to IP address
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
-        else:
-            ip = request.client.host if request.client else "unknown"
+        ip = self._extract_client_ip(request)
         return f"ip:{ip}"
+
+    def _parse_trusted_proxies(
+        self, trusted_proxies: list[str]
+    ) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+        networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+        for proxy in trusted_proxies:
+            try:
+                networks.append(ipaddress.ip_network(proxy, strict=False))
+            except ValueError:
+                logger.warning("api_rate_limit_invalid_trusted_proxy value=%s", proxy)
+        return tuple(networks)
+
+    def _is_trusted_proxy(self, host: str) -> bool:
+        if not self._trusted_proxy_networks:
+            return False
+        try:
+            host_ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return any(host_ip in trusted for trusted in self._trusted_proxy_networks)
+
+    def _extract_client_ip(self, request: Request) -> str:
+        direct_ip = request.client.host if request.client else "unknown"
+        if direct_ip == "unknown" or not self._is_trusted_proxy(direct_ip):
+            return direct_ip
+
+        forwarded = request.headers.get("X-Forwarded-For")
+        if not forwarded:
+            return direct_ip
+
+        forwarded_ip = forwarded.split(",")[0].strip()
+        if not forwarded_ip:
+            return direct_ip
+
+        try:
+            ipaddress.ip_address(forwarded_ip)
+        except ValueError:
+            logger.warning(
+                "api_rate_limit_invalid_x_forwarded_for proxy=%s value=%s",
+                direct_ip,
+                forwarded_ip,
+            )
+            return direct_ip
+        return forwarded_ip
 
     def _get_redis(self):
         """Get Redis client lazily."""
