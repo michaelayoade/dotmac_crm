@@ -33,7 +33,7 @@ python-jose = {version = "3.3.0", extras = ["cryptography"]}
 passlib = {version = "1.7.4", extras = ["bcrypt"]}
 pyotp = "2.9.0"
 cryptography = ">=44.0.0"
-paramiko = "3.4.1"
+paramiko = ">=3.5.0"
 ncclient = "0.6.15"
 routeros-api = "0.17.0"
 pyrad = "2.4"
