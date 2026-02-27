@@ -3,16 +3,16 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 # ---- Injected at spawn time ----
-WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c1-2-3
+WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c1-6
 PROJECT_DIR=/home/dotmac/projects/dotmac_crm
-SCRIPT_DIR=/home/dotmac/projects/dotmac_crm/scripts
+SCRIPT_DIR=/home/dotmac/.seabone/scripts
 ACTIVE_FILE=/home/dotmac/projects/dotmac_crm/.seabone/active-tasks.json
-LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c1-2-3.log
-TASK_ID=fix-security-c1-2-3
-DESCRIPTION=Fix\ cookie\ secure\ flags:\ both\ the\ CSRF\ cookie\ and\ session/MFA\ cookies\ are\ hardcoded\ to\ secure=False.\ Steps:\ 1\)\ In\ app/config.py\ add:\ cookie_secure:\ bool\ =\ bool\(os.getenv\(\'COOKIE_SECURE\'\,\ \'\'\)\)\ to\ the\ Settings\ class.\ 2\)\ In\ app/csrf.py\ line\ 37\,\ change\ secure=False\ to\ secure=settings.cookie_secure\ \(import\ settings\ from\ app.config\).\ 3\)\ In\ app/services/web_auth.py\ replace\ all\ 4\ hardcoded\ secure=False\ occurrences\ at\ lines\ 201\,\ 213\,\ 290\,\ 393\ with\ secure=settings.cookie_secure\ \(import\ settings\).\ 4\)\ In\ .env.example\ add\ COOKIE_SECURE=true\ comment\ explaining\ it\ should\ be\ set\ in\ production.\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ and\ python\ -c\ \'from\ app.main\ import\ app\'\ to\ verify\ app\ boots.
-BRANCH=agent/fix-security-c1-2-3
-ENGINE=codex
-MODEL=gpt-5.3-codex
+LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c1-6.log
+TASK_ID=fix-security-c1-6
+DESCRIPTION=Replace\ MD5\ with\ SHA-256\ for\ subscriber\ ID\ generation\ in\ ERPNext\ importer.\ File:\ app/services/erpnext/importer.py\ line\ 445.\ Steps:\ 1\)\ Read\ app/services/erpnext/importer.py\ around\ line\ 445\ to\ see\ how\ hashlib.md5\(\)\ is\ used.\ 2\)\ Replace\ hashlib.md5\(...\,\ usedforsecurity=False\)\ with\ hashlib.sha256\(...\,\ usedforsecurity=False\).\ 3\)\ Truncate\ the\ hex\ digest\ to\ the\ same\ number\ of\ characters\ as\ before\ to\ preserve\ field-length\ constraints\ \(e.g.\,\ if\ \[:8\]\ was\ used\ with\ md5\,\ keep\ \[:8\]\ with\ sha256\).\ 4\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ to\ check\ formatting.
+BRANCH=agent/fix-security-c1-6
+ENGINE=aider
+MODEL=deepseek-chat
 EVENT_LOG=/home/dotmac/projects/dotmac_crm/.seabone/logs/events.log
 CONFIG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/config.json
 PROJECT_NAME=dotmac_crm
@@ -75,13 +75,11 @@ if [[ "$ENGINE" == "claude" ]]; then
 elif [[ "$ENGINE" == "claude-frontend" ]]; then
     echo "[RUN] Claude Frontend Design Specialist..."
 
-    # Load the frontend design system prompt
     FRONTEND_PROMPT=""
     if [[ -f "$PROMPTS_DIR/frontend-design.md" ]]; then
         FRONTEND_PROMPT=$(cat "$PROMPTS_DIR/frontend-design.md")
     fi
 
-    # Build the full prompt: system context + task
     FULL_TASK="$FRONTEND_PROMPT
 
 ---
@@ -141,7 +139,6 @@ elif [[ "$ENGINE" == "codex" ]]; then
 elif [[ "$ENGINE" == "codex-test" ]]; then
     echo "[RUN] Codex Testing Specialist..."
 
-    # Load the testing system prompt
     TEST_PROMPT=""
     if [[ -f "$PROMPTS_DIR/testing-agent.md" ]]; then
         TEST_PROMPT=$(cat "$PROMPTS_DIR/testing-agent.md")
@@ -184,19 +181,15 @@ ${DESCRIPTION}
 elif [[ "$ENGINE" == "codex-senior" ]]; then
     echo "[RUN] Codex Senior Dev (Escalation)..."
 
-    # Load the senior dev system prompt
     SENIOR_PROMPT=""
     if [[ -f "$PROMPTS_DIR/senior-dev.md" ]]; then
         SENIOR_PROMPT=$(cat "$PROMPTS_DIR/senior-dev.md")
     fi
 
-    # Check for previous agent logs to provide context
     PREV_LOG_CONTEXT=""
-    # Extract base task ID (strip -v2, -v3 suffixes for escalation lookups)
     BASE_TASK_ID=$(echo "$TASK_ID" | sed -E 's/-v[0-9]+$//')
     for prev_log in "$LOG_DIR/${BASE_TASK_ID}"*.log; do
         if [[ -f "$prev_log" && "$prev_log" != "$LOG_FILE" ]]; then
-            # Get last 80 lines of previous attempts
             PREV_LOG_CONTEXT="${PREV_LOG_CONTEXT}
 
 --- Previous attempt log: $(basename "$prev_log") ---
