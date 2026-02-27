@@ -46,7 +46,15 @@
                           @submit.prevent="validateAndSubmit($el)"
                           class="divide-y divide-slate-100">
 
-                        <input type="hidden" name="_csrf_token" value="">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token | default('') }}">
+
+                        {% if csrf_error %}
+                        <div class="px-6 py-5">
+                            <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+                                {{ csrf_error }}
+                            </div>
+                        </div>
+                        {% endif %}
 
                         {% for q in questions %}
                         <div class="px-6 py-5">
