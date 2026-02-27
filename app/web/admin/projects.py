@@ -1,6 +1,5 @@
 """Admin projects web routes."""
 
-import json
 import logging
 from datetime import datetime
 from html import escape as html_escape
@@ -9,6 +8,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
 
@@ -64,6 +64,34 @@ router = APIRouter(prefix="/projects", tags=["web-admin-projects"])
 REGION_OPTIONS = ["Gudu", "Garki", "Gwarimpa", "Jabi", "Lagos"]
 
 
+class _TemplateTaskJSONItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    client_id: str
+    title: str
+    description: str = ""
+    effort_hours: int | str | None = None
+    dependencies: list[str] = Field(default_factory=list)
+
+
+class _MentionJSONItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    agent_id: str | None = None
+    person_id: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_identifier(self):
+        if self.id or self.agent_id or self.person_id:
+            return self
+        raise ValueError("Each mention object must include id, agent_id, or person_id.")
+
+
+_TEMPLATE_TASKS_JSON_ADAPTER = TypeAdapter(list[_TemplateTaskJSONItem])
+_MENTIONS_JSON_ADAPTER = TypeAdapter(list[str | _MentionJSONItem])
+
+
 def _form_str(value: object | None) -> str:
     return value if isinstance(value, str) else ""
 
@@ -80,6 +108,31 @@ def _parse_datetime_opt(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _format_validation_error(exc: ValidationError) -> str:
+    first_error = exc.errors()[0] if exc.errors() else {"msg": "Invalid payload.", "loc": []}
+    loc_path = ".".join(str(part) for part in first_error.get("loc", []))
+    message = str(first_error.get("msg", "Invalid payload."))
+    return f"{loc_path}: {message}" if loc_path else message
+
+
+def _parse_mentions_json(raw_mentions: str) -> list[str]:
+    if not raw_mentions:
+        return []
+    parsed_mentions = _MENTIONS_JSON_ADAPTER.validate_json(raw_mentions)
+    mention_ids: list[str] = []
+    seen: set[str] = set()
+    for mention in parsed_mentions:
+        raw_mention_id = (
+            mention if isinstance(mention, str) else (mention.id or mention.agent_id or mention.person_id or "")
+        )
+        mention_id = raw_mention_id.strip()
+        if not mention_id or mention_id in seen:
+            continue
+        seen.add(mention_id)
+        mention_ids.append(mention_id)
+    return mention_ids
 
 
 def _resolve_current_person_id(request: Request, current_user: dict | None) -> str | None:
@@ -1358,12 +1411,14 @@ def project_template_tasks_editor(request: Request, template_id: str, db: Sessio
 async def project_template_tasks_editor_update(request: Request, template_id: str, db: Session = Depends(get_db)):
     form = await request.form()
     raw_tasks = _form_str(form.get("tasks_json")).strip()
+    tasks_error = "Tasks data is invalid. Please refresh and try again."
     try:
-        tasks_data = json.loads(raw_tasks) if raw_tasks else []
-    except json.JSONDecodeError:
+        tasks_data = _TEMPLATE_TASKS_JSON_ADAPTER.validate_json(raw_tasks) if raw_tasks else []
+    except ValidationError as exc:
         tasks_data = None
+        tasks_error = f"Tasks data is invalid: {_format_validation_error(exc)}"
 
-    if not isinstance(tasks_data, list):
+    if tasks_data is None:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
         from app.web.admin import get_current_user, get_sidebar_stats
 
@@ -1373,7 +1428,7 @@ async def project_template_tasks_editor_update(request: Request, template_id: st
                 "request": request,
                 "template": template,
                 "tasks_payload": [],
-                "error": "Tasks data is invalid. Please refresh and try again.",
+                "error": tasks_error,
                 "current_user": get_current_user(request),
                 "sidebar_stats": get_sidebar_stats(db),
             },
@@ -1384,14 +1439,11 @@ async def project_template_tasks_editor_update(request: Request, template_id: st
     errors: list[str] = []
     seen_client_ids: set[str] = set()
     for item in tasks_data:
-        if not isinstance(item, dict):
-            errors.append("Each task must be an object.")
-            continue
-        client_id = str(item.get("client_id") or "").strip()
-        title = str(item.get("title") or "").strip()
-        description = str(item.get("description") or "").strip()
-        effort_hours_raw = str(item.get("effort_hours") or "").strip()
-        dependencies = item.get("dependencies") or []
+        client_id = item.client_id.strip()
+        title = item.title.strip()
+        description = item.description.strip()
+        effort_hours_raw = "" if item.effort_hours is None else str(item.effort_hours).strip()
+        dependencies = item.dependencies or []
         if not client_id:
             errors.append("Each task must have a client_id.")
         if not title:
@@ -1986,6 +2038,12 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
     attachments = form.getlist("attachments")
     if not body:
         return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
+    try:
+        mentioned_agent_ids = _parse_mentions_json(mentions_raw)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid mentions payload: {_format_validation_error(exc)}"
+        ) from exc
     prepared_attachments: list[dict] = []
     try:
         from app.services import ticket_attachments as ticket_attachment_service
@@ -2003,37 +2061,30 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
             }
         )
         projects_service.project_comments.create(db=db, payload=payload)
-        if mentions_raw:
-            try:
-                import json
+        if mentioned_agent_ids:
+            from app.services.agent_mentions import notify_agent_mentions
 
-                from app.services.agent_mentions import notify_agent_mentions
-
-                parsed = json.loads(mentions_raw)
-                mentioned_agent_ids = parsed if isinstance(parsed, list) else []
-                preview = body
-                if len(preview) > 140:
-                    preview = preview[:137].rstrip() + "..."
-                ref = project.number or str(project.id)
-                subtitle = f"Project {ref}"
-                if project.name:
-                    subtitle = f"{subtitle} · {project.name}"
-                notify_agent_mentions(
-                    db,
-                    mentioned_agent_ids=list(mentioned_agent_ids),
-                    actor_person_id=str(current_user.get("person_id")) if current_user else None,
-                    payload={
-                        "kind": "mention",
-                        "title": "Mentioned in project",
-                        "subtitle": subtitle,
-                        "preview": preview or None,
-                        "target_url": f"/admin/projects/{project.number or project.id}",
-                        "project_id": str(project.id),
-                        "project_number": project.number,
-                    },
-                )
-            except Exception:
-                pass
+            preview = body
+            if len(preview) > 140:
+                preview = preview[:137].rstrip() + "..."
+            ref = project.number or str(project.id)
+            subtitle = f"Project {ref}"
+            if project.name:
+                subtitle = f"{subtitle} · {project.name}"
+            notify_agent_mentions(
+                db,
+                mentioned_agent_ids=list(mentioned_agent_ids),
+                actor_person_id=str(current_user.get("person_id")) if current_user else None,
+                payload={
+                    "kind": "mention",
+                    "title": "Mentioned in project",
+                    "subtitle": subtitle,
+                    "preview": preview or None,
+                    "target_url": f"/admin/projects/{project.number or project.id}",
+                    "project_id": str(project.id),
+                    "project_number": project.number,
+                },
+            )
         _log_activity(
             db=db,
             request=request,
@@ -2538,6 +2589,12 @@ async def project_task_comment_create(request: Request, task_ref: str, db: Sessi
     attachments = form.getlist("attachments")
     if not body:
         return RedirectResponse(f"/admin/projects/tasks/{task_ref}", status_code=303)
+    try:
+        mentioned_agent_ids = _parse_mentions_json(mentions_raw)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid mentions payload: {_format_validation_error(exc)}"
+        ) from exc
     prepared_attachments: list[dict] = []
     try:
         from app.services import ticket_attachments as ticket_attachment_service
@@ -2555,38 +2612,31 @@ async def project_task_comment_create(request: Request, task_ref: str, db: Sessi
             }
         )
         projects_service.project_task_comments.create(db=db, payload=payload)
-        if mentions_raw:
-            try:
-                import json
+        if mentioned_agent_ids:
+            from app.services.agent_mentions import notify_agent_mentions
 
-                from app.services.agent_mentions import notify_agent_mentions
-
-                parsed = json.loads(mentions_raw)
-                mentioned_agent_ids = parsed if isinstance(parsed, list) else []
-                preview = body
-                if len(preview) > 140:
-                    preview = preview[:137].rstrip() + "..."
-                ref = task.number or str(task.id)
-                subtitle = f"Task {ref}"
-                if task.title:
-                    subtitle = f"{subtitle} · {task.title}"
-                notify_agent_mentions(
-                    db,
-                    mentioned_agent_ids=list(mentioned_agent_ids),
-                    actor_person_id=str(current_user.get("person_id")) if current_user else None,
-                    payload={
-                        "kind": "mention",
-                        "title": "Mentioned in task",
-                        "subtitle": subtitle,
-                        "preview": preview or None,
-                        "target_url": f"/admin/projects/tasks/{task.number or task.id}",
-                        "task_id": str(task.id),
-                        "task_number": task.number,
-                        "project_id": str(task.project_id) if getattr(task, "project_id", None) else None,
-                    },
-                )
-            except Exception:
-                pass
+            preview = body
+            if len(preview) > 140:
+                preview = preview[:137].rstrip() + "..."
+            ref = task.number or str(task.id)
+            subtitle = f"Task {ref}"
+            if task.title:
+                subtitle = f"{subtitle} · {task.title}"
+            notify_agent_mentions(
+                db,
+                mentioned_agent_ids=list(mentioned_agent_ids),
+                actor_person_id=str(current_user.get("person_id")) if current_user else None,
+                payload={
+                    "kind": "mention",
+                    "title": "Mentioned in task",
+                    "subtitle": subtitle,
+                    "preview": preview or None,
+                    "target_url": f"/admin/projects/tasks/{task.number or task.id}",
+                    "task_id": str(task.id),
+                    "task_number": task.number,
+                    "project_id": str(task.project_id) if getattr(task, "project_id", None) else None,
+                },
+            )
         _log_activity(
             db=db,
             request=request,
@@ -2596,6 +2646,16 @@ async def project_task_comment_create(request: Request, task_ref: str, db: Sessi
             actor_id=str(current_user.get("person_id")) if current_user else None,
         )
         return RedirectResponse(f"/admin/projects/tasks/{task.number or task.id}", status_code=303)
+    except HTTPException as exc:
+        from app.services import ticket_attachments as ticket_attachment_service
+
+        ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
+        logger.warning(
+            "project_task_comment_http_error task_ref=%s detail=%s",
+            task_ref,
+            getattr(exc, "detail", None),
+        )
+        raise
     except Exception:
         from app.services import ticket_attachments as ticket_attachment_service
 
