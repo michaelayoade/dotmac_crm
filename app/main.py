@@ -63,7 +63,7 @@ from app.csrf import (
 from app.db import SessionLocal
 from app.errors import register_error_handlers
 from app.logging import configure_logging
-from app.middleware.api_rate_limit import APIRateLimitMiddleware
+from app.middleware.api_rate_limit import APIRateLimitMiddleware, WebhookRateLimitMiddleware
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.observability import ObservabilityMiddleware
 from app.services import audit as audit_service
@@ -104,6 +104,7 @@ configure_logging()
 setup_otel(app)
 app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(APIRateLimitMiddleware)  # Global API rate limiting
+app.add_middleware(WebhookRateLimitMiddleware)  # Per-IP limits for inbound CRM webhooks
 register_error_handlers(app)
 
 
