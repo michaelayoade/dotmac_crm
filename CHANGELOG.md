@@ -17,9 +17,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **cryptography**: Upgraded to `>=44.0.0` to fix GHSA-h4gh-qq45-vh27 and multiple high-severity CVEs in 42.x (PR #2)
 - **paramiko**: Upgraded to `>=3.5.0` for SSH host key verification improvements (PR #4)
 - **weasyprint / pydyf**: Upgraded to `>=64.0` / `>=0.11.0` to reduce PDF generation attack surface
+- **Survey CSRF**: Public survey POST endpoints (`/s/{slug}/submit`, `/s/t/{token}/submit`) now require CSRF token validation — prevents cross-site form submission on unauthenticated survey pages (PR #9)
+- **Rate Limiter IP Spoofing**: `APIRateLimitMiddleware` no longer blindly trusts `X-Forwarded-For`; only used when `request.client.host` is in the `TRUSTED_PROXIES` allowlist (PR #10)
+- **Webhook Rate Limiting**: `/webhooks/crm/*` endpoints now subject to a dedicated per-IP rate limit (60 req/min) separate from the global API limiter (PR #11)
+- **Path Traversal in Avatar Delete**: `delete_avatar()` now verifies the resolved file path is inside the upload directory before calling `unlink()` — `app/services/avatar.py` (PR #12)
+- **Weak Hash in ERPNext Importer**: `hashlib.md5()` replaced with `hashlib.sha256()` for subscriber ID generation in `app/services/erpnext/importer.py` (PR #13)
+- **Prometheus Metrics Auth**: `/metrics` endpoint now optionally gated behind `Authorization: Bearer <METRICS_TOKEN>` — set `METRICS_TOKEN` env var to enable; empty = public (backward-compatible default) (PR #14)
+- **JSON Input Validation**: Raw `json.loads()` calls for `tasks_json` and `mentions` fields in admin project routes replaced with Pydantic `TypeAdapter.validate_json()` — returns HTTP 400 on invalid input (PR #16)
+
+### Fixed
+- **poetry.lock**: Regenerated lock file to resolve CI failure caused by `pyproject.toml` changes from multiple merged dependency PRs (PR #15)
 
 ### Changed
-- `.env.example`: Documents `COOKIE_SECURE=true` requirement for production deployments
+- `.env.example`: Documents `COOKIE_SECURE=true`, `TRUSTED_PROXIES`, and `METRICS_TOKEN` env vars for production deployments
 
 ---
 
