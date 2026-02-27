@@ -34,9 +34,11 @@ _UNSAFE_REFRESH_SEGMENTS = {
 
 
 def _sanitize_refresh_next(next_url: str | None, fallback: str) -> str:
-    if not next_url or not next_url.startswith("/"):
+    if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
         return fallback
     parsed = urlparse(next_url)
+    if parsed.scheme or parsed.netloc:
+        return fallback
     for segment in _UNSAFE_REFRESH_SEGMENTS:
         if segment in parsed.path:
             if parsed.path.startswith("/admin/crm/inbox"):
