@@ -9,22 +9,24 @@ from fastapi import HTTPException
 from starlette.datastructures import UploadFile
 
 from app.config import settings
+from app.services.common import validate_upload_mime
 from app.services.storage import storage
 
+_IMAGE_UPLOAD_MIMES = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+]
+_DOCUMENT_UPLOAD_MIMES = [*_IMAGE_UPLOAD_MIMES, "application/pdf"]
 
-def _allowed_types() -> set[str]:
-    raw = settings.ticket_attachment_allowed_types
-    return {item.strip() for item in raw.split(",") if item.strip()}
 
-
-def _validate_attachment(file: UploadFile, content: bytes) -> None:
+def _validate_attachment(file: UploadFile, content: bytes) -> str:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Attachment filename required")
     if len(content) > settings.ticket_attachment_max_size_bytes:
         raise HTTPException(status_code=413, detail="Attachment too large")
-    allowed = _allowed_types()
-    if allowed and file.content_type not in allowed:
-        raise HTTPException(status_code=400, detail="Unsupported attachment type")
+    return validate_upload_mime(content, _DOCUMENT_UPLOAD_MIMES, label="attachment")
 
 
 def _is_upload_like(item: object) -> bool:
@@ -70,14 +72,14 @@ def prepare_ticket_attachments(
         content = file.file.read()
         if content is None:
             content = b""
-        _validate_attachment(file, content)
+        detected_mime = _validate_attachment(file, content)
         stored_name = f"{uuid.uuid4().hex}{Path(file.filename).suffix}"
         prepared.append(
             {
                 "stored_name": stored_name,
                 "file_name": file.filename,
                 "file_size": len(content),
-                "mime_type": file.content_type or "application/octet-stream",
+                "mime_type": detected_mime,
                 "content": content,
             }
         )
