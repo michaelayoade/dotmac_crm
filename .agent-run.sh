@@ -3,14 +3,14 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 # ---- Injected at spawn time ----
-WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c1-2-3
+WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c2-3
 PROJECT_DIR=/home/dotmac/projects/dotmac_crm
 SCRIPT_DIR=/home/dotmac/projects/dotmac_crm/scripts
 ACTIVE_FILE=/home/dotmac/projects/dotmac_crm/.seabone/active-tasks.json
-LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c1-2-3.log
-TASK_ID=fix-security-c1-2-3
-DESCRIPTION=Fix\ cookie\ secure\ flags:\ both\ the\ CSRF\ cookie\ and\ session/MFA\ cookies\ are\ hardcoded\ to\ secure=False.\ Steps:\ 1\)\ In\ app/config.py\ add:\ cookie_secure:\ bool\ =\ bool\(os.getenv\(\'COOKIE_SECURE\'\,\ \'\'\)\)\ to\ the\ Settings\ class.\ 2\)\ In\ app/csrf.py\ line\ 37\,\ change\ secure=False\ to\ secure=settings.cookie_secure\ \(import\ settings\ from\ app.config\).\ 3\)\ In\ app/services/web_auth.py\ replace\ all\ 4\ hardcoded\ secure=False\ occurrences\ at\ lines\ 201\,\ 213\,\ 290\,\ 393\ with\ secure=settings.cookie_secure\ \(import\ settings\).\ 4\)\ In\ .env.example\ add\ COOKIE_SECURE=true\ comment\ explaining\ it\ should\ be\ set\ in\ production.\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ and\ python\ -c\ \'from\ app.main\ import\ app\'\ to\ verify\ app\ boots.
-BRANCH=agent/fix-security-c1-2-3
+LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c2-3.log
+TASK_ID=fix-security-c2-3
+DESCRIPTION=Fix\ raw\ API\ key\ exposed\ in\ redirect\ URL\ query\ parameter.\ File:\ app/web/admin/system.py\ line\ 2536.\ The\ current\ code\ does:\ return\ RedirectResponse\(url=f\'/admin/system/api-keys\?new_key=\{raw_key\}\'\,\ status_code=303\)\ —\ this\ puts\ the\ plaintext\ secret\ in\ server\ access\ logs\,\ browser\ history\,\ and\ HTTP\ Referer\ headers.\ Steps:\ 1\)\ Read\ app/web/admin/system.py\ around\ line\ 2536\ to\ understand\ the\ API\ key\ creation\ flow\ and\ what\ Redis\ client\ is\ available.\ 2\)\ After\ generating\ the\ raw\ key\,\ store\ it\ in\ Redis\ with\ a\ 30-second\ TTL:\ use\ a\ random\ one-time\ token\ \(uuid4\ hex\)\ as\ the\ key:\ redis_client.setex\(f\'flash:api_key:\{token\}\'\,\ 30\,\ raw_key\).\ 3\)\ Redirect\ to\ /admin/system/api-keys\?flash_token=\{token\}\ instead\ of\ \?new_key=.\ 4\)\ On\ the\ GET\ handler\ for\ /admin/system/api-keys\,\ check\ for\ a\ flash_token\ query\ param\,\ retrieve\ the\ raw\ key\ from\ Redis\ via\ GET\ then\ immediately\ DELETE\ it\,\ pass\ it\ to\ the\ template\ as\ new_key\ \(None\ if\ token\ missing/expired\).\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ \&\&\ python\ -c\ \'from\ app.main\ import\ app\'.
+BRANCH=agent/fix-security-c2-3
 ENGINE=codex
 MODEL=gpt-5.3-codex
 EVENT_LOG=/home/dotmac/projects/dotmac_crm/.seabone/logs/events.log

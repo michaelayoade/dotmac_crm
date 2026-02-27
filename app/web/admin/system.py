@@ -7,7 +7,7 @@ import logging
 import secrets
 from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -2454,11 +2454,22 @@ def permission_delete(request: Request, permission_id: str, db: Session = Depend
 
 
 @router.get("/api-keys", response_class=HTMLResponse)
-def api_keys_list(request: Request, new_key: str | None = None, db: Session = Depends(get_db)):
+def api_keys_list(request: Request, flash_token: str | None = None, db: Session = Depends(get_db)):
+    from app.services.settings_cache import get_settings_redis
     from app.web.admin import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
     api_keys = []
+    new_key: str | None = None
+
+    if flash_token:
+        redis_key = f"flash:api_key:{flash_token}"
+        with contextlib.suppress(Exception):
+            redis_client = get_settings_redis()
+            flash_value = redis_client.get(redis_key)
+            redis_client.delete(redis_key)
+            if isinstance(flash_value, str):
+                new_key = flash_value
 
     if current_user and current_user.get("person_id"):
         person_id = current_user["person_id"]
@@ -2503,6 +2514,7 @@ def api_key_create(
 ):
     from datetime import timedelta
 
+    from app.services.settings_cache import get_settings_redis
     from app.web.admin import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
@@ -2514,6 +2526,9 @@ def api_key_create(
         # Generate a random API key
         raw_key = secrets.token_urlsafe(32)
         key_hash = hash_password(raw_key)
+        flash_token = uuid4().hex
+        redis_client = get_settings_redis()
+        redis_client.setex(f"flash:api_key:{flash_token}", 30, raw_key)
 
         # Calculate expiration
         expires_at = None
@@ -2533,7 +2548,7 @@ def api_key_create(
         db.commit()
 
         # Return to list with the new key shown
-        return RedirectResponse(url=f"/admin/system/api-keys?new_key={raw_key}", status_code=303)
+        return RedirectResponse(url=f"/admin/system/api-keys?flash_token={flash_token}", status_code=303)
     except Exception as e:
         context: dict[str, object] = {
             "request": request,
