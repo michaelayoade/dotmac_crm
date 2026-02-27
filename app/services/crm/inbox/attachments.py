@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import os
+import socket
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -19,6 +23,20 @@ from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_INBOX_MEDIA_ALLOWED_HOSTS = (
+    "graph.facebook.com",
+    "*.whatsapp.net",
+    "*.fbcdn.net",
+    "*.cdninstagram.com",
+    "media.us.youstream.tv",
+)
+_BLOCKED_MEDIA_IPV4_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+)
+
 
 @dataclass(frozen=True)
 class AttachmentFetchResult:
@@ -26,6 +44,54 @@ class AttachmentFetchResult:
     content: bytes | None = None
     content_type: str | None = None
     redirect_url: str | None = None
+
+
+def _match_allowed_host(hostname: str, allowed_hosts: list[str]) -> bool:
+    for pattern in allowed_hosts:
+        if pattern.startswith("*."):
+            suffix = pattern[2:]
+            if suffix and hostname.endswith(f".{suffix}"):
+                return True
+            continue
+        if hostname == pattern:
+            return True
+    return False
+
+
+def _validate_media_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme.lower() != "https":
+        raise ValueError("media URL must use HTTPS")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("media URL must include a hostname")
+
+    normalized_hostname = hostname.lower().rstrip(".")
+    raw_allowlist = os.getenv("INBOX_MEDIA_ALLOWED_HOSTS")
+    if raw_allowlist is None:
+        allowed_hosts = list(_DEFAULT_INBOX_MEDIA_ALLOWED_HOSTS)
+    else:
+        allowed_hosts = [item.strip().lower().rstrip(".") for item in raw_allowlist.split(",") if item.strip()]
+        if not allowed_hosts:
+            allowed_hosts = list(_DEFAULT_INBOX_MEDIA_ALLOWED_HOSTS)
+
+    if not _match_allowed_host(normalized_hostname, allowed_hosts):
+        raise ValueError(f"media URL host is not allowed: {normalized_hostname}")
+
+    try:
+        resolved_addresses = socket.getaddrinfo(normalized_hostname, parsed.port or 443)
+    except socket.gaierror as exc:
+        raise ValueError(f"could not resolve media URL host: {normalized_hostname}") from exc
+
+    for address_info in resolved_addresses:
+        address = address_info[4][0]
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError as exc:
+            raise ValueError(f"resolved media URL host to invalid address: {address}") from exc
+        if isinstance(ip, ipaddress.IPv4Address) and any(ip in net for net in _BLOCKED_MEDIA_IPV4_NETWORKS):
+            raise ValueError(f"media URL host resolves to blocked private address: {ip}")
 
 
 def fetch_inbox_attachment(
@@ -126,6 +192,17 @@ def fetch_inbox_attachment(
                 media_url = payload.get("url") or payload.get("media_url")
             if not media_url:
                 return AttachmentFetchResult(kind="not_found")
+            try:
+                _validate_media_url(media_url)
+            except ValueError as exc:
+                logger.warning(
+                    "crm_inbox_attachment_invalid_media_url message_id=%s attachment_id=%s media_url=%s reason=%s",
+                    message_id,
+                    attachment_id,
+                    media_url,
+                    exc,
+                )
+                return AttachmentFetchResult(kind="not_found")
             media_response = httpx.get(
                 media_url,
                 headers={"Authorization": f"Bearer {token}"},
@@ -149,6 +226,17 @@ def fetch_inbox_attachment(
                 payload = response.json() if response.content else {}
                 media_url = payload.get("url") or payload.get("media_url")
             if not media_url:
+                return AttachmentFetchResult(kind="not_found")
+            try:
+                _validate_media_url(media_url)
+            except ValueError as exc:
+                logger.warning(
+                    "crm_inbox_attachment_invalid_media_url message_id=%s attachment_id=%s media_url=%s reason=%s",
+                    message_id,
+                    attachment_id,
+                    media_url,
+                    exc,
+                )
                 return AttachmentFetchResult(kind="not_found")
             media_response = httpx.get(
                 media_url,
