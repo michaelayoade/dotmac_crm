@@ -54,9 +54,22 @@ def delete_avatar(avatar_url: str | None) -> None:
     if upload_dir and url_prefix and avatar_url.startswith(f"{url_prefix}/"):
         filename = avatar_url[len(url_prefix) + 1 :].strip()
         if filename:
-            path = Path(upload_dir) / filename
-            if path.exists():
-                path.unlink()
+            # Security check: prevent path traversal
+            try:
+                # Resolve both paths to absolute real paths
+                upload_dir_path = Path(upload_dir).resolve()
+                # Construct and resolve the target path
+                target_path = (Path(upload_dir) / filename).resolve()
+                # Ensure the target path stays within the upload directory
+                if not target_path.is_relative_to(upload_dir_path):
+                    # Path escapes the upload directory - potential path traversal attack
+                    return
+                # Use the resolved target path for existence check and deletion
+                if target_path.exists():
+                    target_path.unlink()
+            except (ValueError, RuntimeError):
+                # If resolution fails or paths can't be compared, abort deletion
+                return
         return
 
     # Extract key from URL — works for both local (/static/uploads/avatars/...)
