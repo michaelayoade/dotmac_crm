@@ -3,14 +3,14 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 # ---- Injected at spawn time ----
-WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c1-2-3
+WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c2-1-2
 PROJECT_DIR=/home/dotmac/projects/dotmac_crm
 SCRIPT_DIR=/home/dotmac/projects/dotmac_crm/scripts
 ACTIVE_FILE=/home/dotmac/projects/dotmac_crm/.seabone/active-tasks.json
-LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c1-2-3.log
-TASK_ID=fix-security-c1-2-3
-DESCRIPTION=Fix\ cookie\ secure\ flags:\ both\ the\ CSRF\ cookie\ and\ session/MFA\ cookies\ are\ hardcoded\ to\ secure=False.\ Steps:\ 1\)\ In\ app/config.py\ add:\ cookie_secure:\ bool\ =\ bool\(os.getenv\(\'COOKIE_SECURE\'\,\ \'\'\)\)\ to\ the\ Settings\ class.\ 2\)\ In\ app/csrf.py\ line\ 37\,\ change\ secure=False\ to\ secure=settings.cookie_secure\ \(import\ settings\ from\ app.config\).\ 3\)\ In\ app/services/web_auth.py\ replace\ all\ 4\ hardcoded\ secure=False\ occurrences\ at\ lines\ 201\,\ 213\,\ 290\,\ 393\ with\ secure=settings.cookie_secure\ \(import\ settings\).\ 4\)\ In\ .env.example\ add\ COOKIE_SECURE=true\ comment\ explaining\ it\ should\ be\ set\ in\ production.\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ and\ python\ -c\ \'from\ app.main\ import\ app\'\ to\ verify\ app\ boots.
-BRANCH=agent/fix-security-c1-2-3
+LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c2-1-2.log
+TASK_ID=fix-security-c2-1-2
+DESCRIPTION=Fix\ webhook\ authentication\ for\ email\ and\ WhatsApp\ endpoints\ in\ app/web/public/crm_webhooks.py.\ Two\ related\ HIGH\ security\ findings\ in\ the\ same\ file:\ \(c2-1\)\ POST\ /webhooks/crm/email\ at\ line\ 433\ has\ zero\ authentication\ —\ any\ caller\ can\ inject\ fake\ email\ messages\ into\ CRM\ conversations.\ \(c2-2\)\ POST\ /webhooks/crm/whatsapp\ at\ line\ 310\ has\ a\ fast-path\ that\ processes\ normalized\ WhatsAppWebhookPayload\ WITHOUT\ verifying\ the\ Meta\ X-Hub-Signature-256\ header\,\ bypassing\ HMAC\ entirely.\ Steps:\ 1\)\ Read\ app/web/public/crm_webhooks.py\ focusing\ on\ lines\ 300-460.\ 2\)\ For\ the\ EMAIL\ webhook\ \(c2-1\):\ look\ up\ the\ email\ inbox\ connector\ config\ \(check\ how\ other\ connectors\ store\ secrets\ in\ the\ DB\ or\ env\)\,\ add\ a\ shared-secret\ check\ —\ read\ a\ WEBHOOK_EMAIL_SECRET\ env\ var\ \(or\ per-connector\ secret\ from\ DB\)\,\ require\ the\ caller\ to\ send\ it\ in\ an\ X-Webhook-Secret\ header\,\ return\ HTTP\ 401\ if\ missing\ or\ wrong.\ 3\)\ For\ the\ WHATSAPP\ webhook\ \(c2-2\):\ locate\ the\ fast-path\ that\ tries\ WhatsAppWebhookPayload\ first\ —\ gate\ or\ remove\ it\ so\ HMAC\ X-Hub-Signature-256\ verification\ always\ runs\ BEFORE\ any\ payload\ parsing.\ 4\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ \&\&\ python\ -c\ \'from\ app.main\ import\ app\'\ to\ confirm\ the\ app\ boots\ cleanly.
+BRANCH=agent/fix-security-c2-1-2
 ENGINE=codex
 MODEL=gpt-5.3-codex
 EVENT_LOG=/home/dotmac/projects/dotmac_crm/.seabone/logs/events.log
