@@ -4,11 +4,20 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 
 from app.config import settings
+from app.services.common import validate_upload_mime
 from app.services.storage import storage
+
+_IMAGE_UPLOAD_MIMES = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+]
 
 
 def get_allowed_types() -> set[str]:
-    return set(settings.avatar_allowed_types.split(","))
+    raw = settings.avatar_allowed_types
+    return {item.strip() for item in raw.split(",") if item.strip()}
 
 
 def validate_avatar(file: UploadFile) -> None:
@@ -20,14 +29,18 @@ def validate_avatar(file: UploadFile) -> None:
         )
 
 
-async def save_avatar(file: UploadFile, person_id: str) -> str:
-    validate_avatar(file)
+def _validate_avatar_content(content: bytes) -> str:
+    return validate_upload_mime(content, _IMAGE_UPLOAD_MIMES, label="file")
 
-    ext = _get_extension(file.content_type)
+
+async def save_avatar(file: UploadFile, person_id: str) -> str:
+    content = await file.read()
+    detected_mime = _validate_avatar_content(content)
+
+    ext = _get_extension(detected_mime)
     filename = f"{person_id}_{uuid.uuid4().hex[:8]}{ext}"
     key = f"avatars/{filename}"
 
-    content = await file.read()
     if len(content) > settings.avatar_max_size_bytes:
         raise HTTPException(
             status_code=400,
@@ -42,7 +55,7 @@ async def save_avatar(file: UploadFile, person_id: str) -> str:
         dest.write_bytes(content)
         return f"{url_prefix}/{filename}"
 
-    return storage.put(key, content, file.content_type or "")
+    return storage.put(key, content, detected_mime)
 
 
 def delete_avatar(avatar_url: str | None) -> None:

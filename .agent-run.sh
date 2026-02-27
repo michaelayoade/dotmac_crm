@@ -3,14 +3,14 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 # ---- Injected at spawn time ----
-WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c1-2-3
+WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c2-5
 PROJECT_DIR=/home/dotmac/projects/dotmac_crm
 SCRIPT_DIR=/home/dotmac/projects/dotmac_crm/scripts
 ACTIVE_FILE=/home/dotmac/projects/dotmac_crm/.seabone/active-tasks.json
-LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c1-2-3.log
-TASK_ID=fix-security-c1-2-3
-DESCRIPTION=Fix\ cookie\ secure\ flags:\ both\ the\ CSRF\ cookie\ and\ session/MFA\ cookies\ are\ hardcoded\ to\ secure=False.\ Steps:\ 1\)\ In\ app/config.py\ add:\ cookie_secure:\ bool\ =\ bool\(os.getenv\(\'COOKIE_SECURE\'\,\ \'\'\)\)\ to\ the\ Settings\ class.\ 2\)\ In\ app/csrf.py\ line\ 37\,\ change\ secure=False\ to\ secure=settings.cookie_secure\ \(import\ settings\ from\ app.config\).\ 3\)\ In\ app/services/web_auth.py\ replace\ all\ 4\ hardcoded\ secure=False\ occurrences\ at\ lines\ 201\,\ 213\,\ 290\,\ 393\ with\ secure=settings.cookie_secure\ \(import\ settings\).\ 4\)\ In\ .env.example\ add\ COOKIE_SECURE=true\ comment\ explaining\ it\ should\ be\ set\ in\ production.\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ and\ python\ -c\ \'from\ app.main\ import\ app\'\ to\ verify\ app\ boots.
-BRANCH=agent/fix-security-c1-2-3
+LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c2-5.log
+TASK_ID=fix-security-c2-5
+DESCRIPTION=Add\ magic-byte\ MIME\ validation\ to\ file\ upload\ handlers.\ The\ four\ upload\ services\ currently\ trust\ the\ client-supplied\ Content-Type\ header\ instead\ of\ inspecting\ actual\ file\ bytes.\ Files:\ app/services/crm/conversations/message_attachments.py:26\,\ app/services/ticket_attachments.py:26\,\ app/services/avatar.py:16\,\ app/services/branding_assets.py:38.\ Steps:\ 1\)\ Add\ python-magic\ to\ pyproject.toml\ dependencies\ \(package\ name:\ python-magic\,\ import\ as:\ import\ magic\).\ 2\)\ Read\ each\ of\ the\ 4\ upload\ service\ files\ to\ understand\ how\ file\ content\ is\ read\ and\ validated.\ 3\)\ Create\ a\ shared\ helper\ in\ app/services/common.py:\ def\ validate_upload_mime\(content:\ bytes\,\ allowed_mimes:\ list\[str\]\,\ label:\ str\ =\ \'file\'\)\ -\>\ str\ —\ use\ magic.from_buffer\(content\,\ mime=True\)\ to\ get\ the\ real\ MIME\ type\,\ raise\ HTTPException\(status_code=400\,\ detail=f\'Invalid\ \{label\}\ type:\ \{detected\}\'\)\ if\ not\ in\ allowlist\,\ return\ the\ detected\ MIME\ type.\ 4\)\ In\ each\ upload\ handler\,\ after\ reading\ the\ file\ content\ bytes\,\ call\ validate_upload_mime\(\)\ with\ the\ appropriate\ allowlist\ \(images:\ image/jpeg\,\ image/png\,\ image/gif\,\ image/webp\;\ documents:\ also\ application/pdf\).\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ \&\&\ python\ -c\ \'from\ app.main\ import\ app\'.
+BRANCH=agent/fix-security-c2-5
 ENGINE=codex
 MODEL=gpt-5.3-codex
 EVENT_LOG=/home/dotmac/projects/dotmac_crm/.seabone/logs/events.log

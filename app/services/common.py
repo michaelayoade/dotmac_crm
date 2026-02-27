@@ -15,6 +15,7 @@ import uuid
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, TypeVar
 
+import magic
 from fastapi import HTTPException
 
 if TYPE_CHECKING:
@@ -200,3 +201,11 @@ def validate_positive_decimal(value: Decimal | None, label: str) -> Decimal | No
     if value is not None and value < 0:
         raise HTTPException(status_code=400, detail=f"{label} cannot be negative")
     return value
+
+
+def validate_upload_mime(content: bytes, allowed_mimes: list[str], label: str = "file") -> str:
+    """Validate uploaded bytes against an allowlist using magic-byte MIME detection."""
+    detected = magic.from_buffer(content, mime=True)
+    if detected not in allowed_mimes:
+        raise HTTPException(status_code=400, detail=f"Invalid {label} type: {detected}")
+    return detected
