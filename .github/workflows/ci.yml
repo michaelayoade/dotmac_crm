@@ -28,7 +28,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          poetry install --no-interaction --no-ansi
+          poetry install --no-interaction --no-ansi --with=dev
 
       - name: Ruff Lint
         run: poetry run ruff check app/ tests/
@@ -41,6 +41,9 @@ jobs:
 
       - name: Bandit
         run: poetry run bandit -r app -ll --skip B113
+
+      - name: Dependency audit
+        run: poetry run pip-audit --strict
 
       - name: Pytest (Coverage)
         run: poetry run pytest --cov=app --cov-report=term-missing --cov-report=xml

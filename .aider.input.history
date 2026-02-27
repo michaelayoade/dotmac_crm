@@ -1,0 +1,80 @@
+
+# 2026-02-27 05:11:37.113375
++Add pip-audit to dev dependencies and CI for automated CVE scanning. Steps: 1) Run: poetry add --group dev pip-audit. 2) In .github/workflows/ci.yml find the security/bandit step and add a new step after it: 'name: Dependency audit, run: pip-audit --strict'. If the workflow uses pip install, also add pip-audit to the requirements. 3) Run: pip-audit --strict locally to verify it works and passes. 4) Run: ruff check app/ tests/ && ruff format app/ tests/ (formatting only, no app code changes). Note: pip-audit may flag the same CVEs we are fixing in other tasks - that is expected and acceptable for now.
+
+# 2026-02-27 05:11:37.113506
++Add pip-audit to dev dependencies and CI for automated CVE scanning. Steps: 1) Run: poetry add --group dev pip-audit. 2) In .github/workflows/ci.yml find the security/bandit step and add a new step after it: 'name: Dependency audit, run: pip-audit --strict'. If the workflow uses pip install, also add pip-audit to the requirements. 3) Run: pip-audit --strict locally to verify it works and passes. 4) Run: ruff check app/ tests/ && ruff format app/ tests/ (formatting only, no app code changes). Note: pip-audit may flag the same CVEs we are fixing in other tasks - that is expected and acceptable for now.
+
+# 2026-02-27 05:13:19.369281
++Fix these issues: **Issues found:**
++
++1. **Missing import/installation of `pip-audit` in CI workflow** - The workflow runs `poetry run pip-audit` but doesn't install `pip-audit` first. The dependency is only added to `pyproject.toml`, but Poetry dependencies aren't automatically installed in CI.
++
++2. **Inconsistent script location** - `SCRIPT_DIR` changed from project-based to user-global (`~/.seabone/scripts`), which may break if scripts aren't available there.
++
++**Required fixes:**
++
++1. **Add pip-audit installation to CI workflow**:
++```yaml
++# In .github/workflows/ci.yml, add before the "Dependency audit" step:
++- name: Install dependencies
++  run: poetry install --no-interaction
++```
++
++2. **Either revert `SCRIPT_DIR` or ensure scripts exist at new location**.
++
++**Security note**: Adding `pip-audit` is good for security scanning, but the CI fix is essential for it to actually work.
+
+# 2026-02-27 05:13:19.369385
++Fix these issues: **Issues found:**
++
++1. **Missing import/installation of `pip-audit` in CI workflow** - The workflow runs `poetry run pip-audit` but doesn't install `pip-audit` first. The dependency is only added to `pyproject.toml`, but Poetry dependencies aren't automatically installed in CI.
++
++2. **Inconsistent script location** - `SCRIPT_DIR` changed from project-based to user-global (`~/.seabone/scripts`), which may break if scripts aren't available there.
++
++**Required fixes:**
++
++1. **Add pip-audit installation to CI workflow**:
++```yaml
++# In .github/workflows/ci.yml, add before the "Dependency audit" step:
++- name: Install dependencies
++  run: poetry install --no-interaction
++```
++
++2. **Either revert `SCRIPT_DIR` or ensure scripts exist at new location**.
++
++**Security note**: Adding `pip-audit` is good for security scanning, but the CI fix is essential for it to actually work.
+
+# 2026-02-27 05:14:14.664336
++Fix these issues: **Issues found:**
++
++1. **Missing import/installation of `pip-audit` in CI** - The workflow runs `poetry run pip-audit` but `pip-audit` is only added to dev dependencies in `pyproject.toml`. The CI job installs dependencies with `--with dev`, but the `Install Dependencies` step was modified incorrectly:
++   - Line 31: `poetry install --no-interaction --no-ansi --with dev` is wrong syntax. Should be `poetry install --no-interaction --no-ansi --with=dev` (equals sign required).
++
++2. **Security issue** - The `.gitignore` addition `.aider*` could hide security-relevant configuration files if aider stores secrets or tokens. Should be more specific (e.g., `.aider.chat.history.md`, `.aider.conf`).
++
++3. **Potential bug** - The script changes `ENGINE` from `codex` to `aider` and `MODEL` from `gpt-5.3-codex` to `deepseek-chat`, but the script logic doesn't have an `aider` engine handler. The `elif` chain will skip to the default `echo "Unknown engine"` case.
++
++**Fixes:**
++1. In `.github/workflows/ci.yml`, change `--with dev` to `--with=dev`.
++2. In `.gitignore`, replace `.aider*` with specific patterns like `.aider.chat.history.md` and `.aider.conf`.
++3. Either add an `aider` engine handler in the script or revert `ENGINE`/`MODEL` to a supported value.
++
++**Note:** The diff also changes `SCRIPT_DIR` from a project path to a global `~/.seabone/scripts`. Ensure that directory exists with required scripts.
+
+# 2026-02-27 05:14:14.664444
++Fix these issues: **Issues found:**
++
++1. **Missing import/installation of `pip-audit` in CI** - The workflow runs `poetry run pip-audit` but `pip-audit` is only added to dev dependencies in `pyproject.toml`. The CI job installs dependencies with `--with dev`, but the `Install Dependencies` step was modified incorrectly:
++   - Line 31: `poetry install --no-interaction --no-ansi --with dev` is wrong syntax. Should be `poetry install --no-interaction --no-ansi --with=dev` (equals sign required).
++
++2. **Security issue** - The `.gitignore` addition `.aider*` could hide security-relevant configuration files if aider stores secrets or tokens. Should be more specific (e.g., `.aider.chat.history.md`, `.aider.conf`).
++
++3. **Potential bug** - The script changes `ENGINE` from `codex` to `aider` and `MODEL` from `gpt-5.3-codex` to `deepseek-chat`, but the script logic doesn't have an `aider` engine handler. The `elif` chain will skip to the default `echo "Unknown engine"` case.
++
++**Fixes:**
++1. In `.github/workflows/ci.yml`, change `--with dev` to `--with=dev`.
++2. In `.gitignore`, replace `.aider*` with specific patterns like `.aider.chat.history.md` and `.aider.conf`.
++3. Either add an `aider` engine handler in the script or revert `ENGINE`/`MODEL` to a supported value.
++
++**Note:** The diff also changes `SCRIPT_DIR` from a project path to a global `~/.seabone/scripts`. Ensure that directory exists with required scripts.

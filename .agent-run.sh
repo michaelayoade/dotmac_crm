@@ -3,16 +3,16 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 # ---- Injected at spawn time ----
-WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-deps-002-003
+WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-deps-012-v2
 PROJECT_DIR=/home/dotmac/projects/dotmac_crm
-SCRIPT_DIR=/home/dotmac/projects/dotmac_crm/scripts
+SCRIPT_DIR=/home/dotmac/.seabone/scripts
 ACTIVE_FILE=/home/dotmac/projects/dotmac_crm/.seabone/active-tasks.json
-LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-deps-002-003.log
-TASK_ID=fix-deps-002-003
-DESCRIPTION=SECURITY:\ Upgrade\ Jinja2\ and\ cryptography\ to\ fix\ known\ CVEs.\ Jinja2\ 3.1.4\ has\ CVE-2024-56201\ and\ CVE-2024-56326\ \(sandbox\ escape\).\ cryptography\ 42.0.8\ is\ affected\ by\ GHSA-h4gh-qq45-vh27\ and\ multiple\ other\ CVEs\ fixed\ in\ 44.x+.\ Steps:\ 1\)\ In\ pyproject.toml\ change\ jinja2\ version\ to\ \'\>=3.1.6\'.\ 2\)\ In\ pyproject.toml\ change\ cryptography\ version\ to\ \'\>=44.0.0\'.\ 3\)\ Run:\ poetry\ update\ jinja2\ cryptography.\ 4\)\ Verify:\ python\ -c\ \'import\ jinja2\;\ print\(jinja2.__version__\)\'\ should\ show\ 3.1.6+.\ 5\)\ Verify:\ python\ -c\ \'import\ cryptography\;\ print\(cryptography.__version__\)\'\ should\ show\ 44+.\ 6\)\ Run:\ pytest\ -x\ -q\ to\ verify\ no\ regressions.
-BRANCH=agent/fix-deps-002-003
-ENGINE=codex
-MODEL=gpt-5.3-codex
+LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-deps-012-v2.log
+TASK_ID=fix-deps-012-v2
+DESCRIPTION=Add\ pip-audit\ to\ dev\ dependencies\ and\ CI\ for\ automated\ CVE\ scanning.\ Steps:\ 1\)\ Run:\ poetry\ add\ --group\ dev\ pip-audit.\ 2\)\ In\ .github/workflows/ci.yml\ find\ the\ security/bandit\ step\ and\ add\ a\ new\ step\ after\ it:\ \'name:\ Dependency\ audit\,\ run:\ pip-audit\ --strict\'.\ If\ the\ workflow\ uses\ pip\ install\,\ also\ add\ pip-audit\ to\ the\ requirements.\ 3\)\ Run:\ pip-audit\ --strict\ locally\ to\ verify\ it\ works\ and\ passes.\ 4\)\ Run:\ ruff\ check\ app/\ tests/\ \&\&\ ruff\ format\ app/\ tests/\ \(formatting\ only\,\ no\ app\ code\ changes\).\ Note:\ pip-audit\ may\ flag\ the\ same\ CVEs\ we\ are\ fixing\ in\ other\ tasks\ -\ that\ is\ expected\ and\ acceptable\ for\ now.
+BRANCH=agent/fix-deps-012-v2
+ENGINE=aider
+MODEL=deepseek-chat
 EVENT_LOG=/home/dotmac/projects/dotmac_crm/.seabone/logs/events.log
 CONFIG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/config.json
 PROJECT_NAME=dotmac_crm
@@ -75,13 +75,11 @@ if [[ "$ENGINE" == "claude" ]]; then
 elif [[ "$ENGINE" == "claude-frontend" ]]; then
     echo "[RUN] Claude Frontend Design Specialist..."
 
-    # Load the frontend design system prompt
     FRONTEND_PROMPT=""
     if [[ -f "$PROMPTS_DIR/frontend-design.md" ]]; then
         FRONTEND_PROMPT=$(cat "$PROMPTS_DIR/frontend-design.md")
     fi
 
-    # Build the full prompt: system context + task
     FULL_TASK="$FRONTEND_PROMPT
 
 ---
@@ -141,7 +139,6 @@ elif [[ "$ENGINE" == "codex" ]]; then
 elif [[ "$ENGINE" == "codex-test" ]]; then
     echo "[RUN] Codex Testing Specialist..."
 
-    # Load the testing system prompt
     TEST_PROMPT=""
     if [[ -f "$PROMPTS_DIR/testing-agent.md" ]]; then
         TEST_PROMPT=$(cat "$PROMPTS_DIR/testing-agent.md")
@@ -184,19 +181,15 @@ ${DESCRIPTION}
 elif [[ "$ENGINE" == "codex-senior" ]]; then
     echo "[RUN] Codex Senior Dev (Escalation)..."
 
-    # Load the senior dev system prompt
     SENIOR_PROMPT=""
     if [[ -f "$PROMPTS_DIR/senior-dev.md" ]]; then
         SENIOR_PROMPT=$(cat "$PROMPTS_DIR/senior-dev.md")
     fi
 
-    # Check for previous agent logs to provide context
     PREV_LOG_CONTEXT=""
-    # Extract base task ID (strip -v2, -v3 suffixes for escalation lookups)
     BASE_TASK_ID=$(echo "$TASK_ID" | sed -E 's/-v[0-9]+$//')
     for prev_log in "$LOG_DIR/${BASE_TASK_ID}"*.log; do
         if [[ -f "$prev_log" && "$prev_log" != "$LOG_FILE" ]]; then
-            # Get last 80 lines of previous attempts
             PREV_LOG_CONTEXT="${PREV_LOG_CONTEXT}
 
 --- Previous attempt log: $(basename "$prev_log") ---
