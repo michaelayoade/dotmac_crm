@@ -2,34 +2,34 @@
 
 {% block content %}
   <main class="mx-auto max-w-5xl px-6 py-16">
-    <div class="rounded-3xl bg-white p-10 shadow-xl shadow-slate-200/40">
+    <div class="rounded-3xl bg-white dark:bg-slate-800 p-10 shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40">
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+          <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500">
             Domain
           </p>
-          <h1 class="mt-2 text-3xl font-semibold text-slate-900">
+          <h1 class="mt-2 text-3xl font-semibold text-slate-900 dark:text-white">
             {{ title }}
           </h1>
         </div>
         <a
           href="/"
-          class="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600"
+          class="rounded-full border border-slate-200 dark:border-slate-600 px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
         >
           Back to dashboard
         </a>
       </div>
 
-      <div class="mt-10 divide-y divide-slate-100">
+      <div class="mt-10 divide-y divide-slate-100 dark:divide-slate-700">
         {% for item in items %}
           <div class="flex flex-col gap-1 py-4 text-sm">
-            <span class="font-medium text-slate-900">
+            <span class="font-medium text-slate-900 dark:text-white">
               {{ item.name if item.name else item.title if item.title else item.external_id if item.external_id else item.key if item.key else item.code if item.code else item.id }}
             </span>
-            <span class="text-xs text-slate-500">{{ item.id }}</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">{{ item.id }}</span>
           </div>
         {% else %}
-          <p class="py-6 text-sm text-slate-500">No data yet.</p>
+          <p class="py-6 text-sm text-slate-500 dark:text-slate-400">No data yet.</p>
         {% endfor %}
       </div>
     </div>

@@ -8,7 +8,7 @@
     <!-- Breadcrumb -->
     <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
         <a href="/admin/surveys" class="hover:text-slate-700 dark:hover:text-slate-200">Surveys</a>
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         <span class="text-slate-700 dark:text-slate-200">{{ survey.name }}</span>
     </nav>
 
@@ -38,23 +38,23 @@
             {% if survey.status.value == 'draft' or survey.status.value == 'paused' %}
             <form method="POST" action="/admin/surveys/{{ survey.id }}/activate" class="inline">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token(request) if csrf_token is defined else '' }}">
-                <button class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors">Activate</button>
+                <button type="submit" class="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors">Activate</button>
             </form>
             {% endif %}
             {% if survey.status.value == 'active' %}
             <form method="POST" action="/admin/surveys/{{ survey.id }}/pause" class="inline">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token(request) if csrf_token is defined else '' }}">
-                <button class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition-colors">Pause</button>
+                <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition-colors">Pause</button>
             </form>
             <form method="POST" action="/admin/surveys/{{ survey.id }}/send" class="inline">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token(request) if csrf_token is defined else '' }}">
-                <button class="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 transition-colors">Send Now</button>
+                <button type="submit" class="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 transition-colors">Send Now</button>
             </form>
             {% endif %}
             {% if survey.status.value != 'closed' %}
             <form method="POST" action="/admin/surveys/{{ survey.id }}/close" class="inline">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token(request) if csrf_token is defined else '' }}">
-                <button class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 transition-colors">Close</button>
+                <button type="submit" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 transition-colors">Close Survey</button>
             </form>
             {% endif %}
             {% if survey.status.value in ['draft', 'paused'] %}
