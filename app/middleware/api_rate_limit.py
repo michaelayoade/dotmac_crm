@@ -25,10 +25,13 @@ logger = get_logger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 RATE_LIMIT_PREFIX = "api_rate:"
+WEBHOOK_RATE_LIMIT_PREFIX = "webhook_rate:"
 
 # Default rate limits (can be overridden via environment)
 DEFAULT_LIMIT = int(os.getenv("API_RATE_LIMIT", "100"))  # requests per window
 DEFAULT_WINDOW = int(os.getenv("API_RATE_WINDOW", "60"))  # seconds
+DEFAULT_WEBHOOK_LIMIT = int(os.getenv("WEBHOOK_RATE_LIMIT", "60"))  # requests per window
+DEFAULT_WEBHOOK_WINDOW = int(os.getenv("WEBHOOK_RATE_WINDOW", "60"))  # seconds
 
 # In-memory fallback storage
 _memory_store: dict[str, list[float]] = defaultdict(list)
@@ -73,11 +76,13 @@ class APIRateLimitMiddleware:
         limit: int = DEFAULT_LIMIT,
         window_seconds: int = DEFAULT_WINDOW,
         key_func: Callable[[Request], str] | None = None,
+        rate_limit_prefix: str = RATE_LIMIT_PREFIX,
     ):
         self.app = app
         self.limit = limit
         self.window_seconds = window_seconds
         self.key_func = key_func or self._default_key_func
+        self.rate_limit_prefix = rate_limit_prefix
         self._redis = None
         self._redis_available = None
 
@@ -92,11 +97,7 @@ class APIRateLimitMiddleware:
             return f"user:{user_id}"
 
         # Fall back to IP address
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
-        else:
-            ip = request.client.host if request.client else "unknown"
+        ip = _get_client_ip(request)
         return f"ip:{ip}"
 
     def _get_redis(self):
@@ -192,7 +193,7 @@ class APIRateLimitMiddleware:
 
     def _check_rate_redis(self, redis, key: str) -> tuple[bool, int, int]:
         """Check rate limit using Redis sorted set for sliding window."""
-        full_key = f"{RATE_LIMIT_PREFIX}{key}"
+        full_key = f"{self.rate_limit_prefix}{key}"
         now = time.time()
         window_start = now - self.window_seconds
 
@@ -225,20 +226,59 @@ class APIRateLimitMiddleware:
 
     def _check_rate_memory(self, key: str) -> tuple[bool, int, int]:
         """Check rate limit using in-memory storage (fallback)."""
+        full_key = f"{self.rate_limit_prefix}{key}"
         now = time.time()
         window_start = now - self.window_seconds
 
         with _memory_lock:
-            _memory_store[key] = [t for t in _memory_store[key] if t > window_start]
-            current_count = len(_memory_store[key])
+            _memory_store[full_key] = [t for t in _memory_store[full_key] if t > window_start]
+            current_count = len(_memory_store[full_key])
 
             if current_count >= self.limit:
-                if _memory_store[key]:
-                    reset_in = int(_memory_store[key][0] + self.window_seconds - now) + 1
+                if _memory_store[full_key]:
+                    reset_in = int(_memory_store[full_key][0] + self.window_seconds - now) + 1
                 else:
                     reset_in = self.window_seconds
                 return False, 0, reset_in
 
-            _memory_store[key].append(now)
+            _memory_store[full_key].append(now)
             remaining = self.limit - current_count - 1
             return True, max(0, remaining), self.window_seconds
+
+
+def _get_client_ip(request: Request) -> str:
+    """Extract client IP from X-Forwarded-For or socket peer."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+class WebhookRateLimitMiddleware(APIRateLimitMiddleware):
+    """
+    Rate limiter dedicated to public CRM webhooks.
+
+    Applies only to /webhooks/crm/* and always keys by client IP.
+    """
+
+    WEBHOOK_PATH: ClassVar[str] = "/webhooks/crm"
+    WEBHOOK_PATH_PREFIX: ClassVar[str] = "/webhooks/crm/"
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        limit: int = DEFAULT_WEBHOOK_LIMIT,
+        window_seconds: int = DEFAULT_WEBHOOK_WINDOW,
+    ):
+        super().__init__(
+            app=app,
+            limit=limit,
+            window_seconds=window_seconds,
+            rate_limit_prefix=WEBHOOK_RATE_LIMIT_PREFIX,
+        )
+
+    def _default_key_func(self, request: Request) -> str:
+        return f"ip:{_get_client_ip(request)}"
+
+    def _should_skip(self, path: str) -> bool:
+        return path != self.WEBHOOK_PATH and not path.startswith(self.WEBHOOK_PATH_PREFIX)
