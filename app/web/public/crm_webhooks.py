@@ -1,4 +1,6 @@
+import hmac
 import json
+import os
 import random
 import time
 import uuid
@@ -13,6 +15,8 @@ from starlette.responses import JSONResponse
 
 from app.db import SessionLocal
 from app.logging import get_logger
+from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.schemas.crm.inbox import EmailWebhookPayload, MetaWebhookPayload, WhatsAppWebhookPayload
 from app.services import meta_oauth, meta_webhooks
 from app.services.webhook_dead_letter import write_dead_letter
@@ -40,6 +44,10 @@ _CHANNEL_STATS: dict[str, dict[str, float]] = {
     "email": {"count": 0.0, "errors": 0.0, "last_log": 0.0},
 }
 _METRICS_LOG_INTERVAL_SECONDS = 60.0
+_EMAIL_WEBHOOK_SECRET_ENV_VAR = "WEBHOOK_EMAIL_SECRET"
+_EMAIL_WEBHOOK_SECRET_HEADER = "X-Webhook-Secret"
+_EMAIL_WEBHOOK_SECRET_KEYS = ("webhook_secret", "email_webhook_secret")
+_EMAIL_WEBHOOK_SECRET_REF_KEYS = ("webhook_secret_ref", "email_webhook_secret_ref")
 
 
 def get_db():
@@ -77,6 +85,61 @@ def _record_channel_stat(channel: str, ok: bool, events: int | None = None) -> N
         stats["count"] = 0.0
         stats["errors"] = 0.0
         stats["last_log"] = now
+
+
+def _as_non_empty_str(value: object | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _secret_from_config_map(config_map: dict | None) -> str | None:
+    if not isinstance(config_map, dict):
+        return None
+
+    for key in _EMAIL_WEBHOOK_SECRET_KEYS:
+        secret = _as_non_empty_str(config_map.get(key))
+        if secret:
+            return secret
+
+    for key in _EMAIL_WEBHOOK_SECRET_REF_KEYS:
+        env_key = _as_non_empty_str(config_map.get(key))
+        if not env_key:
+            continue
+        secret = _as_non_empty_str(os.getenv(env_key))
+        if secret:
+            return secret
+
+    return None
+
+
+def _get_email_webhook_secrets(db: Session) -> list[str]:
+    env_secret = _as_non_empty_str(os.getenv(_EMAIL_WEBHOOK_SECRET_ENV_VAR))
+    if env_secret:
+        return [env_secret]
+
+    configs = (
+        db.query(ConnectorConfig)
+        .join(IntegrationTarget, IntegrationTarget.connector_config_id == ConnectorConfig.id)
+        .filter(IntegrationTarget.target_type == IntegrationTargetType.crm)
+        .filter(IntegrationTarget.is_active.is_(True))
+        .filter(ConnectorConfig.connector_type == ConnectorType.email)
+        .filter(ConnectorConfig.is_active.is_(True))
+        .order_by(IntegrationTarget.created_at.desc())
+        .all()
+    )
+
+    secrets: list[str] = []
+    for config in configs:
+        secret = _secret_from_config_map(config.auth_config) or _secret_from_config_map(config.metadata_)
+        if secret and secret not in secrets:
+            secrets.append(secret)
+    return secrets
+
+
+def _has_valid_email_webhook_secret(provided_secret: str, expected_secrets: list[str]) -> bool:
+    return any(hmac.compare_digest(provided_secret, expected_secret) for expected_secret in expected_secrets)
 
 
 def _enqueue_webhook_task(
@@ -308,35 +371,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         return Response(status_code=500)
 
     try:
-        # First try normalized payload
-        try:
-            parsed = WhatsAppWebhookPayload.model_validate_json(body)
-            parsed_payload = parsed.model_dump()
-            enqueued = _enqueue_webhook_task(
-                webhook_tasks.process_whatsapp_webhook.delay,
-                channel="whatsapp",
-                payload=parsed_payload,
-                trace_id=trace_id,
-                message_id=parsed.message_id,
-            )
-            _record_channel_stat("whatsapp", ok=enqueued)
-            if _should_sample():
-                body_len = len(parsed.body) if parsed.body else 0
-                attachments = len(parsed.metadata.get("attachments", [])) if isinstance(parsed.metadata, dict) else 0
-                logger.info(
-                    "webhook_parsed channel=whatsapp trace_id=%s body_len=%s attachments=%s latency_ms=%s",
-                    trace_id,
-                    body_len,
-                    attachments,
-                    int((time.monotonic() - start_time) * 1000),
-                )
-            if enqueued:
-                return {"status": "ok", "processed": 1}
-            return {"status": "accepted", "processed": 0, "failed": 1}
-        except Exception:
-            logger.debug("Failed to parse normalized WhatsApp webhook body.", exc_info=True)
-
-        # Fallback to Meta native payload; require valid signature.
+        # Require valid signature before any payload parsing.
         settings = meta_oauth.get_meta_settings(db)
         app_secret = settings.get("whatsapp_app_secret") or settings.get("meta_app_secret")
         signature = request.headers.get("X-Hub-Signature-256")
@@ -369,6 +404,34 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 status_code=401,
                 content={"status": "error", "detail": "Signature validation failed"},
             )
+
+        # First try normalized payload.
+        try:
+            parsed = WhatsAppWebhookPayload.model_validate_json(body)
+            parsed_payload = parsed.model_dump()
+            enqueued = _enqueue_webhook_task(
+                webhook_tasks.process_whatsapp_webhook.delay,
+                channel="whatsapp",
+                payload=parsed_payload,
+                trace_id=trace_id,
+                message_id=parsed.message_id,
+            )
+            _record_channel_stat("whatsapp", ok=enqueued)
+            if _should_sample():
+                body_len = len(parsed.body) if parsed.body else 0
+                attachments = len(parsed.metadata.get("attachments", [])) if isinstance(parsed.metadata, dict) else 0
+                logger.info(
+                    "webhook_parsed channel=whatsapp trace_id=%s body_len=%s attachments=%s latency_ms=%s",
+                    trace_id,
+                    body_len,
+                    attachments,
+                    int((time.monotonic() - start_time) * 1000),
+                )
+            if enqueued:
+                return {"status": "ok", "processed": 1}
+            return {"status": "accepted", "processed": 0, "failed": 1}
+        except Exception:
+            logger.debug("Failed to parse normalized WhatsApp webhook body.", exc_info=True)
 
         # Fallback to Meta native payload
         try:
@@ -431,8 +494,52 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/email", status_code=status.HTTP_200_OK)
-def email_webhook(payload: EmailWebhookPayload, db: Session = Depends(get_db)):
+async def email_webhook(request: Request, db: Session = Depends(get_db)):
     trace_id = str(uuid.uuid4())
+    expected_secrets = _get_email_webhook_secrets(db)
+    if not expected_secrets:
+        logger.warning("email_webhook_secret_missing")
+        _record_channel_stat("email", ok=False)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "detail": "Webhook secret not configured"},
+        )
+
+    provided_secret = _as_non_empty_str(request.headers.get(_EMAIL_WEBHOOK_SECRET_HEADER))
+    if not provided_secret:
+        logger.warning("email_webhook_secret_header_missing trace_id=%s", trace_id)
+        _record_channel_stat("email", ok=False)
+        return JSONResponse(
+            status_code=401,
+            content={"status": "error", "detail": "Webhook secret required"},
+        )
+
+    if not _has_valid_email_webhook_secret(provided_secret, expected_secrets):
+        logger.warning("email_webhook_secret_invalid trace_id=%s", trace_id)
+        _record_channel_stat("email", ok=False)
+        return JSONResponse(
+            status_code=401,
+            content={"status": "error", "detail": "Invalid webhook secret"},
+        )
+
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        logger.warning("email_webhook_client_disconnect trace_id=%s", trace_id)
+        _record_channel_stat("email", ok=False)
+        # Return 500 so the sender retries — body was not fully read.
+        return Response(status_code=500)
+
+    try:
+        payload = EmailWebhookPayload.model_validate_json(body)
+    except Exception as exc:
+        logger.warning("email_webhook_invalid_payload trace_id=%s error=%s", trace_id, exc)
+        _record_channel_stat("email", ok=False)
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "detail": "Invalid payload"},
+        )
+
     if _should_sample():
         body_len = len(payload.body) if payload.body else 0
         attachments = len(payload.metadata.get("attachments", [])) if isinstance(payload.metadata, dict) else 0
