@@ -9,6 +9,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-02-27]
+
+### Security
+- **Cookie Secure Flags**: CSRF cookie and session/MFA cookies were hardcoded `secure=False`; now controlled by `COOKIE_SECURE` env var (default off, set to `true` in production) — `app/config.py`, `app/csrf.py`, `app/services/web_auth.py` (PR #8)
+- **Jinja2**: Upgraded to `>=3.1.6` to fix sandbox escape CVEs CVE-2024-56201 and CVE-2024-56326 (PR #2)
+- **cryptography**: Upgraded to `>=44.0.0` to fix GHSA-h4gh-qq45-vh27 and multiple high-severity CVEs in 42.x (PR #2)
+- **paramiko**: Upgraded to `>=3.5.0` for SSH host key verification improvements (PR #4)
+- **weasyprint / pydyf**: Upgraded to `>=64.0` / `>=0.11.0` to reduce PDF generation attack surface
+
+### Changed
+- `.env.example`: Documents `COOKIE_SECURE=true` requirement for production deployments
+
+---
+
 ## [2026-02-24]
 
 ### Added
