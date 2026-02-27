@@ -30,6 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - `.env.example`: Documents `COOKIE_SECURE=true`, `TRUSTED_PROXIES`, and `METRICS_TOKEN` env vars for production deployments
+- **Frontend Audit**: Responsive, accessibility, and visual consistency improvements across survey templates (`admin/surveys/detail.html`, `admin/surveys/form.html`, `public/surveys/`) and error pages (`errors/404.html`, `errors/500.html`, `domain.html`) — WCAG 2.1 AA compliance pass, dark mode variants, touch targets, and Industrial Modern design system alignment (PR #17)
 
 ---
 
