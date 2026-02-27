@@ -3,16 +3,16 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 
 # ---- Injected at spawn time ----
-WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c1-2-3
+WORKTREE_DIR=/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-c2-4
 PROJECT_DIR=/home/dotmac/projects/dotmac_crm
 SCRIPT_DIR=/home/dotmac/projects/dotmac_crm/scripts
 ACTIVE_FILE=/home/dotmac/projects/dotmac_crm/.seabone/active-tasks.json
-LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c1-2-3.log
-TASK_ID=fix-security-c1-2-3
-DESCRIPTION=Fix\ cookie\ secure\ flags:\ both\ the\ CSRF\ cookie\ and\ session/MFA\ cookies\ are\ hardcoded\ to\ secure=False.\ Steps:\ 1\)\ In\ app/config.py\ add:\ cookie_secure:\ bool\ =\ bool\(os.getenv\(\'COOKIE_SECURE\'\,\ \'\'\)\)\ to\ the\ Settings\ class.\ 2\)\ In\ app/csrf.py\ line\ 37\,\ change\ secure=False\ to\ secure=settings.cookie_secure\ \(import\ settings\ from\ app.config\).\ 3\)\ In\ app/services/web_auth.py\ replace\ all\ 4\ hardcoded\ secure=False\ occurrences\ at\ lines\ 201\,\ 213\,\ 290\,\ 393\ with\ secure=settings.cookie_secure\ \(import\ settings\).\ 4\)\ In\ .env.example\ add\ COOKIE_SECURE=true\ comment\ explaining\ it\ should\ be\ set\ in\ production.\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ and\ python\ -c\ \'from\ app.main\ import\ app\'\ to\ verify\ app\ boots.
-BRANCH=agent/fix-security-c1-2-3
-ENGINE=codex
-MODEL=gpt-5.3-codex
+LOG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/logs/fix-security-c2-4.log
+TASK_ID=fix-security-c2-4
+DESCRIPTION=Gate\ the\ Prometheus\ /metrics\ endpoint\ behind\ authentication.\ File:\ app/main.py\ line\ 484.\ The\ endpoint\ is\ currently\ public\ with\ no\ auth\,\ exposing\ request\ counts\,\ error\ rates\,\ latency\ histograms\,\ and\ route\ paths\ to\ any\ caller.\ Steps:\ 1\)\ Read\ app/main.py\ around\ line\ 484\ to\ see\ how\ the\ /metrics\ endpoint\ is\ defined\ and\ what\ auth\ dependencies\ are\ available.\ 2\)\ Add\ a\ METRICS_TOKEN\ config\ field\ to\ app/config.py\ \(Settings\ class\):\ metrics_token:\ str\ =\ Field\(default=\'\'\,\ alias=\'METRICS_TOKEN\'\)\ —\ empty\ string\ means\ metrics\ are\ public\ \(backward-compatible\ default\).\ 3\)\ In\ the\ /metrics\ endpoint\ handler\,\ if\ settings.metrics_token\ is\ non-empty\,\ check\ the\ Authorization\ header\ for\ \'Bearer\ \{METRICS_TOKEN\}\'\ and\ return\ HTTP\ 401\ if\ missing\ or\ mismatched.\ 4\)\ Document\ METRICS_TOKEN=\<secret\>\ in\ .env.example.\ 5\)\ Run:\ ruff\ check\ app/\ --fix\ \&\&\ ruff\ format\ app/\ \&\&\ python\ -c\ \'from\ app.main\ import\ app\'.
+BRANCH=agent/fix-security-c2-4
+ENGINE=aider
+MODEL=deepseek-chat
 EVENT_LOG=/home/dotmac/projects/dotmac_crm/.seabone/logs/events.log
 CONFIG_FILE=/home/dotmac/projects/dotmac_crm/.seabone/config.json
 PROJECT_NAME=dotmac_crm
