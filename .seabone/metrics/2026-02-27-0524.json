@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-02-27T05:24:43Z",
+  "agents": {
+    "completed": 10,
+    "active": 5,
+    "merged": 0,
+    "rejected": 0,
+    "failed": 1,
+    "success_rate": "0"
+  },
+  "engines": {
+    "codex": 4,
+    "claude": 0,
+    "aider": 3,
+    "senior": 3,
+    "test": 0
+  },
+  "engine_success": {
+    "codex_merged": 0,
+    "claude_merged": 0,
+    "aider_merged": 0
+  },
+  "codebase": {
+    "findings": 9,
+    "open_prs": 3,
+    "total_commits": 100,
+    "today_commits": 0
+  }
+}

@@ -1,0 +1,145 @@
+[
+  {
+    "id": "api-c3-1",
+    "severity": "high",
+    "category": "api",
+    "file": "app/api/ai.py",
+    "line": 15,
+    "issue": "Six endpoints in the AI router (`list_insights`, `get_insight`, `acknowledge_insight`, `invoke_analysis`, `invoke_analysis_async`, `list_personas`) have no `response_model` declaration, so FastAPI generates no response schema in OpenAPI docs and performs no response validation.",
+    "task": "Define Pydantic response schemas (e.g., `AIInsightListResponse`, `AcknowledgeResponse`, `AnalysisResponse`, `AsyncAnalysisResponse`, `PersonaListResponse`) and add `response_model=` to each of the six decorators at lines 15, 44, 52, 68, 95, and 126.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c3-2",
+    "severity": "high",
+    "category": "api",
+    "file": "app/api/data_quality.py",
+    "line": 44,
+    "issue": "All four data quality endpoints (`/health`, `/health/{domain}`, `/entities/{domain}`, `/score/{entity_type}/{entity_id}`) are missing `response_model` declarations, leaving the API undocumented and bypassing response validation for data-quality reporting.",
+    "task": "Create Pydantic models `DataQualityHealthResponse`, `DataQualityReportDetail`, `DataQualityEntityListResponse`, and `DataQualityEntityScore` mirroring the dicts built in `_report_to_dict()` and `_entity_to_dict()`, then add `response_model=` to each decorator.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c3-3",
+    "severity": "high",
+    "category": "api",
+    "file": "app/api/performance.py",
+    "line": 28,
+    "issue": "Five performance endpoints (`/scores`, `/reviews`, `/reviews/generate`, `/peer-comparison`, `/team-summary`) have no `response_model` declaration, meaning the OpenAPI schema shows no return type and FastAPI cannot validate responses.",
+    "task": "Define Pydantic response models for each performance endpoint return shape (the services already return structured objects) and add `response_model=` to each of the five decorators at lines 28, 48, 67, 158, and 174.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "api-c3-4",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/projects.py",
+    "line": 102,
+    "issue": "Five project view endpoints (`/projects/charts/summary`, `/projects/kanban`, `/projects/gantt`, `/projects/gantt/due-date`, `/projects/kanban/move`) have no `response_model` declaration, leaving these high-traffic interactive view endpoints with no documented or validated response contract.",
+    "task": "Create Pydantic schemas for the chart summary dict, kanban board structure, gantt view structure, and kanban move result (likely `ProjectRead`), and add `response_model=` to the decorators at lines 102, 111, 120, 135, and 153.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "api-c3-5",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/ai.py",
+    "line": 149,
+    "issue": "The two AI use-case endpoints (`/crm/conversations/{conversation_id}/suggest-reply` at line 149 and `/tickets/{ticket_id}/summarize` at line 169) are missing both `response_model` declarations and `tags=` parameters, leaving them undocumented in OpenAPI and appearing without a category tag in the API explorer.",
+    "task": "Add `response_model=SuggestReplyResponse` / `response_model=TicketSummaryResponse` (new Pydantic schemas) and `tags=['ai']` to the two decorators at lines 149 and 169.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c3-6",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/crm/inbox.py",
+    "line": 69,
+    "issue": "The `list_templates` endpoint at line 69 declares `limit: int = 100` and `offset: int = 0` as plain function parameters without `Query()` wrappers, so no `ge`/`le` constraints are applied, no OpenAPI parameter documentation is generated, and a caller can request an arbitrarily large page.",
+    "task": "Replace `limit: int = 100` and `offset: int = 0` with `limit: int = Query(default=100, ge=1, le=200)` and `offset: int = Query(default=0, ge=0)` in the `list_templates` function signature.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c3-7",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/search.py",
+    "line": 93,
+    "issue": "The `/search/global` endpoint at line 93 is missing a `response_model` declaration, making the most heavily used search endpoint return an untyped dict with no OpenAPI schema documentation.",
+    "task": "Define a `GlobalSearchResponse` Pydantic model with fields matching the categorised results dict returned by `typeahead_service.global_search()` and add `response_model=GlobalSearchResponse` to the decorator at line 93.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c3-8",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/gis.py",
+    "line": 205,
+    "issue": "The `/areas/{area_id}/contains-point` endpoint at line 205 uses `response_model=dict` (bare Python built-in), which provides no OpenAPI schema, no field documentation, and no response validation — FastAPI emits an `Any` type in the schema.",
+    "task": "Create a `PointContainmentResult` Pydantic model with fields `area_id: str`, `latitude: float`, `longitude: float`, `contained: bool` and replace `response_model=dict` with `response_model=PointContainmentResult` at line 205.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c3-9",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/scheduler.py",
+    "line": 52,
+    "issue": "The `refresh_schedule` endpoint (line 52) and `enqueue_scheduled_task` endpoint (line 57) are both missing `response_model` declarations and have no `tags=` on individual decorators (though the router has a tag), leaving their return shapes undocumented in OpenAPI.",
+    "task": "Add `response_model=ScheduleRefreshResponse` and `response_model=EnqueueTaskResponse` Pydantic models (matching the dict shapes returned by `refresh_schedule()` and `enqueue_task()`) to the two decorators at lines 52 and 57.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c3-10",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/nextcloud_talk.py",
+    "line": 58,
+    "issue": "All 10 Nextcloud Talk endpoints use `response_model=dict` or `response_model=list[dict]` as pass-through proxy responses, which generates `{}` (empty Any schema) in OpenAPI docs and provides no type safety — callers cannot know the shape of room or message objects.",
+    "task": "Define typed Pydantic models `NextcloudTalkRoom`, `NextcloudTalkMessage`, `NextcloudTalkStatus`, and `NextcloudTalkRoomCreateResponse` reflecting the Nextcloud Talk API response shapes, and use them as response_model in all 10 endpoint decorators.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "api-c3-11",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/ai.py",
+    "line": 26,
+    "issue": "The `list_insights` endpoint at lines 26-27 declares `limit: int = 20` and `offset: int = 0` as plain function parameters without `Query()` wrappers; the code manually clamps values with `min(max(int(limit), 1), 100)`, bypassing FastAPI's automatic OpenAPI parameter documentation and validation.",
+    "task": "Replace `limit: int = 20` and `offset: int = 0` with `limit: int = Query(default=20, ge=1, le=100)` and `offset: int = Query(default=0, ge=0)` and remove the manual `min(max(...))` clamp on lines 38-39.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c3-12",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/data_quality.py",
+    "line": 49,
+    "issue": "The `data_quality_health` endpoint at line 49 declares `limit: int = 200` as a plain function parameter without `Query()`, and `data_quality_entity_list` at line 88 declares `sort: str = 'worst'` without a `Query(pattern=...)` constraint — both bypass FastAPI validation and OpenAPI documentation.",
+    "task": "Replace `limit: int = 200` with `limit: int = Query(default=200, ge=10, le=500)` in `data_quality_health`, and replace `sort: str = 'worst'` with `sort: str = Query(default='worst', pattern='^(worst|best)$')` in `data_quality_entity_list`, removing the manual clamping/normalization fallbacks.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c3-13",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/search.py",
+    "line": 124,
+    "issue": "Five legacy stub endpoints (`/search/subscriptions`, `/search/invoices`, `/search/nas-devices`, `/search/catalog-offers`, `/search/accounts`) from removed billing/catalog domains are still registered in the API router and always return empty results via `_empty_typeahead()`, misleading API consumers and polluting the OpenAPI schema.",
+    "task": "Remove the five stub endpoints (`search_subscriptions`, `search_invoices`, `search_nas_devices`, `search_catalog_offers`, `search_accounts`) from `app/api/search.py` and delete the `_empty_typeahead()` shim function since it is only referenced by these removed endpoints.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]

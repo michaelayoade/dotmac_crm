@@ -1,0 +1,101 @@
+[
+  {
+    "id": "security-c1-1",
+    "severity": "high",
+    "category": "security",
+    "file": ".env.agent-swarm",
+    "line": 2,
+    "issue": "Real API credentials (DeepSeek API key, Telegram bot token and chat ID) stored in plaintext in the project directory; file is gitignored but any filesystem access exposes live credentials.",
+    "task": "Revoke and rotate the DeepSeek API key and Telegram bot token immediately, then replace the plaintext values with references to environment variables or OpenBao secrets.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c1-2",
+    "severity": "high",
+    "category": "security",
+    "file": "app/csrf.py",
+    "line": 37,
+    "issue": "CSRF cookie is always set with `secure=False`, meaning it will be transmitted over plain HTTP in any deployment — including production — until manually changed in source code.",
+    "task": "Make the `secure` flag in `set_csrf_cookie()` read from an environment variable or the app Settings class (e.g., `settings.cookie_secure`) so production deployments default to `True` without code changes.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c1-3",
+    "severity": "high",
+    "category": "security",
+    "file": "app/services/web_auth.py",
+    "line": 213,
+    "issue": "Session-token cookie (and MFA-pending cookie) are always set with `secure=False`; unlike the refresh-token cookie, these do not read from any environment variable or DB setting.",
+    "task": "In `web_auth.py`, replace the hardcoded `secure=False` with a configurable value read from `settings.cookie_secure` (or the same env var used for the refresh cookie), then document the required env var in `.env.example`.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c1-4",
+    "severity": "high",
+    "category": "security",
+    "file": "app/web/public/surveys.py",
+    "line": 63,
+    "issue": "Public survey POST endpoints (`/s/{slug}/submit` and `/s/t/{token}/submit`) have no CSRF token validation, allowing cross-site request forgery to submit survey responses on behalf of any visitor.",
+    "task": "Add a CSRF token to the survey GET template responses (using `generate_csrf_token()` from `app/csrf.py`) and validate it in both POST handlers before processing form data.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c1-5",
+    "severity": "high",
+    "category": "security",
+    "file": "app/middleware/api_rate_limit.py",
+    "line": 95,
+    "issue": "The rate-limiter unconditionally trusts the first IP in the `X-Forwarded-For` header without verifying the request comes through a trusted proxy, enabling an attacker to spoof their IP and bypass rate limiting.",
+    "task": "Add a configurable `TRUSTED_PROXIES` list to `APIRateLimitMiddleware`; only strip proxy IPs from `X-Forwarded-For` when the real client IP belongs to a trusted proxy range, falling back to `request.client.host` otherwise.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c1-6",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/services/erpnext/importer.py",
+    "line": 445,
+    "issue": "MD5 is used (with `usedforsecurity=False`) to generate a subscriber-number suffix from an external_id; MD5 has well-known collision vulnerabilities and should not appear in security-conscious codebases even for non-security purposes.",
+    "task": "Replace `hashlib.md5(...)` with `hashlib.sha256(...)` and keep `usedforsecurity=False`; truncate to the same number of hex characters to preserve the existing field-length constraint.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c1-7",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/services/avatar.py",
+    "line": 57,
+    "issue": "The `delete_avatar` function builds a filesystem path by stripping a URL prefix then concatenating to the upload directory without resolving the real path, leaving a theoretical path-traversal window if an attacker can inject a crafted URL into the stored avatar_url field.",
+    "task": "After constructing the `path` object, add `path = path.resolve(); assert path.is_relative_to(Path(upload_dir).resolve())` (or equivalent) before calling `path.unlink()` to prevent traversal outside the upload directory.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c1-8",
+    "severity": "low",
+    "category": "security",
+    "file": "app/middleware/api_rate_limit.py",
+    "line": 66,
+    "issue": "Inbound webhook endpoints (`/webhooks/` prefix) are globally exempted from the API rate limiter; if an inbound channel's HMAC verification is bypassed or a key is leaked, an attacker can flood the webhook queue without throttling.",
+    "task": "Apply a separate, tighter per-IP rate limiter specifically to `/webhooks/crm/*` routes (e.g., 60 req/min per IP) using the existing Redis infrastructure, independent of the global API limiter.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "security-c1-9",
+    "severity": "low",
+    "category": "security",
+    "file": "app/web/admin/projects.py",
+    "line": 1360,
+    "issue": "JSON embedded in form fields (`tasks_json`, `mentions`) is parsed with `json.loads()` and used without Pydantic schema validation, meaning unexpected structures can reach service-layer code.",
+    "task": "Define Pydantic schemas for the expected JSON structures and validate with `TypeAdapter.validate_json()` (or `Model.model_validate_json()`) before passing parsed data to services; return a 400 error on validation failure.",
+    "auto_fixable": false,
+    "effort": "small"
+  }
+]

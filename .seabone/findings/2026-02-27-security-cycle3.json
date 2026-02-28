@@ -1,0 +1,57 @@
+[
+  {
+    "id": "security-c3-1",
+    "severity": "high",
+    "category": "security",
+    "file": "app/services/web_auth.py",
+    "line": 37,
+    "issue": "The `_sanitize_refresh_next` function rejects URLs that don't start with `/` but accepts protocol-relative URLs like `//attacker.com` (which start with `/` but redirect to an external host), allowing attackers to craft login URLs like `/auth/login?next=//attacker.com` that redirect authenticated users to attacker-controlled domains after login or MFA.",
+    "task": "In `_sanitize_refresh_next`, also reject URLs where `urlparse(next_url).netloc` is non-empty or where `next_url.startswith('//')` — these are protocol-relative URLs that route outside the application.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c3-2",
+    "severity": "high",
+    "category": "security",
+    "file": "app/web/admin/crm_inbox_conversations.py",
+    "line": 142,
+    "issue": "The `/admin/crm/inbox/attachment/{message_id}/{idx}` proxy endpoint fetches external media and re-serves it with `Content-Disposition: inline` using the remote server's `Content-Type` header verbatim; if an inbound CRM message contains an attachment URL pointing to an HTML or SVG file, the admin's browser will render it inline in the application origin, enabling stored XSS in the admin portal context.",
+    "task": "In `fetch_inbox_attachment()` and the route handler, allowlist safe MIME types for inline rendering (image/jpeg, image/png, image/gif, image/webp, video/mp4, audio/mpeg, application/pdf); for all other types (including text/html, image/svg+xml) force `Content-Disposition: attachment` and override the MIME type to `application/octet-stream`.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c3-3",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/main.py",
+    "line": 1,
+    "issue": "The application sets no HTTP security response headers — no `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`, `Strict-Transport-Security`, or `Referrer-Policy` — leaving all portals (admin, customer, reseller, vendor) open to clickjacking, MIME sniffing, and reducing the defence-in-depth against XSS attacks.",
+    "task": "Add a Starlette `SecurityHeadersMiddleware` (or equivalent) in `app/main.py` that sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, and a base `Content-Security-Policy` (`default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:`) on all responses; optionally set `Strict-Transport-Security` conditionally when `COOKIE_SECURE=true`.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c3-4",
+    "severity": "low",
+    "category": "security",
+    "file": "app/web/admin/reports.py",
+    "line": 62,
+    "issue": "CSV exports in `reports.py`, `crm_contacts.py`, and `subscribers.py` use `csv.DictWriter` without sanitising formula-injection characters; CRM contact names or phone numbers starting with `=`, `+`, `-`, or `@` will be interpreted as spreadsheet formulas when the exported file is opened in Excel or LibreOffice, potentially enabling DDE/formula injection attacks on staff who open the exports.",
+    "task": "Before writing each row, sanitise string field values by prepending a tab character or single-quote to any value whose first character is `=`, `+`, `-`, or `@`, and set `quoting=csv.QUOTE_ALL` on the DictWriter to force quoting for all values.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c3-5",
+    "severity": "low",
+    "category": "security",
+    "file": "app/web/public/crm_webhooks.py",
+    "line": 281,
+    "issue": "The Meta/WhatsApp webhook verification challenge uses `hub_verify_token == expected_token` for string comparison (lines 281 and 482), which is vulnerable to timing-based side-channel attacks that could allow an attacker to enumerate the verify token byte-by-byte under ideal network conditions.",
+    "task": "Replace both `hub_verify_token == expected_token` comparisons with `hmac.compare_digest(hub_verify_token, expected_token)` to ensure constant-time token validation.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]

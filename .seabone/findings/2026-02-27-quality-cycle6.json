@@ -1,0 +1,145 @@
+[
+  {
+    "id": "quality-c6-1",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/services/tickets.py",
+    "line": 219,
+    "issue": "`_ensure_person(db, person_id)` is copy-pasted identically (or near-identically) across at least 8 service files: tickets.py:219, dispatch.py:39, workforce.py:34, projects.py:609, vendor.py:66, auth.py:93, sales_orders.py:34, timecost.py:26 — every file duplicates the same 3-line pattern of `db.get(Person, coerce_uuid(...))` followed by a 404 HTTPException.",
+    "task": "Extract a canonical `ensure_person(db, person_id)` helper into `app/services/common.py` and replace all 8 per-file copies with an import from common; similarly extract `ensure_entity` helpers for WorkOrder, Project, and Ticket which follow the same copy-paste pattern.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "quality-c6-2",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/web/admin/crm_inbox_message.py",
+    "line": 128,
+    "issue": "`except Exception: pass` silently swallows all errors from the agent-mention notification path (parsing mention JSON, writing metadata, calling `notify_agents_mentioned`), so mention notification failures are completely invisible to operators.",
+    "task": "Replace `except Exception: pass` with `except Exception: logger.warning(\"mention_notify_failed conversation=%s\", conversation_id, exc_info=True)` so failures surface in logs without blocking the response.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c6-3",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/web/admin/tickets.py",
+    "line": 2140,
+    "issue": "`except Exception: pass` silently swallows all errors from the ticket comment mention notification path (`notify_ticket_comment_mentions`), making mention notification failures completely invisible.",
+    "task": "Replace `except Exception: pass` with `except Exception: logger.warning(\"comment_mention_notify_failed ticket=%s\", ticket.id, exc_info=True)` consistent with the inbox message handler pattern.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c6-4",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/services/workflow.py",
+    "line": 609,
+    "issue": "`_requires_transition()` issues two separate DB queries against the same table: first `db.query(transition_model).filter(is_active).all()` to check if any transitions exist, then a second `db.query(transition_model).filter(is_active, from_status, to_status).first()` to find the matching row — the existence check is redundant because the second query already returns None if no rows match.",
+    "task": "Remove the first query (lines 609-611) and instead rely solely on the second query; if `match` is None after the second query, check if any active transitions exist at all to produce a helpful error message, or simplify to a single query that fetches the specific transition directly.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c6-5",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/projects.py",
+    "line": 704,
+    "issue": "Line 704 in `_notify_project_task_assigned()` computes `html.escape(_person_label(created_by)) if created_by else None` but never assigns the result to a variable, making the entire expression a no-op — this is almost certainly a missing `creator_name =` assignment that is used later in the email body.",
+    "task": "Assign the expression to `creator_name` (i.e., `creator_name = html.escape(_person_label(created_by)) if created_by else None`) and use it in the email HTML body where the sender name should appear.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c6-6",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/crm/web_quotes.py",
+    "line": 960,
+    "issue": "`except Exception: continue` in both the bulk status-update loop (line 960) and bulk delete loop (line 979) silently skips failed items — callers receive a success count that may be less than the requested count with no indication of which items failed or why.",
+    "task": "Capture the exception and append the quote_id and error message to an `errors` list, then include `errors` in the return payload so callers can surface partial-failure details to the user.",
+    "auto_fixable": false,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c6-7",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/tasks/crm_inbox.py",
+    "line": 10,
+    "issue": "All six Celery task functions in `app/tasks/crm_inbox.py` (and several in `campaigns.py`, `events.py`, `intelligence.py`, `performance.py`, `surveys.py`) are missing `-> dict[str, Any]` return type annotations, preventing mypy from validating return value consistency across normal and exception paths.",
+    "task": "Add `-> dict[str, Any]` return type to all Celery task functions across `app/tasks/*.py` that return a results dictionary; also add `from __future__ import annotations` and the necessary imports where needed.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "quality-c6-8",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/tickets.py",
+    "line": 969,
+    "issue": "`TicketComments.delete()` and `TicketSlaEvents.delete()` use hard delete (`db.delete(comment)`, line 969 and `db.delete(event)`, line 1027), while all `Ticket` create/update operations use soft delete via `is_active=False`, creating an inconsistent deletion strategy within the same domain model.",
+    "task": "Add `is_active: Mapped[bool]` to `TicketComment` and `TicketSlaEvent` models (with migration), then convert the delete methods to set `entity.is_active = False; db.commit()` and add `.filter(TicketComment.is_active.is_(True))` to list queries.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c6-9",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/crm/inbox_normalizers.py",
+    "line": 1,
+    "issue": "Ten compatibility wrapper files in `app/services/crm/` (`inbox_normalizers.py`, `inbox_inbound.py`, `inbox_parsing.py`, `inbox_dedup.py`, `inbox_outbound.py`, `inbox_connectors.py`, `inbox_connectors_create.py`, `inbox_contacts.py`, `inbox_queries.py`, `inbox_polling.py`, `conversation.py`) are pure re-export shims that add an extra import indirection layer — consumers still import from these wrappers instead of from the canonical `app/services/crm/inbox/` subpackage paths.",
+    "task": "Update all consumer import sites to import directly from `app/services/crm/inbox/` or `app/services/crm/conversations/` canonical paths, then delete the 11 compatibility wrapper files.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c6-10",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/workflow.py",
+    "line": null,
+    "issue": "`app/services/workflow.py` (960 lines, SLA engine + state machine transitions) and `app/services/automation_actions.py` (554 lines, automation rule execution engine) have zero test coverage — no corresponding test files exist — making them the two largest untested critical service modules in the codebase.",
+    "task": "Create `tests/test_workflow_service.py` covering `transition_ticket()`, `transition_work_order()`, `_requires_transition()`, and SLA escalation paths; create `tests/test_automation_actions_service.py` covering `execute_action()` for each action type with mock DB sessions.",
+    "auto_fixable": false,
+    "effort": "large"
+  },
+  {
+    "id": "quality-c6-11",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/projects.py",
+    "line": 689,
+    "issue": "`_notify_project_task_assigned()` in `projects.py` and `_notify_ticket_role_assignment_in_app()` / `_notify_ticket_service_team_assignment()` in `tickets.py` both construct large inline HTML email bodies with the same pattern: branding lookup → `html.escape()` → raw HTML string concatenation → CTA button block — duplicating ~80 lines of raw HTML across the two modules.",
+    "task": "Extract a shared `build_assignment_email_html(branding, subject, details, cta_url, cta_label)` helper into `app/services/email_templates.py` (or similar) and replace the inline HTML in both `projects.py` and `tickets.py` with calls to this helper.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c6-12",
+    "severity": "low",
+    "category": "quality",
+    "file": "app/services/crm/shifts.py",
+    "line": 59,
+    "issue": "`except Exception: pass` in `app/services/crm/shifts.py:59` silently swallows errors during shift-related processing with no logging.",
+    "task": "Add `logger.warning(\"shift_processing_error\", exc_info=True)` inside the except block to surface errors in logs without blocking the operation.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c6-13",
+    "severity": "low",
+    "category": "quality",
+    "file": "app/services/crm/web_leads.py",
+    "line": 225,
+    "issue": "`except Exception: pass` at lines 225 and 554 in `web_leads.py` silently swallows person lookup failures during lead form context building, leaving the form silently missing the expected person option with no log trace.",
+    "task": "Add `logger.debug(\"lead_form_person_lookup_failed person_id=%s\", resolved_person_id, exc_info=True)` in both except blocks so diagnostic information is available without blocking form rendering.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]

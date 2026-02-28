@@ -1,0 +1,46 @@
+[
+  {
+    "id": "security-c8-1",
+    "severity": "high",
+    "category": "security",
+    "file": "app/services/inventory.py",
+    "line": 273,
+    "issue": "Inventory stock reservation reads quantity fields then updates `reserved_quantity` without a `SELECT ... FOR UPDATE` lock, allowing concurrent requests to both see sufficient stock and both commit, resulting in over-reservation beyond available inventory.",
+    "task": "Add `.with_for_update(skip_locked=True)` to the `db.query(InventoryStock)` call in `Reservations.create()` (line 273) before the availability check and increment.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c8-2",
+    "severity": "high",
+    "category": "security",
+    "file": "app/web/admin/vendors.py",
+    "line": 787,
+    "issue": "The vendor as-built report download endpoint passes `as_built.report_file_path` from the database directly to `FileResponse` without validating the path is contained within a trusted directory, allowing any admin who can write that field to serve arbitrary files from the host filesystem.",
+    "task": "Before calling `FileResponse`, resolve and validate `as_built.report_file_path` is beneath the expected reports base directory using `Path(path).resolve().relative_to(REPORTS_BASE_DIR)`, raising HTTP 403 on traversal attempts.",
+    "auto_fixable": true,
+    "effort": "small"
+  },
+  {
+    "id": "security-c8-3",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/schemas/scheduler.py",
+    "line": 11,
+    "issue": "The `task_name` field in `ScheduledTaskBase` accepts any string up to 200 characters with no pattern validation; any authenticated user with scheduler access can create a task record with an arbitrary Celery task name and then enqueue it via `POST /scheduler/tasks/{id}/enqueue`, executing any registered task.",
+    "task": "Add a `pattern` constraint to the `task_name` Field (e.g. `pattern=r'^app\\.tasks\\.[a-z0-9_.]+$'`) and enforce a server-side allowlist of permitted task names in `ScheduledTasks.create()` in `app/services/scheduler.py`.",
+    "auto_fixable": true,
+    "effort": "small"
+  },
+  {
+    "id": "security-c8-4",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/web/admin/reports.py",
+    "line": 62,
+    "issue": "The `_csv_response` helper and the CRM contacts export at `app/web/admin/crm_contacts.py:162` write field values directly to CSV without sanitizing formula-injection prefixes (`=`, `+`, `-`, `@`), allowing contact data or report values that start with these characters to execute as spreadsheet formulas when opened in Excel or LibreOffice.",
+    "task": "Add a sanitization step in `_csv_response` that prefixes any cell value starting with `=`, `+`, `-`, or `@` with a tab character (the RFC 4180 / OWASP-recommended escape), and apply the same fix to `app/web/admin/crm_contacts.py` export rows.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]

@@ -1,0 +1,178 @@
+[
+  {
+    "id": "quality-c2-1",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/services/scheduler_config.py",
+    "line": 255,
+    "issue": "The Celery beat schedule registers a periodic task `app.tasks.nas.cleanup_nas_backups` referencing the removed NAS domain, but `app/tasks/nas.py` does not exist; the task is enabled by default (`NAS_BACKUP_RETENTION_ENABLED=True`), causing `celery.exceptions.NotRegistered` errors on every execution cycle.",
+    "task": "Remove the `nas_backup_retention_cleanup` block (lines 237-261 in scheduler_config.py) including the `retention_enabled`, `retention_interval_seconds`, and `_sync_scheduled_task` call that registers `app.tasks.nas.cleanup_nas_backups`, as the NAS domain was removed from the project.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c2-2",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/services/crm/inbox/_core.py",
+    "line": 689,
+    "issue": "The `send_message()` function is 302 lines long, combining channel routing, window validation, rate limiting, audit logging, outbox queuing, and WebSocket broadcasting into a single monolithic function that is extremely hard to read, test, and debug.",
+    "task": "Decompose `send_message()` by extracting distinct concerns into private helper functions: `_validate_channel_window()`, `_build_outbound_payload()`, `_persist_message_record()`, and `_dispatch_to_channel()`, keeping the main function as a coordinator under 60 lines.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c2-3",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/web/admin/operations.py",
+    "line": 128,
+    "issue": "Multiple route handler functions (`sales_orders_list`, `work_orders_list`, `technicians_list`, `dispatch_dashboard`) execute 22+ direct `db.query()` / `db.get()` calls for stats, filters, and pagination logic, violating the service-layer-only rule and making these routes untestable without a live database.",
+    "task": "Move all `db.query(func.count(...))` stats blocks and raw ORM list queries from `operations.py` route handlers into dedicated `get_stats()` and enhanced `list()` methods on the `sales_orders`, `work_orders`, and `technicians` service managers, then call those methods from the route handlers.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c2-4",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/services/workflow.py",
+    "line": null,
+    "issue": "The workflow service (960 lines) contains the SLA breach detection engine, status transition state machines, and SLA policy management with zero corresponding test coverage, meaning any regression in these business-critical paths would go undetected.",
+    "task": "Create `tests/test_workflow_services.py` covering at minimum: `TicketTransitions.create()`, `detect_sla_breaches()`, `SlaPolicies.create/get/delete()`, and `SlaTargets` CRUD with fixtures from `conftest.py`.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c2-5",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/services/automation_actions.py",
+    "line": null,
+    "issue": "The automation actions execution engine (554 lines, 9 action handlers) has no test coverage; this is the core of the automation rule execution system and any bug in `execute_actions()`, `_execute_assign_conversation_auto()`, or `_execute_create_work_order()` will silently produce incorrect results in production.",
+    "task": "Create `tests/test_automation_actions_services.py` covering `execute_actions()` with mocked DB and Event fixtures for at least: assign_conversation, assign_conversation_auto (load-balanced), set_field, add_tag, create_work_order, and unknown action_type error path.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c2-6",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/tickets.py",
+    "line": 641,
+    "issue": "The `Tickets.update()` method is 203 lines long, handling role assignments, team assignments, notification dispatch, SLA recalculation, and audit logging in a single function with deeply nested conditional branches that make it difficult to follow and test individual behaviors.",
+    "task": "Refactor `Tickets.update()` by extracting the role assignment block into `_apply_role_assignments()`, the notification logic into `_notify_ticket_update()`, and the SLA recalculation into `_recalculate_sla_if_needed()`, reducing the main method to under 60 lines.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c2-7",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/meta_webhooks.py",
+    "line": 516,
+    "issue": "Both `process_messenger_webhook()` (190 lines, line 516) and `process_instagram_webhook()` (203 lines, line 709) are large monolithic functions that mix payload parsing, deduplication, media download, and message routing — the near-identical structure indicates duplicated logic that should be consolidated.",
+    "task": "Extract the shared message processing pipeline (dedup check, attachment resolution, contact lookup, message creation) into a shared `_process_meta_message()` helper, and reduce both `process_messenger_webhook()` and `process_instagram_webhook()` to thin dispatchers that normalise channel-specific payload fields before delegating.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c2-8",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/scheduler_config.py",
+    "line": 194,
+    "issue": "The `build_beat_schedule()` function is 590 lines long (lines 194-783) and registers 20+ periodic tasks in a single flat function body, making it impossible to test individual task groups, add tasks without merge conflicts, or understand the scheduling configuration at a glance.",
+    "task": "Split `build_beat_schedule()` into domain-specific private helpers (`_schedule_notification_tasks()`, `_schedule_crm_tasks()`, `_schedule_integration_tasks()`, `_schedule_bandwidth_tasks()`, etc.) that each accept `session` and `schedule` dict, then have the main function call each helper in sequence.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "quality-c2-9",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/crm/web_quotes.py",
+    "line": 960,
+    "issue": "The `bulk_status()` and `bulk_delete()` functions at lines 960 and 979 silently swallow per-item exceptions with `except Exception: continue` and no logging call, meaning individual quote update/delete failures are completely invisible in logs and the caller receives an optimistic success response.",
+    "task": "In both `bulk_status()` and `bulk_delete()` exception handlers, add `logger.warning('bulk_quotes_%s failed for quote_id=%s: %s', action, quote_id, exc)` before the `continue` statement so failures are traceable without stopping the batch.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c2-10",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/web/admin/operations.py",
+    "line": 619,
+    "issue": "The `work_orders_list` route handler (lines 619-660) constructs a raw ORM query with manual status/priority filters, count, and pagination directly in the route, duplicating logic that already partially exists in `dispatch_service`; this makes stats inconsistent with the service layer and bypasses any future service-level caching or access control.",
+    "task": "Add a `get_work_order_stats(db, start_dt, end_dt)` method to `WorkOrdersManager` in `app/services/dispatch.py` that returns the status count dict, and move the inline query + stats dict construction out of the route into that method.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "quality-c2-11",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/services/dotmac_erp/technician_sync.py",
+    "line": 193,
+    "issue": "A per-item `except Exception: continue` in the technician sync loop at line 193 silently skips failed technician records without any log output, making it impossible to diagnose sync failures when the ERP sync reports fewer records than expected.",
+    "task": "Replace `except Exception: continue` with `except Exception as exc: logger.warning('technician_sync_item_failed person_id=%s: %s', person_id, exc); continue` to surface per-item errors in logs.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c2-12",
+    "severity": "low",
+    "category": "quality",
+    "file": "app/services/tickets.py",
+    "line": 406,
+    "issue": "The `Tickets.create()` method (146 lines, line 406) and most other manager CRUD methods across the codebase lack return type annotations, reducing IDE support, making type checking less useful, and inconsistent with the Pydantic schemas that define explicit return types.",
+    "task": "Add return type annotations to all public `@staticmethod` methods in `TicketsManager` (and as a follow-up across other manager classes): `create() -> Ticket`, `get() -> Ticket`, `list() -> list[Ticket]`, `update() -> Ticket`, `delete() -> None`.",
+    "auto_fixable": true,
+    "effort": "small"
+  },
+  {
+    "id": "quality-c2-13",
+    "severity": "low",
+    "category": "quality",
+    "file": "app/services/projects.py",
+    "line": 689,
+    "issue": "The `_notify_project_task_assigned()` helper function is 151 lines long (line 689) and handles email rendering, recipient building, notification creation, and WebSocket push all in one block, which is harder to unit-test than individual focused helper functions.",
+    "task": "Extract the recipient resolution, email send, in-app notification creation, and WebSocket broadcast into named sub-functions within `_notify_project_task_assigned()` or extract to a `ProjectNotificationService` helper class.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "quality-c2-14",
+    "severity": "low",
+    "category": "quality",
+    "file": "app/services/crm/inbox/notifications.py",
+    "line": 109,
+    "issue": "Three `except Exception: continue` blocks in `notify_agents_of_mentions()` (lines 109, 126, 133 in `agent_mentions.py`) silently skip unparseable UUIDs without debug logging, making it impossible to diagnose mention notification failures when agents report they're not receiving mention alerts.",
+    "task": "Add `logger.debug('mention_uuid_parse_failed token=%r', token)` before each `continue` in the three UUID coerce try/except blocks so that malformed mention tokens are traceable at debug level.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c2-15",
+    "severity": "low",
+    "category": "quality",
+    "file": "app/web/admin/operations.py",
+    "line": 128,
+    "issue": "The `sales_orders_list` route runs 5 separate `SELECT COUNT(*)` queries (one per status/payment_status value) to build a stats dict, where a single query using `GROUP BY status` or conditional aggregation would achieve the same result in one round-trip.",
+    "task": "Replace the 5 individual `db.query(func.count(SalesOrder.id)).filter(SalesOrder.status == X).scalar()` calls in `sales_orders_list` with a single query using `func.filter()` conditional aggregation or add a `SalesOrdersManager.get_status_counts(db)` service method.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "quality-c2-16",
+    "severity": "low",
+    "category": "quality",
+    "file": "app/services/scheduler_config.py",
+    "line": 238,
+    "issue": "The NAS backup retention block uses `SettingDomain.catalog` (a legacy removed domain) to look up `nas_backup_retention_enabled`, which is semantically incorrect and may conflict with any future re-use of the `catalog` domain key namespace.",
+    "task": "This is a non-issue once quality-c2-1 is resolved (the entire NAS block should be deleted); if the setting lookup itself is kept for any reason, it should use `SettingDomain.provisioning` instead of `SettingDomain.catalog`.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]
