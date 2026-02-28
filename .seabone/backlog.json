@@ -1,0 +1,15 @@
+[
+  {
+    "id": "crm-fix-mypy",
+    "finding_date": "2026-02-28",
+    "severity": "high",
+    "category": "quality",
+    "task": "Fix mypy type errors in dotmac_crm. Run mypy app/ and fix all errors. The dotmac-platform repo passes mypy \u2014 use it as reference for type annotation patterns.",
+    "engine": "aider",
+    "priority_score": 90,
+    "track": "quality",
+    "status": "pending",
+    "attempt_count": 0,
+    "estimated_effort": 3
+  }
+]
