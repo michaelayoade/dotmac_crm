@@ -1,0 +1,35 @@
+[
+  {
+    "id": "deps-c11-1",
+    "severity": "medium",
+    "category": "deps",
+    "file": "app/web/admin/meta_oauth.py",
+    "line": 217,
+    "issue": "`datetime.utcnow()` is called without timezone awareness — this method is deprecated since Python 3.12 (DeprecationWarning emitted at runtime) and is scheduled for removal in a future Python version; the project already targets `python = \">=3.11,<3.13\"` and imports `UTC` in sibling files, but this file only imports bare `datetime` and uses the deprecated naive-UTC constructor as a fallback when Meta's token exchange does not return an explicit expiry.",
+    "task": "In `app/web/admin/meta_oauth.py`, add `UTC` to the `from datetime import datetime` import (change to `from datetime import UTC, datetime`) and replace `datetime.utcnow()` on line 217 with `datetime.now(UTC)` to produce a timezone-aware UTC datetime and silence the deprecation warning.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "deps-c11-2",
+    "severity": "medium",
+    "category": "deps",
+    "file": "app/web/admin/network.py",
+    "line": 972,
+    "issue": "`datetime.utcnow().isoformat() + \"Z\"` is used to stamp the fiber-closure PDF report — `datetime.utcnow()` is deprecated since Python 3.12 and emits a `DeprecationWarning` at runtime; the file already imports `from datetime import UTC, date, datetime` (line 8), so `UTC` is available but unused for this timestamp.",
+    "task": "In `app/web/admin/network.py` line 972, replace `datetime.utcnow().isoformat() + \"Z\"` with `datetime.now(UTC).isoformat()` — `datetime.now(UTC)` produces an aware datetime whose `.isoformat()` already includes `+00:00`; if a trailing `Z` suffix is required for the PDF template, use `.isoformat().replace(\"+00:00\", \"Z\")` instead.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "deps-c11-3",
+    "severity": "low",
+    "category": "deps",
+    "file": "pyproject.toml",
+    "line": 43,
+    "issue": "`pydyf = \">=0.11.0\"` is declared as a runtime dependency but the package ships no `py.typed` marker and no bundled type stubs, forcing every call site to suppress mypy with `# type: ignore[import-untyped]` (seen at `app/services/pdf_utils.py:17` and `app/web/admin/crm.py:104`); there is also no corresponding `[mypy-pydyf*]` section in `mypy.ini` to silence the import error globally, so the suppression is scattered inline across files.",
+    "task": "Add a `[mypy-pydyf]` section with `ignore_missing_imports = True` to `mypy.ini` to centralise the suppression and remove the `# type: ignore[import-untyped]` comments from `app/services/pdf_utils.py:17` and `app/web/admin/crm.py:104`; alternatively, if pydyf now ships a `py.typed` marker in a newer release, upgrade the pin and drop the suppression entirely.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]

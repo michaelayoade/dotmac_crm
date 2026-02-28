@@ -1,0 +1,134 @@
+[
+  {
+    "id": "api-c7-1",
+    "severity": "high",
+    "category": "api",
+    "file": "app/api/ai.py",
+    "line": 149,
+    "issue": "Two endpoints added since the last scan — `POST /ai/crm/conversations/{id}/suggest-reply` (line 149) and `POST /ai/tickets/{id}/summarize` (line 169) — are missing `response_model=` declarations, bringing the total of untyped endpoints in `ai.py` to 8 (previously known: 6).",
+    "task": "Add inline Pydantic response schemas to `ai_suggest_crm_reply` (fields: `draft: str`, `meta: dict`) and `ai_summarize_ticket` (fields: `summary: str`, `next_actions: list[str]`, `meta: dict`) and wire them via `response_model=` in both decorators.",
+    "auto_fixable": false,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c7-2",
+    "severity": "high",
+    "category": "api",
+    "file": "app/api/fiber_plant.py",
+    "line": 12,
+    "issue": "All 5 fiber plant endpoints (`GET /fiber-plant/geojson`, `/fdh-cabinets/{id}/splitters`, `/closures/{id}/splices`, `/stats`, `/qa`) are missing `response_model=` declarations, producing no OpenAPI schema and bypassing FastAPI response validation for infrastructure data.",
+    "task": "Define Pydantic schemas for each response type in `app/schemas/fiber_plant.py` (GeoJSON FeatureCollection for `/geojson`, typed list schemas for splitters/splices, and stats/QA summary schemas), then add `response_model=` to all 5 endpoint decorators in `app/api/fiber_plant.py`.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c7-3",
+    "severity": "high",
+    "category": "api",
+    "file": "app/api/sales.py",
+    "line": 27,
+    "issue": "All 5 CRM sales endpoints (`GET /leads/kanban`, `POST /leads/kanban/move`, `GET /leads/pipeline-summary`, `GET /leads/forecast`, `GET /leads/agent-performance`) are missing `response_model=` declarations, producing untyped OpenAPI docs and no serialization guarantees for key sales reporting endpoints.",
+    "task": "Define Pydantic response schemas (KanbanBoardResponse, PipelineSummaryResponse, SalesForecastResponse, AgentPerformanceResponse) in `app/schemas/crm/sales.py` — these can reuse fields from existing `LeadRead` — and add `response_model=` to all 5 endpoint decorators.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "api-c7-4",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/integrations.py",
+    "line": 105,
+    "issue": "`POST /integrations/jobs/refresh-schedule` (line 105) is the only endpoint in `integrations.py` missing `response_model=`; all 10 other endpoints in this file have proper typed schemas, making this an isolated inconsistency.",
+    "task": "Define a small `IntegrationScheduleRefreshResult` Pydantic schema (e.g. `scheduled: int`, `status: str`) and add `response_model=IntegrationScheduleRefreshResult` to the `refresh_integration_schedule` decorator, matching the return shape of `integration_service.refresh_schedule()`.",
+    "auto_fixable": false,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c7-5",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/gis.py",
+    "line": 363,
+    "issue": "`POST /gis/sync` (line 363) is the only GIS endpoint missing a `response_model=` declaration; every other endpoint in this 385-line file has a proper schema, making this a one-off inconsistency.",
+    "task": "Define a `GisSyncResult` Pydantic schema (e.g. `synced_pops: int`, `synced_addresses: int`, `status: str`) in `app/schemas/gis.py` and add `response_model=GisSyncResult` to the `sync_gis_sources` endpoint decorator.",
+    "auto_fixable": false,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c7-6",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/scheduler.py",
+    "line": 52,
+    "issue": "`POST /scheduler/tasks/refresh` (line 52) and `POST /scheduler/tasks/{task_id}/enqueue` (line 57) are both missing `response_model=` declarations; the enqueue endpoint returns a raw dict from Celery's `send_task` with no documented contract.",
+    "task": "Add `SchedulerRefreshResult` (fields: `tasks_synced: int`) and `TaskEnqueueResult` (fields: `task_id: str`, `status: str`) Pydantic schemas to `app/schemas/scheduler.py` and add `response_model=` to both endpoint decorators.",
+    "auto_fixable": false,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c7-7",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/crm/inbox.py",
+    "line": 146,
+    "issue": "`POST /crm/inbox/webhooks/whatsapp` (line 146) and `POST /crm/inbox/webhooks/email` (line 152) both return `{\"status\": \"ok\"}` with no `response_model=` declaration, leaving these heavily-used webhook acknowledgment endpoints untyped in OpenAPI.",
+    "task": "Define a simple `WebhookAckResponse` schema (one field: `status: str`) in `app/schemas/crm/inbox.py` and add `response_model=WebhookAckResponse` to both webhook endpoint decorators.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c7-8",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/crm/widget_public.py",
+    "line": 548,
+    "issue": "`GET /widget/session/{id}/status` (line 548) and `POST /widget/session/{id}/read` (line 591) both return inline dicts with no `response_model=` declaration; additionally, `get_session_status` contains a direct `db.query(Message)` call at line 575, violating the service layer rule that prohibits DB queries in route handlers.",
+    "task": "Define `WidgetSessionStatusResponse` and `WidgetReadConfirmResponse` schemas; add `response_model=` to both decorators; and move the `db.query(Message)` unread count logic at lines 573-580 into `app/services/crm/chat_widget.py` as a new service method.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c7-9",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/subscribers.py",
+    "line": 207,
+    "issue": "`POST /subscribers/sync/webhook/{external_system}` (line 207) accepts `payload: dict` as the request body (completely unvalidated arbitrary JSON) and has no `response_model=` declaration, making this publicly-accessible webhook endpoint the least typed and most risk-prone in the API surface.",
+    "task": "Define per-system Pydantic schemas for at least the known webhook formats (`SplynxWebhookPayload`, `UCRMWebhookPayload`) plus a generic fallback `GenericWebhookPayload`, use `Union` typing on the request body, and add `response_model=SubscriberSyncResult` (reusing the result dict structure from `sync_subscribers`).",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c7-10",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/bandwidth.py",
+    "line": 162,
+    "issue": "`GET /bandwidth/top-users` (line 162) enforces admin access via an inline `if current_user.get('role') != 'admin': raise HTTPException(403)` check instead of using the project-standard `require_permission()` dependency, creating an inconsistent auth enforcement pattern that is invisible to permission auditing tools.",
+    "task": "Remove the inline role check from `get_top_users` and replace it with `dependencies=[Depends(require_permission('reports:bandwidth:admin'))]` (or the closest matching existing permission) in the endpoint decorator, consistent with how other admin-only endpoints enforce access.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c7-11",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/performance.py",
+    "line": 67,
+    "issue": "`POST /performance/reviews/generate` (line 67) passes its three required parameters (`person_id: str`, `period_start: datetime`, `period_end: datetime`) as URL query string params on a POST mutation endpoint, which forces clients to URL-encode datetime values, prevents OpenAPI body documentation, and is inconsistent with all other POST endpoints in the codebase.",
+    "task": "Create a `GenerateReviewRequest` Pydantic schema with `person_id: str`, `period_start: datetime`, `period_end: datetime` fields; change the `generate_review` function signature to accept `payload: GenerateReviewRequest` as a request body; also add a `response_model=` that reflects the returned review structure.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c7-12",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/bandwidth.py",
+    "line": 101,
+    "issue": "Both SSE streaming endpoints (`GET /bandwidth/live/{subscription_id}` at line 101 and `GET /bandwidth/my/live` at line 216) are missing `response_model=` declarations; while SSE cannot be schema-validated, the omission leaves OpenAPI showing `200 application/json` as the response type instead of the correct `text/event-stream`.",
+    "task": "Add `response_class=EventSourceResponse` to both SSE endpoint decorators so OpenAPI correctly documents the `text/event-stream` content type; optionally also add a comment referencing the `BandwidthSeriesPoint` schema as the per-event data shape.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]

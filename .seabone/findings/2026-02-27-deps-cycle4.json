@@ -1,0 +1,46 @@
+[
+  {
+    "id": "deps-c4-1",
+    "severity": "high",
+    "category": "deps",
+    "file": "app/services/splynx.py",
+    "line": 84,
+    "issue": "`requests` is used in 8 inline import sites across `app/services/splynx.py` and `app/tasks/subscribers.py` but is not declared as a direct dependency in pyproject.toml — it is only present transitively via `opentelemetry-instrumentation-requests`. Removing or replacing that OTel package would silently break the Splynx integration and subscriber sync task.",
+    "task": "Add `requests = \">=2.32.0\"` as a direct dependency in pyproject.toml under `[tool.poetry.dependencies]` and move the per-function `import requests` calls to the module top-level in `app/services/splynx.py` and `app/tasks/subscribers.py`.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "deps-c4-2",
+    "severity": "medium",
+    "category": "deps",
+    "file": "pyproject.toml",
+    "line": 15,
+    "issue": "`email-validator` (v2.3.0) is required by Pydantic's `EmailStr` type, which is used in 6+ schema files (`schemas/contracts.py`, `schemas/auth_flow.py`, `schemas/crm/campaign_sender.py`, `schemas/crm/contact.py`, `schemas/crm/inbox.py`, `schemas/person.py`), but `email-validator` is not declared as a direct dependency — it is only present as an undeclared transitive dependency.",
+    "task": "Add `email-validator = \">=2.0.0\"` as a direct dependency in pyproject.toml so the runtime requirement for Pydantic EmailStr validation is explicit and cannot be silently dropped by a dependency resolver update.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "deps-c4-3",
+    "severity": "low",
+    "category": "deps",
+    "file": "pyproject.toml",
+    "line": 41,
+    "issue": "`shapely = \"2.0.4\"` is declared in pyproject.toml but has zero imports anywhere in `app/` or `scripts/` — it is a dead dependency left over from the removed NAS/GIS domain, adding ~10 MB to the Docker image and pip install time.",
+    "task": "Remove `shapely = \"2.0.4\"` from pyproject.toml and run `poetry lock --no-update` to regenerate poetry.lock. Verify no imports exist before removing.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "deps-c4-4",
+    "severity": "low",
+    "category": "deps",
+    "file": "pyproject.toml",
+    "line": 36,
+    "issue": "`ncclient`, `routeros-api`, `pyrad`, and `paramiko` are all declared in pyproject.toml (lines 36-39) but have zero imports anywhere in the live codebase (`app/`) — they are dead dependencies left over from the removed NAS/RADIUS domain, inflating the Docker image by ~40 MB and expanding the supply-chain attack surface.",
+    "task": "Remove `ncclient = \"0.6.15\"`, `routeros-api = \"0.17.0\"`, `pyrad = \"2.4\"`, and `paramiko = \">=3.5.0\"` from pyproject.toml, then run `poetry lock --no-update`. Also clean up the corresponding mock classes in `tests/mocks.py` (lines 73–100) that mock the removed pyrad/RADIUS interface.",
+    "auto_fixable": false,
+    "effort": "small"
+  }
+]

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "security-c5-1",
+    "severity": "high",
+    "category": "security",
+    "file": "app/websocket/auth.py",
+    "line": 16,
+    "issue": "WebSocket authentication for both the admin WebSocket (`app/websocket/auth.py:16`) and the customer-facing widget WebSocket (`app/websocket/widget_auth.py:21`) accepts JWT/visitor tokens via URL query parameters (`?token=<jwt>`), causing secrets to be permanently recorded in server access logs, browser history, autocomplete, referrer headers, and any reverse-proxy logs.",
+    "task": "Remove the query-parameter token fallback from both `authenticate_websocket` and `authenticate_widget_visitor`; instead accept only the `session_token` cookie (for admin WS) and the existing `widget_visitor` cookie (for widget WS), and close the connection with code 4001 when neither cookie is present.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c5-2",
+    "severity": "high",
+    "category": "security",
+    "file": "app/services/web_auth.py",
+    "line": 238,
+    "issue": "When an admin forces a password reset for a user (`PASSWORD_RESET_REQUIRED` error on login), the generated reset token is embedded directly in a 303 redirect URL (`/auth/reset-password?token=<token>`), exposing a 60-minute-valid credential in server access logs, browser history, and HTTP Referer headers on any subsequent navigation.",
+    "task": "Instead of placing the reset token in the redirect URL, store it in a short-lived (max 60s) encrypted HttpOnly cookie (e.g., `reset_pending`) immediately after generating it, redirect to `/auth/reset-password` with no query parameter, and have the reset form read the token from the cookie server-side — never pass it through the URL.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c5-3",
+    "severity": "high",
+    "category": "security",
+    "file": "app/websocket/router.py",
+    "line": 61,
+    "issue": "The WebSocket `SUBSCRIBE` message handler (`app/websocket/router.py:61`) calls `manager.subscribe_conversation(user_id, message.conversation_id)` without verifying the authenticated user has any access right to the specified `conversation_id`, allowing any authenticated user to silently subscribe to — and receive real-time message events for — any conversation in the system.",
+    "task": "Before calling `manager.subscribe_conversation`, open a DB session and verify the requesting user is a member, assignee, or team member of the conversation (e.g., query `CrmConversation` by `id=conversation_id` and check `assigned_to_person_id` or team membership); close the connection or send an error event if the check fails.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c5-4",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/api/scheduler.py",
+    "line": 57,
+    "issue": "The `POST /api/v1/scheduler/tasks/{task_id}/enqueue` endpoint only requires `require_user_auth` (any authenticated user) but not a specific admin permission; any authenticated staff user can select any registered Celery task from the DB and trigger it immediately, including tasks that delete records, send bulk notifications, or perform data imports.",
+    "task": "Add `Depends(require_permission(\"system:scheduler:write\"))` (or an equivalent admin-level permission) to the `enqueue_scheduled_task`, `create_scheduled_task`, `update_scheduled_task`, and `delete_scheduled_task` endpoints in `app/api/scheduler.py` to restrict task management to administrators only.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c5-5",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/services/auth_flow.py",
+    "line": 136,
+    "issue": "JWT settings (secret and algorithm) are cached once per process lifetime (`_JWT_SETTINGS_CACHED = True` at line 150) with no TTL or invalidation mechanism; if the `jwt_secret` DB setting is rotated (e.g., after a suspected compromise), all running workers continue accepting tokens signed with the old secret until manually restarted, negating the value of a secret rotation.",
+    "task": "Replace the boolean `_JWT_SETTINGS_CACHED` flag with a timestamp and add a TTL (e.g., 5 minutes); in `_load_jwt_settings_cache`, re-read the secret when the cache has expired, ensuring that secret rotations take effect within one TTL window across all workers without a restart.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]

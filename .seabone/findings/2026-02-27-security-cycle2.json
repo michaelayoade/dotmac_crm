@@ -1,0 +1,68 @@
+[
+  {
+    "id": "security-c2-1",
+    "severity": "high",
+    "category": "security",
+    "file": "app/web/public/crm_webhooks.py",
+    "line": 433,
+    "issue": "The public `/webhooks/crm/email` endpoint accepts arbitrary `EmailWebhookPayload` JSON with no authentication, no HMAC signature, and no shared-secret check, allowing any unauthenticated caller to inject fake email messages directly into CRM conversations.",
+    "task": "Require a pre-shared webhook secret (or HMAC-SHA256 signature header) on the `/webhooks/crm/email` route — add a `webhook_secret` to the email connector config and validate an `X-Webhook-Secret` or `X-Hub-Signature-256` header before processing the payload.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c2-2",
+    "severity": "high",
+    "category": "security",
+    "file": "app/web/public/crm_webhooks.py",
+    "line": 310,
+    "issue": "The `/webhooks/crm/whatsapp` endpoint first attempts to parse the body as a normalized `WhatsAppWebhookPayload`; if parsing succeeds, the message is enqueued WITHOUT verifying the Meta `X-Hub-Signature-256` header, allowing any attacker to inject fake WhatsApp messages by sending a valid JSON body that satisfies the Pydantic schema.",
+    "task": "Remove the signature-bypass normalized-payload fast-path from the public WhatsApp webhook handler and always require HMAC-SHA256 signature verification before processing any inbound payload.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c2-3",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/web/admin/system.py",
+    "line": 2536,
+    "issue": "After creating a new API key, the raw key value is placed in a `?new_key=` URL query parameter and transmitted via a 303 redirect, causing the plaintext secret to appear in server access logs, browser history, and HTTP Referer headers.",
+    "task": "Store the newly-generated API key in a short-lived (30-second TTL) server-side flash store (e.g., a Redis key keyed by a one-time token), redirect to a page that reads it once via that token, then delete it — never embed the raw secret in the URL.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c2-4",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/main.py",
+    "line": 484,
+    "issue": "The Prometheus `/metrics` endpoint is publicly accessible without any authentication, exposing request counts, error rates, latency histograms, and route path details that can be used by attackers to enumerate endpoints and understand application behaviour.",
+    "task": "Gate the `/metrics` endpoint behind the existing `require_audit_auth` dependency (which accepts JWT, session token, or API key), or add a dedicated `METRICS_TOKEN` env-var checked against a `Bearer` header before returning the Prometheus data.",
+    "auto_fixable": false,
+    "effort": "trivial"
+  },
+  {
+    "id": "security-c2-5",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/services/crm/conversations/message_attachments.py",
+    "line": 26,
+    "issue": "File upload validation in the message attachments, ticket attachments, avatar, and branding-asset services checks `file.content_type` from the multipart header — a value entirely controlled by the uploader — instead of inspecting actual file magic bytes, letting an attacker disguise a malicious file (e.g., HTML, SVG, or executable) as an allowed MIME type.",
+    "task": "After reading the file content, inspect the first 512 bytes with `python-magic` (or equivalent) to determine the real MIME type and reject the upload if it does not match the allowlist, regardless of the declared Content-Type.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "security-c2-6",
+    "severity": "medium",
+    "category": "security",
+    "file": "app/services/crm/inbox/attachments.py",
+    "line": 107,
+    "issue": "The `fetch_inbox_attachment()` function makes an outbound `httpx.get(media_url, ...)` using a URL extracted from message metadata stored in the database; because the `/webhooks/crm/email` and `/webhooks/crm/whatsapp` endpoints are unauthenticated or signature-bypassable (see c2-1, c2-2), an attacker can inject a message with a crafted `metadata.attachments[].url` pointing to internal services, triggering full SSRF from the application server.",
+    "task": "Validate `media_url` against an allowlist of permitted domains (e.g., `graph.facebook.com`, `*.whatsapp.net`) before fetching, and block RFC-1918 addresses and link-local ranges using a DNS-resolution guard or a URL validation library such as `ssrf-filter`.",
+    "auto_fixable": false,
+    "effort": "small"
+  }
+]

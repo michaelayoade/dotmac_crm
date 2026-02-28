@@ -1,0 +1,90 @@
+[
+  {
+    "id": "api-c10-1",
+    "severity": "high",
+    "category": "api",
+    "file": "app/api/crm/presence.py",
+    "line": 75,
+    "issue": "`POST /{agent_id}/presence` (`upsert_agent_presence`) has no per-agent authorization check — any authenticated user can set any other agent's status to any value — while the sibling `POST /{agent_id}/presence/location` endpoint correctly gates writes with `_can_write_agent_location()`.",
+    "task": "Add an authorization guard to `upsert_agent_presence` equivalent to `_can_write_agent_location` so that only the agent themselves, admins, or managers can update a given agent's presence status.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c10-2",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/material_requests.py",
+    "line": 71,
+    "issue": "`POST /{mr_id}/approve` and `POST /{mr_id}/reject` (lines 71 and 75) accept `approved_by_person_id` and `reason` as URL query parameters on state-changing mutations, causing person IDs and rejection reasons to appear in server access logs and breaking REST conventions.",
+    "task": "Define a small `ApprovalRequest` / `RejectionRequest` Pydantic schema with `approved_by_person_id` and (for reject) `reason` fields, replace the `Query()` params with a request body on both endpoints, and update callers.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c10-3",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/wireless_survey.py",
+    "line": 143,
+    "issue": "`POST /wireless-survey/surveys/{survey_id}/analyze-los` passes `from_point_id`, `to_point_id`, and `sample_count` as URL query parameters on a write-style mutation endpoint, which logs UUIDs in access logs and deviates from the project's body-for-mutations convention.",
+    "task": "Define a `LosAnalysisRequest` schema with `from_point_id`, `to_point_id`, and `sample_count` fields and replace the three `Query()` params with a request body on `analyze_los_path`.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c10-4",
+    "severity": "medium",
+    "category": "api",
+    "file": "app/api/vendors.py",
+    "line": 104,
+    "issue": "`POST /vendors/as-built/{as_built_id}/accept` passes `reviewer_id` as a URL query parameter on a state-changing mutation, logging the reviewer person UUID in access logs and diverging from the project body-for-mutations pattern (contrast `approve_quote`/`reject_quote` which correctly use request bodies).",
+    "task": "Define an `AsBuiltAcceptRequest` schema with a `reviewer_id: str` field and replace the query param with a request body on `accept_as_built`.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c10-5",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/wireless_survey.py",
+    "line": 44,
+    "issue": "`GET /wireless-survey/surveys` uses `response_model=list[WirelessSiteSurveyRead]` instead of `ListResponse[WirelessSiteSurveyRead]`, omitting `total`, `limit`, and `offset` pagination metadata from the response — inconsistent with every other list endpoint in the codebase.",
+    "task": "Change `response_model` to `ListResponse[WirelessSiteSurveyRead]`, update `wireless_surveys.list()` to return a `list_response()` wrapper (or add a `list_response()` call in the handler), and add `Query(ge=1, le=200)` / `Query(ge=0)` bounds to `limit` and `offset`.",
+    "auto_fixable": false,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c10-6",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/gis.py",
+    "line": 364,
+    "issue": "`POST /gis/sync` is missing a `response_model` declaration; the shape of the sync result dict returned by `gis_sync_service.geo_sync.sync_sources` is not documented in OpenAPI, making it impossible for clients to know what fields to expect.",
+    "task": "Define a `GisSyncResult` Pydantic schema capturing the counts returned by `sync_sources` and add `response_model=GisSyncResult` to the `POST /gis/sync` decorator.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "api-c10-7",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/crm/inbox.py",
+    "line": 74,
+    "issue": "`GET /crm/inbox/templates` declares `limit: int = 100` and `offset: int = 0` as bare integer defaults with no `Query(ge=..., le=...)` constraints, allowing callers to request arbitrarily large result sets or negative offsets without server-side validation — unlike every other list endpoint in the codebase.",
+    "task": "Replace `limit: int = 100` and `offset: int = 0` with `limit: int = Query(default=100, ge=1, le=200)` and `offset: int = Query(default=0, ge=0)` on the `list_templates` handler.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "api-c10-8",
+    "severity": "low",
+    "category": "api",
+    "file": "app/api/crm/inbox.py",
+    "line": 146,
+    "issue": "`POST /crm/inbox/webhooks/whatsapp` (line 146) and `POST /crm/inbox/webhooks/email` (line 152) are missing `response_model` declarations; both return `{\"status\": \"ok\"}` as an untyped dict, making the response shape invisible in OpenAPI.",
+    "task": "Define a minimal `WebhookAckResponse(BaseModel)` schema with a single `status: str` field and add `response_model=WebhookAckResponse` to both webhook endpoint decorators.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]

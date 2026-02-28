@@ -1,0 +1,68 @@
+[
+  {
+    "id": "quality-c9-1",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/tasks/notifications.py",
+    "line": 144,
+    "issue": "The WhatsApp notification delivery loop calls `db.get(ConnectorConfig, ...)` (line 144) and a campaign SMTP join query (line 165) inside each loop iteration, creating up to two N+1 queries per notification when the same connector config is shared by all WhatsApp notifications in the batch.",
+    "task": "Pre-load all distinct `ConnectorConfig` IDs referenced by the batch before the loop (e.g. `{n.connector_config_id: ... for n in ...}`) and look up from the dict inside the loop; similarly pre-load campaign SMTP IDs in a single join query keyed by notification ID.",
+    "auto_fixable": false,
+    "effort": "small"
+  },
+  {
+    "id": "quality-c9-2",
+    "severity": "high",
+    "category": "quality",
+    "file": "app/api/crm/widget_public.py",
+    "line": 512,
+    "issue": "Three route handlers in the public widget API contain direct `db.query(Message)` calls (lines 512, 575, 614) for listing messages, counting unread messages, and bulk-marking messages as read — business logic that should be delegated to the service layer.",
+    "task": "Extract the three `db.query(Message)` operations into methods on the `widget_visitors` or a new `WidgetMessages` service manager and call those methods from the route handlers.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c9-3",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/tasks/bandwidth.py",
+    "line": 222,
+    "issue": "In `aggregate_to_metrics()`, the expression `minute_start + timedelta(minutes=1)` is evaluated but its result is never assigned to a variable, making the statement a no-op and leaving dead/confusing code in the aggregation window calculation.",
+    "task": "Either assign the result to a named variable (e.g. `minute_end = minute_start + timedelta(minutes=1)`) and use it in the filter bounds, or delete the line if it is genuinely unused.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c9-4",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/tasks/crm_inbox.py",
+    "line": 37,
+    "issue": "`send_reply_reminders_task` is registered as an active Celery task but its body is a single `return 0` no-op with a comment explaining it is temporarily disabled; every scheduled invocation still consumes a broker message slot and a worker execution cycle.",
+    "task": "Either remove the task registration entirely (and its beat schedule entry) until the feature is ready to be re-enabled, or disable it at the scheduler level by setting `enabled=False` in `scheduler_config.py` rather than leaving a silently-vacuous task body.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  },
+  {
+    "id": "quality-c9-5",
+    "severity": "medium",
+    "category": "quality",
+    "file": "app/tasks/notifications.py",
+    "line": null,
+    "issue": "Nine Celery task files — `notifications.py`, `bandwidth.py`, `campaigns.py`, `surveys.py`, `workflow.py`, `webhooks.py`, `performance.py`, `intelligence.py`, and `events.py` — do not call `observe_job()` to record task execution timing and status in Prometheus metrics, making their operational health invisible to the metrics dashboard.",
+    "task": "Add `from app.metrics import observe_job`, `import time`, `start = time.monotonic()`, and `status = 'success'/'error'` scaffolding to each task function, calling `observe_job(task_name, status, time.monotonic() - start)` in the `finally` block, following the pattern used in `app/tasks/subscribers.py` and `app/tasks/integrations.py`.",
+    "auto_fixable": false,
+    "effort": "medium"
+  },
+  {
+    "id": "quality-c9-6",
+    "severity": "low",
+    "category": "quality",
+    "file": "app/models/bandwidth.py",
+    "line": 11,
+    "issue": "The `BandwidthSample` model has `created_at` but is missing `updated_at`, which violates the project-wide database convention that every entity table must carry both timezone-aware timestamp columns.",
+    "task": "Add `updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))` to `BandwidthSample` and generate the corresponding Alembic migration.",
+    "auto_fixable": true,
+    "effort": "trivial"
+  }
+]
