@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-02-28]
+
+### Security
+- **Audit scan (cycle 8)**: Sentinel scan identified 4 new findings — inventory stock reservation race condition (HIGH, `app/services/inventory.py:273`, `security-c8-1`), vendor as-built report path traversal via `FileResponse` with unvalidated DB path (HIGH, `app/web/admin/vendors.py:787`, `security-c8-2`), scheduler task name injection allowing any authenticated user to enqueue arbitrary registered Celery tasks (MEDIUM, `app/schemas/scheduler.py`, `security-c8-3`), CSV formula injection in reports and CRM contacts export (MEDIUM, `security-c8-4`)
+
+### Dependencies
+- **Dependency audit (cycle 8)**: 6 new findings — `idna<3.7` vulnerable to CVE-2024-3651 ReDoS via any user-supplied hostname (HIGH, `deps-c8-1`), PyJWT 2.3.0 vulnerable to CVE-2022-29217 algorithm confusion via python-jose transitive dep (HIGH, `deps-c8-2`), `urllib3<1.26.17` CVE-2023-43804 cookie injection + CVE-2023-45803 (MEDIUM, `deps-c8-3`), bcrypt 4.x/passlib 1.7.4 compatibility break causing silent hash verification failures (MEDIUM, `deps-c8-4`), outdated MarkupSafe 2.0.1 (LOW, `deps-c8-5`), outdated Poetry 1.8.4 / pip 22.0.2 toolchain (LOW, `deps-c8-6`)
+
+---
+
 ## [2026-02-27]
 
 ### Security
