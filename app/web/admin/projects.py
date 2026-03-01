@@ -114,7 +114,7 @@ def _format_validation_error(exc: ValidationError) -> str:
     first_error = (
         exc.errors()[0]
         if exc.errors()
-        else {"msg": "Invalid payload.", "loc": [], "type": "value_error", "input": None}
+        else {"msg": "Invalid payload.", "loc": (), "type": "value_error", "input": None}
     )
     loc_path = ".".join(str(part) for part in first_error.get("loc", []))
     message = str(first_error.get("msg", "Invalid payload."))
