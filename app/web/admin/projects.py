@@ -111,7 +111,11 @@ def _parse_datetime_opt(value: str | None) -> datetime | None:
 
 
 def _format_validation_error(exc: ValidationError) -> str:
-    first_error = exc.errors()[0] if exc.errors() else {"msg": "Invalid payload.", "loc": []}
+    first_error = (
+        exc.errors()[0]
+        if exc.errors()
+        else {"msg": "Invalid payload.", "loc": [], "type": "value_error", "input": None}
+    )
     loc_path = ".".join(str(part) for part in first_error.get("loc", []))
     message = str(first_error.get("msg", "Invalid payload."))
     return f"{loc_path}: {message}" if loc_path else message
