@@ -67,6 +67,11 @@ def _find_person_and_channel_by_address(
     normalized_address: str,
     raw_address: str | None,
 ) -> tuple[Person | None, PersonChannel | None]:
+    """Find a person and their channel by address.
+
+    Uses the unified identity resolution module for the core lookup,
+    but avoids creating new records (read-only lookup).
+    """
     person_channel_type = _to_person_channel_type(channel_type)
     if channel_type == CrmChannelType.email:
         channel = (
@@ -1200,59 +1205,22 @@ def get_or_create_contact_by_channel(
     address: str,
     display_name: str | None = None,
 ):
-    person_channel_type = _to_person_channel_type(channel_type)
-    normalized_address = _normalize_channel_address(channel_type, address)
-    raw_address = address.strip()
-    person, channel = _find_person_and_channel_by_address(
-        db,
-        channel_type,
-        normalized_address,
-        raw_address,
-    )
-    if person:
-        if display_name and not person.display_name:
-            person.display_name = display_name
-            db.commit()
-            db.refresh(person)
-        if channel and channel.channel_type == person_channel_type:
-            return person, channel
-        channel = _ensure_person_channel(
-            db,
-            person,
-            person_channel_type,
-            normalized_address,
-            is_primary=True,
-        )
-        return person, channel
+    """Get or create a Person + PersonChannel for an inbound channel address.
 
-    display_first, display_last = "", ""
-    if display_name:
-        parts = display_name.split()
-        display_first = parts[0]
-        display_last = " ".join(parts[1:]) if len(parts) > 1 else "Unknown"
-    person = Person(
-        first_name=display_first or "Unknown",
-        last_name=display_last or "Unknown",
+    Delegates to ``person_identity.resolve_person``.
+    """
+    from app.services.person_identity import resolve_person
+
+    result = resolve_person(
+        db,
+        channel_type=channel_type,
+        address=address,
         display_name=display_name,
-        email=normalized_address
-        if channel_type == CrmChannelType.email
-        else _email_from_address(channel_type, normalized_address),
-        phone=normalized_address if channel_type == CrmChannelType.whatsapp else None,
-        party_status=PartyStatus.lead,
     )
-    db.add(person)
-    db.flush()
-    channel = PersonChannel(
-        person_id=person.id,
-        channel_type=person_channel_type,
-        address=normalized_address,
-        is_primary=True,
-    )
-    db.add(channel)
     db.commit()
-    db.refresh(person)
-    db.refresh(channel)
-    return person, channel
+    db.refresh(result.person)
+    db.refresh(result.channel)
+    return result.person, result.channel
 
 
 # Singleton instances

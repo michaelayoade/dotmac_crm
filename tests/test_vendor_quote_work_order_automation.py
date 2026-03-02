@@ -7,7 +7,13 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.workforce import WorkOrder
-from app.schemas.vendor import InstallationProjectCreate, ProjectQuoteCreate, QuoteLineItemCreate, VendorCreate
+from app.schemas.vendor import (
+    InstallationProjectCreate,
+    ProjectQuoteCreate,
+    QuoteLineItemCreate,
+    QuoteLineItemUpdate,
+    VendorCreate,
+)
 from app.services import vendor as vendor_service
 from app.services.automation_actions import execute_actions
 from app.services.events.types import Event, EventType
@@ -121,6 +127,74 @@ def test_vendor_quote_approve_emits_event(db_session, project, person):
     assert captured["payload"]["project_id"] == str(project.id)
     assert captured["payload"]["vendor_id"] == str(vendor.id)
     assert captured["kwargs"]["project_id"] == project.id
+
+
+def test_vendor_quote_line_item_create_rejects_zero_quantity(db_session, project):
+    vendor = vendor_service.vendors.create(db_session, VendorCreate(name="Acme Vendor"))
+    installation_project = vendor_service.installation_projects.create(
+        db_session,
+        InstallationProjectCreate(
+            project_id=project.id,
+            assigned_vendor_id=vendor.id,
+        ),
+    )
+    with pytest.raises(HTTPException) as exc:
+        vendor_service.quote_line_items.create(
+            db_session,
+            QuoteLineItemCreate(
+                quote_id=quote.id,
+                item_type="vat",
+                description="VAT",
+                quantity=Decimal("0"),
+                unit_price=Decimal("100.00"),
+            ),
+            vendor_id=str(vendor.id),
+        )
+
+    assert exc.value.status_code == 400
+    assert "save rejected" in str(exc.value.detail).lower()
+    assert "minimum allowed is 1" in str(exc.value.detail).lower()
+
+
+def test_vendor_quote_line_item_update_rejects_zero_quantity(db_session, project):
+    vendor = vendor_service.vendors.create(db_session, VendorCreate(name="Acme Vendor"))
+    installation_project = vendor_service.installation_projects.create(
+        db_session,
+        InstallationProjectCreate(
+            project_id=project.id,
+            assigned_vendor_id=vendor.id,
+        ),
+    )
+    quote = vendor_service.project_quotes.create(
+        db_session,
+        ProjectQuoteCreate(project_id=installation_project.id),
+        vendor_id=str(vendor.id),
+        created_by_person_id=None,
+    )
+    item = vendor_service.quote_line_items.create(
+        db_session,
+        QuoteLineItemCreate(
+            quote_id=quote.id,
+            item_type="labor",
+            description="Labor",
+            quantity=Decimal("1"),
+            unit_price=Decimal("100.00"),
+        ),
+        vendor_id=str(vendor.id),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        vendor_service.quote_line_items.update(
+            db_session,
+            quote_id=str(quote.id),
+            line_item_id=str(item.id),
+            payload=QuoteLineItemUpdate(quantity=Decimal("0")),
+            vendor_id=str(vendor.id),
+        )
+
+    assert exc.value.status_code == 400
+    assert "save rejected" in str(exc.value.detail).lower()
+    assert "minimum allowed is 1" in str(exc.value.detail).lower()
 
 
 def test_create_work_order_upsert_updates_existing(db_session, project, person):

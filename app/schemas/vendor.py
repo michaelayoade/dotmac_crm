@@ -140,7 +140,7 @@ class QuoteLineItemBase(BaseModel):
     cable_type: str | None = Field(default=None, max_length=120)
     fiber_count: int | None = None
     splice_count: int | None = None
-    quantity: Decimal = Decimal("1.000")
+    quantity: Decimal = Field(default=Decimal("1.000"), ge=1)
     unit_price: Decimal = Decimal("0.00")
     amount: Decimal = Decimal("0.00")
     notes: str | None = None
@@ -157,7 +157,7 @@ class QuoteLineItemCreateRequest(BaseModel):
     cable_type: str | None = Field(default=None, max_length=120)
     fiber_count: int | None = None
     splice_count: int | None = None
-    quantity: Decimal = Decimal("1.000")
+    quantity: Decimal = Field(default=Decimal("1.000"), ge=1)
     unit_price: Decimal = Decimal("0.00")
     amount: Decimal = Decimal("0.00")
     notes: str | None = None
@@ -170,7 +170,7 @@ class QuoteLineItemUpdate(BaseModel):
     cable_type: str | None = Field(default=None, max_length=120)
     fiber_count: int | None = None
     splice_count: int | None = None
-    quantity: Decimal | None = None
+    quantity: Decimal | None = Field(default=None, ge=1)
     unit_price: Decimal | None = None
     amount: Decimal | None = None
     notes: str | None = None

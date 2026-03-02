@@ -503,25 +503,21 @@ class WidgetVisitorManager:
         custom_fields: dict | None = None,
     ) -> WidgetVisitorSession:
         """Identify an anonymous visitor with contact info."""
+        from app.services.person_identity import ensure_person_channel, resolve_person
+
         email_normalized = email.strip().lower()
 
-        # Find or create person
-        person = db.query(Person).filter(func.lower(Person.email) == email_normalized).first()
+        # Use unified identity resolution with email + phone hints
+        result = resolve_person(
+            db,
+            channel_type=ChannelType.email,
+            address=email_normalized,
+            display_name=name,
+            phone=phone,
+        )
+        person = result.person
 
-        if not person:
-            # Create new person
-            first_name = name.split()[0] if name else email_normalized.split("@")[0]
-            last_name = " ".join(name.split()[1:]) if name and len(name.split()) > 1 else ""
-            person = Person(
-                email=email_normalized,
-                first_name=first_name,
-                last_name=last_name or first_name,
-                display_name=name,
-                phone=phone,
-                party_status=PartyStatus.lead,
-            )
-            db.add(person)
-            db.flush()
+        if result.created:
             logger.info("widget_person_created person_id=%s email=%s", person.id, email_normalized)
             existing_lead = db.query(Lead).filter(Lead.person_id == person.id).first()
             if not existing_lead:
@@ -532,47 +528,16 @@ class WidgetVisitorManager:
                     db=db,
                     payload=LeadCreate(person_id=person.id, lead_source="Website"),
                 )
-                # Keep new widget visitors as leads; leads_service upgrades to contact by default.
+                # Keep new widget visitors as leads
                 person.party_status = PartyStatus.lead
-                db.commit()
-        else:
-            if phone and not person.phone:
-                person.phone = phone
-
-        # Ensure person has chat_widget channel
-        existing_channel = (
-            db.query(PersonChannel)
-            .filter(PersonChannel.person_id == person.id)
-            .filter(PersonChannel.channel_type == PersonChannelType.chat_widget)
-            .first()
-        )
-        if not existing_channel:
-            channel = PersonChannel(
-                person_id=person.id,
-                channel_type=PersonChannelType.chat_widget,
-                address=str(session.id),
-                is_primary=False,
-            )
-            db.add(channel)
-            db.flush()
-        if phone:
-            phone_channel = (
-                db.query(PersonChannel)
-                .filter(PersonChannel.person_id == person.id)
-                .filter(PersonChannel.channel_type == PersonChannelType.phone)
-                .filter(PersonChannel.address == phone)
-                .first()
-            )
-            if not phone_channel:
-                db.add(
-                    PersonChannel(
-                        person_id=person.id,
-                        channel_type=PersonChannelType.phone,
-                        address=phone,
-                        is_primary=False,
-                    )
-                )
                 db.flush()
+
+        # Ensure person has chat_widget channel (keyed to session ID)
+        ensure_person_channel(db, person, PersonChannelType.chat_widget, str(session.id))
+
+        # Ensure phone channel if provided
+        if phone:
+            ensure_person_channel(db, person, PersonChannelType.phone, phone)
 
         # Update session
         session.person_id = person.id

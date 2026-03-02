@@ -412,6 +412,16 @@ class ChatwootImporter:
                     self._contact_map[cw_id] = person
                     result.contacts.created += 1
 
+                # Backfill PersonChannel rows for email/phone so channel-based
+                # lookups from WhatsApp/email handlers can find this person.
+                from app.models.person import ChannelType as PersonChannelType
+                from app.services.person_identity import ensure_person_channel
+
+                if person.email and not person.email.endswith("@placeholder.local"):
+                    ensure_person_channel(db, person, PersonChannelType.email, person.email)
+                if person.phone:
+                    ensure_person_channel(db, person, PersonChannelType.phone, person.phone)
+
             except Exception as e:
                 result.contacts.errors += 1
                 result.error_details.append(f"Contact error ({contact_data.get('id')}): {e}")

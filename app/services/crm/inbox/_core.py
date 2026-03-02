@@ -8,7 +8,7 @@ from email.utils import getaddresses
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import String, cast, func
 from sqlalchemy.orm import Session
 
 from app.logging import get_logger
@@ -29,11 +29,9 @@ from app.schemas.crm.conversation import MessageCreate
 from app.schemas.crm.inbox import EmailWebhookPayload, InboxSendRequest, WhatsAppWebhookPayload
 from app.services import email as email_service
 from app.services.common import coerce_uuid
-from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm import email_polling
 from app.services.crm.inbox.normalizers import (
-    _normalize_channel_address,
     _normalize_email_address,
     _normalize_email_message_id,
     _normalize_external_id,
@@ -440,122 +438,6 @@ def _is_self_whatsapp_message(
     if not sender or not owner:
         return False
     return sender == owner
-
-
-def _ensure_person_channel(
-    db: Session,
-    person: Person,
-    channel_type: ChannelType,
-    address: str,
-):
-    person_channel_type = PersonChannelType(channel_type.value)
-    normalized_address = _normalize_channel_address(channel_type, address) or address
-    channel = (
-        db.query(PersonChannel)
-        .filter(PersonChannel.person_id == person.id)
-        .filter(PersonChannel.channel_type == person_channel_type)
-        .filter(
-            or_(
-                PersonChannel.address == normalized_address,
-                PersonChannel.address == address.strip(),
-            )
-        )
-        .first()
-    )
-    if channel:
-        return channel
-    has_primary = (
-        db.query(PersonChannel)
-        .filter(PersonChannel.person_id == person.id)
-        .filter(PersonChannel.channel_type == person_channel_type)
-        .filter(PersonChannel.is_primary.is_(True))
-        .first()
-    )
-    channel = PersonChannel(
-        person_id=person.id,
-        channel_type=person_channel_type,
-        address=normalized_address,
-        is_primary=has_primary is None,
-    )
-    db.add(channel)
-    db.commit()
-    db.refresh(channel)
-    return channel
-
-
-def _resolve_person_for_inbound(
-    db: Session,
-    channel_type: ChannelType,
-    address: str,
-    display_name: str | None,
-):
-    """Resolve or create a Person and PersonChannel for an inbound message."""
-    person_channel_type = PersonChannelType(channel_type.value)
-    normalized_address = _normalize_channel_address(channel_type, address)
-    existing_channel = (
-        db.query(PersonChannel)
-        .filter(PersonChannel.channel_type == person_channel_type)
-        .filter(
-            or_(
-                PersonChannel.address == normalized_address,
-                PersonChannel.address == address.strip(),
-            )
-        )
-        .first()
-    )
-    if existing_channel:
-        return existing_channel.person, existing_channel
-
-    person = None
-    if channel_type == ChannelType.email:
-        person = db.query(Person).filter(func.lower(Person.email) == normalized_address).first()
-    if not person and channel_type == ChannelType.whatsapp:
-        person = (
-            db.query(Person)
-            .filter(
-                or_(
-                    Person.phone == normalized_address,
-                    Person.phone == address.strip(),
-                )
-            )
-            .first()
-        )
-
-    if person:
-        channel = _ensure_person_channel(
-            db,
-            person,
-            channel_type,
-            normalized_address or address,
-        )
-        if (
-            channel_type == ChannelType.whatsapp
-            and normalized_address
-            and (not person.phone or not person.phone.startswith("+"))
-        ):
-            person.phone = normalized_address
-            db.commit()
-            db.refresh(person)
-        if (
-            channel_type == ChannelType.email
-            and normalized_address
-            and (not person.email or person.email.endswith("@example.invalid"))
-        ):
-            person.email = normalized_address
-            db.commit()
-            db.refresh(person)
-        if display_name and not person.display_name:
-            person.display_name = display_name
-            db.commit()
-            db.refresh(person)
-        return person, channel
-
-    return contact_service.get_or_create_contact_by_channel(
-        db,
-        channel_type,
-        normalized_address or address,
-        display_name,
-    )
 
 
 def _find_duplicate_inbound_message(

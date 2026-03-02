@@ -14,6 +14,14 @@ from app.services.dotmac_erp.client import DotMacERPClient
 
 logger = logging.getLogger(__name__)
 
+_LEGACY_ZERO_QTY_FORCE_ONE_QUOTE_IDS = {
+    "3ce82b90-ff32-4117-9d9e-d08f47ae7899",
+    "a06c39d6-07d7-476e-8ec9-0e6dffc3ba8e",
+    "deba1f0f-f666-4363-95ef-2e5147aed41c",
+    "018b64d3-c879-4988-8764-0db3d8d9e27d",
+    "a55c9723-969e-4307-8b93-14112dc5e815",
+}
+
 
 @dataclass
 class PurchaseOrderSyncResult:
@@ -80,6 +88,7 @@ class DotMacERPPurchaseOrderSync:
         """Map a WorkOrder + ProjectQuote to the ERP purchase order payload."""
         vendor = quote.vendor
         project = work_order.project
+        coerce_zero_quantity = str(quote.id) in _LEGACY_ZERO_QTY_FORCE_ONE_QUOTE_IDS
 
         items = []
         for item in quote.line_items:
@@ -90,16 +99,18 @@ class DotMacERPPurchaseOrderSync:
             amount = Decimal(item.amount or 0)
             item_type = (item.item_type or "").strip()
             description = (item.description or "").strip()
-            if quantity <= 0:
+            if quantity <= 0 and not coerce_zero_quantity:
                 continue
-            if not description and not item_type and unit_price <= 0 and amount <= 0:
+            if not description and not item_type and unit_price <= 0 and amount <= 0 and not coerce_zero_quantity:
                 continue
+            if quantity <= 0 and coerce_zero_quantity:
+                quantity = Decimal("1.000")
             if not description:
                 description = f"{(item_type or 'item').replace('_', ' ').title()} item"
             entry: dict = {
                 "item_type": item_type or "item",
                 "description": description,
-                "quantity": str(item.quantity),
+                "quantity": str(quantity),
                 "unit_price": str(item.unit_price),
                 "amount": str(item.amount),
             }

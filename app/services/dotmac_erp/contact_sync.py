@@ -292,7 +292,7 @@ class DotMacERPContactSync:
             if org:
                 person.organization_id = org.id
 
-        # Upsert channels
+        # Upsert channels from ERP channel list
         channels = contact.get("channels") or []
         for ch in channels:
             ch_type_str = ch.get("type", "")
@@ -322,6 +322,25 @@ class DotMacERPContactSync:
                     )
                 )
             result.channels_upserted += 1
+
+        # Flush so that ensure_person_channel below can see channels
+        # just added in the loop above.
+        self.db.flush()
+
+        # Backfill PersonChannel for email/phone on the Person model itself.
+        # ERP contacts always have email and often phone, but the ERP channels
+        # list may not include them.  Without these rows, channel-based lookups
+        # from WhatsApp/email handlers will miss the person.
+        from app.services.person_identity import ensure_person_channel
+
+        if person.email:
+            _ch, created = ensure_person_channel(self.db, person, ChannelType.email, person.email)
+            if created:
+                result.channels_upserted += 1
+        if person.phone:
+            _ch, created = ensure_person_channel(self.db, person, ChannelType.phone, person.phone)
+            if created:
+                result.channels_upserted += 1
 
         if contact_id:
             self._person_cache[f"erp_person:{contact_id}"] = person
