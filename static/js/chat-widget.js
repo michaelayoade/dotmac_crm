@@ -19,6 +19,7 @@
   // Storage keys
   const STORAGE_KEY_SESSION = 'dotmac_widget_session';
   const STORAGE_KEY_FINGERPRINT = 'dotmac_widget_fingerprint';
+  const STORAGE_KEY_DIALOG_FLOW = 'dotmac_widget_dialog_flow';
 
   /**
    * Generate a simple browser fingerprint for session persistence.
@@ -118,6 +119,11 @@
       this.typingTimeout = null;
       this.pollInterval = null;
       this.renderedMessageIds = new Set(); // Track rendered messages for animations
+
+      // Dialog flow state
+      this.dialogFlowActive = false;
+      this.dialogFlowCompleted = false;
+      this.dialogStepId = null; // terminal step ID to send with first message
 
       // DOM elements
       this.container = null;
@@ -241,6 +247,7 @@
       // Create container
       this.container = document.createElement('div');
       this.container.id = 'dotmac-chat-widget';
+      this.container.style.setProperty('--dotmac-primary', this.widgetConfig.primary_color || '#3B82F6');
       this.container.innerHTML = this.getWidgetHTML();
       document.body.appendChild(this.container);
 
@@ -265,12 +272,20 @@
         this.prechatForm.addEventListener('submit', (e) => this.handlePrechatSubmit(e));
       }
 
-      if (this.shouldShowPrechat()) {
+      // Restore dialog flow state from localStorage
+      this.restoreDialogFlowState();
+
+      // Show dialog flow or prechat form or just enable input
+      if (this.shouldShowDialogFlow()) {
+        this.dialogFlowActive = true;
+        this.disableInput(true);
+        this.renderDialogStep(this.widgetConfig.dialog_flow_steps[0]);
+      } else if (this.shouldShowPrechat()) {
         this.disableInput(true);
       }
 
-      // Show welcome message if configured
-      if (this.widgetConfig.welcome_message && this.messages.length === 0) {
+      // Show welcome message if configured and no dialog flow is active
+      if (this.widgetConfig.welcome_message && this.messages.length === 0 && !this.dialogFlowActive) {
         this.addSystemMessage(this.widgetConfig.welcome_message);
       }
     }
@@ -369,7 +384,120 @@
     }
 
     shouldShowPrechat() {
-      return Boolean(this.widgetConfig && this.widgetConfig.prechat_form_enabled && !this.session?.isIdentified);
+      if (!this.widgetConfig || !this.widgetConfig.prechat_form_enabled || this.session?.isIdentified) {
+        return false;
+      }
+      // If dialog flow is enabled but not completed yet, don't show prechat
+      if (this.shouldShowDialogFlow()) {
+        return false;
+      }
+      return true;
+    }
+
+    shouldShowDialogFlow() {
+      return Boolean(
+        this.widgetConfig &&
+        this.widgetConfig.dialog_flow_enabled &&
+        this.widgetConfig.dialog_flow_steps &&
+        this.widgetConfig.dialog_flow_steps.length > 0 &&
+        !this.dialogFlowCompleted &&
+        !this.session?.conversationId
+      );
+    }
+
+    restoreDialogFlowState() {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY_DIALOG_FLOW);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.configId === this.configId) {
+            this.dialogFlowCompleted = Boolean(data.completed);
+            this.dialogStepId = data.stepId || null;
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    saveDialogFlowState() {
+      localStorage.setItem(STORAGE_KEY_DIALOG_FLOW, JSON.stringify({
+        configId: this.configId,
+        completed: this.dialogFlowCompleted,
+        stepId: this.dialogStepId
+      }));
+    }
+
+    renderDialogStep(step) {
+      if (!step) return;
+
+      // Remove any previous dialog flow UI
+      const existing = this.messagesContainer.querySelector('.dotmac-widget-dialog-flow');
+      if (existing) existing.remove();
+
+      const container = document.createElement('div');
+      container.className = 'dotmac-widget-dialog-flow';
+
+      if (step.message) {
+        const msgEl = document.createElement('div');
+        msgEl.className = 'dotmac-widget-message dotmac-widget-message-system';
+        msgEl.innerHTML = `<div class="dotmac-widget-message-body">${renderMessageBody(step.message)}</div>`;
+        container.appendChild(msgEl);
+      }
+
+      if (step.type === 'choice' && step.options) {
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'dotmac-widget-dialog-buttons';
+        step.options.forEach((opt) => {
+          const btn = document.createElement('button');
+          btn.className = 'dotmac-widget-dialog-btn';
+          btn.textContent = opt.label;
+          btn.dataset.nextStep = opt.next_step;
+          btn.addEventListener('click', () => this.handleDialogOptionClick(opt.next_step));
+          btnGroup.appendChild(btn);
+        });
+        container.appendChild(btnGroup);
+      } else if (step.type === 'terminal') {
+        this.completeDialogFlow(step.id);
+      }
+
+      this.messagesContainer.appendChild(container);
+      this.scrollToBottom();
+    }
+
+    handleDialogOptionClick(nextStepId) {
+      const steps = this.widgetConfig.dialog_flow_steps || [];
+      const nextStep = steps.find(s => s.id === nextStepId);
+      if (nextStep) {
+        this.renderDialogStep(nextStep);
+      }
+    }
+
+    completeDialogFlow(terminalStepId) {
+      this.dialogFlowActive = false;
+      this.dialogFlowCompleted = true;
+      this.dialogStepId = terminalStepId;
+      this.saveDialogFlowState();
+
+      // After a brief delay, show prechat if needed, else enable input
+      setTimeout(() => {
+        if (this.widgetConfig.prechat_form_enabled && !this.session?.isIdentified) {
+          // Re-render prechat form
+          const prechatHtml = this.getPrechatHTML();
+          if (prechatHtml) {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = prechatHtml;
+            this.messagesContainer.appendChild(wrapper.firstElementChild);
+            this.prechatForm = this.messagesContainer.querySelector('.dotmac-widget-prechat-form');
+            if (this.prechatForm) {
+              this.prechatForm.addEventListener('submit', (e) => this.handlePrechatSubmit(e));
+            }
+          }
+        } else {
+          this.disableInput(false);
+        }
+        this.scrollToBottom();
+      }, 800);
     }
 
     disableInput(disabled) {
@@ -665,6 +793,52 @@
           color: #1d4ed8;
         }
 
+        .dotmac-widget-dialog-flow {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .dotmac-widget-dialog-buttons {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          width: 100%;
+          max-width: 90%;
+        }
+
+        .dotmac-widget-dialog-btn {
+          width: 100%;
+          padding: 10px 14px;
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          background: #ffffff;
+          color: #374151;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          text-align: center;
+          transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+
+        .dotmac-widget-dialog-btn:hover {
+          background: var(--dotmac-primary, #3b82f6);
+          border-color: var(--dotmac-primary, #3b82f6);
+          color: #ffffff;
+        }
+
+        .dotmac-widget-dialog-btn:focus {
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .dotmac-widget-dialog-btn {
+            transition: none;
+          }
+        }
+
         .dotmac-widget-prechat {
           border: 1px solid #e5e7eb;
           border-radius: 12px;
@@ -949,7 +1123,11 @@
               'X-Visitor-Token': this.session.visitorToken,
               'Origin': window.location.origin
             },
-            body: JSON.stringify({ body: body })
+            body: JSON.stringify(
+              this.dialogStepId && !this.session.conversationId
+                ? { body: body, dialog_step_id: this.dialogStepId }
+                : { body: body }
+            )
           }
         );
 
@@ -974,6 +1152,9 @@
         if (data.conversation_id && !this.session.conversationId) {
           this.session.conversationId = data.conversation_id;
           localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(this.session));
+          // Clear dialog step ID after first message routed the conversation
+          this.dialogStepId = null;
+          this.saveDialogFlowState();
         }
 
         this.renderMessages();

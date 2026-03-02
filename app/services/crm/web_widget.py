@@ -47,6 +47,16 @@ def parse_prechat_fields(form) -> Any:
         raise ValueError("Invalid pre-chat field configuration") from exc
 
 
+def parse_dialog_flow_steps(form) -> Any:
+    raw = _form_str(form, "dialog_flow_steps_json")
+    if not raw.strip():
+        return None
+    try:
+        return json.loads(raw)
+    except Exception as exc:
+        raise ValueError("Invalid dialog flow step configuration") from exc
+
+
 def parse_allowed_domains(form) -> list[str]:
     allowed_domains_str = _form_str(form, "allowed_domains")
     return [d.strip() for d in allowed_domains_str.split(",") if d.strip()] if allowed_domains_str else []
@@ -54,6 +64,7 @@ def parse_allowed_domains(form) -> list[str]:
 
 def widget_create_payload_from_form(form) -> ChatWidgetConfigCreate:
     prechat_fields = parse_prechat_fields(form)
+    dialog_flow_steps = parse_dialog_flow_steps(form)
     allowed_domains = parse_allowed_domains(form)
     return ChatWidgetConfigCreate(
         name=_form_str(form, "name"),
@@ -67,11 +78,14 @@ def widget_create_payload_from_form(form) -> ChatWidgetConfigCreate:
         rate_limit_sessions_per_ip=_as_int(_form_str_opt(form, "rate_limit_sessions_per_ip"), 5) or 5,
         prechat_form_enabled="prechat_form_enabled" in form,
         prechat_fields=prechat_fields,
+        dialog_flow_enabled="dialog_flow_enabled" in form,
+        dialog_flow_steps=dialog_flow_steps,
     )
 
 
 def widget_update_payload_from_form(form) -> ChatWidgetConfigUpdate:
     prechat_fields = parse_prechat_fields(form)
+    dialog_flow_steps = parse_dialog_flow_steps(form)
     allowed_domains = parse_allowed_domains(form)
     bubble_position_value = _form_str_opt(form, "bubble_position")
     return ChatWidgetConfigUpdate(
@@ -87,6 +101,8 @@ def widget_update_payload_from_form(form) -> ChatWidgetConfigUpdate:
         is_active="is_active" in form,
         prechat_form_enabled="prechat_form_enabled" in form,
         prechat_fields=prechat_fields,
+        dialog_flow_enabled="dialog_flow_enabled" in form,
+        dialog_flow_steps=dialog_flow_steps,
     )
 
 
@@ -95,10 +111,15 @@ def widget_list_data(db: Session) -> dict[str, Any]:
     return {"widgets": widgets}
 
 
+def serialize_teams_for_template(teams: list[Any]) -> list[dict[str, str]]:
+    return [{"id": str(team.id), "name": team.name} for team in teams]
+
+
 def widget_detail_data(db: Session, *, widget, base_url: str) -> dict[str, Any] | None:
     if not widget:
         return None
 
+    from app.models.crm.team import CrmTeam
     from app.services.crm.chat_widget import widget_configs
 
     embed_code = widget_configs.generate_embed_code(widget, base_url)
@@ -109,15 +130,20 @@ def widget_detail_data(db: Session, *, widget, base_url: str) -> dict[str, Any] 
         .filter(WidgetVisitorSession.conversation_id.isnot(None))
         .count()
     )
+    teams = db.query(CrmTeam).filter(CrmTeam.is_active.is_(True)).order_by(CrmTeam.name).all()
     return {
         "widget": widget,
         "embed_code": embed_code,
         "session_count": session_count,
         "conversation_count": conversation_count,
+        "teams": teams,
+        "teams_js": serialize_teams_for_template(teams),
     }
 
 
 __all__ = [
+    "parse_dialog_flow_steps",
+    "serialize_teams_for_template",
     "widget_create_payload_from_form",
     "widget_detail_data",
     "widget_list_data",

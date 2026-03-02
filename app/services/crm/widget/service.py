@@ -26,6 +26,7 @@ from app.schemas.crm.chat_widget import (
     ChatWidgetConfigCreate,
     ChatWidgetConfigUpdate,
     ChatWidgetPublicConfig,
+    DialogFlowStep,
     PrechatField,
     WidgetSessionCreate,
 )
@@ -114,6 +115,44 @@ def _validate_prechat_settings(enabled: bool, fields: list[PrechatField] | None)
         raise ValueError("Pre-chat form must include an email field")
 
 
+def _validate_dialog_flow(enabled: bool, steps: list[DialogFlowStep] | None) -> None:
+    """Validate dialog flow configuration (mirrors _validate_prechat_settings pattern)."""
+    if not enabled:
+        return
+    if not steps:
+        raise ValueError("Dialog flow requires at least one step")
+
+    from app.models.crm.enums import ConversationPriority
+
+    step_ids = set()
+    has_terminal = False
+    for step in steps:
+        if step.id in step_ids:
+            raise ValueError(f"Duplicate dialog flow step ID: {step.id}")
+        step_ids.add(step.id)
+        if step.type == "terminal":
+            has_terminal = True
+            if step.priority:
+                valid_priorities = {p.value for p in ConversationPriority}
+                if step.priority not in valid_priorities:
+                    raise ValueError(f"Invalid priority '{step.priority}' on step '{step.id}'")
+        elif step.type == "choice":
+            if not step.options:
+                raise ValueError(f"Choice step '{step.id}' must have at least one option")
+
+    if not has_terminal:
+        raise ValueError("Dialog flow must have at least one terminal step")
+
+    # Validate all next_step references resolve to existing step IDs
+    for step in steps:
+        if step.options:
+            for option in step.options:
+                if option.next_step not in step_ids:
+                    raise ValueError(
+                        f"Option '{option.label}' in step '{step.id}' references unknown step '{option.next_step}'"
+                    )
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -163,6 +202,55 @@ def _domain_matches_pattern(domain: str, pattern: str) -> bool:
     return domain == pattern
 
 
+def apply_dialog_routing(
+    db: Session,
+    conversation: Conversation,
+    step_config: dict,
+) -> None:
+    """Apply routing from a dialog flow terminal step to a conversation."""
+    from app.models.crm.conversation import ConversationTag
+    from app.models.crm.enums import ConversationPriority
+    from app.services.crm import conversation as conversation_service
+
+    # Set priority
+    priority_value = step_config.get("priority")
+    if priority_value:
+        try:
+            conversation.priority = ConversationPriority(priority_value)
+        except ValueError:
+            logger.warning("dialog_routing_invalid_priority value=%s", priority_value)
+
+    # Add tags
+    tags = step_config.get("add_tags") or []
+    for tag_name in tags:
+        tag_name = tag_name.strip()
+        if not tag_name:
+            continue
+        existing = (
+            db.query(ConversationTag)
+            .filter(ConversationTag.conversation_id == conversation.id)
+            .filter(ConversationTag.tag == tag_name)
+            .first()
+        )
+        if not existing:
+            db.add(ConversationTag(conversation_id=conversation.id, tag=tag_name))
+    db.flush()
+
+    # Assign to team
+    team_id = step_config.get("assign_team")
+    if team_id:
+        conversation_service.assign_conversation(
+            db,
+            conversation_id=str(conversation.id),
+            agent_id=None,
+            team_id=team_id,
+            assigned_by_id=None,
+            update_lead_owner=False,
+        )
+
+    db.commit()
+
+
 class ChatWidgetConfigManager:
     """Manager for chat widget configurations."""
 
@@ -170,6 +258,7 @@ class ChatWidgetConfigManager:
     def create(db: Session, payload: ChatWidgetConfigCreate) -> ChatWidgetConfig:
         """Create a new widget configuration."""
         _validate_prechat_settings(payload.prechat_form_enabled, payload.prechat_fields)
+        _validate_dialog_flow(payload.dialog_flow_enabled, payload.dialog_flow_steps)
         config = ChatWidgetConfig(
             name=payload.name,
             allowed_domains=payload.allowed_domains,
@@ -181,6 +270,10 @@ class ChatWidgetConfigManager:
             offline_message=payload.offline_message,
             prechat_form_enabled=payload.prechat_form_enabled,
             prechat_fields=[f.model_dump() for f in payload.prechat_fields] if payload.prechat_fields else None,
+            dialog_flow_enabled=payload.dialog_flow_enabled,
+            dialog_flow_steps=(
+                [s.model_dump(mode="json") for s in payload.dialog_flow_steps] if payload.dialog_flow_steps else None
+            ),
             business_hours=payload.business_hours.model_dump() if payload.business_hours else None,
             rate_limit_messages_per_minute=payload.rate_limit_messages_per_minute,
             rate_limit_sessions_per_ip=payload.rate_limit_sessions_per_ip,
@@ -216,10 +309,28 @@ class ChatWidgetConfigManager:
                 raise ValueError("Invalid pre-chat field configuration") from exc
         _validate_prechat_settings(effective_enabled, effective_fields)
 
+        # Validate dialog flow
+        dialog_enabled = update_data.get("dialog_flow_enabled", config.dialog_flow_enabled)
+        dialog_steps = update_data.get("dialog_flow_steps", config.dialog_flow_steps)
+        if dialog_steps is not None and not isinstance(dialog_steps, list):
+            dialog_steps = None
+        if dialog_steps is not None and dialog_steps and not isinstance(dialog_steps[0], DialogFlowStep):
+            try:
+                dialog_steps = [DialogFlowStep(**s) for s in dialog_steps]
+            except Exception as exc:
+                raise ValueError("Invalid dialog flow step configuration") from exc
+        _validate_dialog_flow(dialog_enabled, dialog_steps)
+
         # Handle nested objects
         if "prechat_fields" in update_data and update_data["prechat_fields"] is not None:
             update_data["prechat_fields"] = [
                 f.model_dump() if isinstance(f, PrechatField) else f for f in update_data["prechat_fields"]
+            ]
+
+        if "dialog_flow_steps" in update_data and update_data["dialog_flow_steps"] is not None:
+            update_data["dialog_flow_steps"] = [
+                s.model_dump(mode="json") if isinstance(s, DialogFlowStep) else s
+                for s in update_data["dialog_flow_steps"]
             ]
 
         if "business_hours" in update_data and update_data["business_hours"] is not None:
@@ -281,6 +392,10 @@ class ChatWidgetConfigManager:
         if config.prechat_fields:
             prechat_fields = [PrechatField(**f) for f in config.prechat_fields]
 
+        dialog_flow_steps = None
+        if config.dialog_flow_steps:
+            dialog_flow_steps = [DialogFlowStep(**s) for s in config.dialog_flow_steps]
+
         return ChatWidgetPublicConfig(
             widget_id=config.id,
             primary_color=config.primary_color,
@@ -291,6 +406,8 @@ class ChatWidgetConfigManager:
             offline_message=config.offline_message,
             prechat_form_enabled=config.prechat_form_enabled,
             prechat_fields=prechat_fields,
+            dialog_flow_enabled=config.dialog_flow_enabled,
+            dialog_flow_steps=dialog_flow_steps,
             is_online=is_within_business_hours(config.business_hours),
         )
 
@@ -514,6 +631,7 @@ def receive_widget_message(
     body: str,
     metadata: dict | None = None,
     trace_id: str | None = None,
+    dialog_step_id: str | None = None,
 ) -> Message:
     """
     Handle incoming widget message.
@@ -628,7 +746,25 @@ def receive_widget_message(
     if is_new_conversation:
         subscribe_widget_to_conversation(str(session.id), str(conversation.id))
 
-    apply_routing_rules(db, conversation=conversation, message=message)
+    # Apply routing: dialog flow takes precedence over generic routing rules
+    dialog_routed = False
+    if is_new_conversation and dialog_step_id and config.dialog_flow_enabled and config.dialog_flow_steps:
+        step_config = next(
+            (s for s in config.dialog_flow_steps if s.get("id") == dialog_step_id),
+            None,
+        )
+        if step_config and step_config.get("type") == "terminal":
+            apply_dialog_routing(db, conversation, step_config)
+            dialog_routed = True
+            logger.info(
+                "dialog_routing_applied trace_id=%s conversation_id=%s step_id=%s",
+                trace_id,
+                conversation.id,
+                dialog_step_id,
+            )
+
+    if not dialog_routed:
+        apply_routing_rules(db, conversation=conversation, message=message)
     broadcast_new_message(message, conversation)
     from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
 

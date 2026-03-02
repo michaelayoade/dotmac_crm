@@ -194,6 +194,91 @@
                         </button>
                     </div>
 
+                    <!-- Dialog Flow -->
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                        <div class="flex items-center gap-3">
+                            <input type="checkbox" id="dialog_flow_enabled" name="dialog_flow_enabled" value="1"
+                                   {{ 'checked' if widget and widget.dialog_flow_enabled }}
+                                   class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800">
+                            <label for="dialog_flow_enabled" class="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                Enable dialog flow
+                            </label>
+                        </div>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            Show an interactive menu before chat starts. Visitors select a topic, then get routed to the right team.
+                        </p>
+                        <input type="hidden" id="dialog_flow_steps_json" name="dialog_flow_steps_json" value="">
+
+                        <div class="mt-4 space-y-3" id="dialog-flow-steps">
+                            {% set dialog_steps = widget.dialog_flow_steps if widget and widget.dialog_flow_steps else [] %}
+                            {% for step in dialog_steps %}
+                            <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900 dialog-step"
+                                 data-step-type="{{ step.type }}">
+                                <div class="mb-2 flex items-center justify-between">
+                                    <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold
+                                        {{ 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400' if step.type == 'choice' else 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' }}">
+                                        {{ step.type | title }}
+                                    </span>
+                                    <button type="button" class="dialog-step-remove text-xs text-red-600 hover:underline">Remove</button>
+                                </div>
+                                <div class="grid gap-2 text-xs sm:grid-cols-2">
+                                    <div>
+                                        <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Step ID</label>
+                                        <input type="text" class="dialog-step-id w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                               value="{{ step.id }}" placeholder="e.g. welcome">
+                                    </div>
+                                    <div>
+                                        <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Message</label>
+                                        <input type="text" class="dialog-step-message w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                               value="{{ step.message or '' }}" placeholder="How can we help?">
+                                    </div>
+                                </div>
+                                {% if step.type == 'choice' %}
+                                <div class="mt-2">
+                                    <label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Options (label→next_step, one per line)</label>
+                                    <textarea class="dialog-step-options w-full rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-white" rows="3" placeholder="Sales→sales_done&#10;Support→support_topic">{% for opt in (step.options or []) %}{{ opt.label }}→{{ opt.next_step }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>
+                                </div>
+                                {% else %}
+                                <div class="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                                    <div>
+                                        <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Assign Team</label>
+                                        <select class="dialog-step-team w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                                            <option value="">None</option>
+                                            {% for team in teams | default([]) %}
+                                            <option value="{{ team.id }}" {{ 'selected' if step.assign_team and step.assign_team|string == team.id|string }}>{{ team.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Tags (comma)</label>
+                                        <input type="text" class="dialog-step-tags w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                               value="{{ step.add_tags | join(', ') if step.add_tags else '' }}" placeholder="sales, vip">
+                                    </div>
+                                    <div>
+                                        <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Priority</label>
+                                        <select class="dialog-step-priority w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                                            {% for p in ["", "none", "low", "medium", "high", "urgent"] %}
+                                            <option value="{{ p }}" {{ 'selected' if step.priority == p }}>{{ p | title if p else 'Default' }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="mt-3 flex gap-2">
+                            <button type="button" id="dialog-add-choice"
+                                    class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                + Choice step
+                            </button>
+                            <button type="button" id="dialog-add-terminal"
+                                    class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                + Terminal step
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Rate Limits -->
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -394,9 +479,119 @@ if (prechatAdd && prechatContainer) {
     });
 }
 
+// --- Dialog Flow Step Builder ---
+const teamsJson = {{ (teams_js | default([])) | map(attribute='id') | list | tojson | safe }};
+const teamsNames = {{ (teams_js | default([])) | map(attribute='name') | list | tojson | safe }};
+const teamOptions = teamsJson.map((id, i) => `<option value="${id}">${teamsNames[i]}</option>`).join('');
+
+function buildDialogStep(type) {
+    const step = document.createElement('div');
+    step.className = 'rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900 dialog-step';
+    step.dataset.stepType = type;
+    const badgeClass = type === 'choice'
+        ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
+        : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400';
+    const extraHtml = type === 'choice'
+        ? `<div class="mt-2">
+             <label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Options (label→next_step, one per line)</label>
+             <textarea class="dialog-step-options w-full rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-white" rows="3" placeholder="Sales→sales_done\nSupport→support_topic"></textarea>
+           </div>`
+        : `<div class="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+             <div>
+               <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Assign Team</label>
+               <select class="dialog-step-team w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                 <option value="">None</option>${teamOptions}
+               </select>
+             </div>
+             <div>
+               <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Tags (comma)</label>
+               <input type="text" class="dialog-step-tags w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="sales, vip">
+             </div>
+             <div>
+               <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Priority</label>
+               <select class="dialog-step-priority w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                 <option value="">Default</option>
+                 <option value="none">None</option>
+                 <option value="low">Low</option>
+                 <option value="medium">Medium</option>
+                 <option value="high">High</option>
+                 <option value="urgent">Urgent</option>
+               </select>
+             </div>
+           </div>`;
+    step.innerHTML = `
+        <div class="mb-2 flex items-center justify-between">
+            <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${badgeClass}">${type.charAt(0).toUpperCase() + type.slice(1)}</span>
+            <button type="button" class="dialog-step-remove text-xs text-red-600 hover:underline">Remove</button>
+        </div>
+        <div class="grid gap-2 text-xs sm:grid-cols-2">
+            <div>
+                <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Step ID</label>
+                <input type="text" class="dialog-step-id w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="e.g. welcome">
+            </div>
+            <div>
+                <label class="mb-1 block font-medium text-slate-600 dark:text-slate-400">Message</label>
+                <input type="text" class="dialog-step-message w-full rounded-md border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-900 dark:text-white" placeholder="How can we help?">
+            </div>
+        </div>
+        ${extraHtml}
+    `;
+    return step;
+}
+
+const dialogContainer = document.getElementById('dialog-flow-steps');
+const dialogAddChoice = document.getElementById('dialog-add-choice');
+const dialogAddTerminal = document.getElementById('dialog-add-terminal');
+
+if (dialogAddChoice && dialogContainer) {
+    dialogAddChoice.addEventListener('click', () => dialogContainer.appendChild(buildDialogStep('choice')));
+}
+if (dialogAddTerminal && dialogContainer) {
+    dialogAddTerminal.addEventListener('click', () => dialogContainer.appendChild(buildDialogStep('terminal')));
+}
+if (dialogContainer) {
+    dialogContainer.addEventListener('click', (e) => {
+        if (e.target.classList.contains('dialog-step-remove')) {
+            e.target.closest('.dialog-step')?.remove();
+        }
+    });
+}
+
+function serializeDialogSteps() {
+    const steps = Array.from(document.querySelectorAll('.dialog-step'));
+    return steps.map((el) => {
+        const type = el.dataset.stepType;
+        const id = el.querySelector('.dialog-step-id')?.value.trim();
+        const message = el.querySelector('.dialog-step-message')?.value.trim();
+        if (!id) return null;
+        const base = { id, type, message: message || null };
+        if (type === 'choice') {
+            const raw = el.querySelector('.dialog-step-options')?.value || '';
+            const options = raw.split('\n').map(line => {
+                const sep = line.indexOf('→') !== -1 ? '→' : '->';
+                const parts = line.split(sep);
+                if (parts.length < 2) return null;
+                const label = parts[0].trim();
+                const next_step = parts.slice(1).join(sep).trim();
+                return label && next_step ? { label, next_step } : null;
+            }).filter(Boolean);
+            base.options = options.length ? options : null;
+        } else {
+            const team = el.querySelector('.dialog-step-team')?.value || '';
+            const tagsRaw = el.querySelector('.dialog-step-tags')?.value || '';
+            const priority = el.querySelector('.dialog-step-priority')?.value || '';
+            base.assign_team = team || null;
+            base.add_tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : null;
+            base.priority = priority || null;
+        }
+        return base;
+    }).filter(Boolean);
+}
+
 const widgetForm = document.querySelector('form[action^="/admin/crm/widget"]');
 if (widgetForm) {
     widgetForm.addEventListener('submit', () => {
+        // Serialize prechat fields
         const rows = Array.from(document.querySelectorAll('.prechat-row'));
         const fields = rows.map((row) => {
             const name = row.querySelector('.prechat-name')?.value.trim();
@@ -419,6 +614,12 @@ if (widgetForm) {
         const hidden = document.getElementById('prechat_fields_json');
         if (hidden) {
             hidden.value = JSON.stringify(fields);
+        }
+
+        // Serialize dialog flow steps
+        const dialogHidden = document.getElementById('dialog_flow_steps_json');
+        if (dialogHidden) {
+            dialogHidden.value = JSON.stringify(serializeDialogSteps());
         }
     });
 }
