@@ -62,6 +62,12 @@ def _make_quote(vendor, line_items=None) -> MagicMock:
     return q
 
 
+def _make_quote_with_id(vendor, quote_id: str, line_items=None) -> MagicMock:
+    quote = _make_quote(vendor, line_items)
+    quote.id = uuid.UUID(quote_id)
+    return quote
+
+
 def _make_project():
     proj = MagicMock()
     proj.id = uuid.uuid4()
@@ -174,6 +180,28 @@ class TestMapPurchaseOrder:
         assert len(payload["items"]) == 1
         assert payload["items"][0]["item_type"] == "item"
         assert payload["items"][0]["description"] == "Misc charge"
+
+    def test_legacy_quotes_force_zero_quantity_to_one(self):
+        vendor = _make_vendor()
+        legacy_quote_id = "3ce82b90-ff32-4117-9d9e-d08f47ae7899"
+        zero_qty = _make_line_item(
+            item_type=None,
+            description="VAT",
+            quantity=Decimal("0.000"),
+            unit_price=Decimal("100.00"),
+            amount=Decimal("0.00"),
+        )
+        quote = _make_quote_with_id(vendor, legacy_quote_id, [zero_qty])
+        wo = _make_work_order()
+
+        client = MagicMock()
+        session = MagicMock()
+        sync = DotMacERPPurchaseOrderSync(client, session)
+        payload = sync._map_purchase_order(wo, quote)
+
+        assert len(payload["items"]) == 1
+        assert payload["items"][0]["quantity"] == "1.000"
+        assert payload["items"][0]["item_type"] == "item"
 
     def test_no_project(self):
         vendor = _make_vendor()

@@ -1,12 +1,13 @@
 """Service helpers for admin notifications dropdown."""
 
 import re
+from html import unescape
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from app.models.notification import Notification
+from app.models.notification import Notification, NotificationChannel
 from app.services import notification as notification_service
 from app.services import web_admin as web_admin_service
 
@@ -26,11 +27,18 @@ def _extract_target_url(body: str | None) -> str | None:
         if candidate.startswith(("http://", "https://", "/")):
             return candidate
 
+    # Handle HTML notification bodies by preferring anchor href values.
+    href_match = re.search(r'href=["\']([^"\']+)["\']', body, flags=re.IGNORECASE)
+    if href_match:
+        candidate = unescape(href_match.group(1).strip())
+        if candidate.startswith(("http://", "https://", "/")):
+            return candidate
+
     # Fallback: first URL-like token anywhere in body.
-    match = re.search(r"(https?://\S+|/\S+)", body)
+    match = re.search(r'(https?://[^\s"\'<>]+|/[^\s"\'<>]+)', body)
     if not match:
         return None
-    return match.group(1).strip()
+    return unescape(match.group(1).strip())
 
 
 def _supports_view_action(notification: Notification) -> bool:
@@ -38,7 +46,11 @@ def _supports_view_action(notification: Notification) -> bool:
     if not isinstance(subject, str):
         return False
     normalized = subject.strip().lower()
-    return normalized.startswith("new ticket assignment:") or normalized.startswith("mentioned in ")
+    return (
+        normalized.startswith("new ticket assignment:")
+        or normalized.startswith("new project assignment:")
+        or normalized.startswith("mentioned in ")
+    )
 
 
 def notifications_menu(request: Request, db: Session):
@@ -55,6 +67,7 @@ def notifications_menu(request: Request, db: Session):
         notifications = (
             db.query(Notification)
             .filter(Notification.is_active.is_(True))
+            .filter(Notification.channel == NotificationChannel.push)
             .filter(Notification.recipient.in_(list(recipients)))
             .order_by(Notification.created_at.desc())
             .limit(10)
@@ -63,7 +76,7 @@ def notifications_menu(request: Request, db: Session):
     else:
         notifications = notification_service.notifications.list(
             db=db,
-            channel=None,
+            channel=NotificationChannel.push.value,
             status=None,
             is_active=True,
             order_by="created_at",

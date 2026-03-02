@@ -239,10 +239,11 @@ class TestResolveAndUpsertContact:
         sync_service._upsert_contact(contact, result)
         db_session.flush()
 
-        assert result.channels_upserted == 2
+        # 2 from ERP channels list + 1 phone backfill from Person.phone
+        assert result.channels_upserted == 3
         person = db_session.query(Person).filter(Person.email == "chan@test.com").first()
         channels = db_session.query(PersonChannel).filter(PersonChannel.person_id == person.id).all()
-        assert len(channels) == 2
+        assert len(channels) == 3
 
     def test_party_status_mapping(self, sync_service, db_session):
         for erp_status, expected in [("lead", PartyStatus.lead), ("subscriber", PartyStatus.subscriber)]:

@@ -240,15 +240,11 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
             response_body="forwarded" if success else "talk_forward_failed",
         )
         db.add(delivery)
-        if success:
-            notification.status = NotificationStatus.delivered
-            notification.sent_at = datetime.now(UTC)
-            notification.last_error = None
-            delivered += 1
-        else:
-            notification.status = NotificationStatus.failed
-            if not notification.last_error:
-                notification.last_error = "talk_forward_failed"
+        # The stored push notification is the in-app delivery. Nextcloud Talk is a best-effort mirror.
+        notification.status = NotificationStatus.delivered
+        notification.sent_at = notification.sent_at or datetime.now(UTC)
+        notification.last_error = None
+        delivered += 1
         db.commit()
 
     return delivered

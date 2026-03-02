@@ -726,6 +726,11 @@ class QuoteLineItems(ListResponseMixin):
             raise HTTPException(status_code=403, detail="Quote ownership required")
         data = payload.model_dump()
         quantity = Decimal(data.get("quantity") or Decimal("1.000"))
+        if quantity < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Quote line item save rejected: quantity cannot be 0 or less. Minimum allowed is 1.",
+            )
         unit_price = Decimal(data.get("unit_price") or Decimal("0.00"))
         data["amount"] = round_money(quantity * unit_price)
         item = QuoteLineItem(**data)
@@ -781,6 +786,11 @@ class QuoteLineItems(ListResponseMixin):
             setattr(item, key, value)
 
         quantity = Decimal(item.quantity or Decimal("1.000"))
+        if quantity < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Quote line item save rejected: quantity cannot be 0 or less. Minimum allowed is 1.",
+            )
         unit_price = Decimal(item.unit_price or Decimal("0.00"))
         item.amount = round_money(quantity * unit_price)
 

@@ -73,3 +73,4 @@ def test_project_mention_creates_in_app_notification_with_open_link(db_session, 
 def test_mentions_support_view_action():
     assert _supports_view_action(SimpleNamespace(subject="Mentioned in ticket: Ticket TKT-1001"))
     assert _supports_view_action(SimpleNamespace(subject="Mentioned in project: Project PRJ-42"))
+    assert _supports_view_action(SimpleNamespace(subject="New Project Assignment: Backbone Upgrade"))

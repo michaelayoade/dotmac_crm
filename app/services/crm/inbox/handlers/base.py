@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
 from app.models.crm.enums import MessageDirection
 from app.schemas.crm.conversation import MessageCreate
 from app.services.crm.inbox.context import get_inbox_logger, set_request_id
@@ -93,13 +94,21 @@ class InboundHandler:
             payload=message_data,
         )
 
+        conversation_id = str(conversation.id)
+        message_id = str(message.id)
+        channel_target_id = result.channel_target_id
+
         def _after_commit(session):
-            post_process_inbound_message(
-                db,
-                conversation_id=str(conversation.id),
-                message_id=str(message.id),
-                channel_target_id=result.channel_target_id,
-            )
+            followup_db = SessionLocal()
+            try:
+                post_process_inbound_message(
+                    followup_db,
+                    conversation_id=conversation_id,
+                    message_id=message_id,
+                    channel_target_id=channel_target_id,
+                )
+            finally:
+                followup_db.close()
 
         event.listen(db, "after_commit", _after_commit, once=True)
         db.commit()

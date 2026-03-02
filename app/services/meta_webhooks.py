@@ -45,18 +45,17 @@ from app.schemas.crm.inbox import (
     _attachments_have_story_mention,
 )
 from app.schemas.crm.sales import LeadCreate
-from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm.conversations import comments as comments_service
-from app.services.crm.inbox.contacts import _ensure_person_channel
 from app.services.crm.inbox.handlers.utils import post_process_inbound_message
 from app.services.crm.inbox_dedup import (
     _build_inbound_dedupe_id,
     _find_duplicate_inbound_message,
 )
+from app.services.crm.sales.service import leads as leads_service
+from app.services.person_identity import ensure_person_channel as _ensure_person_channel_unified
 from app.services.settings_spec import resolve_value
 from app.services.webhook_dead_letter import write_dead_letter
-from app.services.crm.sales.service import leads as leads_service
 
 logger = get_logger(__name__)
 
@@ -537,11 +536,13 @@ def _ensure_meta_lead_person(
     identity: dict[str, str | None],
     leadgen_id: str,
 ) -> Person:
-    lookup_metadata = {
-        "email": identity.get("email"),
-        "phone": identity.get("phone"),
-    }
-    person = _find_person_by_email_or_phone(db, lookup_metadata)
+    from app.services.person_identity import _find_by_person_email, _find_by_person_phone
+
+    person = None
+    if identity.get("email"):
+        person = _find_by_person_email(db, identity["email"])
+    if not person and identity.get("phone"):
+        person = _find_by_person_phone(db, identity["phone"])
     first_name, last_name, display_name = _split_display_name(identity.get("full_name"))
     if person:
         if display_name and not person.display_name:
@@ -720,72 +721,6 @@ def _extract_location_from_attachments(attachments: object) -> dict | None:
     return None
 
 
-def _find_person_by_email_or_phone(db: Session, metadata: dict | None) -> Person | None:
-    if not metadata or not isinstance(metadata, dict):
-        return None
-    email = metadata.get("email")
-    if isinstance(email, str):
-        email_value = email.strip().lower()
-    else:
-        email_value = None
-    if email_value:
-        channel = (
-            db.query(PersonChannel)
-            .filter(PersonChannel.channel_type == PersonChannelType.email)
-            .filter(func.lower(PersonChannel.address) == email_value)
-            .first()
-        )
-        if channel:
-            return channel.person
-        person = db.query(Person).filter(func.lower(Person.email) == email_value).first()
-        if person:
-            return person
-
-    phone = metadata.get("phone")
-    if isinstance(phone, str):
-        phone_value = _normalize_phone_address(phone)
-        raw_phone = phone.strip()
-    else:
-        phone_value = None
-        raw_phone = None
-    if phone_value:
-        channel = (
-            db.query(PersonChannel)
-            .filter(
-                PersonChannel.channel_type.in_(
-                    {
-                        PersonChannelType.phone,
-                        PersonChannelType.sms,
-                        PersonChannelType.whatsapp,
-                    }
-                )
-            )
-            .filter(
-                or_(
-                    PersonChannel.address == phone_value,
-                    PersonChannel.address == raw_phone,
-                )
-            )
-            .first()
-        )
-        if channel:
-            return channel.person
-        person = (
-            db.query(Person)
-            .filter(
-                or_(
-                    Person.phone == phone_value,
-                    Person.phone == raw_phone,
-                )
-            )
-            .first()
-        )
-        if person:
-            return person
-
-    return None
-
-
 def _resolve_meta_person_and_channel(
     db: Session,
     channel_type: ChannelType,
@@ -793,23 +728,31 @@ def _resolve_meta_person_and_channel(
     contact_name: str | None,
     metadata: dict | None,
 ):
-    person = None
-    if not person:
-        person = _find_person_by_email_or_phone(db, metadata)
-    if person:
-        channel = _ensure_person_channel(db, person, channel_type, sender_id)
-        if contact_name and not person.display_name:
-            person.display_name = contact_name
-            db.commit()
-            db.refresh(person)
-        return person, channel
-    person, channel = contact_service.get_or_create_contact_by_channel(
+    """Resolve person for Meta webhook using unified identity resolution."""
+    from app.services.person_identity import resolve_person
+
+    email_hint = None
+    phone_hint = None
+    if metadata and isinstance(metadata, dict):
+        raw_email = metadata.get("email")
+        if isinstance(raw_email, str) and raw_email.strip():
+            email_hint = raw_email.strip().lower()
+        raw_phone = metadata.get("phone")
+        if isinstance(raw_phone, str) and raw_phone.strip():
+            phone_hint = raw_phone.strip()
+
+    result = resolve_person(
         db,
-        channel_type,
-        sender_id,
-        contact_name,
+        channel_type=channel_type,
+        address=sender_id,
+        display_name=contact_name,
+        email=email_hint,
+        phone=phone_hint,
     )
-    return person, channel
+    db.commit()
+    db.refresh(result.person)
+    db.refresh(result.channel)
+    return result.person, result.channel
 
 
 def _apply_meta_read_receipt(
