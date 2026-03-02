@@ -5,6 +5,8 @@ Used across admin surfaces (inbox, tickets, projects, tasks).
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
 from html import escape as html_escape
 
 from sqlalchemy import and_, func
@@ -12,13 +14,15 @@ from sqlalchemy.orm import Session
 
 from app.models.auth import UserCredential
 from app.models.crm.team import CrmAgent
-from app.models.notification import NotificationChannel
+from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.schemas.notification import NotificationCreate
 from app.services import email as email_service
 from app.services import notification as notification_service
 from app.services.common import coerce_uuid
+
+logger = logging.getLogger(__name__)
 
 
 def list_active_users_for_mentions(db: Session, *, limit: int = 200) -> list[dict]:
@@ -243,6 +247,48 @@ def _build_mention_email(db: Session, payload: dict) -> tuple[str, str]:
     return subject, body_html
 
 
+def _build_mention_push(payload: dict) -> tuple[str, str]:
+    title = str(payload.get("title") or "Mentioned").strip() or "Mentioned"
+    subtitle = str(payload.get("subtitle") or "").strip()
+    preview = str(payload.get("preview") or "").strip()
+    target_url = str(payload.get("target_url") or "").strip()
+
+    subject = title if not subtitle else f"{title}: {subtitle}"
+    body_lines = ["You were mentioned."]
+    if preview:
+        body_lines.append(f"Message: {preview}")
+    if target_url:
+        body_lines.append(f"Open: {target_url}")
+    return subject[:200], "\n".join(body_lines)
+
+
+def queue_mention_in_app_notifications(db: Session, *, recipient_person_ids: list[str], payload: dict) -> None:
+    if not recipient_person_ids:
+        return
+    subject, body = _build_mention_push(payload)
+    now = datetime.now(UTC)
+    people = (
+        db.query(Person)
+        .filter(Person.id.in_([coerce_uuid(person_id) for person_id in recipient_person_ids]))
+        .filter(Person.is_active.is_(True))
+        .all()
+    )
+    for person in people:
+        if not person.email:
+            continue
+        db.add(
+            Notification(
+                channel=NotificationChannel.push,
+                recipient=person.email,
+                subject=subject,
+                body=body,
+                status=NotificationStatus.delivered,
+                sent_at=now,
+            )
+        )
+    db.commit()
+
+
 def queue_mention_email_notifications(db: Session, *, recipient_person_ids: list[str], payload: dict) -> None:
     if not recipient_person_ids:
         return
@@ -303,4 +349,8 @@ def notify_agent_mentions(
 
     for person_id in recipient_person_ids:
         broadcast_agent_notification(person_id, payload)
+    try:
+        queue_mention_in_app_notifications(db, recipient_person_ids=recipient_person_ids, payload=payload)
+    except Exception:  # nosec B110 - mention notifications are best-effort
+        logger.debug("mention_in_app_notification_failed")
     queue_mention_email_notifications(db, recipient_person_ids=recipient_person_ids, payload=payload)

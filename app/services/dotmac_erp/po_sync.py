@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -37,14 +38,14 @@ class DotMacERPPurchaseOrderSync:
     def sync_purchase_order(self, work_order: WorkOrder, quote: ProjectQuote) -> PurchaseOrderSyncResult:
         """Push a purchase order to ERP for a work order created from an approved vendor quote."""
         vendor = quote.vendor
-        if not vendor or not vendor.erp_id:
-            msg = f"Vendor has no erp_id (vendor_id={quote.vendor_id}); skipping PO sync"
-            logger.warning("PO_SYNC_SKIP_NO_ERP_ID work_order_id=%s vendor_id=%s", work_order.id, quote.vendor_id)
+        if not vendor:
+            msg = f"Quote has no vendor relation (vendor_id={quote.vendor_id}); skipping PO sync"
+            logger.warning("PO_SYNC_SKIP_NO_VENDOR work_order_id=%s vendor_id=%s", work_order.id, quote.vendor_id)
             return PurchaseOrderSyncResult(
                 success=False,
                 work_order_id=str(work_order.id),
                 error=msg,
-                error_type="vendor_no_erp_id",
+                error_type="vendor_missing",
             )
 
         payload = self._map_purchase_order(work_order, quote)
@@ -84,11 +85,19 @@ class DotMacERPPurchaseOrderSync:
         for item in quote.line_items:
             if not item.is_active:
                 continue
+            quantity = Decimal(item.quantity or 0)
+            unit_price = Decimal(item.unit_price or 0)
+            amount = Decimal(item.amount or 0)
+            item_type = (item.item_type or "").strip()
             description = (item.description or "").strip()
+            if quantity <= 0:
+                continue
+            if not description and not item_type and unit_price <= 0 and amount <= 0:
+                continue
             if not description:
-                description = f"{(item.item_type or 'item').replace('_', ' ').title()} item"
+                description = f"{(item_type or 'item').replace('_', ' ').title()} item"
             entry: dict = {
-                "item_type": item.item_type,
+                "item_type": item_type or "item",
                 "description": description,
                 "quantity": str(item.quantity),
                 "unit_price": str(item.unit_price),
@@ -107,7 +116,6 @@ class DotMacERPPurchaseOrderSync:
         payload: dict = {
             "omni_work_order_id": str(work_order.id),
             "omni_quote_id": str(quote.id),
-            "vendor_erp_id": vendor.erp_id,
             "vendor_name": vendor.name,
             "title": work_order.title,
             "currency": quote.currency,
@@ -117,8 +125,11 @@ class DotMacERPPurchaseOrderSync:
             "items": items,
         }
 
-        if vendor.code:
-            payload["vendor_code"] = vendor.code
+        if vendor.erp_id:
+            payload["vendor_erp_id"] = vendor.erp_id
+        vendor_code = (vendor.code or "").strip() or vendor.name
+        if vendor_code:
+            payload["vendor_code"] = vendor_code
 
         if project:
             payload["omni_project_id"] = str(project.id)

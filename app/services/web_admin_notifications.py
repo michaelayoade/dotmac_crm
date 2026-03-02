@@ -33,11 +33,12 @@ def _extract_target_url(body: str | None) -> str | None:
     return match.group(1).strip()
 
 
-def _is_ticket_assignment_notification(notification: Notification) -> bool:
+def _supports_view_action(notification: Notification) -> bool:
     subject = getattr(notification, "subject", None)
     if not isinstance(subject, str):
         return False
-    return subject.strip().lower().startswith("new ticket assignment:")
+    normalized = subject.strip().lower()
+    return normalized.startswith("new ticket assignment:") or normalized.startswith("mentioned in ")
 
 
 def notifications_menu(request: Request, db: Session):
@@ -76,7 +77,7 @@ def notifications_menu(request: Request, db: Session):
             "notification": notification,
             "target_url": (
                 _extract_target_url(getattr(notification, "body", None))
-                if _is_ticket_assignment_notification(notification)
+                if _supports_view_action(notification)
                 else None
             ),
         }

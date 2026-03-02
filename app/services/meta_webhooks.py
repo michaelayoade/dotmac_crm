@@ -14,7 +14,8 @@ import json
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy import func, or_
+from sqlalchemy import String, cast, func, or_
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -33,7 +34,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.oauth_token import OAuthToken
 from app.models.person import ChannelType as PersonChannelType
-from app.models.person import Person, PersonChannel
+from app.models.person import PartyStatus, Person, PersonChannel
 from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import (
     FacebookCommentPayload,
@@ -43,6 +44,7 @@ from app.schemas.crm.inbox import (
     MetaWebhookPayload,
     _attachments_have_story_mention,
 )
+from app.schemas.crm.sales import LeadCreate
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm.conversations import comments as comments_service
@@ -54,6 +56,7 @@ from app.services.crm.inbox_dedup import (
 )
 from app.services.settings_spec import resolve_value
 from app.services.webhook_dead_letter import write_dead_letter
+from app.services.crm.sales.service import leads as leads_service
 
 logger = get_logger(__name__)
 
@@ -350,6 +353,331 @@ def _persist_meta_attribution_to_person_and_lead(
         _upsert_entity_attribution_metadata(lead, attribution=attribution, channel=channel)
 
 
+def _get_meta_api_timeout_seconds(db: Session) -> int:
+    value = resolve_value(db, SettingDomain.comms, "meta_api_timeout_seconds")
+    if isinstance(value, int):
+        return max(1, value)
+    if isinstance(value, str) and value.isdigit():
+        return max(1, int(value))
+    return 30
+
+
+def _normalize_meta_lead_field_name(name: object) -> str:
+    if not isinstance(name, str):
+        return ""
+    return name.strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _normalize_meta_lead_fields(field_data: object) -> dict[str, list[str]]:
+    normalized: dict[str, list[str]] = {}
+    if not isinstance(field_data, list):
+        return normalized
+    for item in field_data:
+        if not isinstance(item, dict):
+            continue
+        key = _normalize_meta_lead_field_name(item.get("name"))
+        if not key:
+            continue
+        raw_values = item.get("values")
+        values: list[str] = []
+        if isinstance(raw_values, list):
+            for raw in raw_values:
+                if raw is None:
+                    continue
+                candidate = raw.strip() if isinstance(raw, str) else str(raw).strip()
+                if candidate:
+                    values.append(candidate)
+        elif raw_values is not None:
+            candidate = raw_values.strip() if isinstance(raw_values, str) else str(raw_values).strip()
+            if candidate:
+                values.append(candidate)
+        if values:
+            normalized[key] = values
+    return normalized
+
+
+def _first_meta_lead_field_value(fields: dict[str, list[str]], *keys: str) -> str | None:
+    for key in keys:
+        values = fields.get(_normalize_meta_lead_field_name(key))
+        if values:
+            return values[0]
+    return None
+
+
+def _split_display_name(display_name: str | None) -> tuple[str, str, str | None]:
+    if not display_name:
+        return "Unknown", "Unknown", None
+    cleaned = display_name.strip()
+    if not cleaned:
+        return "Unknown", "Unknown", None
+    parts = cleaned.split()
+    first_name = parts[0][:80] if parts else "Unknown"
+    last_name = " ".join(parts[1:])[:80] if len(parts) > 1 else "Unknown"
+    return first_name or "Unknown", last_name or "Unknown", cleaned[:120]
+
+
+def _build_meta_lead_identity(detail: dict, fallback_name: str | None = None) -> dict[str, str | None]:
+    fields = _normalize_meta_lead_fields(detail.get("field_data"))
+    email = _first_meta_lead_field_value(fields, "email", "email_address")
+    phone = _normalize_phone_address(_first_meta_lead_field_value(fields, "phone_number", "phone", "mobile_phone"))
+    first_name = _first_meta_lead_field_value(fields, "first_name", "first")
+    last_name = _first_meta_lead_field_value(fields, "last_name", "last")
+    full_name = _first_meta_lead_field_value(fields, "full_name", "full name", "name") or fallback_name
+    if not full_name and (first_name or last_name):
+        full_name = " ".join(part for part in [first_name, last_name] if part).strip()
+    city = _first_meta_lead_field_value(fields, "city")
+    region = _first_meta_lead_field_value(fields, "state", "province", "region")
+    address_parts = [
+        _first_meta_lead_field_value(fields, "street_address", "address", "full_address"),
+        city,
+        region,
+        _first_meta_lead_field_value(fields, "postal_code", "zip_code", "zip"),
+        _first_meta_lead_field_value(fields, "country"),
+    ]
+    address = ", ".join(part for part in address_parts if part)
+    return {
+        "email": email.strip().lower() if isinstance(email, str) and email.strip() else None,
+        "phone": phone,
+        "first_name": first_name,
+        "last_name": last_name,
+        "full_name": full_name,
+        "city": city,
+        "region": region,
+        "address": address or None,
+    }
+
+
+def _lead_source_from_meta_lead_detail(detail: dict) -> str:
+    platform = detail.get("platform")
+    if isinstance(platform, str) and "instagram" in platform.strip().lower():
+        return "Instagram Ads"
+    return "Facebook Ads"
+
+
+def _build_meta_lead_metadata(
+    *,
+    leadgen_id: str,
+    page_id: str,
+    detail: dict,
+    field_answers: dict[str, list[str]],
+    change_value: dict,
+) -> dict:
+    attribution: dict[str, object] = {
+        "source": "meta_lead_form",
+        "platform": detail.get("platform") or "facebook",
+        "page_id": page_id,
+    }
+    for source in (detail, change_value):
+        for key in ("ad_id", "adgroup_id", "campaign_id", "form_id"):
+            value = source.get(key) if isinstance(source, dict) else None
+            if value:
+                attribution[key] = value
+    metadata: dict[str, object] = {
+        "meta_leadgen_id": leadgen_id,
+        "meta_page_id": page_id,
+        "meta_form_id": detail.get("form_id") or change_value.get("form_id"),
+        "meta_platform": detail.get("platform"),
+        "meta_created_time": detail.get("created_time") or change_value.get("created_time"),
+        "meta_ad_id": detail.get("ad_id") or change_value.get("ad_id"),
+        "meta_adgroup_id": detail.get("adgroup_id") or change_value.get("adgroup_id"),
+        "meta_campaign_id": detail.get("campaign_id") or change_value.get("campaign_id"),
+        "meta_is_organic": detail.get("is_organic"),
+        "meta_field_data": detail.get("field_data"),
+        "meta_field_answers": field_answers,
+        "attribution": attribution,
+    }
+    return {key: value for key, value in metadata.items() if value is not None}
+
+
+def _find_existing_meta_lead_by_leadgen_id(
+    db: Session,
+    *,
+    leadgen_id: str,
+    person_id=None,
+) -> Lead | None:
+    if not leadgen_id:
+        return None
+
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        query = db.query(Lead).filter(Lead.is_active.is_(True))
+        if person_id is not None:
+            query = query.filter(Lead.person_id == person_id)
+        lead = (
+            query.filter(cast(Lead.metadata_, JSONB).contains({"meta_leadgen_id": leadgen_id}))
+            .order_by(Lead.created_at.desc())
+            .first()
+        )
+        if lead:
+            return lead
+
+    query = db.query(Lead).filter(Lead.is_active.is_(True))
+    if person_id is not None:
+        query = query.filter(Lead.person_id == person_id)
+    else:
+        query = query.filter(
+            or_(
+                Lead.lead_source == "Facebook Ads",
+                Lead.lead_source == "Instagram Ads",
+                cast(Lead.metadata_, String).contains("meta_leadgen_id"),
+            )
+        )
+    for lead in query.order_by(Lead.created_at.desc()).limit(500).all():
+        metadata = lead.metadata_ if isinstance(lead.metadata_, dict) else {}
+        if metadata.get("meta_leadgen_id") == leadgen_id:
+            return lead
+    return None
+
+
+def _ensure_meta_lead_person(
+    db: Session,
+    *,
+    identity: dict[str, str | None],
+    leadgen_id: str,
+) -> Person:
+    lookup_metadata = {
+        "email": identity.get("email"),
+        "phone": identity.get("phone"),
+    }
+    person = _find_person_by_email_or_phone(db, lookup_metadata)
+    first_name, last_name, display_name = _split_display_name(identity.get("full_name"))
+    if person:
+        if display_name and not person.display_name:
+            person.display_name = display_name
+        if identity.get("first_name") and person.first_name == "Unknown":
+            person.first_name = identity["first_name"][:80]
+        if identity.get("last_name") and person.last_name == "Unknown":
+            person.last_name = identity["last_name"][:80]
+        if identity.get("email") and not person.email.endswith("@local.invalid"):
+            person.email = person.email or identity["email"]
+        if identity.get("phone") and not person.phone:
+            person.phone = identity["phone"]
+        if identity.get("city") and not person.city:
+            person.city = identity["city"][:80]
+        if identity.get("region") and not person.region:
+            person.region = identity["region"][:80]
+        if identity.get("address") and not person.address_line1:
+            person.address_line1 = identity["address"][:120]
+    else:
+        email = identity.get("email") or f"meta-lead-{leadgen_id}@local.invalid"
+        person = Person(
+            first_name=(identity.get("first_name") or first_name)[:80],
+            last_name=(identity.get("last_name") or last_name)[:80],
+            display_name=display_name,
+            email=email[:255],
+            phone=identity.get("phone"),
+            city=(identity.get("city") or None),
+            region=(identity.get("region") or None),
+            address_line1=(identity.get("address") or None),
+            party_status=PartyStatus.lead,
+        )
+        db.add(person)
+        db.flush()
+
+    if identity.get("email") and person.email != identity["email"] and person.email.endswith("@local.invalid"):
+        person.email = identity["email"][:255]
+    if identity.get("email"):
+        _ensure_person_channel(db, person, PersonChannelType.email, identity["email"], is_primary=True)
+    if identity.get("phone"):
+        _ensure_person_channel(db, person, PersonChannelType.phone, identity["phone"], is_primary=False)
+
+    db.commit()
+    db.refresh(person)
+    return person
+
+
+def _fetch_meta_lead_details(
+    db: Session,
+    *,
+    access_token: str | None,
+    leadgen_id: str,
+    base_url: str,
+) -> dict:
+    if not access_token:
+        raise RuntimeError("No active Meta page token available for lead retrieval")
+    fields = ",".join(
+        [
+            "id",
+            "created_time",
+            "field_data",
+            "ad_id",
+            "adgroup_id",
+            "campaign_id",
+            "form_id",
+            "is_organic",
+            "platform",
+        ]
+    )
+    timeout = _get_meta_api_timeout_seconds(db)
+    with httpx.Client(timeout=timeout) as client:
+        response = client.get(
+            f"{base_url.rstrip('/')}/{leadgen_id}",
+            params={"fields": fields, "access_token": access_token},
+        )
+    if response.status_code >= 400:
+        raise RuntimeError(f"Meta lead retrieval failed status={response.status_code} body={response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise RuntimeError("Meta lead retrieval returned an unexpected payload")
+    return data
+
+
+def _token_has_scope(token: OAuthToken | None, scope: str) -> bool:
+    if not token or not isinstance(token.scopes, list):
+        return False
+    normalized = {str(item).strip().lower() for item in token.scopes if item is not None}
+    return scope.strip().lower() in normalized
+
+
+def _store_meta_lead_submission(
+    db: Session,
+    *,
+    page_id: str,
+    leadgen_id: str,
+    detail: dict,
+    change_value: dict,
+) -> Lead:
+    field_answers = _normalize_meta_lead_fields(detail.get("field_data"))
+    identity = _build_meta_lead_identity(detail)
+    person = _ensure_meta_lead_person(db, identity=identity, leadgen_id=leadgen_id)
+
+    existing = _find_existing_meta_lead_by_leadgen_id(db, leadgen_id=leadgen_id, person_id=person.id)
+    metadata = _build_meta_lead_metadata(
+        leadgen_id=leadgen_id,
+        page_id=page_id,
+        detail=detail,
+        field_answers=field_answers,
+        change_value=change_value,
+    )
+
+    if existing:
+        existing_meta = dict(existing.metadata_ or {}) if isinstance(existing.metadata_, dict) else {}
+        existing_meta.update(metadata)
+        existing.metadata_ = existing_meta
+        if not existing.lead_source:
+            existing.lead_source = _lead_source_from_meta_lead_detail(detail)
+        if not existing.region and identity.get("region"):
+            existing.region = identity["region"]
+        if not existing.address and identity.get("address"):
+            existing.address = identity["address"]
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    lead = leads_service.create(
+        db,
+        LeadCreate(
+            person_id=person.id,
+            title=identity.get("full_name"),
+            lead_source=_lead_source_from_meta_lead_detail(detail),
+            region=identity.get("region"),
+            address=identity.get("address"),
+            metadata_=metadata,
+        ),
+    )
+    return lead
+
+
 def _extract_location_from_attachments(attachments: object) -> dict | None:
     if not isinstance(attachments, list):
         return None
@@ -617,11 +945,29 @@ def process_messenger_webhook(
     for entry in payload.entry:
         page_id = entry.id
         page_token = None
+        page_oauth_token = None
         if config:
-            token = _find_token_for_account(db, config.id, "page", page_id)
-            page_token = token.access_token if token else None
+            page_oauth_token = _find_token_for_account(db, config.id, "page", page_id)
+            page_token = page_oauth_token.access_token if page_oauth_token else None
 
         if entry.changes:
+            if any(change.get("field") == "leadgen" for change in entry.changes or []) and not _token_has_scope(
+                page_oauth_token,
+                "leads_retrieval",
+            ):
+                logger.warning(
+                    "facebook_leadgen_scope_missing page_id=%s connector_id=%s",
+                    page_id,
+                    config.id if config else None,
+                )
+            results.extend(
+                _process_facebook_leadgen_changes(
+                    db,
+                    entry=entry,
+                    page_token=page_token,
+                    base_url=base_url,
+                )
+            )
             results.extend(_process_facebook_comment_changes(db, entry))
 
         if not entry.messaging:
@@ -1020,6 +1366,62 @@ def _parse_webhook_timestamp(value) -> datetime | None:
     except Exception:
         return None
     return None
+
+
+def _process_facebook_leadgen_changes(
+    db: Session,
+    *,
+    entry,
+    page_token: str | None,
+    base_url: str,
+) -> list[dict]:
+    results = []
+    for change in entry.changes or []:
+        value = change.get("value") or {}
+        if change.get("field") != "leadgen":
+            continue
+        leadgen_id = value.get("leadgen_id")
+        if not leadgen_id:
+            logger.warning("facebook_leadgen_missing_id page_id=%s payload=%s", entry.id, value)
+            results.append({"leadgen_id": None, "status": "failed", "error": "missing leadgen_id"})
+            continue
+        try:
+            detail = _fetch_meta_lead_details(
+                db,
+                access_token=page_token,
+                leadgen_id=leadgen_id,
+                base_url=base_url,
+            )
+            lead = _store_meta_lead_submission(
+                db,
+                page_id=entry.id,
+                leadgen_id=leadgen_id,
+                detail=detail,
+                change_value=value,
+            )
+            results.append(
+                {
+                    "leadgen_id": leadgen_id,
+                    "lead_id": str(lead.id),
+                    "status": "stored",
+                }
+            )
+        except Exception as exc:
+            logger.exception("facebook_leadgen_processing_failed page_id=%s leadgen_id=%s error=%s", entry.id, leadgen_id, exc)
+            write_dead_letter(
+                channel="facebook_leadgen",
+                raw_payload={"page_id": entry.id, "change": change, "leadgen_id": leadgen_id},
+                error=exc,
+                message_id=leadgen_id,
+            )
+            results.append(
+                {
+                    "leadgen_id": leadgen_id,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
+    return results
 
 
 def _process_facebook_comment_changes(

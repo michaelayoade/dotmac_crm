@@ -1,6 +1,41 @@
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.crm.sales import Lead
+from app.models.integration import IntegrationTarget, IntegrationTargetType
+from app.models.oauth_token import OAuthToken
+from app.schemas.crm.inbox import MetaWebhookPayload
 from app.services import meta_webhooks
+
+
+def _seed_meta_page_token(db_session, *, page_id: str = "page_123") -> ConnectorConfig:
+    config = ConnectorConfig(name=f"Meta Connector {page_id}", connector_type=ConnectorType.facebook, is_active=True)
+    db_session.add(config)
+    db_session.flush()
+    db_session.add(
+        IntegrationTarget(
+            name="CRM",
+            target_type=IntegrationTargetType.crm,
+            connector_config_id=config.id,
+            is_active=True,
+        )
+    )
+    db_session.add(
+        OAuthToken(
+            connector_config_id=config.id,
+            provider="meta",
+            account_type="page",
+            external_account_id=page_id,
+            external_account_name="Test Page",
+            access_token="page-token",
+            token_expires_at=datetime.now(UTC) + timedelta(days=30),
+            scopes=["pages_show_list", "leads_retrieval"],
+            is_active=True,
+        )
+    )
+    db_session.commit()
+    return config
 
 
 def test_normalize_external_id_and_ref():
@@ -98,3 +133,103 @@ def test_fetch_profile_name_success():
         )
 
     assert result == "Test User"
+
+
+def test_process_facebook_leadgen_change_creates_person_and_lead(db_session):
+    _seed_meta_page_token(db_session)
+    payload = MetaWebhookPayload(
+        object="page",
+        entry=[
+            {
+                "id": "page_123",
+                "time": 1,
+                "changes": [
+                    {
+                        "field": "leadgen",
+                        "value": {
+                            "leadgen_id": "leadgen_1",
+                            "form_id": "form_1",
+                            "ad_id": "ad_1",
+                            "created_time": "2026-03-02T10:00:00+0000",
+                        },
+                    }
+                ],
+            }
+        ],
+    )
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "id": "leadgen_1",
+        "created_time": "2026-03-02T10:00:00+0000",
+        "form_id": "form_1",
+        "ad_id": "ad_1",
+        "campaign_id": "campaign_1",
+        "platform": "facebook",
+        "field_data": [
+            {"name": "full_name", "values": ["Jane Lead"]},
+            {"name": "email", "values": ["jane@example.com"]},
+            {"name": "phone_number", "values": ["+1 (555) 123-4567"]},
+            {"name": "city", "values": ["Lagos"]},
+            {"name": "state", "values": ["LA"]},
+            {"name": "street_address", "values": ["123 Main St"]},
+        ],
+    }
+
+    with patch("app.services.meta_webhooks.httpx.Client") as mock_client:
+        mock_instance = MagicMock()
+        mock_instance.get.return_value = mock_response
+        mock_client.return_value.__enter__.return_value = mock_instance
+        mock_client.return_value.__exit__.return_value = None
+
+        results = meta_webhooks.process_messenger_webhook(db_session, payload)
+
+    assert len(results) == 1
+    assert results[0]["leadgen_id"] == "leadgen_1"
+    assert results[0]["status"] == "stored"
+    stored_lead = db_session.query(Lead).one()
+    assert stored_lead.lead_source == "Facebook Ads"
+    assert stored_lead.metadata_["meta_leadgen_id"] == "leadgen_1"
+    assert stored_lead.metadata_["meta_field_answers"]["email"] == ["jane@example.com"]
+    assert stored_lead.person.email == "jane@example.com"
+    assert stored_lead.person.phone == "+15551234567"
+
+
+def test_process_facebook_leadgen_change_is_idempotent(db_session):
+    _seed_meta_page_token(db_session)
+    payload = MetaWebhookPayload(
+        object="page",
+        entry=[
+            {
+                "id": "page_123",
+                "time": 1,
+                "changes": [{"field": "leadgen", "value": {"leadgen_id": "leadgen_2", "form_id": "form_2"}}],
+            }
+        ],
+    )
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "id": "leadgen_2",
+        "created_time": "2026-03-02T10:00:00+0000",
+        "form_id": "form_2",
+        "platform": "instagram",
+        "field_data": [
+            {"name": "full_name", "values": ["Ayo Lead"]},
+            {"name": "email", "values": ["ayo@example.com"]},
+        ],
+    }
+
+    with patch("app.services.meta_webhooks.httpx.Client") as mock_client:
+        mock_instance = MagicMock()
+        mock_instance.get.return_value = mock_response
+        mock_client.return_value.__enter__.return_value = mock_instance
+        mock_client.return_value.__exit__.return_value = None
+
+        first = meta_webhooks.process_messenger_webhook(db_session, payload)
+        second = meta_webhooks.process_messenger_webhook(db_session, payload)
+
+    assert len(first) == 1
+    assert len(second) == 1
+    assert first[0]["lead_id"] == second[0]["lead_id"]
+    assert db_session.query(Lead).count() == 1

@@ -105,6 +105,7 @@ FACEBOOK_SCOPES = [
     "pages_read_engagement",
     "pages_manage_posts",
     "pages_read_user_content",
+    "leads_retrieval",
 ]
 
 # Required scopes for Instagram Business
