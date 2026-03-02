@@ -451,6 +451,7 @@ def send_message(
             session,
             body=payload.body,
             trace_id=trace_id,
+            dialog_step_id=payload.dialog_step_id,
         )
     except Exception as e:
         _record_webchat_stat(ok=False)

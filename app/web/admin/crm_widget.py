@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.services.crm.web_widget import (
+    serialize_teams_for_template,
     widget_create_payload_from_form,
     widget_detail_data,
     widget_list_data,
@@ -54,8 +55,11 @@ def crm_widget_new(
     db: Session = Depends(get_db),
 ):
     """Show widget creation form."""
+    from app.models.crm.team import CrmTeam
+
+    teams = db.query(CrmTeam).filter(CrmTeam.is_active.is_(True)).order_by(CrmTeam.name).all()
     context = _crm_base_context(request, db, "widget")
-    context.update({"widget": None})
+    context.update({"widget": None, "teams": teams, "teams_js": serialize_teams_for_template(teams)})
     return templates.TemplateResponse("admin/crm/widget_detail.html", context)
 
 
@@ -76,8 +80,18 @@ async def crm_widget_create(
             status_code=303,
         )
     except Exception as exc:
+        from app.models.crm.team import CrmTeam
+
+        teams = db.query(CrmTeam).filter(CrmTeam.is_active.is_(True)).order_by(CrmTeam.name).all()
         context = _crm_base_context(request, db, "widget")
-        context.update({"widget": None, "error_message": str(exc)})
+        context.update(
+            {
+                "widget": None,
+                "teams": teams,
+                "teams_js": serialize_teams_for_template(teams),
+                "error_message": str(exc),
+            }
+        )
         return templates.TemplateResponse("admin/crm/widget_detail.html", context)
 
 

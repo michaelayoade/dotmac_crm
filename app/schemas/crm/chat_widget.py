@@ -24,6 +24,25 @@ class PrechatField(BaseModel):
     options: list[str] | None = None  # For select fields
 
 
+class DialogFlowOption(BaseModel):
+    """A single option in a dialog flow choice step."""
+
+    label: str = Field(..., min_length=1, max_length=80)
+    next_step: str = Field(..., min_length=1, max_length=60)
+
+
+class DialogFlowStep(BaseModel):
+    """A single step in the dialog flow."""
+
+    id: str = Field(..., min_length=1, max_length=60)
+    type: Literal["choice", "terminal"]
+    message: str | None = Field(default=None, max_length=500)
+    options: list[DialogFlowOption] | None = None  # choice steps
+    assign_team: str | None = None  # terminal: team UUID string
+    add_tags: list[str] | None = None  # terminal: tag list
+    priority: str | None = Field(default=None, max_length=20)  # terminal: enum value
+
+
 class BusinessHoursDay(BaseModel):
     """Business hours for a single day."""
 
@@ -58,6 +77,8 @@ class ChatWidgetConfigCreate(BaseModel):
     offline_message: str | None = Field(default=None, max_length=500)
     prechat_form_enabled: bool = False
     prechat_fields: list[PrechatField] | None = None
+    dialog_flow_enabled: bool = False
+    dialog_flow_steps: list[DialogFlowStep] | None = None
     business_hours: BusinessHours | None = None
     rate_limit_messages_per_minute: int = Field(default=10, ge=1, le=60)
     rate_limit_sessions_per_ip: int = Field(default=5, ge=1, le=20)
@@ -77,6 +98,8 @@ class ChatWidgetConfigUpdate(BaseModel):
     offline_message: str | None = None
     prechat_form_enabled: bool | None = None
     prechat_fields: list[PrechatField] | None = None
+    dialog_flow_enabled: bool | None = None
+    dialog_flow_steps: list[DialogFlowStep] | None = None
     business_hours: BusinessHours | None = None
     rate_limit_messages_per_minute: int | None = Field(default=None, ge=1, le=60)
     rate_limit_sessions_per_ip: int | None = Field(default=None, ge=1, le=20)
@@ -98,6 +121,8 @@ class ChatWidgetConfigRead(BaseModel):
     offline_message: str | None
     prechat_form_enabled: bool
     prechat_fields: list[PrechatField] | None
+    dialog_flow_enabled: bool
+    dialog_flow_steps: list[DialogFlowStep] | None
     business_hours: BusinessHours | None
     rate_limit_messages_per_minute: int
     rate_limit_sessions_per_ip: int
@@ -121,6 +146,8 @@ class ChatWidgetPublicConfig(BaseModel):
     offline_message: str | None
     prechat_form_enabled: bool
     prechat_fields: list[PrechatField] | None
+    dialog_flow_enabled: bool = False
+    dialog_flow_steps: list[DialogFlowStep] | None = None
     is_online: bool = True  # Computed from business_hours
 
 
@@ -181,6 +208,7 @@ class WidgetMessageSend(BaseModel):
     """Payload for sending a message from the widget."""
 
     body: str = Field(..., min_length=1, max_length=5000)
+    dialog_step_id: str | None = Field(default=None, max_length=60)
 
 
 class WidgetMessageRead(BaseModel):

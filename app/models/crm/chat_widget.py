@@ -40,6 +40,10 @@ class ChatWidgetConfig(Base):
     prechat_form_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     prechat_fields: Mapped[list | None] = mapped_column(MutableList.as_mutable(JSON()))
 
+    # Dialog flow configuration
+    dialog_flow_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    dialog_flow_steps: Mapped[list | None] = mapped_column(MutableList.as_mutable(JSON()))
+
     # Business hours - JSON with schedule
     business_hours: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON()))
 
