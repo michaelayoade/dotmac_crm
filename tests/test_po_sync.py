@@ -46,7 +46,7 @@ def _make_line_item(**overrides) -> MagicMock:
 def _make_quote(vendor, line_items=None) -> MagicMock:
     q = MagicMock()
     q.id = uuid.uuid4()
-    q.vendor_id = vendor.id
+    q.vendor_id = vendor.id if vendor is not None else uuid.uuid4()
     q.vendor = vendor
     q.status = MagicMock()
     q.status.value = "approved"
@@ -146,6 +146,35 @@ class TestMapPurchaseOrder:
         assert "cable_type" not in material_item
         assert "fiber_count" not in material_item
 
+    def test_filters_blank_zero_and_non_positive_lines(self):
+        vendor = _make_vendor()
+        keep = _make_line_item(item_type=None, description="Misc charge", quantity=Decimal("1.000"), amount=Decimal("10.00"))
+        blank_zero = _make_line_item(
+            item_type=None,
+            description="",
+            quantity=Decimal("1.000"),
+            unit_price=Decimal("0.00"),
+            amount=Decimal("0.00"),
+        )
+        zero_qty = _make_line_item(
+            item_type="vat",
+            description="VAT",
+            quantity=Decimal("0.000"),
+            unit_price=Decimal("100.00"),
+            amount=Decimal("0.00"),
+        )
+        quote = _make_quote(vendor, [keep, blank_zero, zero_qty])
+        wo = _make_work_order()
+
+        client = MagicMock()
+        session = MagicMock()
+        sync = DotMacERPPurchaseOrderSync(client, session)
+        payload = sync._map_purchase_order(wo, quote)
+
+        assert len(payload["items"]) == 1
+        assert payload["items"][0]["item_type"] == "item"
+        assert payload["items"][0]["description"] == "Misc charge"
+
     def test_no_project(self):
         vendor = _make_vendor()
         quote = _make_quote(vendor)
@@ -169,7 +198,20 @@ class TestMapPurchaseOrder:
         sync = DotMacERPPurchaseOrderSync(client, session)
         payload = sync._map_purchase_order(wo, quote)
 
-        assert "vendor_code" not in payload
+        assert payload["vendor_code"] == "Acme Contractors"
+
+    def test_no_vendor_erp_id(self):
+        vendor = _make_vendor(erp_id=None, code="ACME")
+        quote = _make_quote(vendor)
+        wo = _make_work_order()
+
+        client = MagicMock()
+        session = MagicMock()
+        sync = DotMacERPPurchaseOrderSync(client, session)
+        payload = sync._map_purchase_order(wo, quote)
+
+        assert "vendor_erp_id" not in payload
+        assert payload["vendor_code"] == "ACME"
 
 
 # ---------------------------------------------------------------------------
@@ -196,9 +238,26 @@ class TestSyncPurchaseOrder:
         session.commit.assert_called_once()
         client.create_purchase_order.assert_called_once()
 
-    def test_vendor_no_erp_id_skips(self):
-        vendor = _make_vendor(erp_id=None)
+    def test_vendor_no_erp_id_still_attempts_sync(self):
+        vendor = _make_vendor(erp_id=None, code="ACME")
         quote = _make_quote(vendor)
+        wo = _make_work_order()
+
+        client = MagicMock()
+        client.create_purchase_order.return_value = {"purchase_order_id": "PO-2026-00046", "status": "draft"}
+        session = MagicMock()
+
+        sync = DotMacERPPurchaseOrderSync(client, session)
+        result = sync.sync_purchase_order(wo, quote)
+
+        assert result.success is True
+        assert result.erp_po_id == "PO-2026-00046"
+        client.create_purchase_order.assert_called_once()
+
+    def test_missing_vendor_skips(self):
+        quote = _make_quote(vendor=None)
+        quote.vendor_id = uuid.uuid4()
+        quote.vendor = None
         wo = _make_work_order()
 
         client = MagicMock()
@@ -208,7 +267,7 @@ class TestSyncPurchaseOrder:
         result = sync.sync_purchase_order(wo, quote)
 
         assert result.success is False
-        assert result.error_type == "vendor_no_erp_id"
+        assert result.error_type == "vendor_missing"
         client.create_purchase_order.assert_not_called()
 
     def test_client_error(self):

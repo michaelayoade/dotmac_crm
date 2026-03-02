@@ -20,6 +20,15 @@ def test_build_authorization_url_defaults_to_v19():
     assert "client_id=app-id" in url
 
 
+def test_build_authorization_url_requests_lead_retrieval_scope():
+    url = meta_oauth.build_authorization_url(
+        app_id="app-id",
+        redirect_uri="https://example.com/callback",
+        state="state",
+    )
+    assert "leads_retrieval" in url
+
+
 def test_exchange_code_for_token_success():
     mock_response = MagicMock()
     mock_response.json.return_value = {"access_token": "token"}
