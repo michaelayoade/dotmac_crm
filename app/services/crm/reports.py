@@ -470,7 +470,6 @@ def agent_performance_metrics(
     """
     from app.models.person import Person
 
-    # Get list of agents to analyze
     agents_query = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True))
     if agent_id:
         agents_query = agents_query.filter(CrmAgent.id == coerce_uuid(agent_id))
@@ -481,15 +480,15 @@ def agent_performance_metrics(
             .filter(CrmAgentTeam.is_active.is_(True))
         )
     agents = agents_query.limit(100).all()
+    if not agents:
+        return []
 
-    # Get person names in bulk
     person_ids = [agent.person_id for agent in agents if agent.person_id]
     persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
     person_map = {person.id: person for person in persons}
 
-    # Presence seconds (online + away) for the same report window.
     presence_seconds_by_agent: dict[str, dict[str, float]] = {}
-    if start_at and end_at and agents:
+    if start_at and end_at:
         from app.services.crm.presence import agent_presence
 
         presence_seconds_by_agent = agent_presence.seconds_by_status_bulk(
@@ -498,6 +497,89 @@ def agent_performance_metrics(
             start_at=start_at,
             end_at=end_at,
         )
+
+    # Load all assignments once to avoid per-agent queries.
+    agent_ids = [agent.id for agent in agents]
+    assignment_rows = (
+        db.query(ConversationAssignment.agent_id, ConversationAssignment.conversation_id)
+        .filter(ConversationAssignment.agent_id.in_(agent_ids))
+        .all()
+    )
+    convo_ids_by_agent: dict[Any, set[Any]] = {agent.id: set() for agent in agents}
+    all_conversation_ids: set[Any] = set()
+    for assigned_agent_id, conversation_id in assignment_rows:
+        if assigned_agent_id is None or conversation_id is None:
+            continue
+        convo_ids_by_agent.setdefault(assigned_agent_id, set()).add(conversation_id)
+        all_conversation_ids.add(conversation_id)
+
+    channel_value = None
+    if channel_type:
+        try:
+            channel_value = ChannelType(channel_type)
+        except ValueError:
+            channel_value = None
+
+    # Load all relevant conversations once.
+    conversations_by_id: dict[Any, Conversation] = {}
+    if all_conversation_ids:
+        convo_query = db.query(Conversation).filter(Conversation.id.in_(list(all_conversation_ids)))
+        if start_at:
+            convo_query = convo_query.filter(Conversation.created_at >= start_at)
+        if end_at:
+            convo_query = convo_query.filter(Conversation.created_at <= end_at)
+        if channel_value:
+            convo_query = convo_query.filter(
+                db.query(Message.id)
+                .filter(Message.conversation_id == Conversation.id)
+                .filter(Message.channel_type == channel_value)
+                .exists()
+            )
+        filtered_conversations = convo_query.all()
+        conversations_by_id = {convo.id: convo for convo in filtered_conversations}
+
+    # Preload first inbound/outbound timestamps for all filtered conversations.
+    inbound_map: dict[Any, Any] = {}
+    outbound_map: dict[Any, Any] = {}
+    filtered_ids = list(conversations_by_id.keys())
+    if filtered_ids:
+        inbound_subq = (
+            db.query(
+                Message.conversation_id.label("conversation_id"),
+                func.coalesce(Message.received_at, Message.created_at).label("msg_time"),
+                func.row_number()
+                .over(
+                    partition_by=Message.conversation_id,
+                    order_by=func.coalesce(Message.received_at, Message.created_at).asc(),
+                )
+                .label("rn"),
+            )
+            .filter(Message.conversation_id.in_(filtered_ids))
+            .filter(Message.direction == MessageDirection.inbound)
+            .subquery()
+        )
+        outbound_subq = (
+            db.query(
+                Message.conversation_id.label("conversation_id"),
+                func.coalesce(Message.sent_at, Message.created_at).label("msg_time"),
+                func.row_number()
+                .over(
+                    partition_by=Message.conversation_id,
+                    order_by=func.coalesce(Message.sent_at, Message.created_at).asc(),
+                )
+                .label("rn"),
+            )
+            .filter(Message.conversation_id.in_(filtered_ids))
+            .filter(Message.direction == MessageDirection.outbound)
+            .subquery()
+        )
+
+        inbound_rows = db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time).filter(inbound_subq.c.rn == 1).all()
+        outbound_rows = (
+            db.query(outbound_subq.c.conversation_id, outbound_subq.c.msg_time).filter(outbound_subq.c.rn == 1).all()
+        )
+        inbound_map = {row[0]: row[1] for row in inbound_rows}
+        outbound_map = {row[0]: row[1] for row in outbound_rows}
 
     agent_stats: list[dict[str, Any]] = []
     for agent in agents:
@@ -513,77 +595,17 @@ def agent_performance_metrics(
         else:
             active_hours_display = None
 
-        # Get conversations assigned to this agent
-        assignment_query = db.query(ConversationAssignment.conversation_id).filter(
-            ConversationAssignment.agent_id == agent.id
-        )
-        conversation_ids = [row[0] for row in assignment_query.all()]
+        conversation_ids = convo_ids_by_agent.get(agent.id, set())
+        conversations = [conversations_by_id[cid] for cid in conversation_ids if cid in conversations_by_id]
 
-        if not conversation_ids:
-            person = person_map.get(agent.person_id)
-            name = (
-                (person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or "Agent")
-                if person
-                else "Agent"
-            )
-            agent_stats.append(
-                {
-                    "agent_id": str(agent.id),
-                    "name": name,
-                    "total_conversations": 0,
-                    "resolved_conversations": 0,
-                    "avg_first_response_minutes": None,
-                    "avg_resolution_minutes": None,
-                    "active_seconds": int(active_seconds),
-                    "active_hours": round(active_hours, 2),
-                    "active_hours_display": active_hours_display,
-                }
-            )
-            continue
-
-        # Query conversations
-        convo_query = db.query(Conversation).filter(Conversation.id.in_(conversation_ids))
-        if start_at:
-            convo_query = convo_query.filter(Conversation.created_at >= start_at)
-        if end_at:
-            convo_query = convo_query.filter(Conversation.created_at <= end_at)
-        if channel_type:
-            try:
-                channel_value = ChannelType(channel_type)
-            except ValueError:
-                channel_value = None
-            if channel_value:
-                convo_query = convo_query.filter(
-                    db.query(Message.id)
-                    .filter(Message.conversation_id == Conversation.id)
-                    .filter(Message.channel_type == channel_value)
-                    .exists()
-                )
-
-        conversations = convo_query.all()
         total = len(conversations)
         resolved = sum(1 for c in conversations if c.status == ConversationStatus.resolved)
 
-        # Calculate FRT and resolution time
         response_times = []
         resolution_times = []
         for convo in conversations:
-            inbound = (
-                db.query(Message)
-                .filter(Message.conversation_id == convo.id)
-                .filter(Message.direction == MessageDirection.inbound)
-                .order_by(func.coalesce(Message.received_at, Message.created_at).asc())
-                .first()
-            )
-            outbound = (
-                db.query(Message)
-                .filter(Message.conversation_id == convo.id)
-                .filter(Message.direction == MessageDirection.outbound)
-                .order_by(func.coalesce(Message.sent_at, Message.created_at).asc())
-                .first()
-            )
-            inbound_time = inbound.received_at or inbound.created_at if inbound else None
-            outbound_time = outbound.sent_at or outbound.created_at if outbound else None
+            inbound_time = inbound_map.get(convo.id)
+            outbound_time = outbound_map.get(convo.id)
             if inbound_time and outbound_time and outbound_time > inbound_time:
                 response_times.append((outbound_time - inbound_time).total_seconds() / 60)
             if convo.status == ConversationStatus.resolved and inbound_time and convo.updated_at:
@@ -613,13 +635,11 @@ def agent_performance_metrics(
             }
         )
 
-    # Sort by resolved conversations descending
     agent_stats.sort(
         key=lambda x: int(x.get("resolved_conversations") or 0),
         reverse=True,
     )
     return agent_stats
-
 
 def conversation_trend(
     db: Session,

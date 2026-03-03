@@ -192,7 +192,7 @@ def login_submit(
             request=request,
             provider=None,
         )
-        if result.get("requires_mfa"):
+        if result.get("mfa_required"):
             mfa_url = f"/auth/mfa?next={next_url}" if next_url else "/auth/mfa"
             response = RedirectResponse(url=mfa_url, status_code=303)
             response.set_cookie(
