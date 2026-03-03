@@ -13,6 +13,7 @@ from app.models.crm.team import CrmAgent
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.services.common import coerce_uuid
+from app.services.crm.inbox.agents import resolve_mentioned_person_ids_for_inbox
 from app.services.settings_spec import resolve_value
 
 
@@ -102,25 +103,6 @@ def notify_agents_mentioned(
     if message.direction == MessageDirection.inbound:
         return
 
-    agent_uuids = []
-    for raw in mentioned_agent_ids:
-        try:
-            agent_uuids.append(coerce_uuid(raw))
-        except (ValueError, AttributeError):
-            continue
-    if not agent_uuids:
-        return
-
-    agents = (
-        db.query(CrmAgent)
-        .filter(CrmAgent.id.in_(agent_uuids))
-        .filter(CrmAgent.is_active.is_(True))
-        .filter(CrmAgent.person_id.isnot(None))
-        .all()
-    )
-    if not agents:
-        return
-
     actor_uuid = None
     if actor_person_id:
         try:
@@ -130,8 +112,7 @@ def notify_agents_mentioned(
 
     recipient_person_ids = []
     seen = set()
-    for agent in agents:
-        pid = str(agent.person_id)
+    for pid in resolve_mentioned_person_ids_for_inbox(db, mentioned_agent_ids):
         if actor_uuid and pid == actor_uuid:
             continue
         if pid in seen:
