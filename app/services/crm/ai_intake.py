@@ -8,12 +8,21 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.models.crm.ai_intake import AiIntakeConfig
-from app.models.crm.conversation import Conversation, ConversationTag, Message
-from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus, MessageDirection
+from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag, Message
+from app.models.crm.enums import (
+    AgentPresenceStatus,
+    ChannelType,
+    ConversationPriority,
+    ConversationStatus,
+    MessageDirection,
+)
+from app.models.crm.presence import AgentPresence
+from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.schemas.crm.ai_intake import (
     AiIntakeConfigCreate,
     AiIntakeConfigUpdate,
@@ -26,6 +35,7 @@ from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.outbound import send_message
+from app.services.crm.presence import agent_presence as presence_service
 
 logger = logging.getLogger(__name__)
 
@@ -343,9 +353,14 @@ def _set_state(conversation: Conversation, state: dict[str, Any]) -> None:
 
 def _history(db: Session, conversation: Conversation, limit: int = 12) -> list[Message]:
     messages = (
-        db.query(Message).filter(Message.conversation_id == conversation.id).order_by(Message.created_at.asc()).all()
+        db.query(Message)
+        .filter(Message.conversation_id == conversation.id)
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+        .all()
     )
-    return messages[-limit:]
+    messages.reverse()
+    return messages
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -448,14 +463,66 @@ def _apply_mapping(db: Session, conversation: Conversation, mapping: AiIntakeDep
             if not existing:
                 db.add(ConversationTag(conversation_id=conversation.id, tag=clean))
     if mapping.team_id:
+        assigned_agent_id = _select_agent_for_team(db, mapping.team_id)
         conversation_service.assign_conversation(
             db,
             conversation_id=str(conversation.id),
-            agent_id=None,
+            agent_id=str(assigned_agent_id) if assigned_agent_id else None,
             team_id=str(mapping.team_id),
             assigned_by_id=None,
             update_lead_owner=False,
         )
+
+
+def _select_agent_for_team(db: Session, team_id) -> Any | None:
+    team_uuid = coerce_uuid(team_id)
+
+    candidates = (
+        db.query(CrmAgent, AgentPresence)
+        .join(CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id)
+        .outerjoin(AgentPresence, AgentPresence.agent_id == CrmAgent.id)
+        .filter(CrmAgentTeam.team_id == team_uuid)
+        .filter(CrmAgentTeam.is_active.is_(True))
+        .filter(CrmAgent.is_active.is_(True))
+        .all()
+    )
+    if not candidates:
+        return None
+
+    candidate_ids = {agent.id for agent, _ in candidates}
+    active_assignment_counts = {
+        row[0]: int(row[1] or 0)
+        for row in (
+            db.query(
+                ConversationAssignment.agent_id,
+                func.count(ConversationAssignment.id),
+            )
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.in_(candidate_ids))
+            .group_by(ConversationAssignment.agent_id)
+            .all()
+        )
+        if row[0] is not None
+    }
+
+    ranked: list[tuple[int, int, datetime, Any]] = []
+    for agent, presence in candidates:
+        effective_status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
+        if effective_status not in {AgentPresenceStatus.online, AgentPresenceStatus.away}:
+            continue
+        availability_rank = 0 if effective_status == AgentPresenceStatus.online else 1
+        active_load = active_assignment_counts.get(agent.id, 0)
+        last_seen_at = (
+            presence.last_seen_at.astimezone(UTC)
+            if presence and presence.last_seen_at is not None
+            else datetime.fromtimestamp(0, tz=UTC)
+        )
+        ranked.append((availability_rank, active_load, -int(last_seen_at.timestamp()), agent.id))
+
+    if not ranked:
+        return None
+    ranked.sort()
+    return ranked[0][3]
 
 
 def _send_followup(
