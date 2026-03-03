@@ -514,6 +514,9 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     """Transform a Message model into template-friendly dict."""
     sender_name = "Unknown"
     sender_initials = "?"
+    sender_is_ai = False
+    message_metadata = msg.metadata_ if isinstance(msg.metadata_, dict) else {}
+    is_ai_generated = bool(message_metadata.get("ai_intake_generated"))
 
     if msg.direction == MessageDirection.internal:
         if msg.author_id:
@@ -532,7 +535,11 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
             sender_name = "Internal Note"
             sender_initials = "IN"
     elif msg.direction == MessageDirection.outbound:
-        if msg.author_id:
+        if is_ai_generated:
+            sender_name = "AI"
+            sender_initials = "AI"
+            sender_is_ai = True
+        elif msg.author_id:
             person = db.get(Person, msg.author_id)
             if person:
                 full_name = (
@@ -712,7 +719,10 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
             if reply_msg.direction == MessageDirection.internal:
                 reply_author = "Internal Note"
             elif reply_msg.direction == MessageDirection.outbound:
-                if reply_msg.author_id:
+                reply_metadata = reply_msg.metadata_ if isinstance(reply_msg.metadata_, dict) else {}
+                if reply_metadata.get("ai_intake_generated"):
+                    reply_author = "AI"
+                elif reply_msg.author_id:
                     reply_person = db.get(Person, reply_msg.author_id)
                     if reply_person:
                         reply_author = (
@@ -753,6 +763,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "sender": {
             "name": sender_name,
             "initials": sender_initials,
+            "is_ai": sender_is_ai,
         },
         "channel_type": msg.channel_type.value if msg.channel_type else "email",
         "visibility": visibility,
