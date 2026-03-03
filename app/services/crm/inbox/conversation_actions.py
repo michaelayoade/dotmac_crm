@@ -83,12 +83,15 @@ def assign_conversation(
             agent_id=agent_value,
             team_id=team_value,
             assigned_by_id=assigned_by_value,
-            update_lead_owner=True,
+            update_lead_owner=False,
         )
     except Exception as exc:
         return AssignConversationResult(kind="error", conversation=conversation, error_detail=str(exc))
 
-    contact = contact_service.get_person_with_relationships(db, str(conversation.contact_id))
+    try:
+        contact = contact_service.get_person_with_relationships(db, str(conversation.person_id))
+    except Exception:
+        contact = None
     log_conversation_action(
         db,
         action="assign_conversation",

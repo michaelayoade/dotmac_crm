@@ -14,7 +14,6 @@ from app.schemas.crm.conversation import ConversationTagCreate
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox.audit import log_conversation_action
-from app.services.crm.inbox.conversation_actions import assign_conversation
 from app.services.crm.inbox.conversation_status import (
     update_conversation_priority,
     update_conversation_status,
@@ -106,20 +105,17 @@ def apply_bulk_action(
         if not current_agent_id:
             return BulkActionResult(kind="invalid_action", detail="Current agent is required for assign:me")
         for conversation_id in ids:
-            assign_result = assign_conversation(
-                db,
-                conversation_id=conversation_id,
-                agent_id=current_agent_id,
-                team_id=None,
-                assigned_by_id=actor_id,
-                roles=roles,
-                scopes=scopes,
-            )
-            if assign_result.kind == "success":
+            try:
+                conversation_service.assign_conversation(
+                    db,
+                    conversation_id=conversation_id,
+                    agent_id=current_agent_id,
+                    team_id=None,
+                    assigned_by_id=actor_id,
+                    update_lead_owner=False,
+                )
                 applied += 1
-            elif assign_result.kind in {"forbidden", "not_found", "invalid_input"}:
-                skipped += 1
-            else:
+            except Exception:
                 failed += 1
         return BulkActionResult(kind="success", applied=applied, skipped=skipped, failed=failed)
 

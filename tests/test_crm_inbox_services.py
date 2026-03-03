@@ -1383,7 +1383,9 @@ def test_send_instagram_message_with_image_attachment_passes_image_url(db_sessio
 
     assert message.status == MessageStatus.sent
     kwargs = mock_send.call_args.kwargs
-    assert kwargs["image_url"] == "https://crm.dotmac.io/static/uploads/messages/test-image.jpg"
+    assert kwargs["image_url"].startswith("https://crm.dotmac.io/public/media/messages/test-image.jpg")
+    assert "exp=" in kwargs["image_url"]
+    assert "sig=" in kwargs["image_url"]
 
 
 def test_send_email_missing_recipient(db_session, crm_contact):

@@ -285,7 +285,7 @@ def test_escalate_expired_pending_intakes_opens_and_assigns_fallback_team(db_ses
 
 
 def test_save_ai_intake_config_requires_fallback_team_when_enabled(db_session):
-    with pytest.raises(ValueError, match="fallback live team is required"):
+    with pytest.raises(ValueError, match="requires a team_id when AI intake is enabled"):
         save_ai_intake_config(
             db_session,
             scope_key="widget:test",

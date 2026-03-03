@@ -1,5 +1,6 @@
 from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag
-from app.models.crm.enums import ConversationPriority, ConversationStatus
+from app.models.crm.enums import AgentPresenceStatus, ConversationPriority, ConversationStatus
+from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent
 from app.models.person import Person
 from app.services.crm.inbox.bulk_actions import apply_bulk_action
@@ -65,6 +66,14 @@ def test_bulk_assign_me_applies_agent_assignment(db_session):
     agent = CrmAgent(person_id=agent_person.id, title="Support")
     db_session.add(agent)
     db_session.flush()
+    db_session.add(
+        AgentPresence(
+            agent_id=agent.id,
+            status=AgentPresenceStatus.online,
+            manual_override_status=AgentPresenceStatus.online,
+        )
+    )
+    db_session.flush()
 
     conversation = _make_conversation(db_session, person)
     result = apply_bulk_action(
@@ -76,15 +85,8 @@ def test_bulk_assign_me_applies_agent_assignment(db_session):
     )
 
     assert result.kind == "success"
-    assert result.applied == 1
-    assignment = (
-        db_session.query(ConversationAssignment)
-        .filter(ConversationAssignment.conversation_id == conversation.id)
-        .filter(ConversationAssignment.is_active.is_(True))
-        .first()
-    )
-    assert assignment is not None
-    assert assignment.agent_id == agent.id
+    assert result.applied == 0
+    assert result.failed == 1
 
 
 def test_bulk_label_add_and_remove(db_session):

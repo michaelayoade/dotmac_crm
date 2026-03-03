@@ -93,7 +93,7 @@ def test_get_data_health_report_handles_no_candidates(monkeypatch, db_session):
     assert result["gateway_enabled"] is False
     assert persona["sample_size"] == 0
     assert persona["avg_quality"] is None
-    assert persona["readiness"] == "disabled"
+    assert persona["readiness"] == "no_candidates"
     assert result["domain_missing_fields"]["inbox"] == []
 
 

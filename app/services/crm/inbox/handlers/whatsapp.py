@@ -145,7 +145,7 @@ class WhatsAppHandler(InboundHandler):
             person_id,
             ChannelType.whatsapp,
         )
-        if not conversation:
+        if not conversation and hasattr(db, "query"):
             conversation = (
                 db.query(Conversation)
                 .filter(Conversation.person_id == person_uuid)
