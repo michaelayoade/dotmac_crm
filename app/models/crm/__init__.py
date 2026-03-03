@@ -1,7 +1,7 @@
+from app.models.crm.ai_intake import AiIntakeConfig
 from app.models.crm.campaign import Campaign, CampaignRecipient, CampaignStep
 from app.models.crm.campaign_sender import CampaignSender
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
-from app.models.crm.ai_intake import AiIntakeConfig
 from app.models.crm.chat_widget import ChatWidgetConfig, WidgetVisitorSession
 from app.models.crm.comments import SocialComment, SocialCommentPlatform, SocialCommentReply
 from app.models.crm.conversation import (

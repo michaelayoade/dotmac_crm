@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -92,7 +93,9 @@ def _normalize_mapping(mapping: AiIntakeDepartmentMapping) -> AiIntakeDepartment
     return AiIntakeDepartmentMapping(**data)
 
 
-def _validate_department_mappings(mappings: list[AiIntakeDepartmentMapping], *, require_team_ids: bool) -> list[AiIntakeDepartmentMapping]:
+def _validate_department_mappings(
+    mappings: list[AiIntakeDepartmentMapping], *, require_team_ids: bool
+) -> list[AiIntakeDepartmentMapping]:
     normalized: list[AiIntakeDepartmentMapping] = []
     seen: set[str] = set()
     for mapping in mappings:
@@ -142,7 +145,7 @@ def _build_update_payload(
         max_clarification_turns=int(max_clarification_turns or "1"),
         escalate_after_minutes=int(escalate_after_minutes or "5"),
         exclude_campaign_attribution=_coerce_bool(exclude_campaign_attribution),
-        fallback_team_id=(fallback_team_id or "").strip() or None,
+        fallback_team_id=(coerce_uuid((fallback_team_id or "").strip()) if (fallback_team_id or "").strip() else None),
         instructions=(instructions or "").strip() or None,
         department_mappings=normalized_mappings,
     )
@@ -180,7 +183,9 @@ def save_ai_intake_config(
     return upsert_config(db, payload, scope_key=scope_key.strip(), channel_type=channel)
 
 
-def make_scope_key(*, channel_type: ChannelType, target_id: str | None = None, widget_config_id: str | None = None) -> str | None:
+def make_scope_key(
+    *, channel_type: ChannelType, target_id: str | None = None, widget_config_id: str | None = None
+) -> str | None:
     if channel_type == ChannelType.chat_widget:
         if not widget_config_id:
             return None
@@ -214,7 +219,9 @@ def get_config_for_scope(db: Session, scope_key: str | None) -> AiIntakeConfig |
         return None
 
 
-def _serialize_department_mappings(items: list[AiIntakeDepartmentMapping | dict[str, Any]] | None) -> list[dict[str, Any]]:
+def _serialize_department_mappings(
+    items: Sequence[AiIntakeDepartmentMapping | dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
     if not items:
         return []
     serialized: list[dict[str, Any]] = []
@@ -228,7 +235,9 @@ def _serialize_department_mappings(items: list[AiIntakeDepartmentMapping | dict[
     return serialized
 
 
-def upsert_config(db: Session, payload: AiIntakeConfigCreate | AiIntakeConfigUpdate, *, scope_key: str, channel_type: ChannelType) -> AiIntakeConfig:
+def upsert_config(
+    db: Session, payload: AiIntakeConfigCreate | AiIntakeConfigUpdate, *, scope_key: str, channel_type: ChannelType
+) -> AiIntakeConfig:
     try:
         config = get_config_for_scope(db, scope_key)
         if not config:
@@ -334,10 +343,7 @@ def _set_state(conversation: Conversation, state: dict[str, Any]) -> None:
 
 def _history(db: Session, conversation: Conversation, limit: int = 12) -> list[Message]:
     messages = (
-        db.query(Message)
-        .filter(Message.conversation_id == conversation.id)
-        .order_by(Message.created_at.asc())
-        .all()
+        db.query(Message).filter(Message.conversation_id == conversation.id).order_by(Message.created_at.asc()).all()
     )
     return messages[-limit:]
 
@@ -588,7 +594,9 @@ def process_pending_intake(
     if current_state.get("status") in AI_INTAKE_TERMINAL_STATES:
         return AiIntakeResult(handled=False)
 
-    new_conversation = _is_new_conversation(db, conversation, message) if is_new_conversation is None else is_new_conversation
+    new_conversation = (
+        _is_new_conversation(db, conversation, message) if is_new_conversation is None else is_new_conversation
+    )
     if not new_conversation and current_state.get("status") not in AI_INTAKE_PENDING_STATES:
         return AiIntakeResult(handled=False)
 
@@ -626,7 +634,9 @@ def process_pending_intake(
         )
         parsed = _parse_ai_response(ai_response.content)
     except (AIClientError, ValueError, json.JSONDecodeError) as exc:
-        logger.warning("ai_intake_failed scope_key=%s conversation_id=%s error=%s", config.scope_key, conversation.id, exc)
+        logger.warning(
+            "ai_intake_failed scope_key=%s conversation_id=%s error=%s", config.scope_key, conversation.id, exc
+        )
         return AiIntakeResult(handled=False)
 
     department = str(parsed.get("department") or "").strip().lower() or None

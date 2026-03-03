@@ -589,9 +589,9 @@ def _ensure_meta_lead_person(
     if email_val and person.email != email_val and person.email.endswith("@local.invalid"):
         person.email = email_val[:255]
     if email_val:
-        _ensure_person_channel(db, person, ChannelType.email, email_val)
+        _ensure_person_channel_unified(db, person, PersonChannelType.email, email_val)
     if phone_val:
-        _ensure_person_channel(db, person, ChannelType.whatsapp, phone_val)
+        _ensure_person_channel_unified(db, person, PersonChannelType.whatsapp, phone_val)
 
     db.commit()
     db.refresh(person)
