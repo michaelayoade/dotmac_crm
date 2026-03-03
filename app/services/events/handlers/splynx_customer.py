@@ -187,17 +187,17 @@ def _ensure_installation_invoice(db: Session, project: Project, splynx_id: str) 
         logger.info("splynx_invoice_skip_no_installation_cost project_id=%s", project.id)
         return
 
-    invoice_id = create_installation_invoice(
+    new_invoice_id: str | None = create_installation_invoice(
         db,
         splynx_id=splynx_id,
         amount=amount,
         description="Installation cost",
         external_ref=f"project:{project.id}",
     )
-    if not invoice_id:
+    if not new_invoice_id:
         return
 
-    _store_invoice_metadata(project, invoice_id, amount)
+    _store_invoice_metadata(project, new_invoice_id, amount)
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -205,7 +205,7 @@ def _ensure_installation_invoice(db: Session, project: Project, splynx_id: str) 
         "splynx_installation_invoice_created project_id=%s splynx_id=%s invoice_id=%s amount=%s",
         project.id,
         splynx_id,
-        invoice_id,
+        new_invoice_id,
         amount,
     )
 

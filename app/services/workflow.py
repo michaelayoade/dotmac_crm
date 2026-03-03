@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
+from typing import List
 
 from fastapi import HTTPException
 from sqlalchemy import case, func
@@ -681,7 +682,7 @@ class TicketAssignmentRules(ListResponseMixin):
         db.commit()
 
     @staticmethod
-    def reorder(db: Session, payload: TicketAssignmentRuleReorderRequest) -> list[TicketAssignmentRule]:
+    def reorder(db: Session, payload: TicketAssignmentRuleReorderRequest) -> List[TicketAssignmentRule]:
         ordered_rules = (
             db.query(TicketAssignmentRule)
             .order_by(TicketAssignmentRule.priority.desc(), TicketAssignmentRule.created_at.asc())
