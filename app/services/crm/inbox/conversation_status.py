@@ -107,7 +107,9 @@ def update_conversation_status(
             conversation_id,
             ConversationUpdate(status=status_enum),
         )
-        conversation = db.get(Conversation, coerce_uuid(conversation_id))
+        conversation = None
+        if db is not None:
+            conversation = db.get(Conversation, coerce_uuid(conversation_id))
         if conversation and status_enum != ConversationStatus.snoozed:
             _clear_snooze_metadata(conversation)
             db.commit()

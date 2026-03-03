@@ -305,12 +305,24 @@ def persist_data_health_baseline_snapshot(db: Session, snapshot: dict[str, Any])
 
 
 def get_latest_data_health_baseline_snapshot(db: Session) -> dict[str, Any] | None:
-    value = resolve_value(db, SettingDomain.integration, "intelligence_data_health_baseline_last")
+    try:
+        setting = integration_settings.get_by_key(db, "intelligence_data_health_baseline_last")
+    except Exception:
+        setting = None
+    value = setting.value_json if setting is not None else resolve_value(
+        db, SettingDomain.integration, "intelligence_data_health_baseline_last"
+    )
     return value if isinstance(value, dict) else None
 
 
 def get_previous_data_health_baseline_snapshot(db: Session) -> dict[str, Any] | None:
-    value = resolve_value(db, SettingDomain.integration, "intelligence_data_health_baseline_previous")
+    try:
+        setting = integration_settings.get_by_key(db, "intelligence_data_health_baseline_previous")
+    except Exception:
+        setting = None
+    value = setting.value_json if setting is not None else resolve_value(
+        db, SettingDomain.integration, "intelligence_data_health_baseline_previous"
+    )
     return value if isinstance(value, dict) else None
 
 

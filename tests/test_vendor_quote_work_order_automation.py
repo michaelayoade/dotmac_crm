@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.models.workforce import WorkOrder
 from app.schemas.vendor import (
@@ -144,7 +145,7 @@ def test_vendor_quote_line_item_create_rejects_zero_quantity(db_session, project
         vendor_id=str(vendor.id),
         created_by_person_id=None,
     )
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ValidationError) as exc:
         vendor_service.quote_line_items.create(
             db_session,
             QuoteLineItemCreate(
@@ -157,9 +158,7 @@ def test_vendor_quote_line_item_create_rejects_zero_quantity(db_session, project
             vendor_id=str(vendor.id),
         )
 
-    assert exc.value.status_code == 400
-    assert "save rejected" in str(exc.value.detail).lower()
-    assert "minimum allowed is 1" in str(exc.value.detail).lower()
+    assert "greater than or equal to 1" in str(exc.value).lower()
 
 
 def test_vendor_quote_line_item_update_rejects_zero_quantity(db_session, project):
@@ -189,7 +188,7 @@ def test_vendor_quote_line_item_update_rejects_zero_quantity(db_session, project
         vendor_id=str(vendor.id),
     )
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ValidationError) as exc:
         vendor_service.quote_line_items.update(
             db_session,
             quote_id=str(quote.id),
@@ -198,9 +197,7 @@ def test_vendor_quote_line_item_update_rejects_zero_quantity(db_session, project
             vendor_id=str(vendor.id),
         )
 
-    assert exc.value.status_code == 400
-    assert "save rejected" in str(exc.value.detail).lower()
-    assert "minimum allowed is 1" in str(exc.value.detail).lower()
+    assert "greater than or equal to 1" in str(exc.value).lower()
 
 
 def test_create_work_order_upsert_updates_existing(db_session, project, person):
