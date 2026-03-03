@@ -40,10 +40,7 @@ def test_event_dispatcher_rolls_back_failed_handler_session(db_session: Session)
 
     assert success_handler.called is True
     assert (
-        db_session.query(ProjectTemplate)
-        .filter(ProjectTemplate.project_type == ProjectType.cable_rerun)
-        .count()
-        == 1
+        db_session.query(ProjectTemplate).filter(ProjectTemplate.project_type == ProjectType.cable_rerun).count() == 1
     )
 
 
@@ -70,9 +67,11 @@ def test_project_create_persists_template_tasks_before_event_failures(db_session
 
     from unittest.mock import patch
 
-    with patch("app.services.projects.emit_event", side_effect=RuntimeError("event failed")):
-        with pytest.raises(RuntimeError, match="event failed"):
-            projects_service.projects.create(db=db_session, payload=payload)
+    with (
+        patch("app.services.projects.emit_event", side_effect=RuntimeError("event failed")),
+        pytest.raises(RuntimeError, match="event failed"),
+    ):
+        projects_service.projects.create(db=db_session, payload=payload)
 
     project = db_session.query(Project).filter(Project.name == payload.name).one()
     tasks = db_session.query(ProjectTask).filter(ProjectTask.project_id == project.id).all()

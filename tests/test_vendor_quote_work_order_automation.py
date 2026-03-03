@@ -138,6 +138,12 @@ def test_vendor_quote_line_item_create_rejects_zero_quantity(db_session, project
             assigned_vendor_id=vendor.id,
         ),
     )
+    quote = vendor_service.project_quotes.create(
+        db_session,
+        ProjectQuoteCreate(project_id=installation_project.id),
+        vendor_id=str(vendor.id),
+        created_by_person_id=None,
+    )
     with pytest.raises(HTTPException) as exc:
         vendor_service.quote_line_items.create(
             db_session,

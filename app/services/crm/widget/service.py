@@ -722,7 +722,13 @@ def receive_widget_message(
 
     # Apply routing: AI pending intake takes precedence when enabled, then dialog flow, then generic rules.
     dialog_routed = False
-    if not intake_result.handled and is_new_conversation and dialog_step_id and config.dialog_flow_enabled and config.dialog_flow_steps:
+    if (
+        not intake_result.handled
+        and is_new_conversation
+        and dialog_step_id
+        and config.dialog_flow_enabled
+        and config.dialog_flow_steps
+    ):
         step_config = next((s for s in config.dialog_flow_steps if s.get("id") == dialog_step_id), None)
         if step_config and step_config.get("type") == "terminal":
             apply_dialog_routing(db, conversation, step_config)

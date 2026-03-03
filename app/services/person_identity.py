@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # to avoid circular imports (person_identity → crm → crm.inbox → contacts → person_identity).
 # ---------------------------------------------------------------------------
 
+
 def _normalize_email_address(address: str | None) -> str | None:
     if not address:
         return None
@@ -41,19 +42,24 @@ def _normalize_phone_address(value: str | None) -> str | None:
         return None
     return f"+{digits}"
 
+
 # Placeholder email domains used by various importers/widgets
-_PLACEHOLDER_DOMAINS = frozenset({
-    "example.invalid",
-    "widget.local",
-    "placeholder.local",
-})
+_PLACEHOLDER_DOMAINS = frozenset(
+    {
+        "example.invalid",
+        "widget.local",
+        "placeholder.local",
+    }
+)
 
 # Channel types that represent phone-based identifiers
-_PHONE_CHANNEL_TYPES = frozenset({
-    ChannelType.phone,
-    ChannelType.sms,
-    ChannelType.whatsapp,
-})
+_PHONE_CHANNEL_TYPES = frozenset(
+    {
+        ChannelType.phone,
+        ChannelType.sms,
+        ChannelType.whatsapp,
+    }
+)
 
 
 def is_placeholder_email(email: str | None) -> bool:
@@ -198,6 +204,7 @@ def _enrich_person(
 # Lookup helpers
 # ---------------------------------------------------------------------------
 
+
 def _find_by_channel(
     db: Session,
     channel_type: ChannelType,
@@ -279,6 +286,7 @@ def _find_by_person_phone(db: Session, phone: str | None) -> Person | None:
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
 
 def resolve_person(
     db: Session,

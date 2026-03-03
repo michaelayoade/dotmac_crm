@@ -1,4 +1,5 @@
 """CRM inbox settings and admin routes."""
+
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, Request
