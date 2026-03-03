@@ -15,7 +15,7 @@ class AiIntakeConfig(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     scope_key: Mapped[str] = mapped_column(String(160), nullable=False)
-    channel_type: Mapped[ChannelType] = mapped_column(Enum(ChannelType), nullable=False)
+    channel_type: Mapped[ChannelType] = mapped_column(Enum(ChannelType, create_type=False), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     confidence_threshold: Mapped[float] = mapped_column(Float, default=0.75, nullable=False)
     allow_followup_questions: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

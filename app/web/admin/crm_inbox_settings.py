@@ -170,6 +170,11 @@ async def update_ai_intake_settings(
             url="/admin/crm/inbox/settings?ai_intake_error=1&ai_intake_error_detail=Forbidden",
             status_code=303,
         )
+    if not scope_key.startswith(("widget:", "target:")):
+        return RedirectResponse(
+            url="/admin/crm/inbox/settings?ai_intake_error=1&ai_intake_error_detail=Invalid+scope+key+format",
+            status_code=303,
+        )
     try:
         save_ai_intake_config(
             db,

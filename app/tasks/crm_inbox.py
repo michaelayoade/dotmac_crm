@@ -44,14 +44,32 @@ def send_reply_reminders_task():
 
 @celery_app.task(name="app.tasks.crm_inbox.escalate_expired_ai_intake_conversations")
 def escalate_expired_ai_intake_conversations_task(limit: int = 200):
+    import logging
+    import time
+
+    from app.telemetry import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
     session = SessionLocal()
+    logger.info("AI_INTAKE_ESCALATION_START")
     try:
-        return escalate_expired_pending_intakes(session, limit=limit)
+        result = escalate_expired_pending_intakes(session, limit=limit)
+        logger.info(
+            "AI_INTAKE_ESCALATION_COMPLETE escalated=%s skipped=%s errors=%s",
+            result.get("escalated", 0),
+            result.get("skipped", 0),
+            len(result.get("errors", [])),
+        )
+        return result
     except Exception:
+        status = "error"
         session.rollback()
         raise
     finally:
         session.close()
+        observe_job("escalate_expired_ai_intake", status, time.monotonic() - start)
 
 
 @celery_app.task(
