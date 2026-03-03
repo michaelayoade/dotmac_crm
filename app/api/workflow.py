@@ -507,9 +507,7 @@ def list_ticket_assignment_rules(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = workflow_service.ticket_assignment_rules.list(
-        db, strategy, is_active, order_by, order_dir, limit, offset
-    )
+    items = workflow_service.ticket_assignment_rules.list(db, strategy, is_active, order_by, order_dir, limit, offset)
     return list_response(items, limit, offset)
 
 

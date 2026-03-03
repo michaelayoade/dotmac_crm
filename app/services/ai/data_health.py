@@ -136,8 +136,7 @@ def get_data_health_report(db: Session, *, sample_limit: int = 20) -> dict[str, 
                 "readiness": readiness,
                 "scoring_errors": errors,
                 "top_missing_fields": [
-                    {"field": field_name, "count": count}
-                    for field_name, count in missing_counts.most_common(5)
+                    {"field": field_name, "count": count} for field_name, count in missing_counts.most_common(5)
                 ],
             }
         )
@@ -172,17 +171,14 @@ def get_data_health_trend(
     window_days = max(1, min(int(days), 90))
     start_at = datetime.now(UTC) - timedelta(days=window_days - 1)
 
-    query = (
-        db.query(
-            func.date(AIInsight.created_at).label("date"),
-            func.avg(func.coalesce(AIInsight.context_quality_score, 0.0)).label("avg_quality"),
-            func.count(AIInsight.id).label("insight_count"),
-            func.sum(case((AIInsight.status == AIInsightStatus.completed, 1), else_=0)).label("completed_count"),
-            func.sum(case((AIInsight.status == AIInsightStatus.skipped, 1), else_=0)).label("skipped_count"),
-            func.sum(case((AIInsight.status == AIInsightStatus.failed, 1), else_=0)).label("failed_count"),
-        )
-        .filter(AIInsight.created_at >= start_at)
-    )
+    query = db.query(
+        func.date(AIInsight.created_at).label("date"),
+        func.avg(func.coalesce(AIInsight.context_quality_score, 0.0)).label("avg_quality"),
+        func.count(AIInsight.id).label("insight_count"),
+        func.sum(case((AIInsight.status == AIInsightStatus.completed, 1), else_=0)).label("completed_count"),
+        func.sum(case((AIInsight.status == AIInsightStatus.skipped, 1), else_=0)).label("skipped_count"),
+        func.sum(case((AIInsight.status == AIInsightStatus.failed, 1), else_=0)).label("failed_count"),
+    ).filter(AIInsight.created_at >= start_at)
     if persona_key:
         query = query.filter(AIInsight.persona_key == persona_key)
     if domain:
@@ -269,8 +265,7 @@ def build_data_health_baseline_snapshot(
             "no_candidates": readiness_counts.get("no_candidates", 0),
         },
         "top_missing_fields": [
-            {"field": field_name, "count": count}
-            for field_name, count in missing_counts.most_common(10)
+            {"field": field_name, "count": count} for field_name, count in missing_counts.most_common(10)
         ],
         "domain_missing_fields": {
             domain: [{"field": field_name, "count": count} for field_name, count in counter.most_common(5)]
