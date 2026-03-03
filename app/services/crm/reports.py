@@ -574,7 +574,9 @@ def agent_performance_metrics(
             .subquery()
         )
 
-        inbound_rows = db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time).filter(inbound_subq.c.rn == 1).all()
+        inbound_rows = (
+            db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time).filter(inbound_subq.c.rn == 1).all()
+        )
         outbound_rows = (
             db.query(outbound_subq.c.conversation_id, outbound_subq.c.msg_time).filter(outbound_subq.c.rn == 1).all()
         )
@@ -640,6 +642,7 @@ def agent_performance_metrics(
         reverse=True,
     )
     return agent_stats
+
 
 def conversation_trend(
     db: Session,

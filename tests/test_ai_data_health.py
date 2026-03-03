@@ -328,8 +328,12 @@ def test_get_ai_data_health_baseline_latest_wiring(monkeypatch, db_session):
         captured["previous_snapshot_alerts"] = previous_snapshot
         return expected_alerts
 
-    monkeypatch.setattr(ai_api, "get_latest_data_health_baseline_snapshot", _fake_get_latest_data_health_baseline_snapshot)
-    monkeypatch.setattr(ai_api, "get_previous_data_health_baseline_snapshot", _fake_get_previous_data_health_baseline_snapshot)
+    monkeypatch.setattr(
+        ai_api, "get_latest_data_health_baseline_snapshot", _fake_get_latest_data_health_baseline_snapshot
+    )
+    monkeypatch.setattr(
+        ai_api, "get_previous_data_health_baseline_snapshot", _fake_get_previous_data_health_baseline_snapshot
+    )
     monkeypatch.setattr(ai_api, "compute_risk_inventory_deltas", _fake_compute_risk_inventory_deltas)
     monkeypatch.setattr(ai_api, "compute_effective_risk_alerts", _fake_compute_effective_risk_alerts)
 

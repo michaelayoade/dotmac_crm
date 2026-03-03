@@ -67,7 +67,7 @@ def apply_bulk_action(
         if not target_status:
             return BulkActionResult(kind="invalid_action", detail="Status is required")
         for conversation_id in ids:
-            result = update_conversation_status(
+            status_result = update_conversation_status(
                 db,
                 conversation_id=conversation_id,
                 new_status=target_status,
@@ -75,9 +75,9 @@ def apply_bulk_action(
                 roles=roles,
                 scopes=scopes,
             )
-            if result.kind == "updated":
+            if status_result.kind == "updated":
                 applied += 1
-            elif result.kind in {"not_found", "invalid_transition", "invalid_status", "forbidden"}:
+            elif status_result.kind in {"not_found", "invalid_transition", "invalid_status", "forbidden"}:
                 skipped += 1
             else:
                 failed += 1
@@ -88,15 +88,15 @@ def apply_bulk_action(
         if not target_priority:
             return BulkActionResult(kind="invalid_action", detail="Priority is required")
         for conversation_id in ids:
-            result = update_conversation_priority(
+            priority_result = update_conversation_priority(
                 db,
                 conversation_id=conversation_id,
                 priority=target_priority,
                 actor_id=actor_id,
             )
-            if result.kind == "updated":
+            if priority_result.kind == "updated":
                 applied += 1
-            elif result.kind in {"not_found", "invalid_priority"}:
+            elif priority_result.kind in {"not_found", "invalid_priority"}:
                 skipped += 1
             else:
                 failed += 1
@@ -106,7 +106,7 @@ def apply_bulk_action(
         if not current_agent_id:
             return BulkActionResult(kind="invalid_action", detail="Current agent is required for assign:me")
         for conversation_id in ids:
-            result = assign_conversation(
+            assign_result = assign_conversation(
                 db,
                 conversation_id=conversation_id,
                 agent_id=current_agent_id,
@@ -115,9 +115,9 @@ def apply_bulk_action(
                 roles=roles,
                 scopes=scopes,
             )
-            if result.kind == "success":
+            if assign_result.kind == "success":
                 applied += 1
-            elif result.kind in {"forbidden", "not_found", "invalid_input"}:
+            elif assign_result.kind in {"forbidden", "not_found", "invalid_input"}:
                 skipped += 1
             else:
                 failed += 1
@@ -130,9 +130,11 @@ def apply_bulk_action(
         for conversation_id in ids:
             if action_key == "label:add":
                 try:
-                    conversation_service.conversation_tags.create(
+                    conversation_service.ConversationTags.create(
                         db,
-                        payload=ConversationTagCreate(conversation_id=coerce_uuid(conversation_id), tag=normalized_label),
+                        payload=ConversationTagCreate(
+                            conversation_id=coerce_uuid(conversation_id), tag=normalized_label
+                        ),
                     )
                     applied += 1
                 except IntegrityError:

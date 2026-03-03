@@ -582,7 +582,9 @@ class ProjectQuotes(ListResponseMixin):
         if str(quote.vendor_id) != str(vendor_id):
             raise HTTPException(status_code=403, detail="Quote ownership required")
         if quote.status not in {ProjectQuoteStatus.draft, ProjectQuoteStatus.revision_requested}:
-            raise HTTPException(status_code=400, detail="VAT can only be edited while quote is draft or revision requested")
+            raise HTTPException(
+                status_code=400, detail="VAT can only be edited while quote is draft or revision requested"
+            )
         quote.vat_rate_percent = _coerce_vat_rate_percent(vat_rate_percent)
         _recalculate_quote_totals(db, quote)
         db.commit()

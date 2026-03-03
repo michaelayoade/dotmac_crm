@@ -1,6 +1,7 @@
 from __future__ import annotations
+
+import builtins
 from datetime import UTC, datetime, timedelta
-from typing import List
 
 from fastapi import HTTPException
 from sqlalchemy import case, func
@@ -682,7 +683,7 @@ class TicketAssignmentRules(ListResponseMixin):
         db.commit()
 
     @staticmethod
-    def reorder(db: Session, payload: TicketAssignmentRuleReorderRequest) -> List[TicketAssignmentRule]:
+    def reorder(db: Session, payload: TicketAssignmentRuleReorderRequest) -> builtins.list[TicketAssignmentRule]:
         ordered_rules = (
             db.query(TicketAssignmentRule)
             .order_by(TicketAssignmentRule.priority.desc(), TicketAssignmentRule.created_at.asc())
@@ -736,7 +737,9 @@ class TicketAssignmentRules(ListResponseMixin):
             }
 
         require_presence, max_open_tickets = resolve_assignment_candidate_guards(db)
-        team_id = str(rule.team_id) if rule.team_id else (str(ticket.service_team_id) if ticket.service_team_id else None)
+        team_id = (
+            str(rule.team_id) if rule.team_id else (str(ticket.service_team_id) if ticket.service_team_id else None)
+        )
         candidates = list_team_candidate_person_ids(
             db,
             team_id,

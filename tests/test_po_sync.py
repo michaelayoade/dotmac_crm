@@ -154,7 +154,9 @@ class TestMapPurchaseOrder:
 
     def test_filters_blank_zero_and_non_positive_lines(self):
         vendor = _make_vendor()
-        keep = _make_line_item(item_type=None, description="Misc charge", quantity=Decimal("1.000"), amount=Decimal("10.00"))
+        keep = _make_line_item(
+            item_type=None, description="Misc charge", quantity=Decimal("1.000"), amount=Decimal("10.00")
+        )
         blank_zero = _make_line_item(
             item_type=None,
             description="",

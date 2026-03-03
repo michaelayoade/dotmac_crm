@@ -1361,7 +1361,9 @@ def _process_facebook_leadgen_changes(
                 }
             )
         except Exception as exc:
-            logger.exception("facebook_leadgen_processing_failed page_id=%s leadgen_id=%s error=%s", entry.id, leadgen_id, exc)
+            logger.exception(
+                "facebook_leadgen_processing_failed page_id=%s leadgen_id=%s error=%s", entry.id, leadgen_id, exc
+            )
             write_dead_letter(
                 channel="facebook_leadgen",
                 raw_payload={"page_id": entry.id, "change": change, "leadgen_id": leadgen_id},

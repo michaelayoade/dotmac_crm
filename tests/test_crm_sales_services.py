@@ -840,7 +840,9 @@ def test_update_quote_acceptance_is_idempotent_for_project_and_sales_order(db_se
 
     projects = db_session.query(Project).filter(Project.is_active.is_(True)).all()
     linked_projects = [
-        row for row in projects if isinstance(row.metadata_, dict) and str(row.metadata_.get("quote_id")) == str(quote.id)
+        row
+        for row in projects
+        if isinstance(row.metadata_, dict) and str(row.metadata_.get("quote_id")) == str(quote.id)
     ]
     assert len(linked_projects) == 1
 

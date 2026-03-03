@@ -399,7 +399,7 @@ def _enforcement_specs() -> list[settings_spec.SettingSpec]:
 
 def _build_settings_context(db: Session, domain_value: str | None) -> dict:
     if domain_value == ENFORCEMENT_DOMAIN:
-        sections: list[dict] = []
+        enforcement_sections: list[dict] = []
         for domain, title in ((SettingDomain.network, "Network Controls"),):
             specs = [spec for spec in _enforcement_specs() if spec.domain == domain]
             service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(domain)
@@ -438,14 +438,14 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
                         "required": spec.required,
                     }
                 )
-            sections.append({"title": title, "settings": section_settings})
+            enforcement_sections.append({"title": title, "settings": section_settings})
         return {
             "domain": ENFORCEMENT_DOMAIN,
             "domains": _settings_domains(),
             "grouped_domains": _grouped_settings_domains(),
             "settings": [],
             "settings_by_key": {},
-            "sections": sections,
+            "sections": enforcement_sections,
         }
 
     selected_domain = _resolve_settings_domain(domain_value)
@@ -999,10 +999,7 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
         offset=0,
     )
     assignment_teams = (
-        db.query(ServiceTeam)
-        .filter(ServiceTeam.is_active.is_(True))
-        .order_by(ServiceTeam.name.asc())
-        .all()
+        db.query(ServiceTeam).filter(ServiceTeam.is_active.is_(True)).order_by(ServiceTeam.name.asc()).all()
     )
     auto_assignment_enabled = _form_bool(
         settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_auto_assignment_enabled")

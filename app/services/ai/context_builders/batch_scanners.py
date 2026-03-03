@@ -118,7 +118,9 @@ def scan_inbox_for_persona(
         .all()
     )
 
-    return [("conversation", str(conversation_id), {"conversation_id": str(conversation_id)}) for (conversation_id,) in rows]
+    return [
+        ("conversation", str(conversation_id), {"conversation_id": str(conversation_id)}) for (conversation_id,) in rows
+    ]
 
 
 def scan_campaigns_for_persona(
