@@ -184,8 +184,10 @@ def _normalize_meta_message_attachments(raw_attachments: object) -> list[dict]:
         if not isinstance(item, dict):
             continue
         payload: dict = {}
-        image_data = item.get("image_data") if isinstance(item.get("image_data"), dict) else {}
-        video_data = item.get("video_data") if isinstance(item.get("video_data"), dict) else {}
+        image_raw = item.get("image_data")
+        video_raw = item.get("video_data")
+        image_data = image_raw if isinstance(image_raw, dict) else {}
+        video_data = video_raw if isinstance(video_raw, dict) else {}
         if image_data.get("url"):
             payload["url"] = image_data.get("url")
         elif video_data.get("url"):
@@ -544,20 +546,27 @@ def _ensure_meta_lead_person(
     if person:
         if display_name and not person.display_name:
             person.display_name = display_name
-        if identity.get("first_name") and person.first_name == "Unknown":
-            person.first_name = identity["first_name"][:80]
-        if identity.get("last_name") and person.last_name == "Unknown":
-            person.last_name = identity["last_name"][:80]
-        if identity.get("email") and not person.email.endswith("@local.invalid"):
-            person.email = person.email or identity["email"]
-        if identity.get("phone") and not person.phone:
-            person.phone = identity["phone"]
-        if identity.get("city") and not person.city:
-            person.city = identity["city"][:80]
-        if identity.get("region") and not person.region:
-            person.region = identity["region"][:80]
-        if identity.get("address") and not person.address_line1:
-            person.address_line1 = identity["address"][:120]
+        first_name_val = identity.get("first_name")
+        if first_name_val and person.first_name == "Unknown":
+            person.first_name = first_name_val[:80]
+        last_name_val = identity.get("last_name")
+        if last_name_val and person.last_name == "Unknown":
+            person.last_name = last_name_val[:80]
+        email_val = identity.get("email")
+        if email_val and not person.email.endswith("@local.invalid"):
+            person.email = person.email or email_val
+        phone_val = identity.get("phone")
+        if phone_val and not person.phone:
+            person.phone = phone_val
+        city_val = identity.get("city")
+        if city_val and not person.city:
+            person.city = city_val[:80]
+        region_val = identity.get("region")
+        if region_val and not person.region:
+            person.region = region_val[:80]
+        address_val = identity.get("address")
+        if address_val and not person.address_line1:
+            person.address_line1 = address_val[:120]
     else:
         email = identity.get("email") or f"meta-lead-{leadgen_id}@local.invalid"
         person = Person(
@@ -574,12 +583,14 @@ def _ensure_meta_lead_person(
         db.add(person)
         db.flush()
 
-    if identity.get("email") and person.email != identity["email"] and person.email.endswith("@local.invalid"):
-        person.email = identity["email"][:255]
-    if identity.get("email"):
-        _ensure_person_channel(db, person, PersonChannelType.email, identity["email"], is_primary=True)
-    if identity.get("phone"):
-        _ensure_person_channel(db, person, PersonChannelType.phone, identity["phone"], is_primary=False)
+    email_val = identity.get("email")
+    phone_val = identity.get("phone")
+    if email_val and person.email != email_val and person.email.endswith("@local.invalid"):
+        person.email = email_val[:255]
+    if email_val:
+        _ensure_person_channel(db, person, ChannelType.email, email_val)
+    if phone_val:
+        _ensure_person_channel(db, person, ChannelType.whatsapp, phone_val)
 
     db.commit()
     db.refresh(person)

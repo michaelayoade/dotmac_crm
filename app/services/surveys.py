@@ -116,7 +116,7 @@ def _normalize_questions_for_storage(questions: object) -> list[dict] | None:
             continue
         row = dict(item)
         qtype = row.get("type")
-        if hasattr(qtype, "value"):
+        if qtype is not None and hasattr(qtype, "value"):
             row["type"] = qtype.value
         normalized.append(row)
     return normalized

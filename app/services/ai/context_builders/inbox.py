@@ -110,7 +110,8 @@ def gather_inbox_context(db: Session, params: dict[str, Any]) -> str:
                 parts.append(f'"{ticket.title}"')
             parts.append(f"status={ticket.status.value}")
             if ticket.ticket_type:
-                parts.append(f"type={ticket.ticket_type.value}")
+                ticket_type = ticket.ticket_type.value if hasattr(ticket.ticket_type, "value") else str(ticket.ticket_type)
+                parts.append(f"type={ticket_type}")
             if ticket.priority:
                 parts.append(f"priority={ticket.priority.value}")
             linked_ticket_info = " | ".join(parts)
