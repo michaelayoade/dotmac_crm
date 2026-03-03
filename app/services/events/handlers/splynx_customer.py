@@ -61,27 +61,28 @@ class SplynxCustomerHandler:
 
         if person.splynx_id:
             existing_splynx_id = str(person.splynx_id).strip()
-            if not _is_valid_splynx_id(existing_splynx_id):
+            if _is_valid_splynx_id(existing_splynx_id):
+                ensure_person_customer(db, person, existing_splynx_id)
+                _ensure_subscriber(
+                    db,
+                    person,
+                    existing_splynx_id,
+                    sales_order_id=sales_order_id,
+                )
+                _ensure_installation_invoice(db, project, existing_splynx_id)
+                logger.info(
+                    "splynx_skip_existing person_id=%s splynx_id=%s",
+                    person.id,
+                    existing_splynx_id,
+                )
+                return
+
+            if existing_splynx_id:
                 logger.warning(
-                    "splynx_invalid_existing_id person_id=%s splynx_id=%s; reusing existing customer id",
+                    "splynx_invalid_existing_id person_id=%s splynx_id=%s; creating new customer",
                     person.id,
                     person.splynx_id,
                 )
-            ensure_person_customer(db, person, existing_splynx_id)
-            _ensure_subscriber(
-                db,
-                person,
-                existing_splynx_id,
-                sales_order_id=sales_order_id,
-            )
-            if _is_valid_splynx_id(existing_splynx_id):
-                _ensure_installation_invoice(db, project, existing_splynx_id)
-            logger.info(
-                "splynx_skip_existing person_id=%s splynx_id=%s",
-                person.id,
-                existing_splynx_id,
-            )
-            return
 
         splynx_id = create_customer(db, person)
         if not splynx_id:

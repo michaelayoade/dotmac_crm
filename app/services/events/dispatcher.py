@@ -86,6 +86,15 @@ class EventDispatcher:
             except Exception as exc:
                 handler_name = handler.__class__.__name__
                 logger.exception(f"Handler {handler_name} failed for event {event.event_type.value}: {exc}")
+                try:
+                    db.rollback()
+                except Exception as rollback_exc:
+                    logger.warning(
+                        "Failed to rollback session after handler %s failure for event %s: %s",
+                        handler_name,
+                        event.event_type.value,
+                        rollback_exc,
+                    )
                 failed_handlers.append(
                     {
                         "handler": handler_name,

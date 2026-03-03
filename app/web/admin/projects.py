@@ -17,6 +17,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.projects import (
     Project,
+    ProjectComment,
     ProjectPriority,
     ProjectStatus,
     ProjectTask,
@@ -2128,15 +2129,84 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
     dependencies=[Depends(require_permission("project:update"))],
 )
 async def project_comment_edit(request: Request, project_ref: str, comment_id: str, db: Session = Depends(get_db)):
+    from app.schemas.projects import ProjectCommentUpdate
     from app.web.admin import get_current_user, get_sidebar_stats
 
-    context = {
-        "request": request,
-        "message": "Editing comments is disabled.",
-        "current_user": get_current_user(request),
-        "sidebar_stats": get_sidebar_stats(db),
-    }
-    return templates.TemplateResponse("admin/errors/403.html", context, status_code=403)
+    form = await request.form()
+    body = _form_str(form.get("body")).strip()
+    mentions_raw = _form_str(form.get("mentions")).strip()
+    if not body:
+        return RedirectResponse(f"/admin/projects/{project_ref}", status_code=303)
+
+    try:
+        mentioned_agent_ids = _parse_mentions_json(mentions_raw)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid mentions payload: {_format_validation_error(exc)}"
+        ) from exc
+
+    current_user = get_current_user(request)
+    current_person_id = _resolve_current_person_id(request, current_user)
+    project, _should_redirect = _resolve_project_reference(db, project_ref)
+    try:
+        comment_uuid = coerce_uuid(comment_id)
+    except Exception:
+        comment_uuid = None
+    comment = db.get(ProjectComment, comment_uuid) if comment_uuid else None
+    if not comment or str(comment.project_id) != str(project.id):
+        context = {
+            "request": request,
+            "message": "Comment not found.",
+            "current_user": current_user,
+            "sidebar_stats": get_sidebar_stats(db),
+        }
+        return templates.TemplateResponse("admin/errors/404.html", context, status_code=404)
+    if not current_person_id or not comment.author_person_id or current_person_id != str(comment.author_person_id):
+        context = {
+            "request": request,
+            "message": "You can only edit your own comments.",
+            "current_user": current_user,
+            "sidebar_stats": get_sidebar_stats(db),
+        }
+        return templates.TemplateResponse("admin/errors/403.html", context, status_code=403)
+
+    payload = ProjectCommentUpdate(body=body)
+    projects_service.project_comments.update(db=db, comment_id=comment_id, payload=payload)
+
+    if mentioned_agent_ids:
+        from app.services.agent_mentions import notify_agent_mentions
+
+        preview = body
+        if len(preview) > 140:
+            preview = preview[:137].rstrip() + "..."
+        ref = project.number or str(project.id)
+        subtitle = f"Project {ref}"
+        if project.name:
+            subtitle = f"{subtitle} · {project.name}"
+        notify_agent_mentions(
+            db,
+            mentioned_agent_ids=list(mentioned_agent_ids),
+            actor_person_id=current_person_id,
+            payload={
+                "kind": "mention",
+                "title": "Mentioned in project",
+                "subtitle": subtitle,
+                "preview": preview or None,
+                "target_url": f"/admin/projects/{project.number or project.id}",
+                "project_id": str(project.id),
+                "project_number": project.number,
+            },
+        )
+
+    _log_activity(
+        db=db,
+        request=request,
+        action="comment_edit",
+        entity_type="project",
+        entity_id=str(project.id),
+        actor_id=current_person_id,
+    )
+    return RedirectResponse(f"/admin/projects/{project.number or project.id}", status_code=303)
 
 
 def _get_project_labels(db: Session, project, assigned_vendor_id: str | None = None) -> dict:

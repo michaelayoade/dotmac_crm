@@ -107,6 +107,7 @@ services:
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
       OPENBAO_ADDR: ${OPENBAO_ADDR}
       OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN}
+      CRM_AI_PENDING_INTAKE_ENABLED: ${CRM_AI_PENDING_INTAKE_ENABLED:-1}
     env_file:
       - .env
     depends_on:
@@ -161,6 +162,7 @@ services:
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
       OPENBAO_ADDR: ${OPENBAO_ADDR}
       OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN}
+      CRM_AI_PENDING_INTAKE_ENABLED: ${CRM_AI_PENDING_INTAKE_ENABLED:-1}
     env_file:
       - .env
     depends_on:
@@ -191,6 +193,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       OPENBAO_ADDR: ${OPENBAO_ADDR}
       OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN}
+      CRM_AI_PENDING_INTAKE_ENABLED: ${CRM_AI_PENDING_INTAKE_ENABLED:-1}
     env_file:
       - .env
     depends_on:

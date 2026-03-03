@@ -974,7 +974,13 @@ class Projects(ListResponseMixin):
             if lead and lead.person:
                 customer_name = lead.person.display_name or lead.person.email
 
-        # Emit project created event
+        if payload.project_template_id:
+            ProjectTemplateTasks.replace_project_tasks(
+                db=db, project_id=str(project.id), template_id=str(payload.project_template_id)
+            )
+
+        # Emit project created event after core project setup so failed handlers
+        # cannot prevent template task creation or other intrinsic project data.
         emit_event(
             db,
             EventType.project_created,
@@ -989,11 +995,6 @@ class Projects(ListResponseMixin):
             project_id=project.id,
             subscriber_id=project.subscriber_id,
         )
-
-        if payload.project_template_id:
-            ProjectTemplateTasks.replace_project_tasks(
-                db=db, project_id=str(project.id), template_id=str(payload.project_template_id)
-            )
 
         # In-app notifications for internal project roles.
         # Project has already been committed above, so failures here won't roll back creation.

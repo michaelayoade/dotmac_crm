@@ -9,10 +9,12 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorType
+from app.models.crm.enums import ChannelType
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.services import crm as crm_service
 from app.services import person as person_service
+from app.services.crm.ai_intake import list_configs_by_scope, make_scope_key
 from app.services.crm.chat_widget import widget_configs
 from app.services.crm.inbox.csat import get_enabled_map as get_csat_enabled_map
 from app.services.crm.inbox.inboxes import (
@@ -29,6 +31,19 @@ from app.services.crm.inbox.permissions import (
 )
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
+
+
+def _normalize_ai_intake_channel(raw_channel: str | None) -> ChannelType | None:
+    if not raw_channel:
+        return None
+    normalized = {
+        "facebook": ChannelType.facebook_messenger,
+        "instagram": ChannelType.instagram_dm,
+    }.get(raw_channel, raw_channel)
+    try:
+        return ChannelType(normalized)
+    except ValueError:
+        return None
 
 
 def build_inbox_settings_context(
@@ -90,6 +105,11 @@ def build_inbox_settings_context(
     meta_instagram = query_params.get("instagram")
 
     meta_status = get_meta_connection_status(db)
+    try:
+        ai_intake_configs_by_scope = list_configs_by_scope(db)
+    except Exception:
+        db.rollback()
+        ai_intake_configs_by_scope = {}
 
     reminder_delay_seconds = resolve_value(db, SettingDomain.notification, "crm_inbox_reply_reminder_delay_seconds")
     reminder_repeat_enabled = resolve_value(db, SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled")
@@ -185,6 +205,33 @@ def build_inbox_settings_context(
     for widget in widgets:
         cast(Any, widget).embed_code = widget_configs.generate_embed_code(widget, base_url)
 
+    ai_intake_scopes: list[dict[str, Any]] = []
+    for inbox in (whatsapp_inboxes or []) + (facebook_inboxes or []) + (instagram_inboxes or []):
+        channel_enum = _normalize_ai_intake_channel(inbox.get("channel"))
+        if not channel_enum:
+            continue
+        scope_key = make_scope_key(channel_type=channel_enum, target_id=str(inbox.get("target_id")))
+        ai_intake_scopes.append(
+            {
+                "scope_key": scope_key,
+                "scope_name": inbox.get("name") or inbox.get("target_id"),
+                "scope_kind": "Inbox",
+                "channel": channel_enum.value,
+                "config": ai_intake_configs_by_scope.get(scope_key or ""),
+            }
+        )
+    for widget in widgets:
+        scope_key = make_scope_key(channel_type=ChannelType.chat_widget, widget_config_id=str(widget.id))
+        ai_intake_scopes.append(
+            {
+                "scope_key": scope_key,
+                "scope_name": widget.name,
+                "scope_kind": "Chat Widget",
+                "channel": ChannelType.chat_widget.value,
+                "config": ai_intake_configs_by_scope.get(scope_key or ""),
+            }
+        )
+
     return {
         "current_user": current_user,
         "sidebar_stats": sidebar_stats,
@@ -250,4 +297,8 @@ def build_inbox_settings_context(
         "label_setup": label_setup,
         "label_error": label_error,
         "label_error_detail": label_error_detail,
+        "ai_intake_scopes": ai_intake_scopes,
+        "ai_intake_setup": query_params.get("ai_intake_setup"),
+        "ai_intake_error": query_params.get("ai_intake_error"),
+        "ai_intake_error_detail": query_params.get("ai_intake_error_detail"),
     }

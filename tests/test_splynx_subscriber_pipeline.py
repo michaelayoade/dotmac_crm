@@ -542,7 +542,7 @@ class TestSplynxCustomerHandlerHandle:
     @patch("app.services.events.handlers.splynx_customer.create_installation_invoice")
     @patch("app.services.events.handlers.splynx_customer.ensure_person_customer")
     def test_skips_if_splynx_id_exists(self, mock_ensure, mock_invoice, mock_create, db_session):
-        person = _make_person(db_session, metadata_={"splynx_id": "existing-42"})
+        person = _make_person(db_session, metadata_={"splynx_id": "42"})
         project = _make_project(db_session, owner_person_id=person.id)
         mock_invoice.return_value = None
 
@@ -555,9 +555,32 @@ class TestSplynxCustomerHandlerHandle:
         handler.handle(db_session, event)
 
         mock_create.assert_not_called()
-        mock_ensure.assert_called_once_with(db_session, person, "existing-42")
+        mock_ensure.assert_called_once_with(db_session, person, "42")
 
-        sub = subscriber_service.get_by_external_id(db_session, "splynx", "existing-42")
+        sub = subscriber_service.get_by_external_id(db_session, "splynx", "42")
+        assert sub is not None
+
+    @patch("app.services.events.handlers.splynx_customer.create_customer")
+    @patch("app.services.events.handlers.splynx_customer.create_installation_invoice")
+    @patch("app.services.events.handlers.splynx_customer.ensure_person_customer")
+    def test_invalid_existing_splynx_id_creates_new_customer(self, mock_ensure, mock_invoice, mock_create, db_session):
+        person = _make_person(db_session, metadata_={"splynx_id": "Telinxstex IT Solutions"})
+        project = _make_project(db_session, owner_person_id=person.id)
+        mock_create.return_value = "777"
+        mock_invoice.return_value = None
+
+        event = Event(
+            event_type=EventType.project_created,
+            payload={},
+            project_id=project.id,
+        )
+        handler = SplynxCustomerHandler()
+        handler.handle(db_session, event)
+
+        mock_create.assert_called_once_with(db_session, person)
+        mock_ensure.assert_called_once_with(db_session, person, "777")
+
+        sub = subscriber_service.get_by_external_id(db_session, "splynx", "777")
         assert sub is not None
 
     @patch("app.services.events.handlers.splynx_customer.create_customer")

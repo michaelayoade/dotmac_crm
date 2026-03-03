@@ -31,6 +31,7 @@ from app.schemas.crm.chat_widget import (
     WidgetSessionCreate,
 )
 from app.services.common import coerce_uuid
+from app.services.crm.ai_intake import make_scope_key, process_pending_intake
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -711,13 +712,18 @@ def receive_widget_message(
     if is_new_conversation:
         subscribe_widget_to_conversation(str(session.id), str(conversation.id))
 
-    # Apply routing: dialog flow takes precedence over generic routing rules
+    intake_result = process_pending_intake(
+        db,
+        conversation=conversation,
+        message=message,
+        scope_key=make_scope_key(channel_type=ChannelType.chat_widget, widget_config_id=str(config.id)),
+        is_new_conversation=is_new_conversation,
+    )
+
+    # Apply routing: AI pending intake takes precedence when enabled, then dialog flow, then generic rules.
     dialog_routed = False
-    if is_new_conversation and dialog_step_id and config.dialog_flow_enabled and config.dialog_flow_steps:
-        step_config = next(
-            (s for s in config.dialog_flow_steps if s.get("id") == dialog_step_id),
-            None,
-        )
+    if not intake_result.handled and is_new_conversation and dialog_step_id and config.dialog_flow_enabled and config.dialog_flow_steps:
+        step_config = next((s for s in config.dialog_flow_steps if s.get("id") == dialog_step_id), None)
         if step_config and step_config.get("type") == "terminal":
             apply_dialog_routing(db, conversation, step_config)
             dialog_routed = True
@@ -728,12 +734,13 @@ def receive_widget_message(
                 dialog_step_id,
             )
 
-    if not dialog_routed:
+    if not intake_result.handled and not dialog_routed:
         apply_routing_rules(db, conversation=conversation, message=message)
     broadcast_new_message(message, conversation)
     from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
 
-    notify_assigned_agent_new_reply(db, conversation, message)
+    if not (intake_result.handled and conversation.status == ConversationStatus.pending):
+        notify_assigned_agent_new_reply(db, conversation, message)
 
     # Build conversation summary
     summary = {
