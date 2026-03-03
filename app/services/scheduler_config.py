@@ -422,6 +422,14 @@ def build_beat_schedule() -> dict:
             interval_seconds=reminder_interval_seconds,
         )
 
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_ai_intake_escalation",
+            task_name="app.tasks.crm_inbox.escalate_expired_ai_intake_conversations",
+            enabled=True,
+            interval_seconds=60,
+        )
+
         # CRM inbox outbox queue runner
         outbox_interval_seconds = 30
         _sync_scheduled_task(

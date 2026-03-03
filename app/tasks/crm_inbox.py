@@ -2,6 +2,7 @@ from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.schemas.crm.inbox import InboxSendRequest
 from app.services.crm import inbox as inbox_service
+from app.services.crm.ai_intake import escalate_expired_pending_intakes
 from app.services.crm.inbox.outbound import TransientOutboundError
 from app.services.crm.inbox.outbox import cleanup_old_outbox, list_due_outbox_ids, process_outbox_item
 
@@ -39,6 +40,18 @@ def send_reply_reminders_task():
     # Temporary operational safety switch: disable heavy reminder scanning.
     # Keep this task as a no-op while inbox ingestion backlog is being cleared.
     return 0
+
+
+@celery_app.task(name="app.tasks.crm_inbox.escalate_expired_ai_intake_conversations")
+def escalate_expired_ai_intake_conversations_task(limit: int = 200):
+    session = SessionLocal()
+    try:
+        return escalate_expired_pending_intakes(session, limit=limit)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 @celery_app.task(

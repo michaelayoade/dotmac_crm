@@ -237,6 +237,18 @@ def _coerce_uuid_list(values: list[str], label: str) -> list[UUID]:
     return ids
 
 
+def _current_person_id(current_user: dict | None) -> str | None:
+    if not current_user:
+        return None
+    raw_person_id = current_user.get("person_id")
+    if not raw_person_id:
+        return None
+    try:
+        return str(coerce_uuid(str(raw_person_id)))
+    except Exception:
+        return None
+
+
 def _resolve_ticket_reference(db: Session, ticket_ref: str) -> tuple[Ticket, bool]:
     if not ticket_ref:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -2246,10 +2258,23 @@ def edit_ticket_comment(
                 status_code=404,
             )
 
+        current_user = get_current_user(request)
+        actor_id = _current_person_id(current_user)
+        if not actor_id or not comment.author_person_id or actor_id != str(comment.author_person_id):
+            sidebar_stats = get_sidebar_stats(db)
+            return templates.TemplateResponse(
+                "admin/errors/403.html",
+                {
+                    "request": request,
+                    "message": "You can only edit your own comments.",
+                    "current_user": current_user,
+                    "sidebar_stats": sidebar_stats,
+                },
+                status_code=403,
+            )
+
         payload = TicketCommentUpdate(body=body_clean)
         tickets_service.ticket_comments.update(db=db, comment_id=comment_id, payload=payload)
-        current_user = get_current_user(request)
-        actor_id = str(current_user.get("person_id")) if current_user else None
 
         if mentions:
             try:

@@ -1,5 +1,4 @@
 """CRM inbox settings and admin routes."""
-
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -8,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.services.crm.ai_intake import save_ai_intake_config
 from app.services.crm.inbox.csat import update_inbox_toggle
 from app.services.crm.inbox.labels import create_or_reactivate_label, delete_label, update_label
 from app.services.crm.inbox.permissions import can_manage_inbox_settings
@@ -146,6 +146,51 @@ async def update_inbox_csat_toggle(
         url="/admin/crm/inbox/settings?csat_setup=1",
         status_code=303,
     )
+
+
+@router.post("/inbox/ai-intake", response_class=HTMLResponse)
+async def update_ai_intake_settings(
+    request: Request,
+    scope_key: str = Form(""),
+    channel_type: str = Form(""),
+    enabled: str | None = Form(None),
+    confidence_threshold: str = Form("0.75"),
+    allow_followup_questions: str | None = Form(None),
+    max_clarification_turns: str = Form("1"),
+    escalate_after_minutes: str = Form("5"),
+    exclude_campaign_attribution: str | None = Form(None),
+    fallback_team_id: str | None = Form(None),
+    instructions: str | None = Form(None),
+    department_mappings_json: str = Form("[]"),
+    db: Session = Depends(get_db),
+):
+    if not can_manage_inbox_settings(_get_current_roles(request), _get_current_scopes(request)):
+        return RedirectResponse(
+            url="/admin/crm/inbox/settings?ai_intake_error=1&ai_intake_error_detail=Forbidden",
+            status_code=303,
+        )
+    try:
+        save_ai_intake_config(
+            db,
+            scope_key=scope_key,
+            channel_type=channel_type,
+            enabled=enabled,
+            confidence_threshold=confidence_threshold,
+            allow_followup_questions=allow_followup_questions,
+            max_clarification_turns=max_clarification_turns,
+            escalate_after_minutes=escalate_after_minutes,
+            exclude_campaign_attribution=exclude_campaign_attribution,
+            fallback_team_id=fallback_team_id,
+            instructions=instructions,
+            department_mappings_json=department_mappings_json,
+        )
+    except Exception as exc:
+        detail = quote(str(exc) or "Failed to save AI intake settings", safe="")
+        return RedirectResponse(
+            url=f"/admin/crm/inbox/settings?ai_intake_error=1&ai_intake_error_detail={detail}",
+            status_code=303,
+        )
+    return RedirectResponse(url="/admin/crm/inbox/settings?ai_intake_setup=1", status_code=303)
 
 
 @router.post("/inbox/teams", response_class=HTMLResponse)

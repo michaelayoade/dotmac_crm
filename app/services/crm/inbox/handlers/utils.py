@@ -8,8 +8,9 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
-from app.models.crm.enums import MessageDirection, MessageStatus
+from app.models.crm.enums import ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.team import CrmAgent, CrmAgentTeam
+from app.services.crm.ai_intake import make_scope_key, process_pending_intake
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.context import get_inbox_logger
 from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
@@ -69,10 +70,31 @@ def post_process_inbound_message(
         if not conversation or not message:
             return
 
+        intake_result = None
         if message.direction == MessageDirection.inbound:
-            apply_routing_rules(db, conversation=conversation, message=message)
+            scope_key = make_scope_key(
+                channel_type=message.channel_type,
+                target_id=str(message.channel_target_id) if message.channel_target_id else None,
+                widget_config_id=(
+                    str(message.metadata_.get("widget_config_id"))
+                    if isinstance(message.metadata_, dict) and message.metadata_.get("widget_config_id")
+                    else None
+                ),
+            )
+            intake_result = process_pending_intake(
+                db,
+                conversation=conversation,
+                message=message,
+                scope_key=scope_key,
+            )
+            if not intake_result.handled:
+                apply_routing_rules(db, conversation=conversation, message=message)
         broadcast_new_message(message, conversation)
-        notify_assigned_agent_new_reply(db, conversation, message)
+        pending_ai_intake = bool(
+            intake_result and intake_result.handled and conversation.status == ConversationStatus.pending
+        )
+        if not pending_ai_intake:
+            notify_assigned_agent_new_reply(db, conversation, message)
         broadcast_conversation_summary(
             str(conversation.id),
             build_conversation_summary(db, conversation, message),
@@ -109,8 +131,8 @@ def post_process_inbound_message(
                 .all()
             )
             agent_person_ids = {str(row[0]) for row in agent_rows}
-        # Fallback: if no specific agents, notify all active agents
-        if not agent_person_ids:
+        # Fallback: if no specific agents, notify all active agents unless AI intake is still pending.
+        if not agent_person_ids and not pending_ai_intake:
             all_agents = (
                 db.query(CrmAgent.person_id)
                 .filter(CrmAgent.is_active.is_(True))
