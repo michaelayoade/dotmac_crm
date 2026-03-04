@@ -294,6 +294,15 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.notification,
+        key="crm_inbox_ai_assignment_retry_interval_seconds",
+        env_var="CRM_INBOX_AI_ASSIGNMENT_RETRY_INTERVAL_SECONDS",
+        value_type=SettingValueType.integer,
+        default=60,
+        min_value=30,
+        max_value=3600,
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
         key="crm_inbox_csat_enabled_by_target",
         env_var=None,
         value_type=SettingValueType.json,

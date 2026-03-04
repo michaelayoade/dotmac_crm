@@ -6,8 +6,9 @@ import pytest
 
 from app.models.crm.ai_intake import AiIntakeConfig
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
-from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
-from app.models.crm.team import CrmTeam
+from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection, MessageStatus
+from app.models.crm.presence import AgentPresence
+from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.models.person import Person
 from app.services.crm.ai_intake import (
     AI_INTAKE_METADATA_KEY,
@@ -46,6 +47,28 @@ def _make_message(db_session, conversation, *, body="Need help", metadata=None):
     db_session.refresh(message)
     db_session.refresh(conversation)
     return message
+
+
+def _make_agent(db_session, team, *, label, status):
+    person = Person(email=f"ai-agent-{label}-{uuid.uuid4().hex[:8]}@example.com", first_name=label, last_name="Agent")
+    db_session.add(person)
+    db_session.flush()
+
+    agent = CrmAgent(person_id=person.id, is_active=True, title="Support Agent")
+    db_session.add(agent)
+    db_session.flush()
+
+    db_session.add(CrmAgentTeam(agent_id=agent.id, team_id=team.id, is_active=True))
+    db_session.add(
+        AgentPresence(
+            agent_id=agent.id,
+            status=status,
+            manual_override_status=None,
+            last_seen_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+    return agent
 
 
 def _make_config(db_session, *, scope_key, team_id=None, exclude_campaign_attribution=True):
@@ -149,6 +172,107 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
     assert conversation.status == ConversationStatus.open
     assert assignment is not None
     assert assignment.team_id == team.id
+
+
+def test_process_pending_intake_assigns_agents_round_robin(db_session, monkeypatch):
+    team = CrmTeam(name="Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    first_agent = _make_agent(db_session, team, label="First", status=AgentPresenceStatus.online)
+    second_agent = _make_agent(db_session, team, label="Second", status=AgentPresenceStatus.away)
+
+    widget_id = str(uuid.uuid4())
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+
+    conversation_one = _make_conversation(db_session, _make_person(db_session))
+    message_one = _make_message(db_session, conversation_one, metadata={"widget_config_id": widget_id})
+    process_pending_intake(
+        db_session,
+        conversation=conversation_one,
+        message=message_one,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    conversation_two = _make_conversation(db_session, _make_person(db_session))
+    message_two = _make_message(db_session, conversation_two, metadata={"widget_config_id": widget_id})
+    process_pending_intake(
+        db_session,
+        conversation=conversation_two,
+        message=message_two,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    assignments = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .filter(ConversationAssignment.conversation_id.in_([conversation_one.id, conversation_two.id]))
+        .order_by(ConversationAssignment.created_at.asc())
+        .all()
+    )
+
+    assert len(assignments) == 2
+    assert assignments[0].team_id == team.id
+    assert assignments[1].team_id == team.id
+    assert assignments[0].agent_id == first_agent.id
+    assert assignments[1].agent_id == second_agent.id
+
+
+def test_process_pending_intake_ignores_offline_agents_for_round_robin(db_session, monkeypatch):
+    team = CrmTeam(name="Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    online_agent = _make_agent(db_session, team, label="Online", status=AgentPresenceStatus.online)
+    _make_agent(db_session, team, label="Offline", status=AgentPresenceStatus.offline)
+
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+
+    process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    assert assignment is not None
+    assert assignment.team_id == team.id
+    assert assignment.agent_id == online_agent.id
 
 
 def test_process_pending_intake_sends_followup_when_uncertain(db_session, monkeypatch):
