@@ -4,7 +4,7 @@
 {% block title %}Support Tickets - Admin{% endblock %}
 
 {% block content %}
-{{ ambient_background("amber", "orange") }}
+{{ ambient_background("rose", "pink") }}
 
 <div class="relative space-y-6">
     {# Page Header #}
@@ -18,11 +18,11 @@
         title="Support Tickets",
         subtitle="Manage customer support requests and issues",
         icon=ticket_icon,
-        color="amber",
-        color2="orange"
+        color="rose",
+        color2="pink"
     ) %}
         {% if current_user and (('admin' in (current_user.roles or [])) or ('support:ticket:create' in (current_user.permissions or []))) %}
-        {{ action_button("New Ticket", "/admin/support/tickets/create", icon_plus(), "primary", "amber", "orange") }}
+        {{ action_button("New Ticket", "/admin/support/tickets/create", icon_plus(), "primary", "rose", "pink") }}
         {% endif %}
     {% endcall %}
 
@@ -73,7 +73,7 @@
             <input type="hidden" name="filters" value="{{ filters or '' }}" />
             <div class="w-full">
                 <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Tickets</label>
-                {{ search_input("search", search or '', "Search by ticket ID, title, or description...", "amber", {"hx-get": "/admin/support/tickets", "hx-target": "#tickets-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+                {{ search_input("search", search or '', "Search by ticket ID, title, or description...", "rose", {"hx-get": "/admin/support/tickets", "hx-target": "#tickets-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
             </div>
             {% if subscriber %}
             <input type="hidden" name="subscriber" value="{{ subscriber }}" />
@@ -92,34 +92,34 @@
                         {"value": "resolved", "label": "Resolved"},
                         {"value": "closed", "label": "Closed"},
                         {"value": "canceled", "label": "Canceled"}
-                    ], status or '', "Status", "amber") }}
+                    ], status or '', "Status", "rose") }}
                 </div>
                 <div class="w-full">
                     {% set type_filter_options = [{"value": "", "label": "All Ticket Types"}] %}
                     {% for item in ticket_type_options or [] %}
                         {% set _ = type_filter_options.append({"value": item, "label": item}) %}
                     {% endfor %}
-                    {{ filter_select("ticket_type", type_filter_options, ticket_type or '', "Ticket Type", "amber") }}
+                    {{ filter_select("ticket_type", type_filter_options, ticket_type or '', "Ticket Type", "rose") }}
                 </div>
                 <div class="w-full">
                     {{ filter_select("assigned", [
                         {"value": "", "label": "All Assignees"},
                         {"value": "me", "label": "Assigned to Me"}
-                    ], assigned or '', "Assigned", "amber") }}
+                    ], assigned or '', "Assigned", "rose") }}
                 </div>
                 <div class="w-full">
                     {% set pm_filter_options = [{"value": "", "label": "All Project Managers"}, {"value": "me", "label": "Me"}] %}
                     {% for option in pm_options or [] %}
                         {% set _ = pm_filter_options.append(option) %}
                     {% endfor %}
-                    {{ filter_select("pm", pm_filter_options, pm or '', "PM", "amber") }}
+                    {{ filter_select("pm", pm_filter_options, pm or '', "PM", "rose") }}
                 </div>
                 <div class="w-full">
                     {% set spc_filter_options = [{"value": "", "label": "All Site Coordinators"}, {"value": "me", "label": "Me"}] %}
                     {% for option in spc_options or [] %}
                         {% set _ = spc_filter_options.append(option) %}
                     {% endfor %}
-                    {{ filter_select("spc", spc_filter_options, spc or '', "SPC", "amber") }}
+                    {{ filter_select("spc", spc_filter_options, spc or '', "SPC", "rose") }}
                 </div>
                 <div class="flex items-end">
                     <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">

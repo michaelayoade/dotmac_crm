@@ -16,10 +16,7 @@
         })();
     </script>
 
-    <!-- Premium Typography - DM Sans for headings, Inter for body -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Typography: Outfit (display) + Plus Jakarta Sans (body) — self-hosted in static/fonts/ -->
 
     {% if request.state.branding is defined and request.state.branding.favicon_url %}
     <link rel="icon" href="{{ request.state.branding.favicon_url }}">
