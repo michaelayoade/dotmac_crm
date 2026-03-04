@@ -63,9 +63,9 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
         # Link request_id to the active OTel span (if any).
         try:
-            from opentelemetry import trace as otel_trace
+            from opentelemetry.trace import get_current_span
 
-            span = otel_trace.get_current_span()
+            span = get_current_span()
             if span and span.is_recording():
                 span.set_attribute("app.request_id", request_id)
         except Exception:  # nosec B110 — OTel span attribute is best-effort

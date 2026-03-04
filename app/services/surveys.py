@@ -487,21 +487,16 @@ class SurveyResponseManager:
         survey.total_responses = (survey.total_responses or 0) + 1
 
         # Recalculate avg_rating
-        rating_rows = (
-            db.query(SurveyResponse.rating)
+        avg_rating = (
+            db.query(func.avg(SurveyResponse.rating))
             .filter(
                 SurveyResponse.survey_id == sid,
                 SurveyResponse.rating.isnot(None),
             )
-            .all()
+            .scalar()
         )
-        all_ratings = [
-            row[0] if isinstance(row, tuple) else getattr(row, "rating", row)
-            for row in rating_rows
-            if (row[0] if isinstance(row, tuple) else getattr(row, "rating", row)) is not None
-        ]
-        if all_ratings:
-            survey.avg_rating = round(sum(all_ratings) / len(all_ratings), 2)
+        if avg_rating is not None:
+            survey.avg_rating = round(float(avg_rating), 2)
 
         # Recalculate NPS from first NPS-type question
         for q in questions:
