@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import uuid
 
 from app.models.crm.conversation import Conversation, ConversationTag
@@ -13,6 +14,11 @@ from app.services.crm.inbox.labels import (
     list_managed_labels,
 )
 from app.web.admin import crm_inbox_settings
+
+
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
 
 
 def _person(db_session) -> Person:
@@ -66,7 +72,7 @@ def test_enrich_formatted_conversations_with_labels_uses_catalog_color(db_sessio
 def test_web_label_create_route_redirects_success(db_session):
     req = _Req(roles=["admin"])
 
-    response = asyncio.run(
+    response = _run_async(
         crm_inbox_settings.create_inbox_label(
             req,
             name="Escalation",

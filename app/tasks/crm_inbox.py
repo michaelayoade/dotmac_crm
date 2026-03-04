@@ -13,7 +13,7 @@ def auto_resolve_idle_conversations_task():
     import logging
     import time
 
-    from app.telemetry import observe_job
+    from app.metrics import observe_job
 
     logger = logging.getLogger(__name__)
     start = time.monotonic()
@@ -47,7 +47,7 @@ def escalate_expired_ai_intake_conversations_task(limit: int = 200):
     import logging
     import time
 
-    from app.telemetry import observe_job
+    from app.metrics import observe_job
 
     logger = logging.getLogger(__name__)
     start = time.monotonic()

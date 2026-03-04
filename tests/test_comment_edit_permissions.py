@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -10,6 +11,11 @@ from app.services import tickets as tickets_service
 from app.web import admin as admin_web
 from app.web.admin import projects as projects_web
 from app.web.admin import tickets as tickets_web
+
+
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
 
 
 class _FakeRequest:
@@ -105,7 +111,7 @@ def test_project_comment_edit_requires_comment_author(db_session, project, perso
         {"body": "Hacked", "mentions": "[]"},
     )
     monkeypatch.setattr(admin_web, "get_current_user", lambda _request: {"person_id": str(other_person.id)})
-    unauthorized_response = asyncio.run(
+    unauthorized_response = _run_async(
         projects_web.project_comment_edit(unauthorized_request, str(project.id), str(comment.id), db=db_session)
     )
 
@@ -119,7 +125,7 @@ def test_project_comment_edit_requires_comment_author(db_session, project, perso
         {"body": "Updated project comment", "mentions": "[]"},
     )
     monkeypatch.setattr(admin_web, "get_current_user", lambda _request: {"person_id": str(person.id)})
-    authorized_response = asyncio.run(
+    authorized_response = _run_async(
         projects_web.project_comment_edit(authorized_request, str(project.id), str(comment.id), db=db_session)
     )
 

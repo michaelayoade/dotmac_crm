@@ -505,7 +505,7 @@ def _select_agent_for_team(db: Session, team_id) -> Any | None:
         if row[0] is not None
     }
 
-    ranked: list[tuple[int, int, datetime, Any]] = []
+    ranked: list[tuple[int, int, int, Any]] = []
     for agent, presence in candidates:
         effective_status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
         if effective_status not in {AgentPresenceStatus.online, AgentPresenceStatus.away}:
