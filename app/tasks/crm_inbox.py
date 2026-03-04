@@ -2,7 +2,7 @@ from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.schemas.crm.inbox import InboxSendRequest
 from app.services.crm import inbox as inbox_service
-from app.services.crm.ai_intake import escalate_expired_pending_intakes
+from app.services.crm.ai_intake import escalate_expired_pending_intakes, retry_team_only_ai_assignments
 from app.services.crm.inbox.outbound import TransientOutboundError
 from app.services.crm.inbox.outbox import cleanup_old_outbox, list_due_outbox_ids, process_outbox_item
 
@@ -13,7 +13,7 @@ def auto_resolve_idle_conversations_task():
     import logging
     import time
 
-    from app.telemetry import observe_job
+    from app.metrics import observe_job
 
     logger = logging.getLogger(__name__)
     start = time.monotonic()
@@ -47,7 +47,7 @@ def escalate_expired_ai_intake_conversations_task(limit: int = 200):
     import logging
     import time
 
-    from app.telemetry import observe_job
+    from app.metrics import observe_job
 
     logger = logging.getLogger(__name__)
     start = time.monotonic()
@@ -70,6 +70,37 @@ def escalate_expired_ai_intake_conversations_task(limit: int = 200):
     finally:
         session.close()
         observe_job("escalate_expired_ai_intake", status, time.monotonic() - start)
+
+
+@celery_app.task(name="app.tasks.crm_inbox.retry_team_only_ai_assignments")
+def retry_team_only_ai_assignments_task(limit: int = 200):
+    import logging
+    import time
+
+    from app.metrics import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("AI_INTAKE_ASSIGNMENT_RETRY_START")
+    try:
+        result = retry_team_only_ai_assignments(session, limit=limit)
+        logger.info(
+            "AI_INTAKE_ASSIGNMENT_RETRY_COMPLETE retried=%s assigned=%s skipped=%s errors=%s",
+            result.get("retried", 0),
+            result.get("assigned", 0),
+            result.get("skipped", 0),
+            len(result.get("errors", [])),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("retry_team_only_ai_assignments", status, time.monotonic() - start)
 
 
 @celery_app.task(

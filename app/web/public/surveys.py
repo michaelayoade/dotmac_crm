@@ -52,6 +52,7 @@ def _render_survey_form(
     invitation,
     status_code: int = 200,
     csrf_error: str | None = None,
+    form_error: str | None = None,
 ):
     csrf_token = generate_csrf_token()
     ctx = _base_ctx(
@@ -61,6 +62,7 @@ def _render_survey_form(
         questions=survey.questions or [],
         csrf_token=csrf_token,
         csrf_error=csrf_error,
+        form_error=form_error,
     )
     response = templates.TemplateResponse("public/surveys/respond.html", ctx, status_code=status_code)
     set_csrf_cookie(response, csrf_token)
@@ -75,6 +77,29 @@ def _csrf_token_valid(request: Request, form_data) -> bool:
     if not cookie_token or not isinstance(form_token, str):
         return False
     return secrets.compare_digest(cookie_token, form_token)
+
+
+def _collect_answers_and_validate_required(survey, form_data) -> tuple[dict, str | None]:
+    answers: dict[str, str] = {}
+    for q in survey.questions or []:
+        key = str(q.get("key", ""))
+        question_type = str(q.get("type") or q.get("question_type") or "")
+        required = bool(q.get("required", True))
+        raw_val = form_data.get(key)
+        val = raw_val.strip() if isinstance(raw_val, str) else raw_val
+
+        missing = val is None or val == ""
+        if question_type == "rating" and str(val or "").strip() in {"0", "0.0"}:
+            missing = True
+
+        if required and missing:
+            label = str(q.get("label") or "This field")
+            return {}, f"{label} is required."
+
+        if not missing:
+            answers[key] = val
+
+    return answers, None
 
 
 # ── Public (slug-based, anonymous) ────────────────────────────────
@@ -109,12 +134,15 @@ async def public_survey_submit(request: Request, slug: str, db: Session = Depend
             csrf_error="Invalid CSRF token. Please refresh the page and try again.",
         )
 
-    answers = {}
-    for q in survey.questions or []:
-        key = q.get("key", "")
-        val = form.get(key)
-        if val is not None and val != "":
-            answers[key] = val
+    answers, form_error = _collect_answers_and_validate_required(survey, form)
+    if form_error:
+        return _render_survey_form(
+            request,
+            survey=survey,
+            invitation=None,
+            status_code=400,
+            form_error=form_error,
+        )
 
     survey_responses.submit(db, str(survey.id), answers)
 
@@ -180,12 +208,15 @@ async def tracked_survey_submit(request: Request, token: str, db: Session = Depe
             csrf_error="Invalid CSRF token. Please refresh the page and try again.",
         )
 
-    answers = {}
-    for q in survey.questions or []:
-        key = q.get("key", "")
-        val = form.get(key)
-        if val is not None and val != "":
-            answers[key] = val
+    answers, form_error = _collect_answers_and_validate_required(survey, form)
+    if form_error:
+        return _render_survey_form(
+            request,
+            survey=survey,
+            invitation=invitation,
+            status_code=400,
+            form_error=form_error,
+        )
 
     survey_responses.submit(
         db,

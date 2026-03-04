@@ -461,7 +461,9 @@ class SurveyResponseManager:
                 val = answers.get(q.get("key", ""))
                 if val is not None:
                     with contextlib.suppress(ValueError, TypeError):
-                        rating = max(1, min(5, int(val)))
+                        parsed_rating = int(val)
+                        if 1 <= parsed_rating <= 5:
+                            rating = parsed_rating
                 break
 
         response = SurveyResponse(
@@ -485,17 +487,21 @@ class SurveyResponseManager:
         survey.total_responses = (survey.total_responses or 0) + 1
 
         # Recalculate avg_rating
-        all_ratings = [
-            r.rating
-            for r in db.query(SurveyResponse.rating)
+        rating_rows = (
+            db.query(SurveyResponse.rating)
             .filter(
                 SurveyResponse.survey_id == sid,
                 SurveyResponse.rating.isnot(None),
             )
             .all()
+        )
+        all_ratings = [
+            row[0] if isinstance(row, tuple) else getattr(row, "rating", row)
+            for row in rating_rows
+            if (row[0] if isinstance(row, tuple) else getattr(row, "rating", row)) is not None
         ]
         if all_ratings:
-            survey.avg_rating = round(sum(r[0] for r in all_ratings) / len(all_ratings), 2)
+            survey.avg_rating = round(sum(all_ratings) / len(all_ratings), 2)
 
         # Recalculate NPS from first NPS-type question
         for q in questions:

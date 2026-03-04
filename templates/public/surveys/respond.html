@@ -29,8 +29,8 @@
 
         <!-- Main -->
         <main class="flex-1 py-8 sm:py-12">
-            <div class="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
-                <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div class="mx-auto max-w-2xl px-4 pb-28 sm:px-6 sm:pb-32 lg:px-8">
+                <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                     <!-- Survey Header -->
                     <div class="border-b border-slate-100 px-6 py-5">
                         <h1 class="text-xl font-bold text-slate-900">{{ survey.name }}</h1>
@@ -40,7 +40,8 @@
                     </div>
 
                     <!-- Survey Form -->
-                    <form method="POST"
+                    <form id="public-survey-form"
+                          method="POST"
                           action="{% if invitation %}/s/t/{{ invitation.token }}/submit{% else %}/s/{{ survey.public_slug }}/submit{% endif %}"
                           x-data="surveyForm()"
                           @submit.prevent="validateAndSubmit($el)"
@@ -52,6 +53,14 @@
                         <div class="px-6 py-5">
                             <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
                                 {{ csrf_error }}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if form_error %}
+                        <div class="px-6 pt-5">
+                            <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                {{ form_error }}
                             </div>
                         </div>
                         {% endif %}
@@ -121,9 +130,15 @@
                         {% endfor %}
 
                         <!-- Submit -->
-                        <div class="px-6 py-5">
+                        <div class="border-t border-slate-200 bg-white/95 px-6 py-5 backdrop-blur supports-[backdrop-filter]:bg-white/80"
+                             style="border-top: 1px solid #e2e8f0; background: #ffffff; padding: 20px 24px 24px;">
+                            <p class="mb-3 text-xs font-medium uppercase tracking-[0.18em] text-slate-400"
+                               style="margin: 0 0 12px 0; color: #64748b; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;">
+                                Final Step
+                            </p>
                             <button type="submit"
-                                    class="w-full rounded-lg bg-teal-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 transition-colors">
+                                    class="flex w-full items-center justify-center rounded-xl bg-teal-600 px-6 py-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+                                    style="display: flex; width: 100%; align-items: center; justify-content: center; border: 0; border-radius: 14px; background: #0f766e; color: #ffffff; padding: 14px 18px; font-size: 14px; font-weight: 700; line-height: 1.2; cursor: pointer; box-shadow: 0 8px 20px rgba(15, 118, 110, 0.22);">
                                 Submit Response
                             </button>
                         </div>
