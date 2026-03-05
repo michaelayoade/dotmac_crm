@@ -1,4 +1,4 @@
-from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag
+from app.models.crm.conversation import Conversation, ConversationTag
 from app.models.crm.enums import AgentPresenceStatus, ConversationPriority, ConversationStatus
 from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent
