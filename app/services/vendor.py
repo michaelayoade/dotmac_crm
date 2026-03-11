@@ -1,3 +1,4 @@
+import contextlib
 import html
 import json
 import re
@@ -7,7 +8,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.domain_settings import SettingDomain
 from app.models.network import FiberSegment, FiberSegmentType
@@ -15,6 +16,7 @@ from app.models.person import Person
 from app.models.projects import Project
 from app.models.qualification import BuildoutProject
 from app.models.vendor import (
+    AsBuiltLineItem,
     AsBuiltRoute,
     AsBuiltRouteStatus,
     InstallationProject,
@@ -25,11 +27,13 @@ from app.models.vendor import (
     ProposedRouteRevision,
     ProposedRouteRevisionStatus,
     QuoteLineItem,
+    VariationType,
     Vendor,
     VendorAssignmentType,
     VendorUser,
 )
 from app.schemas.vendor import (
+    AsBuiltLineItemInput,
     AsBuiltRouteCreate,
     InstallationProjectCreate,
     InstallationProjectNoteCreate,
@@ -85,6 +89,32 @@ def parse_quote_comment_body(raw: str) -> dict[str, str | None]:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _build_variation_event_payload(as_built: AsBuiltRoute, action: str) -> dict:
+    """Build deterministic event payload for variation lifecycle events."""
+    project = as_built.project
+    parent_project = project.project if project else None
+    # Resolve work order ref from the installation project
+    work_order_ref = as_built.work_order_ref
+    return {
+        "variation_id": str(as_built.id),
+        "variation_version": as_built.version,
+        "variation_type": as_built.variation_type.value if as_built.variation_type else None,
+        "status": as_built.status.value,
+        "action": action,
+        "installation_project_id": str(as_built.project_id),
+        "project_id": str(project.project_id) if project else None,
+        "project_name": parent_project.name if parent_project else None,
+        "project_code": parent_project.code if parent_project else None,
+        "vendor_id": str(project.assigned_vendor_id) if project and project.assigned_vendor_id else None,
+        "work_order_ref": work_order_ref,
+        "erp_reference": as_built.erp_reference,
+        "actual_length_meters": as_built.actual_length_meters,
+        "submitted_at": as_built.submitted_at.isoformat() if as_built.submitted_at else None,
+        "reviewed_at": as_built.reviewed_at.isoformat() if as_built.reviewed_at else None,
+        "idempotency_key": f"variation:{as_built.id}:v{as_built.version}",
+    }
 
 
 def _ensure_vendor(db: Session, vendor_id: str) -> Vendor:
@@ -152,6 +182,14 @@ def _ensure_as_built(db: Session, as_built_id: str) -> AsBuiltRoute:
     if not as_built:
         raise HTTPException(status_code=404, detail="As-built route not found")
     return as_built
+
+
+def _as_built_line_item_amount(payload: AsBuiltLineItemInput) -> Decimal:
+    quantity = payload.quantity if payload.quantity is not None else Decimal("1.000")
+    unit_price = payload.unit_price if payload.unit_price is not None else Decimal("0.00")
+    if payload.amount is not None:
+        return round_money(payload.amount)
+    return round_money(quantity * unit_price)
 
 
 def _geojson_to_geom(geojson: dict) -> object:
@@ -1011,6 +1049,8 @@ class AsBuiltRoutes(ListResponseMixin):
     def create(db: Session, payload: AsBuiltRouteCreate, vendor_id: str, submitted_by_person_id: str | None):
         project = _ensure_installation_project(db, str(payload.project_id))
         vendor = _ensure_vendor(db, vendor_id)
+        if not payload.geojson and not payload.line_items:
+            raise HTTPException(status_code=400, detail="Provide a route or at least one revised line item")
         if not ProjectQuotes.has_submitted_for_vendor_project(db, str(project.id), vendor_id):
             raise HTTPException(
                 status_code=403,
@@ -1029,39 +1069,82 @@ class AsBuiltRoutes(ListResponseMixin):
             revision = _ensure_route_revision(db, str(payload.proposed_revision_id))
             if revision.quote.project_id != project.id:
                 raise HTTPException(status_code=400, detail="Revision does not belong to project")
+        # Compute version: count existing as-built submissions for this project + 1
+        existing_count = (
+            db.query(func.count(AsBuiltRoute.id))
+            .filter(AsBuiltRoute.project_id == project.id)
+            .scalar()
+        ) or 0
+        next_version = existing_count + 1
+
         as_built = AsBuiltRoute(
             project_id=project.id,
             proposed_revision_id=coerce_uuid(payload.proposed_revision_id) if payload.proposed_revision_id else None,
-            route_geom=_geojson_to_geom(payload.geojson),
+            route_geom=_geojson_to_geom(payload.geojson) if payload.geojson else None,
             actual_length_meters=payload.actual_length_meters,
             submitted_at=_now(),
             submitted_by_person_id=coerce_uuid(submitted_by_person_id) if submitted_by_person_id else None,
+            variation_type=payload.variation_type,
+            variation_reason=(payload.variation_reason or "").strip() or None,
+            version=next_version,
+            work_order_ref=(payload.work_order_ref or "").strip() or None,
         )
         db.add(as_built)
+        db.flush()
+
+        for line_item in payload.line_items:
+            db.add(
+                AsBuiltLineItem(
+                    as_built_id=as_built.id,
+                    item_type=line_item.item_type,
+                    description=line_item.description,
+                    cable_type=line_item.cable_type,
+                    fiber_count=line_item.fiber_count,
+                    splice_count=line_item.splice_count,
+                    quantity=line_item.quantity,
+                    unit_price=line_item.unit_price,
+                    amount=_as_built_line_item_amount(line_item),
+                    notes=line_item.notes,
+                    is_active=line_item.is_active,
+                )
+            )
         db.commit()
         db.refresh(as_built)
+
+        from app.services.events.dispatcher import emit_event
+        from app.services.events.types import EventType
+
+        emit_event(
+            db,
+            EventType.variation_submitted,
+            _build_variation_event_payload(as_built, "submitted"),
+            actor=f"vendor:{vendor_id}",
+            project_id=as_built.project.project_id,
+        )
         return as_built
 
     @staticmethod
     def accept_and_convert(db: Session, as_built_id: str, reviewer_id: str):
         as_built = _ensure_as_built(db, as_built_id)
         reviewer = _ensure_person(db, reviewer_id)
-        project_name = as_built.project.project.name
-        project_code = as_built.project.project.code
-        segment_name = f"Drop-{project_code or project_name}"
-        segment = FiberSegment(
-            name=segment_name,
-            segment_type=FiberSegmentType.drop,
-            route_geom=as_built.route_geom,
-            length_m=as_built.actual_length_meters,
-        )
-        db.add(segment)
-        db.flush()
+        segment = None
+        if as_built.route_geom is not None:
+            project_name = as_built.project.project.name
+            project_code = as_built.project.project.code
+            segment_name = f"Drop-{project_code or project_name}"
+            segment = FiberSegment(
+                name=segment_name,
+                segment_type=FiberSegmentType.drop,
+                route_geom=as_built.route_geom,
+                length_m=as_built.actual_length_meters,
+            )
+            db.add(segment)
+            db.flush()
 
         as_built.status = AsBuiltRouteStatus.accepted
         as_built.reviewed_at = _now()
         as_built.reviewed_by_person_id = coerce_uuid(reviewer_id)
-        as_built.fiber_segment_id = segment.id
+        as_built.fiber_segment_id = segment.id if segment else None
         as_built.project.status = InstallationProjectStatus.verified
 
         reviewer_name = f"{reviewer.first_name} {reviewer.last_name}".strip()
@@ -1083,7 +1166,51 @@ class AsBuiltRoutes(ListResponseMixin):
 
         db.commit()
         db.refresh(as_built)
+
+        from app.services.events.dispatcher import emit_event
+        from app.services.events.types import EventType
+
+        emit_event(
+            db,
+            EventType.variation_approved,
+            _build_variation_event_payload(as_built, "accepted"),
+            actor=f"person:{reviewer_id}",
+            project_id=as_built.project.project_id,
+        )
         return as_built
+
+    @staticmethod
+    def reject(db: Session, as_built_id: str, reviewer_id: str, review_notes: str | None):
+        as_built = _ensure_as_built(db, as_built_id)
+        _ensure_person(db, reviewer_id)
+        as_built.status = AsBuiltRouteStatus.rejected
+        as_built.reviewed_at = _now()
+        as_built.reviewed_by_person_id = coerce_uuid(reviewer_id)
+        as_built.review_notes = (review_notes or "").strip() or None
+        db.commit()
+        db.refresh(as_built)
+
+        from app.services.events.dispatcher import emit_event
+        from app.services.events.types import EventType
+
+        emit_event(
+            db,
+            EventType.variation_rejected,
+            _build_variation_event_payload(as_built, "rejected"),
+            actor=f"person:{reviewer_id}",
+            project_id=as_built.project.project_id,
+        )
+        return as_built
+
+    @staticmethod
+    def delete(db: Session, as_built_id: str):
+        as_built = _ensure_as_built(db, as_built_id)
+        if as_built.report_file_path:
+            with contextlib.suppress(OSError):
+                Path(as_built.report_file_path).unlink()
+        db.delete(as_built)
+        db.commit()
+        return True
 
     @staticmethod
     def get(db: Session, as_built_id: str):
@@ -1099,7 +1226,12 @@ class AsBuiltRoutes(ListResponseMixin):
         limit: int,
         offset: int,
     ):
-        query = db.query(AsBuiltRoute)
+        query = db.query(AsBuiltRoute).options(
+            joinedload(AsBuiltRoute.project).joinedload(InstallationProject.project),
+            selectinload(AsBuiltRoute.line_items),
+            joinedload(AsBuiltRoute.submitted_by),
+            joinedload(AsBuiltRoute.reviewed_by),
+        )
         if project_id:
             query = query.filter(AsBuiltRoute.project_id == coerce_uuid(project_id))
         if status:

@@ -11,6 +11,7 @@ from app.models.vendor import (
     InstallationProjectStatus,
     ProjectQuoteStatus,
     ProposedRouteRevisionStatus,
+    VariationType,
     VendorAssignmentType,
 )
 
@@ -228,13 +229,46 @@ class AsBuiltRouteBase(BaseModel):
     fiber_segment_id: UUID | None = None
     report_file_name: str | None = None
     report_generated_at: datetime | None = None
+    variation_type: VariationType | None = None
+    variation_reason: str | None = None
+    version: int = 1
+    work_order_ref: str | None = Field(default=None, max_length=120)
+    erp_sync_status: str | None = Field(default=None, max_length=40)
+    erp_reference: str | None = Field(default=None, max_length=120)
+
+
+class AsBuiltLineItemInput(BaseModel):
+    item_type: str | None = Field(default=None, max_length=80)
+    description: str | None = None
+    cable_type: str | None = Field(default=None, max_length=120)
+    fiber_count: int | None = None
+    splice_count: int | None = None
+    quantity: Decimal = Field(default=Decimal("1.000"), ge=1)
+    unit_price: Decimal = Decimal("0.00")
+    amount: Decimal | None = None
+    notes: str | None = None
+    is_active: bool = True
+
+
+class AsBuiltLineItemRead(AsBuiltLineItemInput):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    as_built_id: UUID
+    amount: Decimal
+    created_at: datetime
+    updated_at: datetime
 
 
 class AsBuiltRouteCreate(BaseModel):
     project_id: UUID
     proposed_revision_id: UUID | None = None
-    geojson: dict
+    geojson: dict | None = None
     actual_length_meters: float | None = None
+    line_items: list[AsBuiltLineItemInput] = Field(default_factory=list)
+    variation_type: VariationType | None = None
+    variation_reason: str | None = None
+    work_order_ref: str | None = Field(default=None, max_length=120)
 
 
 class AsBuiltRouteRead(AsBuiltRouteBase):
@@ -243,6 +277,7 @@ class AsBuiltRouteRead(AsBuiltRouteBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    line_items: list[AsBuiltLineItemRead] = Field(default_factory=list)
 
 
 class InstallationProjectNoteCreate(BaseModel):
