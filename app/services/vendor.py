@@ -1164,6 +1164,10 @@ class AsBuiltRoutes(ListResponseMixin):
         as_built.report_file_name = filename
         as_built.report_generated_at = _now()
 
+        # Mark ERP sync pending so approval is not considered accounting-complete
+        # until ERP confirms receipt of the variation/amendment.
+        as_built.erp_sync_status = "pending"
+
         db.commit()
         db.refresh(as_built)
 

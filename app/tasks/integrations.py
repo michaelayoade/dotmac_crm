@@ -212,6 +212,47 @@ def sync_dotmac_erp_inventory():
         observe_job("dotmac_erp_inventory_sync", status, duration)
 
 
+def _update_variation_erp_status(
+    session: "Session",
+    project_uuid: object,
+    new_status: str,
+    logger: object,
+) -> None:
+    """Update erp_sync_status on pending as-built variations linked to a project.
+
+    Called after a project sync succeeds or fails so that variation approval
+    records reflect the ERP outcome (accounting-safe orchestration).
+    """
+    from datetime import UTC, datetime
+
+    from app.models.vendor import AsBuiltRoute, InstallationProject
+
+    try:
+        pending_variations = (
+            session.query(AsBuiltRoute)
+            .join(InstallationProject, AsBuiltRoute.project_id == InstallationProject.id)
+            .filter(InstallationProject.project_id == project_uuid)
+            .filter(AsBuiltRoute.erp_sync_status == "pending")
+            .all()
+        )
+        if not pending_variations:
+            return
+        now = datetime.now(UTC)
+        for variation in pending_variations:
+            variation.erp_sync_status = new_status
+            variation.erp_sync_at = now
+        session.commit()
+        logger.info(
+            "VARIATION_ERP_STATUS_UPDATED project_id=%s count=%d status=%s",
+            project_uuid,
+            len(pending_variations),
+            new_status,
+        )
+    except Exception as exc:
+        session.rollback()
+        logger.warning("VARIATION_ERP_STATUS_UPDATE_FAILED project_id=%s error=%s", project_uuid, exc)
+
+
 @celery_app.task(
     name="app.tasks.integrations.sync_dotmac_erp_entity",
     bind=True,
@@ -331,6 +372,9 @@ def sync_dotmac_erp_entity(self, entity_type: str, entity_id: str):
                 entity_type,
                 entity_id,
             )
+            # Update erp_sync_status on pending variations linked to this project
+            if entity_type == "project":
+                _update_variation_erp_status(session, entity_uuid, "success", logger)
         else:
             status = "error"
             logger.warning(
@@ -339,6 +383,8 @@ def sync_dotmac_erp_entity(self, entity_type: str, entity_id: str):
                 entity_id,
                 result.error_type if result else None,
             )
+            if entity_type == "project":
+                _update_variation_erp_status(session, entity_uuid, "failed", logger)
 
         return {
             "success": bool(result.success if result else False),

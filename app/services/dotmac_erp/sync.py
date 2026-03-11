@@ -90,6 +90,7 @@ class DotMacERPSync:
         TicketStatus.on_hold: "active",
         TicketStatus.resolved: "completed",
         TicketStatus.closed: "completed",
+        TicketStatus.merged: "completed",
         TicketStatus.canceled: "canceled",
     }
 
@@ -194,7 +195,43 @@ class DotMacERPSync:
             payload["customer_name"] = project.subscriber.display_name
             payload["customer_omni_id"] = str(project.subscriber.id)
 
+        # Include variation/amendment metadata for ERP change-order linkage
+        variations = self._get_project_variations(project.id)
+        if variations:
+            payload["variations"] = variations
+
         return payload
+
+    def _get_project_variations(self, project_id: object) -> list[dict]:
+        """Fetch accepted/pending variations for a project for ERP amendment linkage."""
+        from app.models.vendor import AsBuiltRoute, AsBuiltRouteStatus, InstallationProject
+
+        rows = (
+            self.db.query(AsBuiltRoute)
+            .join(InstallationProject, AsBuiltRoute.project_id == InstallationProject.id)
+            .filter(InstallationProject.project_id == project_id)
+            .filter(AsBuiltRoute.status.in_([AsBuiltRouteStatus.accepted, AsBuiltRouteStatus.submitted]))
+            .order_by(AsBuiltRoute.version.desc())
+            .limit(50)
+            .all()
+        )
+        return [
+            {
+                "variation_id": str(row.id),
+                "variation_version": row.version,
+                "variation_type": row.variation_type.value if row.variation_type else None,
+                "variation_reason": self._safe_text(row.variation_reason, 500),
+                "status": row.status.value,
+                "work_order_ref": row.work_order_ref,
+                "erp_reference": row.erp_reference,
+                "actual_length_meters": row.actual_length_meters,
+                "submitted_at": self._format_iso(row.submitted_at),
+                "reviewed_at": self._format_iso(row.reviewed_at),
+                "idempotency_key": f"variation:{row.id}:v{row.version}",
+                "amendment_required": row.variation_type is not None,
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _format_iso(value: datetime | None) -> str | None:
@@ -836,7 +873,7 @@ class DotMacERPSync:
         tickets = (
             self.db.query(Ticket)
             .filter(Ticket.is_active.is_(True))
-            .filter(Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled]))
+            .filter(Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged]))
             .order_by(Ticket.updated_at.desc())
             .limit(limit)
             .all()
