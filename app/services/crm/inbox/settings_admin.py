@@ -69,6 +69,7 @@ def update_notification_settings(
     reminder_repeat_enabled: str | None,
     reminder_repeat_interval_seconds: str,
     notification_auto_dismiss_seconds: str,
+    ai_assignment_retry_interval_seconds: str,
     auto_resolve_enabled: str | None = None,
     auto_resolve_days: str | None = None,
     roles: list[str] | None = None,
@@ -89,6 +90,10 @@ def update_notification_settings(
         auto_dismiss_seconds = _coerce_int(
             "crm_inbox_notification_auto_dismiss_seconds",
             notification_auto_dismiss_seconds,
+        )
+        ai_assignment_retry_interval = _coerce_int(
+            "crm_inbox_ai_assignment_retry_interval_seconds",
+            ai_assignment_retry_interval_seconds,
         )
         settings_service = domain_settings_service.DomainSettings(SettingDomain.notification)
 
@@ -143,6 +148,22 @@ def update_notification_settings(
             settings_service.upsert_by_key(
                 db,
                 "crm_inbox_notification_auto_dismiss_seconds",
+                DomainSettingUpdate(
+                    value_type=SettingValueType.integer,
+                    value_text=value_text,
+                    value_json=_coerce_value_json(value_json),
+                ),
+            )
+
+        spec = settings_spec.get_spec(
+            SettingDomain.notification,
+            "crm_inbox_ai_assignment_retry_interval_seconds",
+        )
+        if spec:
+            value_text, value_json = settings_spec.normalize_for_db(spec, ai_assignment_retry_interval)
+            settings_service.upsert_by_key(
+                db,
+                "crm_inbox_ai_assignment_retry_interval_seconds",
                 DomainSettingUpdate(
                     value_type=SettingValueType.integer,
                     value_text=value_text,

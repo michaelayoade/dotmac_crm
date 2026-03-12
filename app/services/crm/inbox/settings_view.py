@@ -121,6 +121,11 @@ def build_inbox_settings_context(
     notification_auto_dismiss_seconds = resolve_value(
         db, SettingDomain.notification, "crm_inbox_notification_auto_dismiss_seconds"
     )
+    ai_assignment_retry_interval_seconds = resolve_value(
+        db,
+        SettingDomain.notification,
+        "crm_inbox_ai_assignment_retry_interval_seconds",
+    )
     auto_resolve_enabled = resolve_value(db, SettingDomain.notification, "crm_inbox_auto_resolve_enabled")
     auto_resolve_days = resolve_value(db, SettingDomain.notification, "crm_inbox_auto_resolve_days")
     csat_enabled_by_target = get_csat_enabled_map(db)
@@ -278,6 +283,7 @@ def build_inbox_settings_context(
         "reminder_repeat_enabled": reminder_repeat_enabled,
         "reminder_repeat_interval_seconds": reminder_repeat_interval_seconds,
         "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
+        "ai_assignment_retry_interval_seconds": ai_assignment_retry_interval_seconds,
         "auto_resolve_enabled": auto_resolve_enabled,
         "auto_resolve_days": auto_resolve_days,
         "teams": teams,

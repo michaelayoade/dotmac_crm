@@ -128,6 +128,24 @@ def list_inbox_conversations(
             .distinct()
         )
         query = query.filter(~Conversation.id.in_(assigned_subq))
+    elif assignment_filter == "unreplied":
+        inbound_exists = (
+            db.query(Message.id)
+            .filter(Message.conversation_id == Conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .exists()
+        )
+        outbound_exists = (
+            db.query(Message.id)
+            .filter(Message.conversation_id == Conversation.id)
+            .filter(Message.direction == MessageDirection.outbound)
+            .exists()
+        )
+        query = (
+            query.filter(Conversation.status != ConversationStatus.resolved)
+            .filter(inbound_exists)
+            .filter(~outbound_exists)
+        )
     elif assignment_filter == "my_team":
         if not assigned_person_id:
             return []

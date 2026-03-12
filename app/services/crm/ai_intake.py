@@ -22,7 +22,7 @@ from app.models.crm.enums import (
     MessageDirection,
 )
 from app.models.crm.presence import AgentPresence
-from app.models.crm.team import CrmAgent, CrmAgentTeam
+from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.schemas.crm.ai_intake import (
     AiIntakeConfigCreate,
     AiIntakeConfigUpdate,
@@ -474,8 +474,14 @@ def _apply_mapping(db: Session, conversation: Conversation, mapping: AiIntakeDep
         )
 
 
+AI_INTAKE_RR_STATE_KEY = "ai_intake_rr"
+
+
 def _select_agent_for_team(db: Session, team_id) -> Any | None:
     team_uuid = coerce_uuid(team_id)
+    team = db.get(CrmTeam, team_uuid)
+    if not team or not team.is_active:
+        return None
 
     candidates = (
         db.query(CrmAgent, AgentPresence)
@@ -484,6 +490,7 @@ def _select_agent_for_team(db: Session, team_id) -> Any | None:
         .filter(CrmAgentTeam.team_id == team_uuid)
         .filter(CrmAgentTeam.is_active.is_(True))
         .filter(CrmAgent.is_active.is_(True))
+        .order_by(CrmAgent.created_at.asc(), CrmAgent.id.asc())
         .all()
     )
     if not candidates:
@@ -505,24 +512,39 @@ def _select_agent_for_team(db: Session, team_id) -> Any | None:
         if row[0] is not None
     }
 
-    ranked: list[tuple[int, int, int, Any]] = []
+    ranked: list[tuple[int, int, int, str, Any]] = []
+    agent_id_map: dict[str, Any] = {}
     for agent, presence in candidates:
         effective_status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
         if effective_status not in {AgentPresenceStatus.online, AgentPresenceStatus.away}:
             continue
+        agent_id = str(agent.id)
+        agent_id_map[agent_id] = agent.id
         availability_rank = 0 if effective_status == AgentPresenceStatus.online else 1
         active_load = active_assignment_counts.get(agent.id, 0)
-        last_seen_at = (
-            presence.last_seen_at.astimezone(UTC)
-            if presence and presence.last_seen_at is not None
-            else datetime.fromtimestamp(0, tz=UTC)
-        )
-        ranked.append((availability_rank, active_load, -int(last_seen_at.timestamp()), agent.id))
+        ranked.append((availability_rank, active_load, len(ranked), agent_id, agent.id))
 
     if not ranked:
         return None
     ranked.sort()
-    return ranked[0][3]
+
+    metadata = team.metadata_ if isinstance(team.metadata_, dict) else {}
+    rr_state = metadata.get(AI_INTAKE_RR_STATE_KEY)
+    if not isinstance(rr_state, dict):
+        rr_state = {}
+
+    eligible_agent_ids = [agent_id for _, _, _, agent_id, _ in ranked]
+    last_agent_id = str(rr_state.get("last_agent_id") or "").strip() or None
+    next_agent_id = eligible_agent_ids[0]
+    if last_agent_id and last_agent_id in eligible_agent_ids:
+        idx = eligible_agent_ids.index(last_agent_id)
+        next_agent_id = eligible_agent_ids[(idx + 1) % len(eligible_agent_ids)]
+
+    rr_state["last_agent_id"] = next_agent_id
+    metadata[AI_INTAKE_RR_STATE_KEY] = rr_state
+    team.metadata_ = metadata
+    db.flush()
+    return agent_id_map[next_agent_id]
 
 
 def _send_followup(
@@ -822,6 +844,77 @@ def escalate_expired_pending_intakes(db: Session, *, limit: int = 200) -> dict[s
     return {
         "processed": len(conversations),
         "escalated": escalated,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
+def retry_team_only_ai_assignments(db: Session, *, limit: int = 200) -> dict[str, Any]:
+    """Retry agent assignment for AI-routed conversations left on team queue only."""
+    if not _enabled_by_env():
+        return {"skipped": True, "reason": "disabled"}
+
+    rows = (
+        db.query(Conversation, ConversationAssignment)
+        .join(
+            ConversationAssignment,
+            ConversationAssignment.conversation_id == Conversation.id,
+        )
+        .filter(Conversation.is_active.is_(True))
+        .filter(ConversationAssignment.is_active.is_(True))
+        .filter(ConversationAssignment.team_id.isnot(None))
+        .filter(ConversationAssignment.agent_id.is_(None))
+        .order_by(Conversation.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    retried = 0
+    assigned = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for conversation, assignment in rows:
+        state = _state(conversation)
+        if state.get("status") not in {"resolved", "escalated"}:
+            skipped += 1
+            continue
+        if not assignment.team_id:
+            skipped += 1
+            continue
+
+        retried += 1
+        try:
+            agent_id = _select_agent_for_team(db, assignment.team_id)
+            state["last_assignment_retry_at"] = _serialize_timestamp(_now())
+            if not agent_id:
+                _set_state(conversation, state)
+                db.commit()
+                continue
+
+            conversation_service.assign_conversation(
+                db,
+                conversation_id=str(conversation.id),
+                agent_id=str(agent_id),
+                team_id=str(assignment.team_id),
+                assigned_by_id=None,
+                update_lead_owner=False,
+            )
+            state["agent_assigned_at"] = _serialize_timestamp(_now())
+            state["agent_id"] = str(agent_id)
+            _set_state(conversation, state)
+            db.commit()
+            inbox_cache.invalidate_inbox_list()
+            assigned += 1
+        except Exception as exc:
+            db.rollback()
+            logger.exception("ai_intake_assignment_retry_failed conversation_id=%s", conversation.id)
+            errors.append(f"{conversation.id}: {exc}")
+
+    return {
+        "processed": len(rows),
+        "retried": retried,
+        "assigned": assigned,
         "skipped": skipped,
         "errors": errors,
     }

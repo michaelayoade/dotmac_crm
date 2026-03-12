@@ -429,6 +429,20 @@ def build_beat_schedule() -> dict:
             enabled=True,
             interval_seconds=60,
         )
+        ai_assignment_retry_interval_seconds = _effective_int(
+            session,
+            SettingDomain.notification,
+            "crm_inbox_ai_assignment_retry_interval_seconds",
+            "CRM_INBOX_AI_ASSIGNMENT_RETRY_INTERVAL_SECONDS",
+            60,
+        )
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_ai_assignment_retry",
+            task_name="app.tasks.crm_inbox.retry_team_only_ai_assignments",
+            enabled=True,
+            interval_seconds=max(ai_assignment_retry_interval_seconds, 30),
+        )
 
         # CRM inbox outbox queue runner
         outbox_interval_seconds = 30
