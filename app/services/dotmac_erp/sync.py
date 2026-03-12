@@ -169,9 +169,9 @@ class DotMacERPSync:
 
     # ============ Data Mappers ============
 
-    def _map_project(self, project: Project) -> dict:
+    def _map_project(self, project: Project) -> dict[str, object]:
         """Map a Project model to ERP sync payload."""
-        payload = {
+        payload: dict[str, object] = {
             "crm_id": str(project.id),
             "omni_id": str(project.id),
             "erpnext_id": project.erpnext_id,
@@ -201,7 +201,7 @@ class DotMacERPSync:
 
         return payload
 
-    def _get_project_variations(self, project_id: object) -> list[dict]:
+    def _get_project_variations(self, project_id: object) -> list[dict[str, object]]:
         """Fetch accepted/pending variations for a project for ERP amendment linkage."""
         from app.models.vendor import AsBuiltRoute, AsBuiltRouteStatus, InstallationProject
 
@@ -216,7 +216,7 @@ class DotMacERPSync:
         )
         return [self._map_variation(row) for row in rows]
 
-    def _map_variation(self, row) -> dict:
+    def _map_variation(self, row) -> dict[str, object]:
         project = row.project
         baseline_refs = {
             "installation_project_id": str(project.id) if project else None,

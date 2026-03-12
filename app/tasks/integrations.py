@@ -1,8 +1,10 @@
+import logging
 import time
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.orm import Session
 
 from app.celery_app import celery_app
 from app.db import SessionLocal
@@ -213,10 +215,10 @@ def sync_dotmac_erp_inventory():
 
 
 def _update_variation_erp_status(
-    session: object,
+    session: Session,
     project_uuid: object,
     new_status: str,
-    logger: object,
+    logger: logging.Logger,
 ) -> None:
     """Update erp_sync_status on pending as-built variations linked to a project.
 
@@ -253,7 +255,9 @@ def _update_variation_erp_status(
         logger.warning("VARIATION_ERP_STATUS_UPDATE_FAILED project_id=%s error=%s", project_uuid, exc)
 
 
-def _mark_project_variations_failed(session: object, entity_type: str, entity_uuid: object, logger: object) -> None:
+def _mark_project_variations_failed(
+    session: Session, entity_type: str, entity_uuid: object, logger: logging.Logger
+) -> None:
     if entity_type == "project":
         _update_variation_erp_status(session, entity_uuid, "failed", logger)
 
