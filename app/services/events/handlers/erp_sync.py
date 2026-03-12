@@ -82,7 +82,9 @@ class ERPSyncHandler:
             return
 
         # Queue the sync task
-        idempotency_key = event.payload.get("idempotency_key") if event.event_type == EventType.variation_approved else None
+        idempotency_key = (
+            event.payload.get("idempotency_key") if event.event_type == EventType.variation_approved else None
+        )
         self._queue_sync_task(entity_type, entity_id, event.event_type, idempotency_key=idempotency_key)
 
     def _extract_entity_info(self, event: Event) -> tuple[str | None, str | None]:

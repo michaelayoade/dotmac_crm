@@ -214,10 +214,7 @@ class DotMacERPSync:
             .limit(50)
             .all()
         )
-        return [
-            self._map_variation(row)
-            for row in rows
-        ]
+        return [self._map_variation(row) for row in rows]
 
     def _map_variation(self, row) -> dict:
         project = row.project

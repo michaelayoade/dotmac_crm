@@ -27,26 +27,32 @@ from app.models.workflow import (
 logger = logging.getLogger(__name__)
 
 # Ticket statuses that pause SLA clocks (waiting on external input)
-SLA_PAUSE_STATUSES = frozenset({
-    TicketStatus.waiting_on_customer,
-    TicketStatus.on_hold,
-    TicketStatus.site_under_construction,
-})
+SLA_PAUSE_STATUSES = frozenset(
+    {
+        TicketStatus.waiting_on_customer,
+        TicketStatus.on_hold,
+        TicketStatus.site_under_construction,
+    }
+)
 
 # Ticket statuses that stop/complete SLA clocks
-SLA_COMPLETE_STATUSES = frozenset({
-    TicketStatus.resolved,
-    TicketStatus.closed,
-    TicketStatus.canceled,
-})
+SLA_COMPLETE_STATUSES = frozenset(
+    {
+        TicketStatus.resolved,
+        TicketStatus.closed,
+        TicketStatus.canceled,
+    }
+)
 
 # Ticket statuses where SLA clock should be running
-SLA_RUNNING_STATUSES = frozenset({
-    TicketStatus.new,
-    TicketStatus.open,
-    TicketStatus.pending,
-    TicketStatus.lastmile_rerun,
-})
+SLA_RUNNING_STATUSES = frozenset(
+    {
+        TicketStatus.new,
+        TicketStatus.open,
+        TicketStatus.pending,
+        TicketStatus.lastmile_rerun,
+    }
+)
 
 
 def resolve_sla_policy(db: Session, ticket: Ticket) -> SlaPolicy | None:
@@ -96,11 +102,7 @@ def resolve_sla_policy(db: Session, ticket: Ticket) -> SlaPolicy | None:
 
 def _resolve_target(db: Session, policy_id, priority: str | None) -> SlaTarget | None:
     """Find matching SLA target by priority, with fallback to null-priority."""
-    query = (
-        db.query(SlaTarget)
-        .filter(SlaTarget.policy_id == policy_id)
-        .filter(SlaTarget.is_active.is_(True))
-    )
+    query = db.query(SlaTarget).filter(SlaTarget.policy_id == policy_id).filter(SlaTarget.is_active.is_(True))
     if priority:
         match = query.filter(SlaTarget.priority == priority).first()
         if match:
@@ -184,11 +186,13 @@ def update_sla_clocks_for_status_change(
             if now > due_at and not clock.breached_at:
                 clock.status = SlaClockStatus.breached
                 clock.breached_at = now
-                db.add(SlaBreach(
-                    clock_id=clock.id,
-                    status=SlaBreachStatus.open,
-                    breached_at=now,
-                ))
+                db.add(
+                    SlaBreach(
+                        clock_id=clock.id,
+                        status=SlaBreachStatus.open,
+                        breached_at=now,
+                    )
+                )
 
         elif new_status in SLA_PAUSE_STATUSES:
             if clock.status == SlaClockStatus.running:
@@ -226,11 +230,13 @@ def check_sla_breaches(db: Session, ticket_id) -> list[SlaClock]:
     for clock in clocks:
         clock.status = SlaClockStatus.breached
         clock.breached_at = now
-        db.add(SlaBreach(
-            clock_id=clock.id,
-            status=SlaBreachStatus.open,
-            breached_at=now,
-        ))
+        db.add(
+            SlaBreach(
+                clock_id=clock.id,
+                status=SlaBreachStatus.open,
+                breached_at=now,
+            )
+        )
         breached.append(clock)
 
     return breached

@@ -1084,9 +1084,7 @@ class AsBuiltRoutes(ListResponseMixin):
                 raise HTTPException(status_code=400, detail="Revision does not belong to project")
         # Compute version: count existing as-built submissions for this project + 1
         existing_count = (
-            db.query(func.count(AsBuiltRoute.id))
-            .filter(AsBuiltRoute.project_id == project.id)
-            .scalar()
+            db.query(func.count(AsBuiltRoute.id)).filter(AsBuiltRoute.project_id == project.id).scalar()
         ) or 0
         next_version = existing_count + 1
 

@@ -27,6 +27,7 @@ from app.services.sla_assignment import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def sla_policy(db_session):
     """Default SLA policy for tickets."""
@@ -108,6 +109,7 @@ def sla_target_default(db_session, sla_policy):
 # Policy resolution
 # ---------------------------------------------------------------------------
 
+
 class TestResolveSlaPolicy:
     def test_returns_none_when_no_policies(self, db_session, ticket):
         result = resolve_sla_policy(db_session, ticket)
@@ -121,6 +123,7 @@ class TestResolveSlaPolicy:
 
     def test_matches_by_channel(self, db_session, ticket, sla_policy_by_channel, sla_policy):
         from app.models.tickets import TicketChannel
+
         ticket.channel = TicketChannel.email
         ticket.ticket_type = None
         db_session.commit()
@@ -135,6 +138,7 @@ class TestResolveSlaPolicy:
 # ---------------------------------------------------------------------------
 # Clock creation
 # ---------------------------------------------------------------------------
+
 
 class TestCreateSlaClock:
     def test_creates_clock_with_correct_due_at(self, db_session, ticket, sla_policy, sla_target_default):
@@ -172,6 +176,7 @@ class TestCreateSlaClock:
 # Status change handling
 # ---------------------------------------------------------------------------
 
+
 class TestStatusChangeClocks:
     def _create_running_clock(self, db_session, ticket, sla_policy, minutes=480):
         now = datetime.now(UTC)
@@ -191,9 +196,7 @@ class TestStatusChangeClocks:
 
     def test_pause_on_waiting(self, db_session, ticket, sla_policy):
         clock = self._create_running_clock(db_session, ticket, sla_policy)
-        update_sla_clocks_for_status_change(
-            db_session, ticket, TicketStatus.open, TicketStatus.waiting_on_customer
-        )
+        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.waiting_on_customer)
         db_session.commit()
         db_session.refresh(clock)
         assert clock.status == SlaClockStatus.paused
@@ -203,15 +206,11 @@ class TestStatusChangeClocks:
         clock = self._create_running_clock(db_session, ticket, sla_policy)
         original_due = clock.due_at
         # Pause
-        update_sla_clocks_for_status_change(
-            db_session, ticket, TicketStatus.open, TicketStatus.on_hold
-        )
+        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.on_hold)
         db_session.commit()
         db_session.refresh(clock)
         # Resume
-        update_sla_clocks_for_status_change(
-            db_session, ticket, TicketStatus.on_hold, TicketStatus.open
-        )
+        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.on_hold, TicketStatus.open)
         db_session.commit()
         db_session.refresh(clock)
         assert clock.status == SlaClockStatus.running
@@ -221,9 +220,7 @@ class TestStatusChangeClocks:
 
     def test_complete_on_resolved(self, db_session, ticket, sla_policy):
         clock = self._create_running_clock(db_session, ticket, sla_policy)
-        update_sla_clocks_for_status_change(
-            db_session, ticket, TicketStatus.open, TicketStatus.resolved
-        )
+        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.resolved)
         db_session.commit()
         db_session.refresh(clock)
         assert clock.status == SlaClockStatus.completed
@@ -244,9 +241,7 @@ class TestStatusChangeClocks:
         db_session.add(clock)
         db_session.commit()
 
-        update_sla_clocks_for_status_change(
-            db_session, ticket, TicketStatus.open, TicketStatus.resolved
-        )
+        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.resolved)
         db_session.commit()
         db_session.refresh(clock)
         assert clock.status == SlaClockStatus.breached
@@ -261,6 +256,7 @@ class TestStatusChangeClocks:
 # ---------------------------------------------------------------------------
 # Breach checking
 # ---------------------------------------------------------------------------
+
 
 class TestCheckBreaches:
     def test_detects_overdue_running_clocks(self, db_session, ticket, sla_policy):

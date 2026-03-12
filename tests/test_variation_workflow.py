@@ -21,6 +21,7 @@ from app.services import vendor as vendor_service
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def vendor_setup(db_session, project, person, monkeypatch):
     """Create vendor, installation project, submitted quote — ready for as-built."""
@@ -56,6 +57,7 @@ def vendor_setup(db_session, project, person, monkeypatch):
 # Variation domain fields
 # ---------------------------------------------------------------------------
 
+
 class TestVariationFields:
     def test_variation_type_stored(self, db_session, vendor_setup):
         setup = vendor_setup
@@ -63,10 +65,14 @@ class TestVariationFields:
             db_session,
             AsBuiltRouteCreate(
                 project_id=setup["ip"].id,
-                line_items=[AsBuiltLineItemInput(
-                    item_type="labor", description="Extra work",
-                    quantity=Decimal("1"), unit_price=Decimal("500"),
-                )],
+                line_items=[
+                    AsBuiltLineItemInput(
+                        item_type="labor",
+                        description="Extra work",
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("500"),
+                    )
+                ],
                 variation_type=VariationType.scope_change,
                 variation_reason="Scope extended to include cabinet",
                 work_order_ref="WO-2026-0042",
@@ -84,10 +90,14 @@ class TestVariationFields:
             db_session,
             AsBuiltRouteCreate(
                 project_id=setup["ip"].id,
-                line_items=[AsBuiltLineItemInput(
-                    item_type="labor", description="First submission",
-                    quantity=Decimal("1"), unit_price=Decimal("500"),
-                )],
+                line_items=[
+                    AsBuiltLineItemInput(
+                        item_type="labor",
+                        description="First submission",
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("500"),
+                    )
+                ],
             ),
             vendor_id=str(setup["vendor"].id),
             submitted_by_person_id=str(setup["person"].id),
@@ -98,10 +108,14 @@ class TestVariationFields:
             db_session,
             AsBuiltRouteCreate(
                 project_id=setup["ip"].id,
-                line_items=[AsBuiltLineItemInput(
-                    item_type="labor", description="Second submission",
-                    quantity=Decimal("1"), unit_price=Decimal("500"),
-                )],
+                line_items=[
+                    AsBuiltLineItemInput(
+                        item_type="labor",
+                        description="Second submission",
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("500"),
+                    )
+                ],
             ),
             vendor_id=str(setup["vendor"].id),
             submitted_by_person_id=str(setup["person"].id),
@@ -113,6 +127,7 @@ class TestVariationFields:
 # Variation events
 # ---------------------------------------------------------------------------
 
+
 class TestVariationEvents:
     def test_create_emits_variation_submitted(self, db_session, vendor_setup):
         setup = vendor_setup
@@ -121,17 +136,23 @@ class TestVariationEvents:
                 db_session,
                 AsBuiltRouteCreate(
                     project_id=setup["ip"].id,
-                    line_items=[AsBuiltLineItemInput(
-                        item_type="labor", description="Work",
-                        quantity=Decimal("1"), unit_price=Decimal("500"),
-                    )],
+                    line_items=[
+                        AsBuiltLineItemInput(
+                            item_type="labor",
+                            description="Work",
+                            quantity=Decimal("1"),
+                            unit_price=Decimal("500"),
+                        )
+                    ],
                     variation_type=VariationType.additional_work,
                 ),
                 vendor_id=str(setup["vendor"].id),
                 submitted_by_person_id=str(setup["person"].id),
             )
         # Find the variation_submitted call
-        calls = [c for c in mock_emit.call_args_list if hasattr(c[0][1], 'value') and c[0][1].value == "variation.submitted"]
+        calls = [
+            c for c in mock_emit.call_args_list if hasattr(c[0][1], "value") and c[0][1].value == "variation.submitted"
+        ]
         assert len(calls) == 1
         payload = calls[0][0][2]
         assert payload["variation_version"] == 1
@@ -148,10 +169,14 @@ class TestVariationEvents:
             db_session,
             AsBuiltRouteCreate(
                 project_id=setup["ip"].id,
-                line_items=[AsBuiltLineItemInput(
-                    item_type="labor", description="Work",
-                    quantity=Decimal("1"), unit_price=Decimal("500"),
-                )],
+                line_items=[
+                    AsBuiltLineItemInput(
+                        item_type="labor",
+                        description="Work",
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("500"),
+                    )
+                ],
             ),
             vendor_id=str(setup["vendor"].id),
             submitted_by_person_id=str(setup["person"].id),
@@ -163,10 +188,12 @@ class TestVariationEvents:
 
         with patch("app.services.events.dispatcher.emit_event") as mock_emit:
             with contextlib.suppress(Exception):
-                vendor_service.as_built_routes.accept_and_convert(
-                    db_session, str(as_built.id), str(setup["person"].id)
-                )
-            calls = [c for c in mock_emit.call_args_list if hasattr(c[0][1], 'value') and c[0][1].value == "variation.approved"]
+                vendor_service.as_built_routes.accept_and_convert(db_session, str(as_built.id), str(setup["person"].id))
+            calls = [
+                c
+                for c in mock_emit.call_args_list
+                if hasattr(c[0][1], "value") and c[0][1].value == "variation.approved"
+            ]
             # If accept_and_convert succeeded past the commit
             if calls:
                 payload = calls[0][0][2]
@@ -180,10 +207,14 @@ class TestVariationEvents:
             db_session,
             AsBuiltRouteCreate(
                 project_id=setup["ip"].id,
-                line_items=[AsBuiltLineItemInput(
-                    item_type="labor", description="Work",
-                    quantity=Decimal("1"), unit_price=Decimal("500"),
-                )],
+                line_items=[
+                    AsBuiltLineItemInput(
+                        item_type="labor",
+                        description="Work",
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("500"),
+                    )
+                ],
             ),
             vendor_id=str(setup["vendor"].id),
             submitted_by_person_id=str(setup["person"].id),
@@ -192,7 +223,9 @@ class TestVariationEvents:
             vendor_service.as_built_routes.reject(
                 db_session, str(as_built.id), str(setup["person"].id), "Not acceptable"
             )
-        calls = [c for c in mock_emit.call_args_list if hasattr(c[0][1], 'value') and c[0][1].value == "variation.rejected"]
+        calls = [
+            c for c in mock_emit.call_args_list if hasattr(c[0][1], "value") and c[0][1].value == "variation.rejected"
+        ]
         assert len(calls) == 1
         payload = calls[0][0][2]
         assert payload["status"] == "rejected"
@@ -201,6 +234,7 @@ class TestVariationEvents:
 # ---------------------------------------------------------------------------
 # ERP sync handler — variation_approved triggers project sync
 # ---------------------------------------------------------------------------
+
 
 class TestVariationERPSync:
     def test_variation_approved_triggers_project_sync(self):
@@ -235,9 +269,10 @@ class TestVariationERPSync:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _mock_weasyprint_import(mock_html_cls):
     """Create a mock import function that intercepts weasyprint."""
-    _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+    _real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
 
     def _import(name, *args, **kwargs):
         if name == "weasyprint":
@@ -245,4 +280,5 @@ def _mock_weasyprint_import(mock_html_cls):
             module.HTML = mock_html_cls
             return module
         return _real_import(name, *args, **kwargs)
+
     return _import
