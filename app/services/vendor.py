@@ -27,7 +27,6 @@ from app.models.vendor import (
     ProposedRouteRevision,
     ProposedRouteRevisionStatus,
     QuoteLineItem,
-    VariationType,
     Vendor,
     VendorAssignmentType,
     VendorUser,

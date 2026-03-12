@@ -1,6 +1,0 @@
-agent/ci-fix-crm-v1			blocked	worktree_add_failed
-agent/crm-fix-mypy			blocked	worktree_add_failed
-agent/crm-fix-mypy-v1			blocked	worktree_add_failed
-agent/fix-deps-004	50b959b		blocked	mypy_failed,pytest_failed
-agent/fix-deps-006	1b16f74		blocked	mypy_failed,pytest_failed
-agent/fix-deps-012	8ed4219		blocked	mypy_failed,pytest_failed

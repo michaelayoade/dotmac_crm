@@ -1,5 +1,0 @@
-agent/ci-fix-crm-v1	f965d94		blocked	mypy_failed
-agent/crm-fix-mypy	48f3472	e399e0d	blocked	mypy_failed
-agent/crm-fix-mypy-v1	48f3472	315b88f	blocked	mypy_failed
-agent/fix-deps-004	50b959b		blocked	mypy_failed
-agent/fix-deps-006	1b16f74		blocked	mypy_failed

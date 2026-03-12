@@ -19,7 +19,6 @@ class TicketBase(BaseModel):
     ticket_manager_person_id: UUID | None = None
     assistant_manager_person_id: UUID | None = None
     service_team_id: UUID | None = None
-    merged_into_ticket_id: UUID | None = None
     region: str | None = Field(default=None, max_length=80)
     title: str = Field(min_length=1, max_length=200)
     description: str | None = None
@@ -89,18 +88,6 @@ class TicketRead(TicketBase):
     number: str | None = None
     created_at: datetime
     updated_at: datetime
-
-
-class TicketMergeCreate(BaseModel):
-    source_ticket_id: UUID
-    target_ticket_id: UUID
-    reason: str | None = Field(default=None, max_length=2000)
-
-
-class TicketLinkCreate(BaseModel):
-    from_ticket_id: UUID
-    to_ticket_id: UUID
-    link_type: str = Field(min_length=1, max_length=40)
 
 
 class TicketBulkUpdateRequest(BaseModel):

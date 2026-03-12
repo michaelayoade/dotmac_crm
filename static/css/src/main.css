@@ -115,30 +115,6 @@
 }
 
 /* ==========================================================================
-   FOCUS RING SYSTEM (shadcn-inspired)
-   ========================================================================== */
-
-:root {
-  --ring-color: rgba(6, 182, 212, 0.35);
-  --ring-offset: 2px;
-  --ring-width: 2px;
-}
-.dark {
-  --ring-color: rgba(34, 211, 238, 0.4);
-}
-
-/* Focus-visible on interactive elements */
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-[role="button"]:focus-visible {
-  outline: var(--ring-width) solid var(--ring-color);
-  outline-offset: var(--ring-offset);
-}
-
-/* ==========================================================================
    BASE STYLES
    ========================================================================== */
 
@@ -261,9 +237,9 @@ h1, h2, h3, .font-display {
   box-shadow: none;
 }
 
-/* Card hover - subtle lift effect */
+/* Card hover - pronounced lift effect */
 .card-hover:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.12);
 }
 .dark .card-hover:hover {
@@ -580,16 +556,6 @@ h1, h2, h3, .font-display {
   .icon-hover-spin,
   .htmx-indicator {
     transition: none !important;
-  }
-
-  /* Neutralize hover transforms */
-  .btn-hover:hover,
-  .card-hover:hover,
-  .hover-lift:hover,
-  .list-item-hover:hover,
-  .icon-btn-hover:hover {
-    transform: none !important;
-    box-shadow: none !important;
   }
 
   /* Disable Tailwind's built-in animations */

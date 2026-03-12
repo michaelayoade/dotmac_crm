@@ -261,8 +261,6 @@ from app.models.tickets import (  # noqa: F401
     TicketAssignee,
     TicketChannel,
     TicketComment,
-    TicketLink,
-    TicketMerge,
     TicketPriority,
     TicketSlaEvent,
     TicketStatus,

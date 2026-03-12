@@ -1,7 +1,7 @@
 """Add variation workflow fields to as_built_routes.
 
 Revision ID: v1a2b3c4d5e6
-Revises: m3d4e5f6a7b8
+Revises: x9b0c1d2e3f4
 Create Date: 2026-03-11
 """
 
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "v1a2b3c4d5e6"
-down_revision = "m3d4e5f6a7b8"
+down_revision = "x9b0c1d2e3f4"
 branch_labels = None
 depends_on = None
 

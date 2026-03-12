@@ -90,7 +90,6 @@ class DotMacERPSync:
         TicketStatus.on_hold: "active",
         TicketStatus.resolved: "completed",
         TicketStatus.closed: "completed",
-        TicketStatus.merged: "completed",
         TicketStatus.canceled: "canceled",
     }
 
@@ -873,7 +872,7 @@ class DotMacERPSync:
         tickets = (
             self.db.query(Ticket)
             .filter(Ticket.is_active.is_(True))
-            .filter(Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged]))
+            .filter(Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled]))
             .order_by(Ticket.updated_at.desc())
             .limit(limit)
             .all()

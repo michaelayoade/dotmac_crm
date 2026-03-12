@@ -1515,30 +1515,5 @@
     "started_at": "2026-02-28T15:21:50Z",
     "last_heartbeat": "2026-02-28T15:35:25Z",
     "completed_at": "2026-02-28T15:40:13Z"
-  },
-  {
-    "id": "fix-security-1",
-    "description": "\n\n## Implementation Plan\nError: Reached max turns (3)",
-    "branch": "agent/fix-security-1",
-    "engine": "claude",
-    "model": "sonnet",
-    "scope": "file:.env.agent-swarm",
-    "track": "reactive",
-    "execution_role": "engineer",
-    "priority": 5,
-    "priority_score": 97,
-    "kpi_target": "",
-    "depends_on": [],
-    "estimated_effort": 3,
-    "impact": 3,
-    "risk_reduction": 3,
-    "urgency": 3,
-    "session": "agent-dotmac_crm-fix-security-1",
-    "worktree": "/home/dotmac/projects/dotmac_crm/.worktrees/fix-security-1",
-    "status": "no_changes",
-    "retries": 0,
-    "started_at": "2026-03-05T11:30:38Z",
-    "last_heartbeat": "2026-03-05T11:31:29Z",
-    "completed_at": "2026-03-05T11:31:54Z"
   }
 ]

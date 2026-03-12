@@ -213,7 +213,7 @@ def sync_dotmac_erp_inventory():
 
 
 def _update_variation_erp_status(
-    session: "Session",
+    session: object,
     project_uuid: object,
     new_status: str,
     logger: object,

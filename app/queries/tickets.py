@@ -7,9 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from sqlalchemy import String, cast, exists, or_
 from sqlalchemy.orm import selectinload
 
-from app.models.person import Person
 from app.models.service_team import ServiceTeamMember
-from app.models.subscriber import Subscriber
 from app.models.tickets import (
     Ticket,
     TicketAssignee,
@@ -190,27 +188,6 @@ class TicketQuery(BaseQuery[Ticket]):
             Ticket.title.ilike(like_term),
             Ticket.description.ilike(like_term),
             cast(Ticket.id, String).ilike(like_term),
-            Ticket.customer.has(
-                or_(
-                    Person.display_name.ilike(like_term),
-                    Person.first_name.ilike(like_term),
-                    Person.last_name.ilike(like_term),
-                    Person.email.ilike(like_term),
-                )
-            ),
-            Ticket.subscriber.has(
-                or_(
-                    Subscriber.subscriber_number.ilike(like_term),
-                    cast(Subscriber.id, String).ilike(like_term),
-                    Subscriber.person.has(
-                        or_(
-                            Person.display_name.ilike(like_term),
-                            Person.first_name.ilike(like_term),
-                            Person.last_name.ilike(like_term),
-                        )
-                    ),
-                )
-            ),
         ]
         ticket_number_attr = getattr(Ticket, "number", None)
         if ticket_number_attr is not None:
@@ -243,7 +220,6 @@ class TicketQuery(BaseQuery[Ticket]):
                 TicketStatus.resolved,
                 TicketStatus.closed,
                 TicketStatus.canceled,
-                TicketStatus.merged,
             ]
         )
 

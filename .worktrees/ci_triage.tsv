@@ -1,8 +1,0 @@
-agent/ci-fix-crm-v1	mypy,pytest
-agent/crm-fix-mypy	mypy,pytest
-agent/crm-fix-mypy-v1	mypy,pytest
-agent/fix-deps-004	mypy,pytest
-agent/fix-deps-006	mypy,pytest
-agent/fix-deps-012	worktree_add_failed
-agent/fix-security-c2-1-2	mypy,pytest
-agent/fix-security-c2-3	mypy,pytest

@@ -30,27 +30,16 @@
 ## Known Patterns
 
 ### Cookie Security
-- `app/csrf.py:39` — CSRF cookie now uses `settings.cookie_secure`
-- `app/services/web_auth.py:201,213,290,393` — session cookies use `settings.cookie_secure`
+- `app/csrf.py:37` — CSRF cookie always `secure=False` (hardcoded, not env-driven)
+- `app/services/web_auth.py:201,213,290,393` — session_token + mfa_pending cookies always `secure=False`
 - `app/services/auth_flow.py:749` — refresh token cookie IS configurable via `REFRESH_COOKIE_SECURE` env var or DB setting
-- `app/services/web_vendor_auth.py:69,77,90,178,234` — vendor cookies HARDCODED `secure=True` (inconsistent, breaks dev)
-- `app/config.py:79` — `cookie_secure: bool = bool(os.getenv("COOKIE_SECURE", ""))` added
+- Fix pattern: add `cookie_secure: bool = bool(os.getenv("COOKIE_SECURE", ""))` to `app/config.py`
 
 ### Rate Limiting
-- Global `APIRateLimitMiddleware` (100 req/min per IP/user) in `app/main.py` — API paths only (`/api/*`)
-- `WebhookRateLimitMiddleware` covers `/webhooks/crm/*` — 60 req/min per IP
-- `/static/*` exempt from rate limiting
-- Rate limiter trusts `X-Forwarded-For` header (IP spoofing risk)
-- Auth-level lockout in DB (`failed_login_attempts`, locks at 5 for 15 min)
-- **GAP**: Web login/register/forgot-password/MFA routes have ZERO rate limiting (not covered by API middleware)
-- Widget session creation has its own rate limiter (`check_session_creation_rate`)
-
-### Vendor Portal Sessions
-- `app/services/vendor_portal.py:22` — sessions stored in `_VENDOR_SESSIONS` in-memory dict
-- Lost on restart, not shared across workers — needs Redis/DB migration
-
-### Webhook Token Comparison
-- `app/web/public/crm_webhooks.py:281,482` — WhatsApp and Meta verify tokens use `==` instead of `secrets.compare_digest()` — timing attack risk
+- Global `APIRateLimitMiddleware` (100 req/min per IP/user) applied in `app/main.py`
+- `/webhooks/*` and `/static/*` are exempt from global rate limiting
+- Rate limiter blindly trusts `X-Forwarded-For` header (IP spoofing risk)
+- Auth-level lockout exists in DB (`failed_login_attempts`, locks at 5)
 
 ### HTML Sanitization
 - Inbox messages: `content_html` set only after `_sanitize_message_html()` in `app/services/crm/inbox/formatting.py`
@@ -59,7 +48,7 @@
 
 ### CSRF Implementation
 - Double-submit cookie pattern in `app/csrf.py`
-- Public survey POST endpoints NOW have CSRF validation (fixed — `app/web/public/surveys.py:72-79`)
+- Public survey POST endpoints lack CSRF validation (known gap)
 - Admin portal: CSRF enforced via middleware
 
 ### Open Redirect Defense
@@ -252,15 +241,3 @@
 ### Disabled No-Op Celery Task (quality-c9-4)
 - `app/tasks/crm_inbox.py:37-41` — `send_reply_reminders_task` is registered but always returns 0 (temporary operational safety switch)
 - Should be disabled in scheduler config or removed, not left as a silently vacuous registered task
-
-### MFA Token Replay
-- `app/services/auth_flow.py:607` — MFA tokens (JWT, 5-min TTL) not invalidated after successful verification — replayable within window
-- TOTP codes (30-sec window, `valid_window=0`) not tracked for reuse — same code accepted multiple times within window
-
-### Committed Secrets
-- `.env.agent-swarm` is tracked in git with live DeepSeek API key and Telegram bot token (commit `80f38ba`)
-- `.env` is correctly in `.gitignore` (not tracked)
-
-### Auth CRUD Router Permissions
-- `app/api/auth.py` (credentials, sessions, MFA, API keys CRUD) mounted with `require_role("admin")` at `app/main.py:385`
-- `app/api/auth_flow.py` (login, MFA, self-service) mounted WITHOUT router-level auth; individual endpoints use per-endpoint `Depends(require_user_auth)` where needed

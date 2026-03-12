@@ -20,7 +20,7 @@ from app.services.common import coerce_uuid
 
 
 def _status_group(status: TicketStatus) -> str:
-    if status in {TicketStatus.resolved, TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged}:
+    if status in {TicketStatus.resolved, TicketStatus.closed, TicketStatus.canceled}:
         return "closed"
     return "open"
 

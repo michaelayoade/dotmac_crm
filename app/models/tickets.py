@@ -20,7 +20,6 @@ class TicketStatus(enum.Enum):
     resolved = "resolved"
     closed = "closed"
     canceled = "canceled"
-    merged = "merged"
 
 
 class TicketPriority(enum.Enum):
@@ -52,7 +51,6 @@ class Ticket(Base):
     ticket_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     assistant_manager_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     service_team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("service_teams.id"))
-    merged_into_ticket_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tickets.id"))
     region: Mapped[str | None] = mapped_column(String(80))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
@@ -83,7 +81,6 @@ class Ticket(Base):
     ticket_manager = relationship("Person", foreign_keys=[ticket_manager_person_id])
     assistant_manager = relationship("Person", foreign_keys=[assistant_manager_person_id])
     service_team = relationship("ServiceTeam", foreign_keys=[service_team_id])
-    merged_into_ticket = relationship("Ticket", remote_side=[id], foreign_keys=[merged_into_ticket_id])
     comments = relationship("TicketComment", back_populates="ticket")
     assignees = relationship(
         "TicketAssignee",
@@ -149,41 +146,3 @@ class TicketSlaEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     ticket = relationship("Ticket")
-
-
-class TicketMerge(Base):
-    __tablename__ = "ticket_merges"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    source_ticket_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, unique=True
-    )
-    target_ticket_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False
-    )
-    reason: Mapped[str | None] = mapped_column(Text)
-    merged_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-
-    source_ticket = relationship("Ticket", foreign_keys=[source_ticket_id])
-    target_ticket = relationship("Ticket", foreign_keys=[target_ticket_id])
-    merged_by = relationship("Person")
-
-
-class TicketLink(Base):
-    __tablename__ = "ticket_links"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    from_ticket_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False
-    )
-    to_ticket_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False
-    )
-    link_type: Mapped[str] = mapped_column(String(40), nullable=False)
-    created_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-
-    from_ticket = relationship("Ticket", foreign_keys=[from_ticket_id])
-    to_ticket = relationship("Ticket", foreign_keys=[to_ticket_id])
-    created_by = relationship("Person")

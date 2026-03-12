@@ -38,7 +38,6 @@ SLA_COMPLETE_STATUSES = frozenset({
     TicketStatus.resolved,
     TicketStatus.closed,
     TicketStatus.canceled,
-    TicketStatus.merged,
 })
 
 # Ticket statuses where SLA clock should be running

@@ -3,6 +3,7 @@
 Validates GeoJSON input and provides guarded KMZ→GeoJSON conversion.
 """
 
+import contextlib
 import io
 import json
 import logging
@@ -121,7 +122,7 @@ def kmz_to_geojson(raw: bytes) -> dict[str, Any]:
 def _parse_kml_linestring(kml_bytes: bytes) -> dict[str, Any]:
     """Extract first LineString from KML XML."""
     try:
-        root = ElementTree.fromstring(kml_bytes)  # noqa: S314
+        root = ElementTree.fromstring(kml_bytes)
     except ElementTree.ParseError as exc:
         raise HTTPException(status_code=400, detail="Invalid KML XML") from exc
 
@@ -155,10 +156,8 @@ def _parse_kml_linestring(kml_bytes: bytes) -> dict[str, Any]:
             continue
         coord = [lon, lat]
         if len(parts) >= 3:
-            try:
+            with contextlib.suppress(ValueError):
                 coord.append(float(parts[2]))
-            except ValueError:
-                pass
         coordinates.append(coord)
 
     if len(coordinates) < 2:
