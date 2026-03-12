@@ -46,7 +46,7 @@ EVENT_TYPE_TO_TEMPLATE = {
     EventType.provisioning_failed: "provisioning_failed",
     # Ticket events
     EventType.ticket_created: "ticket_created",
-    EventType.ticket_resolved: ["ticket_resolved", "ticket_completed_technician"],
+    EventType.ticket_resolved: "ticket_completed_technician",
     EventType.ticket_assigned: "ticket_assigned_technician",
     # Project events
     EventType.project_created: "project_created",

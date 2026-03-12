@@ -4,6 +4,7 @@ import json
 import os
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.parse import quote as urlquote
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -108,6 +109,17 @@ def _safe_quote_redirect_target(redirect_to: str | None) -> str | None:
     if not target or "://" in target or target.startswith("//"):
         return None
     if not target.startswith("/admin/vendors/quotes"):
+        return None
+    return target
+
+
+def _safe_as_built_redirect_target(redirect_to: str | None) -> str | None:
+    if not redirect_to:
+        return None
+    target = str(redirect_to).strip()
+    if not target or "://" in target or target.startswith("//"):
+        return None
+    if not target.startswith("/admin/vendors/as-built"):
         return None
     return target
 
@@ -338,9 +350,9 @@ def vendor_new(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/vendors/vendor_form.html", context)
 
 
-@router.get("/{vendor_id}/edit", response_class=HTMLResponse)
-def vendor_edit(vendor_id: str, request: Request, db: Session = Depends(get_db)):
-    vendor = vendor_service.vendors.get(db=db, vendor_id=vendor_id)
+@router.get("/{vendor_id:uuid}/edit", response_class=HTMLResponse)
+def vendor_edit(vendor_id: UUID, request: Request, db: Session = Depends(get_db)):
+    vendor = vendor_service.vendors.get(db=db, vendor_id=str(vendor_id))
     context = _base_context(request, db, active_page="vendors")
     context.update(
         {
@@ -526,8 +538,9 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(url="/admin/vendors", status_code=303)
 
 
-@router.post("/{vendor_id}", response_class=HTMLResponse)
-async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+@router.post("/{vendor_id:uuid}", response_class=HTMLResponse)
+async def vendor_update(vendor_id: UUID, request: Request, db: Session = Depends(get_db)):
+    vendor_id_str = str(vendor_id)
     form = await request.form()
     is_active = bool(form.get("is_active"))
     payload: dict[str, str | None] = {
@@ -566,24 +579,24 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
         )
     except ValidationError as exc:
         context = _base_context(request, db, active_page="vendors")
-        payload.update({"id": vendor_id})
+        payload.update({"id": vendor_id_str})
         context.update(
             {
                 "vendor": payload,
-                "action_url": f"/admin/vendors/{vendor_id}",
+                "action_url": f"/admin/vendors/{vendor_id_str}",
                 "error": exc.errors()[0].get("msg", "Invalid vendor details."),
             }
         )
         return templates.TemplateResponse("admin/vendors/vendor_form.html", context, status_code=400)
     try:
-        vendor_service.vendors.update(db=db, vendor_id=vendor_id, payload=data)
+        vendor_service.vendors.update(db=db, vendor_id=vendor_id_str, payload=data)
     except Exception as exc:
         context = _base_context(request, db, active_page="vendors")
-        payload.update({"id": vendor_id})
+        payload.update({"id": vendor_id_str})
         context.update(
             {
                 "vendor": payload,
-                "action_url": f"/admin/vendors/{vendor_id}",
+                "action_url": f"/admin/vendors/{vendor_id_str}",
                 "error": str(exc) or "Unable to update vendor.",
             }
         )
@@ -591,9 +604,9 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
     return RedirectResponse(url="/admin/vendors", status_code=303)
 
 
-@router.post("/{vendor_id}/delete", response_class=HTMLResponse)
-def vendor_delete(vendor_id: str, db: Session = Depends(get_db)):
-    vendor = vendor_service.vendors.get(db=db, vendor_id=vendor_id)
+@router.post("/{vendor_id:uuid}/delete", response_class=HTMLResponse)
+def vendor_delete(vendor_id: UUID, db: Session = Depends(get_db)):
+    vendor = vendor_service.vendors.get(db=db, vendor_id=str(vendor_id))
     if vendor.is_active:
         raise HTTPException(status_code=409, detail="Deactivate vendor before deleting.")
     try:
@@ -1199,6 +1212,29 @@ def vendor_as_built_list(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/vendors/as-built/review.html", context)
 
 
+@router.get(
+    "/as-built/{as_built_id}",
+    response_class=HTMLResponse,
+)
+def vendor_as_built_detail(
+    as_built_id: str,
+    request: Request,
+    as_built_action: str | None = None,
+    as_built_error_detail: str | None = None,
+    db: Session = Depends(get_db),
+):
+    as_built = vendor_service.as_built_routes.get(db=db, as_built_id=as_built_id)
+    context = _base_context(request, db, active_page="vendor-as-built")
+    context.update(
+        {
+            "as_built": as_built,
+            "as_built_action": as_built_action,
+            "as_built_error_detail": as_built_error_detail,
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/as-built/detail.html", context)
+
+
 @router.get("/as-built/{as_built_id}/report")
 def vendor_as_built_report(as_built_id: str, db: Session = Depends(get_db)):
     as_built = vendor_service.as_built_routes.get(db=db, as_built_id=as_built_id)
@@ -1215,12 +1251,101 @@ def vendor_as_built_report(as_built_id: str, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/{vendor_id}", response_class=HTMLResponse)
-def vendor_detail(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+@router.post(
+    "/as-built/{as_built_id}/approve",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+def vendor_as_built_approve(
+    as_built_id: str,
+    request: Request,
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    success_redirect = _safe_as_built_redirect_target(redirect_to) or f"/admin/vendors/as-built/{as_built_id}"
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    try:
+        vendor_service.as_built_routes.accept_and_convert(db, as_built_id=as_built_id, reviewer_id=reviewer_person_id)
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to approve as-built submission."), safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    return RedirectResponse(url=_append_query_param(success_redirect, "as_built_action", "approved"), status_code=303)
+
+
+@router.post(
+    "/as-built/{as_built_id}/reject",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+def vendor_as_built_reject(
+    as_built_id: str,
+    request: Request,
+    review_notes: str | None = Form(None),
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    success_redirect = _safe_as_built_redirect_target(redirect_to) or f"/admin/vendors/as-built/{as_built_id}"
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    try:
+        vendor_service.as_built_routes.reject(
+            db,
+            as_built_id=as_built_id,
+            reviewer_id=reviewer_person_id,
+            review_notes=review_notes,
+        )
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to reject as-built submission."), safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    return RedirectResponse(url=_append_query_param(success_redirect, "as_built_action", "rejected"), status_code=303)
+
+
+@router.post(
+    "/as-built/{as_built_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+def vendor_as_built_delete(
+    as_built_id: str,
+    request: Request,
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    success_redirect = "/admin/vendors/as-built"
+    try:
+        vendor_service.as_built_routes.delete(db, as_built_id=as_built_id)
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to delete as-built submission."), safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    return RedirectResponse(url=_append_query_param(success_redirect, "as_built_action", "deleted"), status_code=303)
+
+
+@router.get("/{vendor_id:uuid}", response_class=HTMLResponse)
+def vendor_detail(vendor_id: UUID, request: Request, db: Session = Depends(get_db)):
     vendor = (
         db.query(Vendor)
         .options(selectinload(Vendor.users).selectinload(VendorUser.person))
-        .filter(Vendor.id == coerce_uuid(vendor_id))
+        .filter(Vendor.id == vendor_id)
         .first()
     )
     if not vendor:
@@ -1257,35 +1382,37 @@ def vendor_detail(vendor_id: str, request: Request, db: Session = Depends(get_db
     return templates.TemplateResponse("admin/vendors/detail.html", context)
 
 
-@router.post("/{vendor_id}/users/link", response_class=HTMLResponse)
-async def vendor_user_link(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+@router.post("/{vendor_id:uuid}/users/link", response_class=HTMLResponse)
+async def vendor_user_link(vendor_id: UUID, request: Request, db: Session = Depends(get_db)):
+    vendor_id_str = str(vendor_id)
     form = await request.form()
     person_id = _form_str(form.get("person_id")).strip()
     role = _form_str(form.get("role")).strip() or _DEFAULT_VENDOR_ROLE
     if not person_id:
-        return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)
+        return RedirectResponse(url=f"/admin/vendors/{vendor_id_str}", status_code=303)
     existing = (
         db.query(VendorUser)
-        .filter(VendorUser.vendor_id == coerce_uuid(vendor_id))
+        .filter(VendorUser.vendor_id == vendor_id)
         .filter(VendorUser.person_id == coerce_uuid(person_id))
         .first()
     )
     if existing:
-        return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)
+        return RedirectResponse(url=f"/admin/vendors/{vendor_id_str}", status_code=303)
     _assign_role_by_name(db, person_id, role)
     link = VendorUser(
-        vendor_id=coerce_uuid(vendor_id),
+        vendor_id=vendor_id,
         person_id=coerce_uuid(person_id),
         role=role,
         is_active=True,
     )
     db.add(link)
     db.commit()
-    return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)
+    return RedirectResponse(url=f"/admin/vendors/{vendor_id_str}", status_code=303)
 
 
-@router.post("/{vendor_id}/users/create", response_class=HTMLResponse)
-async def vendor_user_create(vendor_id: str, request: Request, db: Session = Depends(get_db)):
+@router.post("/{vendor_id:uuid}/users/create", response_class=HTMLResponse)
+async def vendor_user_create(vendor_id: UUID, request: Request, db: Session = Depends(get_db)):
+    vendor_id_str = str(vendor_id)
     form = await request.form()
     fields = {
         "first_name": _form_str(form.get("first_name")).strip(),
@@ -1297,7 +1424,7 @@ async def vendor_user_create(vendor_id: str, request: Request, db: Session = Dep
     }
     if not all([fields["first_name"], fields["last_name"], fields["email"], fields["username"], fields["password"]]):
         context = _base_context(request, db, active_page="vendors")
-        vendor = db.get(Vendor, coerce_uuid(vendor_id))
+        vendor = db.get(Vendor, vendor_id)
         people = person_service.people.list(
             db=db,
             email=None,
@@ -1339,7 +1466,7 @@ async def vendor_user_create(vendor_id: str, request: Request, db: Session = Dep
         )
         _assign_role_by_name(db, str(person.id), fields["role"])
         link = VendorUser(
-            vendor_id=coerce_uuid(vendor_id),
+            vendor_id=vendor_id,
             person_id=person.id,
             role=fields["role"],
             is_active=True,
@@ -1348,7 +1475,7 @@ async def vendor_user_create(vendor_id: str, request: Request, db: Session = Dep
         db.commit()
     except Exception as exc:
         context = _base_context(request, db, active_page="vendors")
-        vendor = db.get(Vendor, coerce_uuid(vendor_id))
+        vendor = db.get(Vendor, vendor_id)
         people = person_service.people.list(
             db=db,
             email=None,
@@ -1379,4 +1506,4 @@ async def vendor_user_create(vendor_id: str, request: Request, db: Session = Dep
             }
         )
         return templates.TemplateResponse("admin/vendors/detail.html", context, status_code=400)
-    return RedirectResponse(url=f"/admin/vendors/{vendor_id}", status_code=303)
+    return RedirectResponse(url=f"/admin/vendors/{vendor_id_str}", status_code=303)

@@ -868,6 +868,7 @@ def get_person_with_relationships(
         .options(
             selectinload(Person.channels),
             selectinload(Person.conversations),
+            selectinload(Person.subscribers),
         )
         .filter(Person.id == coerce_uuid(person_id))
         .first()
@@ -1083,7 +1084,7 @@ def get_contact_recent_tickets(
 
     ticket_filters = []
     if person_id:
-        ticket_filters.append(Ticket.created_by_person_id == coerce_uuid(person_id))
+        ticket_filters.append(Ticket.customer_person_id == coerce_uuid(person_id))
     if subscriber_ids:
         ticket_filters.append(Ticket.subscriber_id.in_(subscriber_ids))
 

@@ -9,6 +9,14 @@
         }
       },
       "success": 1
+    },
+    "sonnet": {
+      "success": 1,
+      "categories": {
+        "security": {
+          "success": 1
+        }
+      }
     }
   }
 }

@@ -98,7 +98,11 @@ class KPIAggregates(ListResponseMixin):
 
 
 def compute_kpis(db: Session) -> list[dict]:
-    ticket_backlog = db.query(Ticket).filter(Ticket.status.notin_([TicketStatus.resolved, TicketStatus.closed])).count()
+    ticket_backlog = (
+        db.query(Ticket)
+        .filter(Ticket.status.notin_([TicketStatus.resolved, TicketStatus.closed, TicketStatus.merged]))
+        .count()
+    )
     work_order_backlog = (
         db.query(WorkOrder)
         .filter(WorkOrder.status.notin_([WorkOrderStatus.completed, WorkOrderStatus.canceled]))

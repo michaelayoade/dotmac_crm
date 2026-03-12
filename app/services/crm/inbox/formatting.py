@@ -160,6 +160,39 @@ def _linkify_plain_text(value: str) -> str:
     return _URL_RE.sub(_replace, escaped)
 
 
+def _select_primary_subscriber(contact: Person) -> object | None:
+    subscribers = list(contact.subscribers or [])
+    if not subscribers:
+        return None
+
+    def _rank(subscriber: object) -> tuple[int, int]:
+        status = getattr(getattr(subscriber, "status", None), "value", getattr(subscriber, "status", None))
+        is_active = bool(getattr(subscriber, "is_active", False))
+        return (
+            0 if is_active else 1,
+            0 if status == "active" else 1,
+        )
+
+    subscribers.sort(key=_rank)
+    return subscribers[0]
+
+
+def _format_subscriber_summary(subscriber: object | None) -> dict | None:
+    if not subscriber:
+        return None
+    status = getattr(getattr(subscriber, "status", None), "value", getattr(subscriber, "status", None)) or "unknown"
+    activated_at = getattr(subscriber, "activated_at", None)
+    since = activated_at.strftime("%b %Y") if activated_at else "N/A"
+    plan = getattr(subscriber, "service_plan", None) or getattr(subscriber, "service_name", None) or "No plan"
+    return {
+        "id": str(subscriber.id),
+        "account_number": getattr(subscriber, "account_number", None) or getattr(subscriber, "subscriber_number", None),
+        "status": str(status),
+        "plan": plan,
+        "since": since,
+    }
+
+
 def _normalize_storage_attachment_url(url: str | None) -> str | None:
     if not url or settings.storage_backend != "s3":
         return url
@@ -791,10 +824,17 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
         company = contact.organization.name
 
     resolved_person_id = str(contact.id)
+    subscriber_ids = [subscriber.id for subscriber in (contact.subscribers or []) if getattr(subscriber, "id", None)]
+    primary_subscriber = _select_primary_subscriber(contact)
 
     tags = contact_service.get_contact_tags(db, resolved_person_id)
 
-    recent_tickets = contact_service.get_contact_recent_tickets(db, resolved_person_id, subscriber_ids=None, limit=3)
+    recent_tickets = contact_service.get_contact_recent_tickets(
+        db,
+        resolved_person_id,
+        subscriber_ids=subscriber_ids or None,
+        limit=3,
+    )
     recent_projects = contact_service.get_contact_recent_projects(db, resolved_person_id, subscriber_ids=None, limit=3)
     recent_tasks = contact_service.get_contact_recent_tasks(db, resolved_person_id, subscriber_ids=None, limit=3)
     conversations_summary = contact_service.get_contact_conversations_summary(db, resolved_person_id, limit=5)
@@ -875,7 +915,7 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
         "avatar_initials": get_initials(contact.display_name or contact.email),
         "channels": channels,
         "tags": list(tags)[:5],
-        "subscriber": None,
+        "subscriber": _format_subscriber_summary(primary_subscriber),
         "splynx_id": splynx_id,
         "recent_tickets": recent_tickets,
         "recent_projects": recent_projects,

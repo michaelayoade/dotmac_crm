@@ -1,0 +1,159 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Variation Detail - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% set route = as_built %}
+    {% set project = route.project %}
+    {% set project_row = project.project if project else none %}
+    {% set route_status = route.status.value if route.status else '' %}
+    {% set vendor_name = project.assigned_vendor.name if project and project.assigned_vendor else 'Vendor submission' %}
+
+    <div class="flex items-center justify-between gap-3">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ vendor_name }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Variation detail{% if route.id %} • {{ route.id }}{% endif %}
+            </p>
+        </div>
+        <a href="/admin/vendors/as-built"
+           class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+            Back to variation review
+        </a>
+    </div>
+
+    {% if as_built_action == "approved" %}
+    <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Variation approved successfully.
+    </div>
+    {% elif as_built_action == "rejected" %}
+    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+        Variation rejected.
+    </div>
+    {% endif %}
+
+    {% if as_built_error_detail %}
+    <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        {{ as_built_error_detail }}
+    </div>
+    {% endif %}
+
+    <div class="grid gap-6 lg:grid-cols-3">
+        <div class="lg:col-span-2 space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Submission Summary</h2>
+                </div>
+                <dl class="grid gap-4 px-6 py-5 sm:grid-cols-2">
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Project</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ project_row.name or project_row.code or project_row.number if project_row else route.project_id }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ route_status or '—' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Submitted By</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                            {% if route.submitted_by %}
+                            {{ route.submitted_by.display_name or ((route.submitted_by.first_name or '') ~ ' ' ~ (route.submitted_by.last_name or ''))|trim or route.submitted_by.email }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Submitted At</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ route.submitted_at.strftime('%Y-%m-%d %H:%M:%S %Z') if route.submitted_at else '—' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actual Length (m)</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ route.actual_length_meters or '—' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Submission ID</dt>
+                        <dd class="mt-1 break-all text-sm text-slate-900 dark:text-white">{{ route.id }}</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Revised Items</h2>
+                </div>
+                <div class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {% for item in route.line_items or [] %}
+                    <div class="px-6 py-4">
+                        <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ item.description or item.item_type or 'Line item' }}</div>
+                        <div class="mt-1 text-sm text-slate-600 dark:text-slate-300">Qty {{ item.quantity }} at {{ item.unit_price }} = {{ item.amount }}</div>
+                        {% if item.notes %}
+                        <div class="mt-2 text-sm text-slate-500 dark:text-slate-400">{{ item.notes }}</div>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="px-6 py-5 text-sm text-slate-500 dark:text-slate-400">No revised items were submitted.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Review Actions</h2>
+                </div>
+                <div class="px-6 py-5 space-y-4">
+                    {% if route.report_file_path %}
+                    <a href="/admin/vendors/as-built/{{ route.id }}/report"
+                       class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                        Download report
+                    </a>
+                    {% endif %}
+
+                    {% if route_status in ['submitted', 'under_review'] %}
+                    <form method="post" class="space-y-3">
+                        <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token | default('') }}" />
+                        <input type="hidden" name="redirect_to" value="/admin/vendors/as-built/{{ route.id }}" />
+                        <textarea
+                            name="review_notes"
+                            rows="3"
+                            placeholder="Review notes (optional)"
+                            class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button type="submit"
+                                    formaction="/admin/vendors/as-built/{{ route.id }}/approve"
+                                    class="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                                Approve
+                            </button>
+                            <button type="submit"
+                                    formaction="/admin/vendors/as-built/{{ route.id }}/reject"
+                                    class="inline-flex items-center rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700">
+                                Reject
+                            </button>
+                        </div>
+                    </form>
+                    {% else %}
+                    <div class="text-sm text-slate-500 dark:text-slate-400">No review actions available for this status.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if route.review_notes or route.reviewed_at %}
+            <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Review Notes</h2>
+                </div>
+                <div class="px-6 py-5 space-y-2">
+                    <div class="text-sm text-slate-900 dark:text-white">{{ route.review_notes or 'No review notes provided.' }}</div>
+                    <div class="text-xs text-slate-500 dark:text-slate-400">
+                        {% if route.reviewed_at %}Reviewed {{ route.reviewed_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}{% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

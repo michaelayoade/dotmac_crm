@@ -1,5 +1,6 @@
 """Admin projects web routes."""
 
+import json
 import logging
 from datetime import datetime
 from html import escape as html_escape
@@ -59,10 +60,32 @@ from app.services.audit_helpers import (
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.services.filter_engine import parse_filter_payload_json
+from app.web.admin._auth_helpers import (
+    STATUS_UPDATE_ROLE_BLOCK_MESSAGE,
+    require_agent_or_admin_status_update,
+)
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/projects", tags=["web-admin-projects"])
 REGION_OPTIONS = ["Gudu", "Garki", "Gwarimpa", "Jabi", "Lagos"]
+
+
+def _status_update_denied_response(request: Request, db: Session, current_user: dict | None) -> HTMLResponse:
+    if request.headers.get("HX-Request"):
+        headers = {"HX-Trigger": json.dumps({"showToast": {"message": STATUS_UPDATE_ROLE_BLOCK_MESSAGE, "type": "error"}})}
+        return HTMLResponse(content="", status_code=403, headers=headers)
+    from app.web.admin import get_sidebar_stats
+
+    return templates.TemplateResponse(
+        "admin/errors/403.html",
+        {
+            "request": request,
+            "message": STATUS_UPDATE_ROLE_BLOCK_MESSAGE,
+            "current_user": current_user,
+            "sidebar_stats": get_sidebar_stats(db),
+        },
+        status_code=403,
+    )
 
 
 class _TemplateTaskJSONItem(BaseModel):
@@ -2409,6 +2432,13 @@ async def project_update(request: Request, project_ref: str, db: Session = Depen
     prepared_attachments: list[dict] = []
     try:
         before = projects_service.projects.get(db=db, project_id=project_id)
+        if payload_data["status"] != (before.status.value if before.status else ProjectStatus.open.value):
+            try:
+                require_agent_or_admin_status_update(current_user)
+            except HTTPException as exc:
+                if exc.status_code == 403:
+                    return _status_update_denied_response(request, db, current_user)
+                raise
         if attachments:
             from app.services import ticket_attachments as ticket_attachment_service
 
@@ -2496,12 +2526,19 @@ async def project_status_update(request: Request, project_ref: str, db: Session 
     form = await request.form()
     status_raw = form.get("status")
     status_value = status_raw.strip() if isinstance(status_raw, str) else ""
+    current_user = get_current_user(request)
     try:
         project, _should_redirect = _resolve_project_reference(db, project_ref)
+        if status_value and status_value != (project.status.value if project.status else ProjectStatus.open.value):
+            try:
+                require_agent_or_admin_status_update(current_user)
+            except HTTPException as exc:
+                if exc.status_code == 403:
+                    return _status_update_denied_response(request, db, current_user)
+                raise
         old_status = project.status.value if project.status else None
         payload = ProjectUpdate.model_validate({"status": status_value})
         projects_service.projects.update(db=db, project_id=str(project.id), payload=payload)
-        current_user = get_current_user(request)
         _log_activity(
             db=db,
             request=request,

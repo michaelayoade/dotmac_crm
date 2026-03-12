@@ -1,0 +1,6 @@
+📋 *dotmac_crm* ❌ CI:failure
+Backlog: 1 items (1 high priority)
+
+Top findings:
+  • [high] Fix mypy type errors in dotmac_crm. Run mypy app/ and fix all errors. The dotmac
+    Track: quality | Score: 90

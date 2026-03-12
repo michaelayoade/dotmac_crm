@@ -1468,3 +1468,64 @@ def test_resolve_person_for_contact_no_match(db_session):
     result = inbox_service._resolve_person_for_contact(contact)
 
     assert result == str(contact.id)
+
+
+def test_format_contact_shows_recent_customer_tickets_for_linked_customer(db_session, crm_contact):
+    """Recent inbox activity should surface customer-linked tickets, not agent-created ones."""
+    from app.models.person import Person
+    from app.models.subscriber import Subscriber, SubscriberStatus
+    from app.schemas.tickets import TicketCreate
+    from app.services import tickets as tickets_service
+    from app.services.crm.contact import get_person_with_relationships
+    from app.services.crm.inbox.formatting import format_contact_for_template
+
+    subscriber = Subscriber(
+        person_id=crm_contact.id,
+        external_system="splynx",
+        external_id=f"cust-{uuid.uuid4().hex[:8]}",
+        subscriber_number=f"SUB-{uuid.uuid4().hex[:6]}",
+        account_number="ACCT-1001",
+        service_plan="Home Fiber 50",
+        status=SubscriberStatus.active,
+        is_active=True,
+    )
+    agent = Person(
+        first_name="Agent",
+        last_name="Owner",
+        email=f"agent-{uuid.uuid4().hex}@example.com",
+    )
+    db_session.add_all([subscriber, agent])
+    db_session.commit()
+
+    customer_ticket = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(
+            title="Internet down for linked customer",
+            customer_person_id=crm_contact.id,
+            subscriber_id=subscriber.id,
+        ),
+    )
+    tickets_service.tickets.create(
+        db_session,
+        TicketCreate(
+            title="Internal agent follow-up",
+            created_by_person_id=crm_contact.id,
+        ),
+    )
+    tickets_service.tickets.create(
+        db_session,
+        TicketCreate(
+            title="Different customer issue",
+            created_by_person_id=agent.id,
+        ),
+    )
+
+    contact = get_person_with_relationships(db_session, str(crm_contact.id))
+    assert contact is not None
+
+    payload = format_contact_for_template(contact, db_session)
+
+    assert payload["subscriber"] is not None
+    assert payload["subscriber"]["account_number"] == "ACCT-1001"
+    assert [ticket["id"] for ticket in payload["recent_tickets"]] == [str(customer_ticket.id)]
+    assert payload["recent_tickets"][0]["subject"] == "Internet down for linked customer"

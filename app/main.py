@@ -129,6 +129,8 @@ async def shared_db_session_middleware(request: Request, call_next):
 async def audit_middleware(request: Request, call_next):
     response: Response
     path = request.url.path
+    if path in ("/health", "/metrics"):
+        return await call_next(request)
     db: Session = getattr(request.state, "middleware_db", None) or SessionLocal()
     owns_db = not hasattr(request.state, "middleware_db")
     try:
