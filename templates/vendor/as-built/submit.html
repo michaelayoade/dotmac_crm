@@ -1,6 +1,6 @@
 {% extends "layouts/vendor.html" %}
 
-{% block title %}Submit As-Built{% endblock %}
+{% block title %}Variation{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
@@ -8,9 +8,9 @@
     <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Submit As-Built Route</h1>
+                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Variation</h1>
                 <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Provide the final installed route after field completion. This will be sent for review.
+                    Capture final field delivery for this project: installed route first, then any new actual-use line items.
                 </p>
             </div>
             <div class="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
@@ -28,92 +28,219 @@
         </div>
     </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div class="grid gap-6 lg:grid-cols-2">
-            <div class="space-y-4">
-                <div>
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">1. Provide Route Geometry</h2>
-                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Upload a GeoJSON file or paste GeoJSON containing a <code class="text-emerald-600 dark:text-emerald-400">LineString</code>.
-                    </p>
-                </div>
+    <div class="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div>
+                <div class="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">1. Route Geometry</div>
+                <h2 class="mt-1 text-lg font-semibold text-slate-900 dark:text-white">Provide the installed route</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Upload a GeoJSON file or paste GeoJSON containing a final <code class="text-emerald-600 dark:text-emerald-400">LineString</code>. Skip this if route capture is not needed for the submission.
+                </p>
+            </div>
 
-                <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <div class="mt-5 space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                <div>
                     <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Upload GeoJSON File</label>
                     <input id="asbuilt-file" type="file" accept=".json,.geojson,application/json"
                            class="mt-2 block w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:file:bg-slate-700 dark:file:text-slate-100">
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Accepted: <code>.geojson</code>, <code>.json</code></p>
+                </div>
 
-                    <div class="mt-4">
-                        <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Or Paste GeoJSON</label>
-                        <textarea id="asbuilt-geojson" rows="10"
-                                  class="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 font-mono text-xs text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
-                                  placeholder='{"type":"LineString","coordinates":[[lng,lat],[lng,lat]]}'></textarea>
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Or Paste GeoJSON</label>
+                    <textarea id="asbuilt-geojson" rows="12"
+                              class="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 font-mono text-xs text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
+                              placeholder='{"type":"LineString","coordinates":[[lng,lat],[lng,lat]]}'></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Actual Length (Meters)</label>
+                    <input id="asbuilt-length" type="number" step="0.01" min="0"
+                           class="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
+                           placeholder="Auto-computed if blank">
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Leave blank to auto-compute from the route coordinates.</p>
+                </div>
+
+                <div id="asbuilt-preview" class="hidden rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"></div>
+            </div>
+        </section>
+
+        <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div>
+                <div class="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">2. Revised Line Items</div>
+                <h2 class="mt-1 text-lg font-semibold text-slate-900 dark:text-white">Add new actual-use items</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Use this section for additions discovered during delivery. Approved quote items are not preloaded here.
+                </p>
+            </div>
+
+            <div class="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Type</label>
+                        <input id="li-item-type" type="text" placeholder="labor / cable / splice ..."
+                               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
                     </div>
-
-                    <div class="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div>
-                            <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Related Proposed Revision (Optional)</label>
-                            <input id="asbuilt-proposed-revision" type="text"
-                                   class="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
-                                   placeholder="UUID">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Actual Length (Meters)</label>
-                            <input id="asbuilt-length" type="number" step="0.01" min="0"
-                                   class="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200"
-                                   placeholder="Auto-computed if blank">
-                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Leave blank to auto-compute from the route coordinates.</p>
-                        </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Description</label>
+                        <input id="li-description" type="text" placeholder="Unexpected cable run, added splice tray..."
+                               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
                     </div>
-
-                    <div class="mt-4 flex flex-wrap items-center gap-3">
-                        <button id="asbuilt-submit"
-                                disabled
-                                class="inline-flex items-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30 hover:-translate-y-0.5">
-                            Submit As-Built
-                        </button>
-                        <a href="/vendor/projects/mine"
-                           class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
-                            Back to My Projects
-                        </a>
-                        <a href="/vendor/fiber-map" target="_blank"
-                           class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
-                            Open Fiber Map
-                        </a>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Quantity</label>
+                        <input id="li-quantity" type="number" step="0.001" min="1" value="1.000"
+                               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
                     </div>
-
-                    <div id="asbuilt-preview" class="mt-4 hidden rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300"></div>
-                    <div id="asbuilt-message" class="mt-3 text-sm"></div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Unit price</label>
+                        <input id="li-unit-price" type="number" step="0.01" min="0" value="0.00"
+                               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Notes</label>
+                        <input id="li-notes" type="text" placeholder="Optional explanation"
+                               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                    </div>
+                </div>
+                <div class="mt-3 flex items-center justify-between gap-3">
+                    <div id="li-message" class="text-sm text-slate-600 dark:text-slate-300"></div>
+                    <button id="li-add"
+                            class="inline-flex items-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30">
+                        Add revised item
+                    </button>
                 </div>
             </div>
 
-            <div class="space-y-4">
-                <div>
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">2. Review Before Submit</h2>
-                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Checklist before sending:
-                    </p>
-                </div>
+            <div class="mt-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                    <thead class="bg-slate-50 dark:bg-slate-900/40">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Description</th>
+                            <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Qty</th>
+                            <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Unit</th>
+                            <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Amount</th>
+                            <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="lineitems-body" class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
+                        <tr id="lineitems-empty">
+                            <td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                                No revised line items yet. Add one above if the field work required additions.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
-                    <ul class="space-y-2">
-                        <li>Route is final installed path, not planned route.</li>
-                        <li>GeoJSON contains a valid LineString.</li>
-                        <li>Length looks correct (auto-computed or manual override).</li>
-                        <li>Optional: linked proposed revision ID is correct.</li>
-                    </ul>
+            <div class="mt-4 space-y-2 text-sm">
+                <div class="flex items-center justify-between">
+                    <div class="text-slate-500 dark:text-slate-400">Subtotal</div>
+                    <div id="lineitems-subtotal" class="font-semibold text-slate-900 dark:text-white">0.00</div>
                 </div>
-
-                <details class="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                    <summary class="cursor-pointer select-none font-semibold text-slate-700 dark:text-slate-200">Advanced Technical Details</summary>
-                    <p class="mt-3">
-                        This page submits to <code class="text-emerald-600 dark:text-emerald-400">POST /api/vendor/as-built</code> using your vendor session.
-                    </p>
-                    <div class="mt-2 font-mono text-xs">
-                        { "project_id": "{{ project_id }}", "geojson": { ... }, "actual_length_meters": 123.45 }
+                <div class="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <div>
+                        <label for="lineitems-tax-rate" class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Tax (%)</label>
+                        <input id="lineitems-tax-rate" type="number" step="0.01" min="0" max="100" value="0.00"
+                               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
                     </div>
-                </details>
+                    <div id="lineitems-tax-message" class="text-xs text-slate-500 dark:text-slate-400"></div>
+                </div>
+                <div class="flex items-center justify-between">
+                    <div class="text-slate-500 dark:text-slate-400">Tax amount</div>
+                    <div id="lineitems-tax" class="font-semibold text-slate-900 dark:text-white">0.00</div>
+                </div>
+                <div class="flex items-center justify-between border-t border-slate-200 pt-2 dark:border-slate-700">
+                    <div class="font-semibold text-slate-700 dark:text-slate-200">Total</div>
+                    <div id="lineitems-total" class="text-base font-bold text-slate-900 dark:text-white">0.00</div>
+                </div>
+            </div>
+
+            <div class="mt-4 rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                These items are submitted with the variation for review. Leave this section empty if there were no additions beyond the approved quote.
+            </div>
+        </section>
+    </div>
+
+    <section class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <div class="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">3. Submit</div>
+                <h2 class="mt-1 text-lg font-semibold text-slate-900 dark:text-white">Send final closeout for review</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Submit revised line items alone, or include route geometry when it is relevant.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <a href="/vendor/projects/mine"
+                   class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                    Back to My Projects
+                </a>
+                <a href="/vendor/fiber-map" target="_blank"
+                   class="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                    Open Fiber Map
+                </a>
+                <button id="asbuilt-submit"
+                        disabled
+                        class="inline-flex items-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0">
+                    Variation
+                </button>
+            </div>
+        </div>
+        <div id="asbuilt-message" class="mt-4 text-sm"></div>
+    </section>
+</div>
+
+<div id="lineitem-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 p-4">
+    <div class="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit revised item</h3>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">These edits stay local until you submit the variation.</p>
+            </div>
+            <button type="button" id="li-modal-close"
+                    class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                Close
+            </button>
+        </div>
+
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Type</label>
+                <input id="li-edit-item-type" type="text"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Description</label>
+                <input id="li-edit-description" type="text"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Quantity</label>
+                <input id="li-edit-quantity" type="number" step="0.001" min="1"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Unit price</label>
+                <input id="li-edit-unit-price" type="number" step="0.01" min="0"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Notes</label>
+                <input id="li-edit-notes" type="text"
+                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+            </div>
+        </div>
+
+        <div class="mt-4 flex items-center justify-between gap-3">
+            <div id="li-edit-message" class="text-sm text-slate-600 dark:text-slate-300"></div>
+            <div class="inline-flex items-center gap-2">
+                <button type="button" id="li-modal-cancel"
+                        class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                    Cancel
+                </button>
+                <button type="button" id="li-modal-save"
+                        class="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                    Save changes
+                </button>
             </div>
         </div>
     </div>
@@ -125,15 +252,56 @@
     const fileInput = document.getElementById('asbuilt-file');
     const geojsonTextarea = document.getElementById('asbuilt-geojson');
     const lengthInput = document.getElementById('asbuilt-length');
-    const proposedRevisionInput = document.getElementById('asbuilt-proposed-revision');
     const preview = document.getElementById('asbuilt-preview');
     const msg = document.getElementById('asbuilt-message');
     const submitBtn = document.getElementById('asbuilt-submit');
 
-    function setMessage(text, kind) {
-        if (!msg) return;
-        msg.textContent = text || '';
-        msg.className = 'mt-3 text-sm ' + (kind === 'error' ? 'text-red-600 dark:text-red-400' : kind === 'ok' ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-300');
+    const addBtn = document.getElementById('li-add');
+    const liMsg = document.getElementById('li-message');
+    const tbody = document.getElementById('lineitems-body');
+    const subtotalEl = document.getElementById('lineitems-subtotal');
+    const taxRateInput = document.getElementById('lineitems-tax-rate');
+    const taxMsg = document.getElementById('lineitems-tax-message');
+    const taxEl = document.getElementById('lineitems-tax');
+    const totalEl = document.getElementById('lineitems-total');
+    const modal = document.getElementById('lineitem-modal');
+    const modalClose = document.getElementById('li-modal-close');
+    const modalCancel = document.getElementById('li-modal-cancel');
+    const modalSave = document.getElementById('li-modal-save');
+    const editMsg = document.getElementById('li-edit-message');
+
+    const fType = document.getElementById('li-item-type');
+    const fDesc = document.getElementById('li-description');
+    const fQty = document.getElementById('li-quantity');
+    const fUnit = document.getElementById('li-unit-price');
+    const fNotes = document.getElementById('li-notes');
+
+    const eType = document.getElementById('li-edit-item-type');
+    const eDesc = document.getElementById('li-edit-description');
+    const eQty = document.getElementById('li-edit-quantity');
+    const eUnit = document.getElementById('li-edit-unit-price');
+    const eNotes = document.getElementById('li-edit-notes');
+
+    let editingId = null;
+    let revisedItems = [];
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function setMessage(text, kind, el = msg) {
+        if (!el) return;
+        el.textContent = text || '';
+        el.className = 'text-sm ' + (
+            kind === 'error' ? 'text-red-600 dark:text-red-400' :
+            kind === 'ok' ? 'text-emerald-700 dark:text-emerald-300' :
+            'text-slate-600 dark:text-slate-300'
+        );
     }
 
     function haversineMeters(lat1, lon1, lat2, lon2) {
@@ -154,8 +322,10 @@
         if (input.type === 'LineString' && Array.isArray(input.coordinates)) return input;
         if (input.type === 'Feature' && input.geometry && input.geometry.type === 'LineString') return input.geometry;
         if (input.type === 'FeatureCollection' && Array.isArray(input.features)) {
-            for (const f of input.features) {
-                if (f && f.type === 'Feature' && f.geometry && f.geometry.type === 'LineString') return f.geometry;
+            for (const feature of input.features) {
+                if (feature && feature.type === 'Feature' && feature.geometry && feature.geometry.type === 'LineString') {
+                    return feature.geometry;
+                }
             }
         }
         return null;
@@ -174,8 +344,44 @@
         return total;
     }
 
+    function computeAmount(quantity, unitPrice) {
+        const q = Number(quantity);
+        const u = Number(unitPrice);
+        if (!Number.isFinite(q) || !Number.isFinite(u)) return 0;
+        return q * u;
+    }
+
+    function generateItemId() {
+        if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+            return globalThis.crypto.randomUUID();
+        }
+        return `asbuilt-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function revisedItemsSubtotal() {
+        return revisedItems.reduce((sum, item) => sum + computeAmount(item.quantity, item.unit_price), 0);
+    }
+
+    function renderTotals() {
+        const subtotal = revisedItemsSubtotal();
+        let rate = Number(taxRateInput?.value || 0);
+        if (!Number.isFinite(rate) || rate < 0) {
+            rate = 0;
+        }
+        if (rate > 100) {
+            rate = 100;
+        }
+        const taxAmount = subtotal * (rate / 100);
+        const total = subtotal + taxAmount;
+        if (taxRateInput && Number(taxRateInput.value || 0) !== rate) {
+            taxRateInput.value = rate.toFixed(2);
+        }
+        if (subtotalEl) subtotalEl.textContent = subtotal.toFixed(2);
+        if (taxEl) taxEl.textContent = taxAmount.toFixed(2);
+        if (totalEl) totalEl.textContent = total.toFixed(2);
+    }
+
     function updatePreview(parsed) {
-        if (!preview) return;
         const line = extractLineStringGeojson(parsed);
         if (!line) {
             preview.classList.add('hidden');
@@ -183,11 +389,11 @@
             return;
         }
         const length = computeLengthMeters(line);
-        const pts = Array.isArray(line.coordinates) ? line.coordinates.length : 0;
-        preview.textContent = `Valid LineString detected with ${pts} points. Computed length: ${length.toFixed(2)} m.`;
+        const points = Array.isArray(line.coordinates) ? line.coordinates.length : 0;
+        preview.textContent = `Valid LineString detected with ${points} points. Computed length: ${length.toFixed(2)} m.`;
         preview.classList.remove('hidden');
         if (!lengthInput.value) {
-            lengthInput.value = String(Number.isFinite(length) ? length.toFixed(2) : '');
+            lengthInput.value = Number.isFinite(length) ? length.toFixed(2) : '';
         }
         refreshSubmitState();
     }
@@ -195,21 +401,115 @@
     function refreshSubmitState() {
         const raw = (geojsonTextarea?.value || '').trim();
         if (!raw) {
-            submitBtn.disabled = true;
+            submitBtn.disabled = revisedItems.length === 0;
             return;
         }
         try {
             const parsed = JSON.parse(raw);
-            const line = extractLineStringGeojson(parsed);
-            submitBtn.disabled = !line;
+            submitBtn.disabled = !extractLineStringGeojson(parsed) && revisedItems.length === 0;
         } catch {
-            submitBtn.disabled = true;
+            submitBtn.disabled = revisedItems.length === 0;
         }
     }
 
+    function rowHtml(item) {
+        const amount = computeAmount(item.quantity, item.unit_price);
+        const desc = item.description || item.item_type || 'Line item';
+        const notes = item.notes ? `<div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">${escapeHtml(item.notes)}</div>` : '';
+        return `
+            <tr data-lineitem-row data-id="${escapeHtml(item.id)}">
+                <td class="px-3 py-2 text-slate-900 dark:text-white">
+                    <div class="font-medium">${escapeHtml(desc)}</div>
+                    ${notes}
+                </td>
+                <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">${escapeHtml(item.quantity)}</td>
+                <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">${escapeHtml(item.unit_price)}</td>
+                <td class="px-3 py-2 text-right font-medium text-slate-900 dark:text-white">${amount.toFixed(2)}</td>
+                <td class="px-3 py-2 text-right">
+                    <div class="inline-flex items-center gap-2">
+                        <button type="button" data-lineitem-edit
+                                class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                            Edit
+                        </button>
+                        <button type="button" data-lineitem-delete
+                                class="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30">
+                            Delete
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    function renderItems() {
+        if (!tbody) return;
+        if (!revisedItems.length) {
+            tbody.innerHTML = `
+                <tr id="lineitems-empty">
+                    <td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No revised line items yet. Add one above if the field work required additions.
+                    </td>
+                </tr>
+            `;
+            renderTotals();
+            refreshSubmitState();
+            return;
+        }
+        tbody.innerHTML = revisedItems.map(rowHtml).join('');
+        renderTotals();
+        refreshSubmitState();
+    }
+
+    function resetAddForm() {
+        fType.value = '';
+        fDesc.value = '';
+        fQty.value = '1.000';
+        fUnit.value = '0.00';
+        fNotes.value = '';
+    }
+
+    function buildItemFromForm(prefix) {
+        const source = prefix === 'edit'
+            ? { type: eType, desc: eDesc, qty: eQty, unit: eUnit, notes: eNotes }
+            : { type: fType, desc: fDesc, qty: fQty, unit: fUnit, notes: fNotes };
+        const quantity = String(source.qty.value || '1.000');
+        const unitPrice = String(source.unit.value || '0.00');
+        if (!Number.isFinite(Number(quantity)) || Number(quantity) < 1) {
+            throw new Error('Quantity must be at least 1.');
+        }
+        if (!Number.isFinite(Number(unitPrice)) || Number(unitPrice) < 0) {
+            throw new Error('Unit price must be 0 or greater.');
+        }
+        return {
+            id: prefix === 'edit' ? editingId : generateItemId(),
+            item_type: (source.type.value || '').trim() || null,
+            description: (source.desc.value || '').trim() || null,
+            quantity,
+            unit_price: unitPrice,
+            notes: (source.notes.value || '').trim() || null
+        };
+    }
+
+    function openModal(item) {
+        editingId = item.id;
+        eType.value = item.item_type || '';
+        eDesc.value = item.description || '';
+        eQty.value = item.quantity || '1.000';
+        eUnit.value = item.unit_price || '0.00';
+        eNotes.value = item.notes || '';
+        setMessage('', 'info', editMsg);
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function closeModal() {
+        editingId = null;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
     async function readFileAsJson(file) {
-        const text = await file.text();
-        return JSON.parse(text);
+        return JSON.parse(await file.text());
     }
 
     fileInput?.addEventListener('change', async () => {
@@ -220,8 +520,8 @@
             const parsed = await readFileAsJson(file);
             geojsonTextarea.value = JSON.stringify(parsed, null, 2);
             updatePreview(parsed);
-        } catch (e) {
-            setMessage(e?.message || 'Failed to read file.', 'error');
+        } catch (error) {
+            setMessage(error?.message || 'Failed to read file.', 'error');
         }
     });
 
@@ -230,13 +530,65 @@
         try {
             const raw = geojsonTextarea.value.trim();
             if (!raw) {
-                preview?.classList.add('hidden');
+                preview.classList.add('hidden');
+                refreshSubmitState();
                 return;
             }
-            const parsed = JSON.parse(raw);
-            updatePreview(parsed);
+            updatePreview(JSON.parse(raw));
         } catch {
             refreshSubmitState();
+        }
+    });
+
+    addBtn?.addEventListener('click', () => {
+        try {
+            revisedItems.push(buildItemFromForm('add'));
+            renderItems();
+            resetAddForm();
+            setMessage('Revised item added.', 'ok', liMsg);
+        } catch (error) {
+            setMessage(error?.message || 'Could not add revised item.', 'error', liMsg);
+        }
+    });
+
+    taxRateInput?.addEventListener('input', () => {
+        renderTotals();
+        if (taxMsg) {
+            taxMsg.textContent = 'Tax preview updates immediately.';
+        }
+    });
+
+    tbody?.addEventListener('click', (event) => {
+        const target = event.target;
+        const row = target?.closest?.('[data-lineitem-row]');
+        if (!row) return;
+        const item = revisedItems.find((entry) => entry.id === row.dataset.id);
+        if (!item) return;
+        if (target.matches('[data-lineitem-edit]')) {
+            openModal(item);
+            return;
+        }
+        if (target.matches('[data-lineitem-delete]')) {
+            revisedItems = revisedItems.filter((entry) => entry.id !== item.id);
+            renderItems();
+        }
+    });
+
+    modalClose?.addEventListener('click', closeModal);
+    modalCancel?.addEventListener('click', closeModal);
+    modal?.addEventListener('click', (event) => {
+        if (event.target === modal) closeModal();
+    });
+
+    modalSave?.addEventListener('click', () => {
+        if (!editingId) return;
+        try {
+            const updated = buildItemFromForm('edit');
+            revisedItems = revisedItems.map((entry) => entry.id === editingId ? updated : entry);
+            renderItems();
+            closeModal();
+        } catch (error) {
+            setMessage(error?.message || 'Could not update revised item.', 'error', editMsg);
         }
     });
 
@@ -247,27 +599,30 @@
             return;
         }
         const raw = (geojsonTextarea?.value || '').trim();
-        if (!raw) {
-            setMessage('Please upload or paste GeoJSON first.', 'error');
-            return;
-        }
-        let parsed;
-        try {
-            parsed = JSON.parse(raw);
-        } catch {
-            setMessage('GeoJSON is not valid JSON.', 'error');
-            return;
-        }
-        const line = extractLineStringGeojson(parsed);
-        if (!line) {
-            setMessage('GeoJSON must contain a LineString geometry.', 'error');
+        if (!raw && revisedItems.length === 0) {
+            setMessage('Add at least one revised line item or provide route geometry before submitting.', 'error');
             return;
         }
 
-        const proposedRevisionId = (proposedRevisionInput?.value || '').trim() || null;
+        let line = null;
+        if (raw) {
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch {
+                setMessage('GeoJSON is not valid JSON.', 'error');
+                return;
+            }
+            line = extractLineStringGeojson(parsed);
+            if (!line) {
+                setMessage('GeoJSON must contain a LineString geometry.', 'error');
+                return;
+            }
+        }
+
         const lengthVal = (lengthInput?.value || '').trim();
-        const lengthMeters = lengthVal ? Number(lengthVal) : computeLengthMeters(line);
-        if (!Number.isFinite(lengthMeters) || lengthMeters <= 0) {
+        const lengthMeters = line ? (lengthVal ? Number(lengthVal) : computeLengthMeters(line)) : null;
+        if (line && (!Number.isFinite(lengthMeters) || lengthMeters <= 0)) {
             setMessage('Could not compute a valid length. Provide a length in meters.', 'error');
             return;
         }
@@ -277,28 +632,37 @@
         try {
             const payload = {
                 project_id: projectId,
-                proposed_revision_id: proposedRevisionId,
                 geojson: line,
-                actual_length_meters: lengthMeters
+                actual_length_meters: lengthMeters,
+                line_items: revisedItems.map((item) => ({
+                    item_type: item.item_type,
+                    description: item.description,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    notes: item.notes
+                }))
             };
-            const res = await fetch('/api/vendor/as-built', {
+            const response = await fetch('/api/vendor/as-built', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                throw new Error(data.detail || data.error || `Request failed (${res.status})`);
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.detail || data.error || `Request failed (${response.status})`);
             }
-            setMessage(`As-built submitted successfully. Submission ID: ${data.id}`, 'ok');
-        } catch (e) {
-            setMessage(e?.message || 'Could not submit as-built. Please fix any issues and try again.', 'error');
+            setMessage(`Variation submitted successfully. Submission ID: ${data.id}`, 'ok');
+        } catch (error) {
+            setMessage(error?.message || 'Could not submit variation. Please fix any issues and try again.', 'error');
         } finally {
             submitBtn.disabled = false;
-            submitBtn.textContent = 'Submit As-Built';
+            submitBtn.textContent = 'Variation';
             refreshSubmitState();
         }
     });
+
+    renderItems();
     refreshSubmitState();
 })();
 </script>

@@ -8,7 +8,7 @@
     'automations': 'system', 'pop-sites': 'system', 'configuration': 'system',
     'fiber-plant': 'operations', 'fiber-map': 'operations', 'fiber-change-requests': 'operations', 'fdh-cabinets': 'operations', 'splitters': 'operations', 'fiber-strands': 'operations', 'splice-closures': 'operations', 'fiber-reports': 'operations',
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
-    'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations',
+    'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-as-built': 'operations',
     'material-requests': 'operations',
     'my-performance': 'reports',
     'team-performance': 'reports',
@@ -17,7 +17,7 @@
     'service-teams': 'system', 'user-guide': 'system'
 } %}
 {% set field_service_pages = ['installations', 'technicians', 'dispatch', 'work-orders'] %}
-{% set project_pages = ['projects', 'vendor-quotes'] %}
+{% set project_pages = ['projects', 'vendor-quotes', 'vendor-as-built'] %}
 {% set section_for_menu = {
     'core-network': 'operations', 'gpon': 'operations', 'fiber': 'operations'
 } %}
@@ -435,6 +435,9 @@
             <a href="/admin/projects" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'projects' else '' }}">Projects</a>
             {% if can_vendor_quotes %}
             <a href="/admin/vendors/quotes" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'vendor-quotes' or request.url.path.startswith('/admin/vendors/quotes') else '' }}">Vendor Quotes</a>
+            {% endif %}
+            {% if can_vendor_quotes %}
+            <a href="/admin/vendors/as-built" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'vendor-as-built' or request.url.path.startswith('/admin/vendors/as-built') else '' }}">Variation</a>
             {% endif %}
         </div>
         {% endif %}

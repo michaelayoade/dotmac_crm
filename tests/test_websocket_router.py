@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from app.websocket.events import EventType
 from app.websocket.router import _handle_client_message
+
+
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
 
 
 def _mock_manager():
@@ -24,7 +30,7 @@ def test_presence_event_broadcasts_replying_state():
     manager = _mock_manager()
     websocket = object()
 
-    asyncio.run(
+    _run_async(
         _handle_client_message(
             "person-1",
             websocket,
@@ -53,7 +59,7 @@ def test_presence_event_parses_false_string_active():
     manager = _mock_manager()
     websocket = object()
 
-    asyncio.run(
+    _run_async(
         _handle_client_message(
             "person-2",
             websocket,

@@ -55,6 +55,14 @@ class ProposedRouteRevisionStatus(enum.Enum):
     rejected = "rejected"
 
 
+class VariationType(enum.Enum):
+    scope_change = "scope_change"
+    route_deviation = "route_deviation"
+    material_change = "material_change"
+    additional_work = "additional_work"
+    reduction = "reduction"
+
+
 class AsBuiltRouteStatus(enum.Enum):
     submitted = "submitted"
     under_review = "under_review"
@@ -267,6 +275,15 @@ class AsBuiltRoute(Base):
     report_file_name: Mapped[str | None] = mapped_column(String(255))
     report_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Variation workflow fields
+    variation_type: Mapped[VariationType | None] = mapped_column(Enum(VariationType))
+    variation_reason: Mapped[str | None] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    work_order_ref: Mapped[str | None] = mapped_column(String(120))
+    erp_sync_status: Mapped[str | None] = mapped_column(String(40))
+    erp_reference: Mapped[str | None] = mapped_column(String(120))
+    erp_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -279,6 +296,35 @@ class AsBuiltRoute(Base):
     submitted_by = relationship("Person", foreign_keys=[submitted_by_person_id])
     reviewed_by = relationship("Person", foreign_keys=[reviewed_by_person_id])
     fiber_segment = relationship("FiberSegment")
+    line_items = relationship("AsBuiltLineItem", back_populates="as_built", cascade="all, delete-orphan")
+
+
+class AsBuiltLineItem(Base):
+    __tablename__ = "as_built_line_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    as_built_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("as_built_routes.id"), nullable=False, index=True
+    )
+    item_type: Mapped[str | None] = mapped_column(String(80))
+    description: Mapped[str | None] = mapped_column(Text)
+    cable_type: Mapped[str | None] = mapped_column(String(120))
+    fiber_count: Mapped[int | None] = mapped_column(Integer)
+    splice_count: Mapped[int | None] = mapped_column(Integer)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("1.000"))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    notes: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    as_built = relationship("AsBuiltRoute", back_populates="line_items")
 
 
 class InstallationProjectNote(Base):

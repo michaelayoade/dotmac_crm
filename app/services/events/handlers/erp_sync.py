@@ -38,6 +38,8 @@ ERP_SYNC_EVENT_TYPES = {
     EventType.work_order_dispatched,
     EventType.work_order_completed,
     EventType.work_order_canceled,
+    # Variation events (vendor as-built approval triggers PO amendment sync)
+    EventType.variation_approved,
 }
 
 
@@ -80,7 +82,10 @@ class ERPSyncHandler:
             return
 
         # Queue the sync task
-        self._queue_sync_task(entity_type, entity_id, event.event_type)
+        idempotency_key = (
+            event.payload.get("idempotency_key") if event.event_type == EventType.variation_approved else None
+        )
+        self._queue_sync_task(entity_type, entity_id, event.event_type, idempotency_key=idempotency_key)
 
     def _extract_entity_info(self, event: Event) -> tuple[str | None, str | None]:
         """Extract entity type and ID from an event.
@@ -121,6 +126,11 @@ class ERPSyncHandler:
             entity_id = event.work_order_id or event.payload.get("work_order_id")
             return ("work_order", str(entity_id)) if entity_id else (None, None)
 
+        # Variation approval → sync the parent project
+        if event_type == EventType.variation_approved:
+            entity_id = event.project_id or event.payload.get("project_id")
+            return ("project", str(entity_id)) if entity_id else (None, None)
+
         return (None, None)
 
     def _is_duplicate(self, entity_type: str, entity_id: str) -> bool:
@@ -143,16 +153,25 @@ class ERPSyncHandler:
             logger.warning(f"ERP sync dedup check failed: {exc}")
             return False
 
-    def _queue_sync_task(self, entity_type: str, entity_id: str, event_type: EventType) -> None:
+    def _queue_sync_task(
+        self,
+        entity_type: str,
+        entity_id: str,
+        event_type: EventType,
+        idempotency_key: str | None = None,
+    ) -> None:
         """Queue a Celery task to sync an entity to ERP.
 
         Args:
             entity_type: "project", "ticket", or "work_order"
             entity_id: UUID of the entity
             event_type: The event that triggered this sync
+            idempotency_key: Optional key for variation-level dedup
         """
+        # For variation events, use the idempotency key for stronger dedup
+        dedup_id = idempotency_key or entity_id
         # Check for duplicate within dedup window
-        if self._is_duplicate(entity_type, entity_id):
+        if self._is_duplicate(entity_type, dedup_id):
             scheduled = self._schedule_debounced_sync(entity_type, entity_id, event_type)
             if scheduled:
                 logger.info(
