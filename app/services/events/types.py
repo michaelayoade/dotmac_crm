@@ -86,6 +86,9 @@ class EventType(enum.Enum):
     project_task_completed = "project_task.completed"
     vendor_quote_submitted = "vendor_quote.submitted"
     vendor_quote_approved = "vendor_quote.approved"
+    variation_submitted = "variation.submitted"
+    variation_approved = "variation.approved"
+    variation_rejected = "variation.rejected"
 
     # Workforce - Work Order events (5)
     work_order_created = "work_order.created"

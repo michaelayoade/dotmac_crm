@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 
 from app.models.domain_settings import SettingDomain
 from app.web.admin import system as system_web
+
+
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
 
 
 class _FakeRequest:
@@ -36,7 +42,7 @@ def test_workflow_ticket_assignment_settings_update_persists_values(monkeypatch)
             "ticket_auto_assign_max_open_tickets": "7",
         }
     )
-    response = asyncio.run(system_web.workflow_ticket_assignment_settings_update(request, db=object()))
+    response = _run_async(system_web.workflow_ticket_assignment_settings_update(request, db=object()))
 
     assert response.status_code == 303
     assert response.headers.get("location") == "/admin/system/workflow"
@@ -62,7 +68,7 @@ def test_workflow_ticket_assignment_settings_update_allows_empty_max(monkeypatch
             "ticket_auto_assign_max_open_tickets": "",
         }
     )
-    response = asyncio.run(system_web.workflow_ticket_assignment_settings_update(request, db=object()))
+    response = _run_async(system_web.workflow_ticket_assignment_settings_update(request, db=object()))
 
     assert response.status_code == 303
     payload_map = {key: payload for key, payload in service.calls}

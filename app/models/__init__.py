@@ -273,6 +273,7 @@ from app.models.timecost import (  # noqa: F401
 )
 from app.models.user_filter_preference import UserFilterPreference  # noqa: F401
 from app.models.vendor import (  # noqa: F401
+    AsBuiltLineItem,
     AsBuiltRoute,
     AsBuiltRouteStatus,
     InstallationProject,
@@ -283,6 +284,7 @@ from app.models.vendor import (  # noqa: F401
     ProposedRouteRevision,
     ProposedRouteRevisionStatus,
     QuoteLineItem,
+    VariationType,
     Vendor,
     VendorAssignmentType,
     VendorUser,

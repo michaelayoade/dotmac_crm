@@ -495,11 +495,11 @@ class SurveyResponseManager:
             )
             .all()
         )
-        all_ratings = [
-            row[0] if isinstance(row, tuple) else getattr(row, "rating", row)
-            for row in rating_rows
-            if (row[0] if isinstance(row, tuple) else getattr(row, "rating", row)) is not None
-        ]
+        all_ratings: list[int] = []
+        for row in rating_rows:
+            value = row[0] if isinstance(row, tuple) else getattr(row, "rating", row)
+            if isinstance(value, int):
+                all_ratings.append(value)
         if all_ratings:
             survey.avg_rating = round(sum(all_ratings) / len(all_ratings), 2)
 

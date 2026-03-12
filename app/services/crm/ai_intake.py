@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -495,29 +496,49 @@ def _select_agent_for_team(db: Session, team_id) -> Any | None:
     if not candidates:
         return None
 
-    available_agent_ids: list[str] = []
+    candidate_ids = {agent.id for agent, _ in candidates}
+    active_assignment_counts = {
+        row[0]: int(row[1] or 0)
+        for row in (
+            db.query(
+                ConversationAssignment.agent_id,
+                func.count(ConversationAssignment.id),
+            )
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.in_(candidate_ids))
+            .group_by(ConversationAssignment.agent_id)
+            .all()
+        )
+        if row[0] is not None
+    }
+
+    ranked: list[tuple[int, int, int, str, Any]] = []
     agent_id_map: dict[str, Any] = {}
     for agent, presence in candidates:
         effective_status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
         if effective_status not in {AgentPresenceStatus.online, AgentPresenceStatus.away}:
             continue
         agent_id = str(agent.id)
-        available_agent_ids.append(agent_id)
         agent_id_map[agent_id] = agent.id
+        availability_rank = 0 if effective_status == AgentPresenceStatus.online else 1
+        active_load = active_assignment_counts.get(agent.id, 0)
+        ranked.append((availability_rank, active_load, len(ranked), agent_id, agent.id))
 
-    if not available_agent_ids:
+    if not ranked:
         return None
+    ranked.sort()
 
     metadata = team.metadata_ if isinstance(team.metadata_, dict) else {}
     rr_state = metadata.get(AI_INTAKE_RR_STATE_KEY)
     if not isinstance(rr_state, dict):
         rr_state = {}
 
+    eligible_agent_ids = [agent_id for _, _, _, agent_id, _ in ranked]
     last_agent_id = str(rr_state.get("last_agent_id") or "").strip() or None
-    next_agent_id = available_agent_ids[0]
-    if last_agent_id and last_agent_id in available_agent_ids:
-        idx = available_agent_ids.index(last_agent_id)
-        next_agent_id = available_agent_ids[(idx + 1) % len(available_agent_ids)]
+    next_agent_id = eligible_agent_ids[0]
+    if last_agent_id and last_agent_id in eligible_agent_ids:
+        idx = eligible_agent_ids.index(last_agent_id)
+        next_agent_id = eligible_agent_ids[(idx + 1) % len(eligible_agent_ids)]
 
     rr_state["last_agent_id"] = next_agent_id
     metadata[AI_INTAKE_RR_STATE_KEY] = rr_state

@@ -112,6 +112,17 @@ def _safe_quote_redirect_target(redirect_to: str | None) -> str | None:
     return target
 
 
+def _safe_as_built_redirect_target(redirect_to: str | None) -> str | None:
+    if not redirect_to:
+        return None
+    target = str(redirect_to).strip()
+    if not target or "://" in target or target.startswith("//"):
+        return None
+    if not target.startswith("/admin/vendors/as-built"):
+        return None
+    return target
+
+
 def _append_query_param(url: str, key: str, value: str) -> str:
     parts = urlsplit(url)
     query_pairs = parse_qsl(parts.query, keep_blank_values=True)
@@ -1199,6 +1210,29 @@ def vendor_as_built_list(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("admin/vendors/as-built/review.html", context)
 
 
+@router.get(
+    "/as-built/{as_built_id}",
+    response_class=HTMLResponse,
+)
+def vendor_as_built_detail(
+    as_built_id: str,
+    request: Request,
+    as_built_action: str | None = None,
+    as_built_error_detail: str | None = None,
+    db: Session = Depends(get_db),
+):
+    as_built = vendor_service.as_built_routes.get(db=db, as_built_id=as_built_id)
+    context = _base_context(request, db, active_page="vendor-as-built")
+    context.update(
+        {
+            "as_built": as_built,
+            "as_built_action": as_built_action,
+            "as_built_error_detail": as_built_error_detail,
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/as-built/detail.html", context)
+
+
 @router.get("/as-built/{as_built_id}/report")
 def vendor_as_built_report(as_built_id: str, db: Session = Depends(get_db)):
     as_built = vendor_service.as_built_routes.get(db=db, as_built_id=as_built_id)
@@ -1213,6 +1247,95 @@ def vendor_as_built_report(as_built_id: str, db: Session = Depends(get_db)):
         filename=filename,
         media_type=media_type,
     )
+
+
+@router.post(
+    "/as-built/{as_built_id}/approve",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+def vendor_as_built_approve(
+    as_built_id: str,
+    request: Request,
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    success_redirect = _safe_as_built_redirect_target(redirect_to) or f"/admin/vendors/as-built/{as_built_id}"
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    try:
+        vendor_service.as_built_routes.accept_and_convert(db, as_built_id=as_built_id, reviewer_id=reviewer_person_id)
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to approve as-built submission."), safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    return RedirectResponse(url=_append_query_param(success_redirect, "as_built_action", "approved"), status_code=303)
+
+
+@router.post(
+    "/as-built/{as_built_id}/reject",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+def vendor_as_built_reject(
+    as_built_id: str,
+    request: Request,
+    review_notes: str | None = Form(None),
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    success_redirect = _safe_as_built_redirect_target(redirect_to) or f"/admin/vendors/as-built/{as_built_id}"
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    try:
+        vendor_service.as_built_routes.reject(
+            db,
+            as_built_id=as_built_id,
+            reviewer_id=reviewer_person_id,
+            review_notes=review_notes,
+        )
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to reject as-built submission."), safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    return RedirectResponse(url=_append_query_param(success_redirect, "as_built_action", "rejected"), status_code=303)
+
+
+@router.post(
+    "/as-built/{as_built_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+def vendor_as_built_delete(
+    as_built_id: str,
+    request: Request,
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    success_redirect = "/admin/vendors/as-built"
+    try:
+        vendor_service.as_built_routes.delete(db, as_built_id=as_built_id)
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to delete as-built submission."), safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "as_built_error_detail", detail),
+            status_code=303,
+        )
+    return RedirectResponse(url=_append_query_param(success_redirect, "as_built_action", "deleted"), status_code=303)
 
 
 @router.get("/{vendor_id}", response_class=HTMLResponse)

@@ -169,9 +169,9 @@ class DotMacERPSync:
 
     # ============ Data Mappers ============
 
-    def _map_project(self, project: Project) -> dict:
+    def _map_project(self, project: Project) -> dict[str, object]:
         """Map a Project model to ERP sync payload."""
-        payload = {
+        payload: dict[str, object] = {
             "crm_id": str(project.id),
             "omni_id": str(project.id),
             "erpnext_id": project.erpnext_id,
@@ -194,7 +194,58 @@ class DotMacERPSync:
             payload["customer_name"] = project.subscriber.display_name
             payload["customer_omni_id"] = str(project.subscriber.id)
 
+        # Include variation/amendment metadata for ERP change-order linkage
+        variations = self._get_project_variations(project.id)
+        if variations:
+            payload["variations"] = variations
+
         return payload
+
+    def _get_project_variations(self, project_id: object) -> list[dict[str, object]]:
+        """Fetch accepted/pending variations for a project for ERP amendment linkage."""
+        from app.models.vendor import AsBuiltRoute, AsBuiltRouteStatus, InstallationProject
+
+        rows = (
+            self.db.query(AsBuiltRoute)
+            .join(InstallationProject, AsBuiltRoute.project_id == InstallationProject.id)
+            .filter(InstallationProject.project_id == project_id)
+            .filter(AsBuiltRoute.status.in_([AsBuiltRouteStatus.accepted, AsBuiltRouteStatus.submitted]))
+            .order_by(AsBuiltRoute.version.desc())
+            .limit(50)
+            .all()
+        )
+        return [self._map_variation(row) for row in rows]
+
+    def _map_variation(self, row) -> dict[str, object]:
+        project = row.project
+        baseline_refs = {
+            "installation_project_id": str(project.id) if project else None,
+            "project_id": str(project.project_id) if project else None,
+            "approved_quote_id": str(project.approved_quote_id) if project and project.approved_quote_id else None,
+            "proposed_revision_id": str(row.proposed_revision_id) if row.proposed_revision_id else None,
+        }
+        idempotency_key = f"variation:{row.id}:v{row.version}"
+        return {
+            "variation_id": str(row.id),
+            "variation_version": row.version,
+            "variation_type": row.variation_type.value if row.variation_type else None,
+            "variation_reason": self._safe_text(row.variation_reason, 500),
+            "status": row.status.value,
+            "work_order_ref": row.work_order_ref,
+            "erp_reference": row.erp_reference,
+            "actual_length_meters": row.actual_length_meters,
+            "submitted_at": self._format_iso(row.submitted_at),
+            "reviewed_at": self._format_iso(row.reviewed_at),
+            "baseline_refs": baseline_refs,
+            "idempotency_key": idempotency_key,
+            "metadata": {
+                "variation_id": str(row.id),
+                "variation_version": row.version,
+                "baseline_refs": baseline_refs,
+                "idempotency_key": idempotency_key,
+            },
+            "amendment_required": row.variation_type is not None,
+        }
 
     @staticmethod
     def _format_iso(value: datetime | None) -> str | None:
