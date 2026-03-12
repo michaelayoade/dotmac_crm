@@ -253,6 +253,11 @@ def _update_variation_erp_status(
         logger.warning("VARIATION_ERP_STATUS_UPDATE_FAILED project_id=%s error=%s", project_uuid, exc)
 
 
+def _mark_project_variations_failed(session: object, entity_type: str, entity_uuid: object, logger: object) -> None:
+    if entity_type == "project":
+        _update_variation_erp_status(session, entity_uuid, "failed", logger)
+
+
 @celery_app.task(
     name="app.tasks.integrations.sync_dotmac_erp_entity",
     bind=True,
@@ -306,6 +311,7 @@ def sync_dotmac_erp_entity(self, entity_type: str, entity_id: str):
             if project:
                 result = sync_service.sync_project(project)
             else:
+                _mark_project_variations_failed(session, entity_type, entity_uuid, logger)
                 logger.warning(
                     "DOTMAC_ERP_ENTITY_SYNC_NOT_FOUND entity_type=%s entity_id=%s",
                     entity_type,
@@ -416,6 +422,7 @@ def sync_dotmac_erp_entity(self, entity_type: str, entity_id: str):
         raise
     except (DotMacERPAuthError, DotMacERPNotFoundError) as e:
         status = "error"
+        _mark_project_variations_failed(session, entity_type, entity_uuid, logger)
         logger.error(
             "DOTMAC_ERP_ENTITY_SYNC_NONRETRYABLE entity_type=%s entity_id=%s error=%s",
             entity_type,
@@ -432,6 +439,7 @@ def sync_dotmac_erp_entity(self, entity_type: str, entity_id: str):
         }
     except DotMacERPError as e:
         status = "error"
+        _mark_project_variations_failed(session, entity_type, entity_uuid, logger)
         logger.error(
             "DOTMAC_ERP_ENTITY_SYNC_ERROR entity_type=%s entity_id=%s error=%s",
             entity_type,

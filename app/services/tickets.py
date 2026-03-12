@@ -519,9 +519,10 @@ class Tickets(ListResponseMixin):
 
         # Create SLA clock based on ticket type, priority, and channel
         try:
-            from app.services.sla_assignment import create_sla_clock_for_ticket
+            from app.services.sla_assignment import check_sla_breaches, create_sla_clock_for_ticket
 
             create_sla_clock_for_ticket(db, ticket)
+            check_sla_breaches(db, ticket.id)
         except Exception:
             logger.exception("sla_clock_creation_failed ticket_id=%s", ticket.id)
 
@@ -812,14 +813,16 @@ class Tickets(ListResponseMixin):
         if will_have_field_visit and not had_field_visit:
             _auto_create_work_order_for_ticket(db, ticket)
 
-        # Update SLA clocks based on status transition
-        if previous_status != ticket.status:
-            try:
-                from app.services.sla_assignment import update_sla_clocks_for_status_change
+        try:
+            from app.services.sla_assignment import check_sla_breaches, update_sla_clocks_for_status_change
 
+            # Status transitions can pause/resume/complete clocks, but every runtime update
+            # should also evaluate whether any active clock has already crossed due_at.
+            if previous_status != ticket.status:
                 update_sla_clocks_for_status_change(db, ticket, previous_status, ticket.status)
-            except Exception:
-                logger.exception("sla_clock_update_failed ticket_id=%s", ticket.id)
+            check_sla_breaches(db, ticket.id)
+        except Exception:
+            logger.exception("sla_clock_update_failed ticket_id=%s", ticket.id)
 
         db.commit()
         db.refresh(ticket)

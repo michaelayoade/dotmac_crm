@@ -94,6 +94,13 @@ def _build_variation_event_payload(as_built: AsBuiltRoute, action: str) -> dict:
     """Build deterministic event payload for variation lifecycle events."""
     project = as_built.project
     parent_project = project.project if project else None
+    baseline_refs = {
+        "installation_project_id": str(project.id) if project else None,
+        "project_id": str(project.project_id) if project else None,
+        "approved_quote_id": str(project.approved_quote_id) if project and project.approved_quote_id else None,
+        "proposed_revision_id": str(as_built.proposed_revision_id) if as_built.proposed_revision_id else None,
+    }
+    idempotency_key = f"variation:{as_built.id}:v{as_built.version}"
     # Resolve work order ref from the installation project
     work_order_ref = as_built.work_order_ref
     return {
@@ -112,7 +119,14 @@ def _build_variation_event_payload(as_built: AsBuiltRoute, action: str) -> dict:
         "actual_length_meters": as_built.actual_length_meters,
         "submitted_at": as_built.submitted_at.isoformat() if as_built.submitted_at else None,
         "reviewed_at": as_built.reviewed_at.isoformat() if as_built.reviewed_at else None,
-        "idempotency_key": f"variation:{as_built.id}:v{as_built.version}",
+        "baseline_refs": baseline_refs,
+        "idempotency_key": idempotency_key,
+        "metadata": {
+            "variation_id": str(as_built.id),
+            "variation_version": as_built.version,
+            "baseline_refs": baseline_refs,
+            "idempotency_key": idempotency_key,
+        },
     }
 
 

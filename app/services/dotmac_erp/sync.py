@@ -215,22 +215,40 @@ class DotMacERPSync:
             .all()
         )
         return [
-            {
-                "variation_id": str(row.id),
-                "variation_version": row.version,
-                "variation_type": row.variation_type.value if row.variation_type else None,
-                "variation_reason": self._safe_text(row.variation_reason, 500),
-                "status": row.status.value,
-                "work_order_ref": row.work_order_ref,
-                "erp_reference": row.erp_reference,
-                "actual_length_meters": row.actual_length_meters,
-                "submitted_at": self._format_iso(row.submitted_at),
-                "reviewed_at": self._format_iso(row.reviewed_at),
-                "idempotency_key": f"variation:{row.id}:v{row.version}",
-                "amendment_required": row.variation_type is not None,
-            }
+            self._map_variation(row)
             for row in rows
         ]
+
+    def _map_variation(self, row) -> dict:
+        project = row.project
+        baseline_refs = {
+            "installation_project_id": str(project.id) if project else None,
+            "project_id": str(project.project_id) if project else None,
+            "approved_quote_id": str(project.approved_quote_id) if project and project.approved_quote_id else None,
+            "proposed_revision_id": str(row.proposed_revision_id) if row.proposed_revision_id else None,
+        }
+        idempotency_key = f"variation:{row.id}:v{row.version}"
+        return {
+            "variation_id": str(row.id),
+            "variation_version": row.version,
+            "variation_type": row.variation_type.value if row.variation_type else None,
+            "variation_reason": self._safe_text(row.variation_reason, 500),
+            "status": row.status.value,
+            "work_order_ref": row.work_order_ref,
+            "erp_reference": row.erp_reference,
+            "actual_length_meters": row.actual_length_meters,
+            "submitted_at": self._format_iso(row.submitted_at),
+            "reviewed_at": self._format_iso(row.reviewed_at),
+            "baseline_refs": baseline_refs,
+            "idempotency_key": idempotency_key,
+            "metadata": {
+                "variation_id": str(row.id),
+                "variation_version": row.version,
+                "baseline_refs": baseline_refs,
+                "idempotency_key": idempotency_key,
+            },
+            "amendment_required": row.variation_type is not None,
+        }
 
     @staticmethod
     def _format_iso(value: datetime | None) -> str | None:

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.models.tickets import Ticket, TicketPriority, TicketStatus
+from app.models.tickets import TicketPriority, TicketStatus
 from app.models.workflow import (
     SlaBreach,
     SlaBreachStatus,
@@ -14,13 +14,14 @@ from app.models.workflow import (
     SlaTarget,
     WorkflowEntityType,
 )
+from app.schemas.tickets import TicketCreate, TicketUpdate
+from app.services import tickets as tickets_service
 from app.services.sla_assignment import (
     check_sla_breaches,
     create_sla_clock_for_ticket,
     resolve_sla_policy,
     update_sla_clocks_for_status_change,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -298,3 +299,35 @@ class TestCheckBreaches:
 
         breached = check_sla_breaches(db_session, ticket.id)
         assert len(breached) == 0
+
+
+class TestTicketRuntimeSlaChecks:
+    def test_ticket_create_runs_runtime_breach_check(self, db_session, monkeypatch):
+        called: list[object] = []
+
+        def _capture(db, ticket_id):
+            called.append(ticket_id)
+            return []
+
+        monkeypatch.setattr("app.services.sla_assignment.check_sla_breaches", _capture)
+
+        tickets_service.tickets.create(db_session, TicketCreate(title="Runtime SLA create"))
+
+        assert len(called) == 1
+
+    def test_ticket_update_runs_runtime_breach_check_without_status_change(self, db_session, ticket, monkeypatch):
+        called: list[object] = []
+
+        def _capture(db, ticket_id):
+            called.append(ticket_id)
+            return []
+
+        monkeypatch.setattr("app.services.sla_assignment.check_sla_breaches", _capture)
+
+        tickets_service.tickets.update(
+            db_session,
+            str(ticket.id),
+            TicketUpdate(title="Runtime SLA update"),
+        )
+
+        assert called == [ticket.id]

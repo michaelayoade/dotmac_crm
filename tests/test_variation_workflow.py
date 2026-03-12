@@ -1,11 +1,12 @@
 """Tests for deepened variation workflow, geo input, and ERP sync triggers."""
 
+import contextlib
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.models.vendor import AsBuiltRouteStatus, VariationType
+from app.models.vendor import VariationType
 from app.schemas.vendor import (
     AsBuiltLineItemInput,
     AsBuiltRouteCreate,
@@ -15,7 +16,6 @@ from app.schemas.vendor import (
     VendorCreate,
 )
 from app.services import vendor as vendor_service
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -137,6 +137,10 @@ class TestVariationEvents:
         assert payload["variation_version"] == 1
         assert payload["variation_type"] == "additional_work"
         assert "idempotency_key" in payload
+        assert payload["baseline_refs"]["installation_project_id"] == str(setup["ip"].id)
+        assert payload["baseline_refs"]["project_id"] == str(setup["ip"].project_id)
+        assert payload["metadata"]["variation_id"] == payload["variation_id"]
+        assert payload["metadata"]["variation_version"] == payload["variation_version"]
 
     def test_accept_emits_variation_approved(self, db_session, vendor_setup, monkeypatch):
         setup = vendor_setup
@@ -158,18 +162,17 @@ class TestVariationEvents:
         monkeypatch.setattr("builtins.__import__", _mock_weasyprint_import(mock_html_cls))
 
         with patch("app.services.events.dispatcher.emit_event") as mock_emit:
-            try:
+            with contextlib.suppress(Exception):
                 vendor_service.as_built_routes.accept_and_convert(
                     db_session, str(as_built.id), str(setup["person"].id)
                 )
-            except Exception:
-                pass  # weasyprint may fail; event should still be tested
             calls = [c for c in mock_emit.call_args_list if hasattr(c[0][1], 'value') and c[0][1].value == "variation.approved"]
             # If accept_and_convert succeeded past the commit
             if calls:
                 payload = calls[0][0][2]
                 assert payload["status"] == "accepted"
                 assert "idempotency_key" in payload
+                assert payload["metadata"]["idempotency_key"] == payload["idempotency_key"]
 
     def test_reject_emits_variation_rejected(self, db_session, vendor_setup):
         setup = vendor_setup
