@@ -220,6 +220,7 @@ class TicketQuery(BaseQuery[Ticket]):
                 TicketStatus.resolved,
                 TicketStatus.closed,
                 TicketStatus.canceled,
+                TicketStatus.merged,
             ]
         )
 
@@ -238,6 +239,7 @@ class TicketQuery(BaseQuery[Ticket]):
             selectinload(Ticket.ticket_manager),
             selectinload(Ticket.assistant_manager),
             selectinload(Ticket.lead),
+            selectinload(Ticket.merged_into_ticket),
         )
         return clone
 

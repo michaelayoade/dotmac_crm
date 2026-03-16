@@ -3,6 +3,7 @@
 import csv
 import io
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -14,6 +15,7 @@ from app.db import get_db
 from app.models.dispatch import TechnicianProfile
 from app.models.person import Person
 from app.models.workforce import WorkOrder, WorkOrderStatus
+from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
 from app.web.admin import get_current_user, get_sidebar_stats
@@ -75,6 +77,86 @@ def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
 @router.get("/operations")
 def operations_report_alias():
     return RedirectResponse(url="/admin/operations/work-orders", status_code=302)
+
+
+@router.get("/operations-sla-violations", response_class=HTMLResponse)
+def operations_sla_violations_report(
+    request: Request,
+    db: Session = Depends(get_db),
+    data_type: str = Query("ticket"),
+    region: str | None = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    user = get_current_user(request)
+    _valid_types = {"ticket", "project", "project_task"}
+    selected_type: Literal["ticket", "project", "project_task"] = (
+        data_type if data_type in _valid_types else "ticket"  # type: ignore[assignment]
+    )
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+
+    report = operations_sla_reports_service.operations_sla_violations_report
+    region_options = report.region_options(db, selected_type)
+    selected_region = region if region in region_options else None
+
+    summary = report.summary(
+        db,
+        entity_type=selected_type,
+        region=selected_region,
+        start_at=start_dt,
+        end_at=end_dt,
+    )
+    region_chart = report.by_region(
+        db,
+        entity_type=selected_type,
+        region=selected_region,
+        start_at=start_dt,
+        end_at=end_dt,
+    )
+    trend_chart = report.trend_daily(
+        db,
+        entity_type=selected_type,
+        region=selected_region,
+        start_at=start_dt,
+        end_at=end_dt,
+    )
+    records = report.list_records(
+        db,
+        entity_type=selected_type,
+        region=selected_region,
+        start_at=start_dt,
+        end_at=end_dt,
+    )
+
+    data_type_options = [
+        {"value": "ticket", "label": "Tickets"},
+        {"value": "project", "label": "Projects"},
+        {"value": "project_task", "label": "Project Tasks"},
+    ]
+
+    return templates.TemplateResponse(
+        "admin/reports/operations_sla_violations.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "active_menu": "reports",
+            "active_page": "operations-sla-violations",
+            "sidebar_stats": get_sidebar_stats(db),
+            "data_type_options": data_type_options,
+            "selected_data_type": selected_type,
+            "region_options": region_options,
+            "selected_region": selected_region or "",
+            "days": days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+            "summary": summary,
+            "region_chart": region_chart,
+            "trend_chart": trend_chart,
+            "records": records,
+        },
+    )
 
 
 # Legacy redirects point to new subscriber overview

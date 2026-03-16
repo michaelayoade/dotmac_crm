@@ -1,11 +1,12 @@
 import builtins
 import html
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.crm.sales import Lead
@@ -17,9 +18,20 @@ from app.models.tickets import (
     Ticket,
     TicketAssignee,
     TicketComment,
+    TicketLink,
+    TicketMerge,
     TicketPriority,
     TicketSlaEvent,
     TicketStatus,
+)
+from app.models.workflow import (
+    SlaBreach,
+    SlaBreachStatus,
+    SlaClock,
+    SlaClockStatus,
+    SlaPolicy,
+    SlaTarget,
+    WorkflowEntityType,
 )
 from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
 from app.queries.tickets import TicketCommentQuery, TicketQuery, TicketSlaEventQuery
@@ -42,6 +54,15 @@ from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
+
+RELATED_OUTAGE_LINK_TYPE = "related_outage"
+TICKET_SLA_POLICY_NAME = "Ticket Resolution SLA"
+TICKET_SLA_TERMINAL_STATUSES = {
+    TicketStatus.resolved,
+    TicketStatus.closed,
+    TicketStatus.canceled,
+    TicketStatus.merged,
+}
 
 
 def _notify_ticket_role_assignment_in_app(
@@ -271,6 +292,99 @@ def _normalize_assignee_ids(assignee_ids: list[str] | None) -> list[str]:
     return normalized
 
 
+def _resolve_merge_chain(ticket: Ticket | None) -> Ticket | None:
+    current = ticket
+    seen: set[UUID] = set()
+    while current and current.merged_into_ticket is not None:
+        if current.id in seen:
+            raise HTTPException(status_code=409, detail="Ticket merge chain is invalid")
+        seen.add(current.id)
+        current = current.merged_into_ticket
+    return current
+
+
+def _ensure_ticket_not_merged_source(ticket: Ticket) -> None:
+    if ticket.merged_into_ticket_id:
+        raise HTTPException(status_code=409, detail="This ticket has already been merged into another ticket")
+
+
+def _ticket_ref(ticket: Ticket) -> str:
+    return ticket.number or str(ticket.id)
+
+
+def _comment_merge_note(source: Ticket, target: Ticket, reason: str | None, direction: str) -> str:
+    target_ref = _ticket_ref(target)
+    source_ref = _ticket_ref(source)
+    if direction == "source":
+        body = f"System: Ticket merged into {target_ref}."
+    else:
+        body = f"System: Merged ticket {source_ref} into this ticket."
+    if reason:
+        body += f" Reason: {reason.strip()}"
+    if direction == "source":
+        body += f" Open {target_ref} for future updates."
+    return body
+
+
+def _dedupe_attachment_payload(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        marker = (
+            str(item.get("stored_name") or ""),
+            str(item.get("key") or ""),
+            str(item.get("url") or ""),
+        )
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(item)
+    return deduped
+
+
+def _ticket_attachment_payload(ticket: Ticket) -> list[dict[str, Any]]:
+    metadata = ticket.metadata_ if isinstance(ticket.metadata_, dict) else {}
+    attachments = metadata.get("attachments")
+    if isinstance(attachments, list):
+        return [item for item in attachments if isinstance(item, dict)]
+    if isinstance(attachments, dict):
+        return [attachments]
+    return []
+
+
+def _set_ticket_attachments(ticket: Ticket, attachments: list[dict[str, Any]]) -> None:
+    metadata = dict(ticket.metadata_ or {})
+    if attachments:
+        metadata["attachments"] = attachments
+    else:
+        metadata.pop("attachments", None)
+    ticket.metadata_ = metadata or None
+
+
+def _merge_ticket_attachments(target: Ticket, source: Ticket) -> None:
+    combined = _ticket_attachment_payload(target) + _ticket_attachment_payload(source)
+    _set_ticket_attachments(target, _dedupe_attachment_payload(combined))
+
+
+def _upsert_internal_comment(
+    db: Session,
+    *,
+    ticket_id: UUID,
+    author_person_id: UUID | None,
+    body: str,
+) -> None:
+    db.add(
+        TicketComment(
+            ticket_id=ticket_id,
+            author_person_id=author_person_id,
+            body=body,
+            is_internal=True,
+        )
+    )
+
+
 def _sync_ticket_assignees(db: Session, ticket: Ticket, assignee_ids: list[str] | None) -> None:
     if assignee_ids is None:
         return
@@ -456,6 +570,108 @@ def _maybe_auto_assign_ticket(db: Session, ticket: Ticket):
             is_success=True,
         )
     return result
+
+
+def _ticket_sla_policy(db: Session) -> SlaPolicy | None:
+    return (
+        db.query(SlaPolicy)
+        .filter(SlaPolicy.entity_type == WorkflowEntityType.ticket)
+        .filter(SlaPolicy.name == TICKET_SLA_POLICY_NAME)
+        .filter(SlaPolicy.is_active.is_(True))
+        .first()
+    )
+
+
+def _latest_ticket_sla_clock(db: Session, ticket_id: UUID) -> SlaClock | None:
+    return (
+        db.query(SlaClock)
+        .filter(SlaClock.entity_type == WorkflowEntityType.ticket, SlaClock.entity_id == ticket_id)
+        .order_by(SlaClock.created_at.desc())
+        .first()
+    )
+
+
+def _resolve_ticket_sla_target(db: Session, policy_id: UUID, priority: str | None) -> SlaTarget | None:
+    query = db.query(SlaTarget).filter(SlaTarget.policy_id == policy_id).filter(SlaTarget.is_active.is_(True))
+    if priority:
+        target = query.filter(SlaTarget.priority == priority).first()
+        if target:
+            return target
+    return query.filter(SlaTarget.priority.is_(None)).first()
+
+
+def _complete_ticket_sla_clock(ticket: Ticket, clock: SlaClock, completed_at: datetime) -> None:
+    if clock.status == SlaClockStatus.completed:
+        if clock.completed_at is None:
+            clock.completed_at = completed_at
+        return
+    clock.status = SlaClockStatus.completed
+    clock.completed_at = completed_at
+    clock.paused_at = None
+
+
+def _reopen_ticket_sla_breaches(db: Session, clock: SlaClock) -> None:
+    open_breaches = (
+        db.query(SlaBreach)
+        .filter(SlaBreach.clock_id == clock.id)
+        .filter(SlaBreach.status != SlaBreachStatus.resolved)
+        .all()
+    )
+    for breach in open_breaches:
+        breach.status = SlaBreachStatus.resolved
+
+
+def _sync_ticket_sla_clock(db: Session, ticket: Ticket, *, reset_started_at: bool = False) -> None:
+    policy = _ticket_sla_policy(db)
+    if not policy:
+        return
+
+    clock = _latest_ticket_sla_clock(db, ticket.id)
+    now = datetime.now(UTC)
+    completed_at = ticket.closed_at or ticket.resolved_at or now
+
+    if ticket.status in TICKET_SLA_TERMINAL_STATUSES:
+        if clock:
+            _complete_ticket_sla_clock(ticket, clock, completed_at)
+        return
+
+    priority = ticket.priority.value if ticket.priority else None
+    target = _resolve_ticket_sla_target(db, policy.id, priority)
+    if not target:
+        return
+
+    if not clock or clock.status == SlaClockStatus.completed:
+        started_at = now if reset_started_at and clock else (ticket.created_at or now)
+        db.add(
+            SlaClock(
+                policy_id=policy.id,
+                entity_type=WorkflowEntityType.ticket,
+                entity_id=ticket.id,
+                priority=priority,
+                status=SlaClockStatus.running,
+                started_at=started_at,
+                due_at=started_at + timedelta(minutes=target.target_minutes),
+            )
+        )
+        return
+
+    due_at = clock.started_at + timedelta(minutes=target.target_minutes, seconds=clock.total_paused_seconds)
+    if clock.status == SlaClockStatus.breached:
+        if due_at > now:
+            _reopen_ticket_sla_breaches(db, clock)
+            clock.breached_at = None
+            clock.status = SlaClockStatus.running
+            clock.paused_at = None
+        clock.priority = priority
+        clock.completed_at = None
+        clock.due_at = due_at
+        return
+    if clock.status in {SlaClockStatus.paused, SlaClockStatus.breached}:
+        clock.status = SlaClockStatus.running
+        clock.paused_at = None
+    clock.priority = priority
+    clock.completed_at = None
+    clock.due_at = due_at
 
 
 class Tickets(ListResponseMixin):
@@ -673,6 +889,242 @@ class Tickets(ListResponseMixin):
         return ticket
 
     @staticmethod
+    def get_canonical(db: Session, ticket_id: str):
+        ticket = Tickets.get(db, ticket_id)
+        canonical = _resolve_merge_chain(ticket)
+        if canonical is None:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        return canonical
+
+    @staticmethod
+    def resolve_reference(db: Session, ticket_ref: str) -> Ticket:
+        if not ticket_ref:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        ticket = db.query(Ticket).filter(Ticket.number == ticket_ref).first()
+        if ticket:
+            return ticket
+        return Tickets.get(db, ticket_ref)
+
+    @staticmethod
+    def link_related_outage(
+        db: Session,
+        *,
+        from_ticket_id: str,
+        to_ticket_id: str,
+        actor_id: str | None = None,
+    ) -> TicketLink:
+        from_ticket = Tickets.get(db, from_ticket_id)
+        to_ticket = Tickets.get(db, to_ticket_id)
+        _ensure_ticket_not_merged_source(from_ticket)
+        canonical_target = _resolve_merge_chain(to_ticket)
+        if canonical_target is None:
+            raise HTTPException(status_code=404, detail="Target ticket not found")
+        if canonical_target.id == from_ticket.id:
+            raise HTTPException(status_code=400, detail="A ticket cannot be linked to itself")
+
+        existing = (
+            db.query(TicketLink)
+            .filter(TicketLink.from_ticket_id == from_ticket.id)
+            .filter(TicketLink.link_type == RELATED_OUTAGE_LINK_TYPE)
+            .first()
+        )
+        actor_uuid = coerce_uuid(actor_id) if actor_id else None
+        if existing:
+            existing.to_ticket_id = canonical_target.id
+            if actor_uuid:
+                existing.created_by_person_id = actor_uuid
+            link = existing
+        else:
+            link = TicketLink(
+                from_ticket_id=from_ticket.id,
+                to_ticket_id=canonical_target.id,
+                link_type=RELATED_OUTAGE_LINK_TYPE,
+                created_by_person_id=actor_uuid,
+            )
+            db.add(link)
+
+        _upsert_internal_comment(
+            db,
+            ticket_id=from_ticket.id,
+            author_person_id=actor_uuid,
+            body=f"System: Linked this ticket to outage ticket {_ticket_ref(canonical_target)}.",
+        )
+        _upsert_internal_comment(
+            db,
+            ticket_id=canonical_target.id,
+            author_person_id=actor_uuid,
+            body=f"System: Linked ticket {_ticket_ref(from_ticket)} to this outage ticket.",
+        )
+
+        db.commit()
+        db.refresh(link)
+        return link
+
+    @staticmethod
+    def merge(
+        db: Session,
+        *,
+        source_ticket_id: str,
+        target_ticket_id: str,
+        actor_id: str | None = None,
+        reason: str | None = None,
+    ) -> Ticket:
+        source = Tickets.get(db, source_ticket_id)
+        target = Tickets.get(db, target_ticket_id)
+        _ensure_ticket_not_merged_source(source)
+        canonical_target = _resolve_merge_chain(target)
+        if canonical_target is None:
+            raise HTTPException(status_code=404, detail="Target ticket not found")
+        if source.id == canonical_target.id:
+            raise HTTPException(status_code=400, detail="A ticket cannot be merged into itself")
+
+        actor_uuid = coerce_uuid(actor_id) if actor_id else None
+
+        existing_target_assignees = {str(assignee.person_id) for assignee in canonical_target.assignees}
+        source_assignees = {str(assignee.person_id) for assignee in source.assignees}
+        if source.assigned_to_person_id:
+            source_assignees.add(str(source.assigned_to_person_id))
+        merged_assignees = sorted(existing_target_assignees | source_assignees)
+        _sync_ticket_assignees(db, canonical_target, merged_assignees)
+
+        target_tags = list(canonical_target.tags or [])
+        for tag in source.tags or []:
+            if tag not in target_tags:
+                target_tags.append(tag)
+        canonical_target.tags = target_tags or None
+
+        if not canonical_target.subscriber_id and source.subscriber_id:
+            canonical_target.subscriber_id = source.subscriber_id
+        if not canonical_target.customer_person_id and source.customer_person_id:
+            canonical_target.customer_person_id = source.customer_person_id
+        if not canonical_target.lead_id and source.lead_id:
+            canonical_target.lead_id = source.lead_id
+        if not canonical_target.service_team_id and source.service_team_id:
+            canonical_target.service_team_id = source.service_team_id
+        if not canonical_target.ticket_manager_person_id and source.ticket_manager_person_id:
+            canonical_target.ticket_manager_person_id = source.ticket_manager_person_id
+        if not canonical_target.assistant_manager_person_id and source.assistant_manager_person_id:
+            canonical_target.assistant_manager_person_id = source.assistant_manager_person_id
+
+        _merge_ticket_attachments(canonical_target, source)
+
+        for comment in list(source.comments or []):
+            db.add(
+                TicketComment(
+                    ticket_id=canonical_target.id,
+                    author_person_id=comment.author_person_id,
+                    body=comment.body,
+                    is_internal=comment.is_internal,
+                    attachments=comment.attachments,
+                    created_at=comment.created_at,
+                )
+            )
+
+        merge_links = (
+            db.query(TicketLink)
+            .filter(or_(TicketLink.from_ticket_id == source.id, TicketLink.to_ticket_id == source.id))
+            .all()
+        )
+        for link in merge_links:
+            new_from = canonical_target.id if link.from_ticket_id == source.id else link.from_ticket_id
+            new_to = canonical_target.id if link.to_ticket_id == source.id else link.to_ticket_id
+            if new_from == new_to:
+                db.delete(link)
+                continue
+            duplicate = (
+                db.query(TicketLink)
+                .filter(TicketLink.id != link.id)
+                .filter(TicketLink.from_ticket_id == new_from)
+                .filter(TicketLink.to_ticket_id == new_to)
+                .filter(TicketLink.link_type == link.link_type)
+                .first()
+            )
+            if duplicate:
+                db.delete(link)
+                continue
+            link.from_ticket_id = new_from
+            link.to_ticket_id = new_to
+
+        source.status = TicketStatus.merged
+        source.merged_into_ticket_id = canonical_target.id
+        source.closed_at = source.closed_at or datetime.now(UTC)
+        _sync_ticket_sla_clock(db, source)
+
+        db.add(
+            TicketMerge(
+                source_ticket_id=source.id,
+                target_ticket_id=canonical_target.id,
+                reason=reason.strip() if reason else None,
+                merged_by_person_id=actor_uuid,
+            )
+        )
+        _upsert_internal_comment(
+            db,
+            ticket_id=source.id,
+            author_person_id=actor_uuid,
+            body=_comment_merge_note(source, canonical_target, reason, "source"),
+        )
+        _upsert_internal_comment(
+            db,
+            ticket_id=canonical_target.id,
+            author_person_id=actor_uuid,
+            body=_comment_merge_note(source, canonical_target, reason, "target"),
+        )
+
+        db.commit()
+        db.refresh(canonical_target)
+        return canonical_target
+
+    @staticmethod
+    def related_outage_context(db: Session, *, ticket_id: str) -> dict[str, Any]:
+        ticket = Tickets.get(db, ticket_id)
+        parent_link = (
+            db.query(TicketLink)
+            .filter(TicketLink.from_ticket_id == ticket.id)
+            .filter(TicketLink.link_type == RELATED_OUTAGE_LINK_TYPE)
+            .first()
+        )
+        child_links = (
+            db.query(TicketLink)
+            .filter(TicketLink.to_ticket_id == ticket.id)
+            .filter(TicketLink.link_type == RELATED_OUTAGE_LINK_TYPE)
+            .all()
+        )
+
+        primary_ticket = None
+        sibling_tickets: list[Ticket] = []
+        linked_tickets: list[Ticket] = []
+
+        if parent_link:
+            primary_ticket = Tickets.get(db, str(parent_link.to_ticket_id))
+            if primary_ticket:
+                sibling_ids = [
+                    link.from_ticket_id
+                    for link in db.query(TicketLink)
+                    .filter(TicketLink.to_ticket_id == primary_ticket.id)
+                    .filter(TicketLink.link_type == RELATED_OUTAGE_LINK_TYPE)
+                    .filter(TicketLink.from_ticket_id != ticket.id)
+                    .all()
+                ]
+                if sibling_ids:
+                    sibling_tickets = (
+                        db.query(Ticket).filter(Ticket.id.in_(sibling_ids)).order_by(Ticket.created_at.asc()).all()
+                    )
+
+        if child_links:
+            linked_ids = [link.from_ticket_id for link in child_links]
+            if linked_ids:
+                linked_tickets = (
+                    db.query(Ticket).filter(Ticket.id.in_(linked_ids)).order_by(Ticket.created_at.asc()).all()
+                )
+
+        return {
+            "primary_ticket": primary_ticket,
+            "linked_tickets": linked_tickets,
+            "sibling_tickets": sibling_tickets,
+        }
+
+    @staticmethod
     def list(
         db: Session,
         subscriber_id: str | None,
@@ -740,6 +1192,7 @@ class Tickets(ListResponseMixin):
             "on_hold": counts.get("on_hold", 0),
             "resolved": counts.get("resolved", 0),
             "closed": counts.get("closed", 0),
+            "merged": counts.get("merged", 0),
         }
 
     @staticmethod
@@ -747,6 +1200,7 @@ class Tickets(ListResponseMixin):
         ticket = db.get(Ticket, ticket_id)
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
+        _ensure_ticket_not_merged_source(ticket)
         previous_status = ticket.status
         previous_priority = ticket.priority
         previous_assigned_to = ticket.assigned_to_person_id
@@ -1000,6 +1454,7 @@ class TicketComments(ListResponseMixin):
         ticket = db.get(Ticket, payload.ticket_id)
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
+        _ensure_ticket_not_merged_source(ticket)
         if payload.author_person_id:
             _ensure_person(db, str(payload.author_person_id))
         comment = TicketComment(**payload.model_dump())

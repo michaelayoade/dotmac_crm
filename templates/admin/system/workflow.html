@@ -267,6 +267,195 @@
     {% endcall %}
     </div>
 
+    {# ── SLA Clocks ── #}
+    {% set clock_actions %}
+    <details class="rounded-xl border border-slate-200/60 bg-slate-50 px-4 py-2 text-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-300">New SLA Clock</summary>
+        <form method="post" action="/admin/system/workflow/sla-clocks" class="mt-4 space-y-3">
+            {% include "components/forms/csrf_input.html" %}
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div>
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="clock_policy_id">Policy</label>
+                    <select id="clock_policy_id" name="policy_id" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">Select policy</option>
+                        {% for policy in policies %}
+                        <option value="{{ policy.id }}">{{ policy.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="clock_entity_type">Entity Type</label>
+                    <select id="clock_entity_type" name="entity_type" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">Select entity</option>
+                        {% for entity in workflow_entities %}
+                        <option value="{{ entity }}">{{ entity | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div>
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="clock_entity_id">Entity ID</label>
+                    <input id="clock_entity_id" name="entity_id" required placeholder="UUID" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                </div>
+                <div>
+                    <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="clock_priority">Priority (optional)</label>
+                    <input id="clock_priority" name="priority" placeholder="high" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+                </div>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="clock_started_at">Started At (optional)</label>
+                <input id="clock_started_at" name="started_at" placeholder="2026-03-12T09:00:00+00:00" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Use the related entity UUID. Due time will be derived from the matched SLA target.</p>
+            {{ submit_button("Create Clock", size="sm", loading_label="Creating...") }}
+        </form>
+    </details>
+    {% endset %}
+
+    <div class="animate-fade-in-up" style="animation-delay: 255ms">
+    {% call table_shell(table_id="sla-clocks-table", title="SLA Clocks", color="emerald", actions=clock_actions, count=sla_clocks | length) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Policy</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Entity</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Started</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Due</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for clock in sla_clocks %}
+                {% set entity_key = (clock.entity_type.value if clock.entity_type else '') ~ ':' ~ (clock.entity_id|string) %}
+                {% call table_row(color="emerald") %}
+                    <td class="{{ pad }} text-sm font-medium text-slate-900 dark:text-white">{{ policy_labels.get(clock.policy_id|string, clock.policy_id|string) }}</td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        <div>{{ clock.entity_type.value if clock.entity_type else '—' }}</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">{{ sla_entity_labels.get(entity_key, clock.entity_id|string) }}</div>
+                    </td>
+                    <td class="{{ pad }}">
+                        <span class="inline-flex items-center rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">{{ clock.status.value if clock.status else 'running' }}</span>
+                    </td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ clock.started_at.strftime('%Y-%m-%d %H:%M') if clock.started_at else '—' }}</td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ clock.due_at.strftime('%Y-%m-%d %H:%M') if clock.due_at else '—' }}</td>
+                    <td class="{{ pad }}">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <details class="rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-600 dark:bg-slate-700">
+                                <summary class="cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-200">Edit</summary>
+                                <form method="post" action="/admin/system/workflow/sla-clocks/{{ clock.id }}/update" class="mt-2 space-y-2">
+                                    {% include "components/forms/csrf_input.html" %}
+                                    <select name="status" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                        <option value="">Keep status</option>
+                                        {% for status in sla_clock_manual_statuses %}
+                                        <option value="{{ status }}" {% if clock.status and clock.status.value == status %}selected{% endif %}>{{ status | replace('_', ' ') | title }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <input type="text" name="due_at" value="{{ clock.due_at.isoformat() if clock.due_at else '' }}" placeholder="Due at ISO datetime" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+                                    <input type="text" name="paused_at" value="{{ clock.paused_at.isoformat() if clock.paused_at else '' }}" placeholder="Paused at ISO datetime" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+                                    <input type="number" name="total_paused_seconds" min="0" value="{{ clock.total_paused_seconds or 0 }}" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+                                    <input type="text" name="completed_at" value="{{ clock.completed_at.isoformat() if clock.completed_at else '' }}" placeholder="Completed at ISO datetime" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+                                    <input type="text" name="breached_at" value="{{ clock.breached_at.isoformat() if clock.breached_at else '' }}" placeholder="Breached at ISO datetime" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white" />
+                                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Use the breach form below to create a proper breach record. Setting `breached_at` here only adjusts the clock.</p>
+                                    <button type="submit" class="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300">Save</button>
+                                </form>
+                            </details>
+                            <form method="post" action="/admin/system/workflow/sla-clocks/{{ clock.id }}/delete">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100 dark:border-rose-800/40 dark:bg-rose-900/20 dark:text-rose-300">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state("No SLA clocks", "Create or sync an SLA clock to start managing timeline state.", colspan=6) }}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
+    </div>
+
+    {# ── SLA Breaches ── #}
+    {% set breach_actions %}
+    <details class="rounded-xl border border-slate-200/60 bg-slate-50 px-4 py-2 text-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-300">New SLA Breach</summary>
+        <form method="post" action="/admin/system/workflow/sla-breaches" class="mt-4 space-y-3">
+            {% include "components/forms/csrf_input.html" %}
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="breach_clock_id">Clock</label>
+                <select id="breach_clock_id" name="clock_id" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">Select clock</option>
+                    {% for clock in sla_clocks %}
+                    <option value="{{ clock.id }}">{{ policy_labels.get(clock.policy_id|string, clock.policy_id|string) }} · {{ clock.entity_type.value if clock.entity_type else '—' }} · {{ clock.entity_id }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="breach_breached_at">Breached At (optional)</label>
+                <input id="breach_breached_at" name="breached_at" placeholder="2026-03-12T09:30:00+00:00" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="breach_notes">Notes</label>
+                <textarea id="breach_notes" name="notes" rows="3" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+            </div>
+            {{ submit_button("Create Breach", size="sm", loading_label="Creating...") }}
+        </form>
+    </details>
+    {% endset %}
+
+    <div class="animate-fade-in-up" style="animation-delay: 257ms">
+    {% call table_shell(table_id="sla-breaches-table", title="SLA Breaches", color="rose", actions=breach_actions, count=sla_breaches | length) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Clock</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Breached At</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Notes</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for breach in sla_breaches %}
+                {% call table_row(color="rose") %}
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ breach.clock_id }}</td>
+                    <td class="{{ pad }}">
+                        <span class="inline-flex items-center rounded-lg bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-700 dark:bg-rose-500/20 dark:text-rose-400">{{ breach.status.value if breach.status else 'open' }}</span>
+                    </td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ breach.breached_at.strftime('%Y-%m-%d %H:%M') if breach.breached_at else '—' }}</td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ breach.notes or '—' }}</td>
+                    <td class="{{ pad }}">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <details class="rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-600 dark:bg-slate-700">
+                                <summary class="cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-200">Edit</summary>
+                                <form method="post" action="/admin/system/workflow/sla-breaches/{{ breach.id }}/update" class="mt-2 space-y-2">
+                                    {% include "components/forms/csrf_input.html" %}
+                                    <select name="status" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                        <option value="">Keep status</option>
+                                        {% for status in sla_breach_statuses %}
+                                        <option value="{{ status }}" {% if breach.status and breach.status.value == status %}selected{% endif %}>{{ status | replace('_', ' ') | title }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <textarea name="notes" rows="3" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">{{ breach.notes or '' }}</textarea>
+                                    <button type="submit" class="inline-flex items-center rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100 dark:border-rose-800/40 dark:bg-rose-900/20 dark:text-rose-300">Save</button>
+                                </form>
+                            </details>
+                            <form method="post" action="/admin/system/workflow/sla-breaches/{{ breach.id }}/delete">
+                                {% include "components/forms/csrf_input.html" %}
+                                <button type="submit" class="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state("No SLA breaches", "Create or auto-detect a breach to track remediation state.", colspan=5) }}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
+    </div>
+
     <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 260ms">
         <div class="mb-3">
             <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Ticket Auto-assignment Settings</h2>

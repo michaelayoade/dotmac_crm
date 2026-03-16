@@ -22,7 +22,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.service_team import ServiceTeam
 from app.models.subscriber import Subscriber
-from app.models.tickets import Ticket, TicketChannel, TicketPriority, TicketStatus
+from app.models.tickets import Ticket, TicketChannel, TicketMerge, TicketPriority, TicketStatus
 from app.queries.tickets import TicketQuery
 from app.services import audit as audit_service
 from app.services import filter_preferences as filter_preferences_service
@@ -262,6 +262,55 @@ def _resolve_ticket_reference(db: Session, ticket_ref: str) -> tuple[Ticket, boo
     ticket = tickets_service.tickets.get(db=db, ticket_id=str(ticket_uuid))
     should_redirect = bool(ticket.number)
     return ticket, should_redirect
+
+
+def _merged_redirect_target(ticket: Ticket) -> str | None:
+    if not ticket.merged_into_ticket:
+        return None
+    target_ref = ticket.merged_into_ticket.number or str(ticket.merged_into_ticket.id)
+    source_ref = ticket.number or str(ticket.id)
+    return f"/admin/support/tickets/{target_ref}?merged_from={source_ref}"
+
+
+def _ticket_display_ref(ticket: Ticket) -> str:
+    return ticket.number or str(ticket.id)
+
+
+def _redirect_if_ticket_merged(ticket: Ticket) -> RedirectResponse | None:
+    target_url = _merged_redirect_target(ticket)
+    if not target_url:
+        return None
+    return RedirectResponse(url=target_url, status_code=303)
+
+
+def _ticket_relationship_notice_from_request(request: Request) -> str | None:
+    merged_from = request.query_params.get("merged_from")
+    linked_to = request.query_params.get("linked_to")
+    created_linked_to = request.query_params.get("created_linked_to")
+    merged_target = request.query_params.get("merge_success")
+    merge_error = request.query_params.get("merge_error")
+    link_error = request.query_params.get("link_error")
+    if merged_from:
+        return f"Ticket {merged_from} was merged into this ticket."
+    if merged_target:
+        return f"Ticket merge completed into {merged_target}."
+    if linked_to:
+        return f"Ticket linked to outage ticket {linked_to}."
+    if created_linked_to:
+        return f"New ticket linked to outage ticket {created_linked_to}."
+    if merge_error:
+        return merge_error
+    if link_error:
+        return link_error
+    return None
+
+
+def _can_manage_ticket_relationships(current_user: dict | None) -> bool:
+    if not current_user:
+        return False
+    roles = set(current_user.get("roles") or [])
+    permissions = set(current_user.get("permissions") or [])
+    return "admin" in roles or "Agents" in roles or "support:ticket:update" in permissions
 
 
 def _log_activity(
@@ -716,6 +765,7 @@ def ticket_create(
     customer_person_id: str | None = Query(None),
     lead_id: str | None = Query(None),
     channel: str | None = Query(None),
+    related_outage_ticket_ref: str | None = Query(None),
     subscriber: str | None = Query(None),
     customer: str | None = Query(None),
     modal: bool | None = Query(False),
@@ -737,6 +787,7 @@ def ticket_create(
         "channel": None,
         "customer": None,
         "region": None,
+        "related_outage_ticket_ref": None,
     }
 
     if conversation_id:
@@ -812,6 +863,8 @@ def ticket_create(
                 prefill["region"] = subscriber_obj.service_region
     if channel and channel in {c.value for c in TicketChannel}:
         prefill["channel"] = channel
+    if related_outage_ticket_ref:
+        prefill["related_outage_ticket_ref"] = related_outage_ticket_ref.strip()
 
     # Subscribers are resolved via typeahead
     accounts: list[dict[str, str]] = []
@@ -962,6 +1015,7 @@ async def ticket_create_post(
     channel: str = Form("web"),
     status: str = Form("open"),
     due_at: str | None = Form(None),
+    related_outage_ticket_ref: str | None = Form(None),
     tags: str | None = Form(None),
     attachments: list[UploadFile] = File(default_factory=list),
     conversation_id: str | None = Form(None),
@@ -1151,6 +1205,16 @@ async def ticket_create_post(
             payload_data["assigned_to_person_ids"] = assignee_ids
         payload = TicketCreate(**payload_data)
         ticket = tickets_service.tickets.create(db=db, payload=payload)
+        linked_outage_ref = None
+        if related_outage_ticket_ref and related_outage_ticket_ref.strip():
+            related_ticket = tickets_service.tickets.resolve_reference(db, related_outage_ticket_ref.strip())
+            tickets_service.tickets.link_related_outage(
+                db,
+                from_ticket_id=str(ticket.id),
+                to_ticket_id=str(related_ticket.id),
+                actor_id=str(current_user.get("person_id")) if current_user else None,
+            )
+            linked_outage_ref = related_ticket.number or str(related_ticket.id)
         if conversation_id:
             try:
                 conversation = db.get(Conversation, coerce_uuid(conversation_id))
@@ -1169,7 +1233,10 @@ async def ticket_create_post(
             actor_id=actor_id,
             metadata={"title": ticket.title},
         )
-        return RedirectResponse(url=f"/admin/support/tickets/{ticket.id}", status_code=303)
+        redirect_url = f"/admin/support/tickets/{ticket.id}"
+        if linked_outage_ref:
+            redirect_url = f"{redirect_url}?created_linked_to={linked_outage_ref}"
+        return RedirectResponse(url=redirect_url, status_code=303)
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
 
@@ -1215,6 +1282,7 @@ async def ticket_create_post(
             "priority": priority or "normal",
             "status": status or "open",
             "due_at": due_at or "",
+            "related_outage_ticket_ref": related_outage_ticket_ref or "",
             "tags": tags or "",
         }
         return templates.TemplateResponse(
@@ -1264,6 +1332,9 @@ def ticket_edit(
                 url=f"/admin/support/tickets/{ticket.number}/edit",
                 status_code=302,
             )
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            return merged_redirect
     except Exception:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -1365,6 +1436,9 @@ async def ticket_edit_post(
     accounts: list[dict[str, str]] = []  # subscriber_service removed
     try:
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            return merged_redirect
     except Exception:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -1810,6 +1884,14 @@ def ticket_detail(
     activities = _build_activity_feed(db, audit_events)
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
+    relationship_notice = _ticket_relationship_notice_from_request(request)
+    related_outage_context = tickets_service.tickets.related_outage_context(db, ticket_id=str(ticket.id))
+    merged_sources = (
+        db.query(TicketMerge)
+        .filter(TicketMerge.target_ticket_id == ticket.id)
+        .order_by(TicketMerge.created_at.asc())
+        .all()
+    )
 
     # Fetch expense totals from ERP (cached to avoid blocking)
     expense_totals = None
@@ -1912,6 +1994,9 @@ def ticket_detail(
             "ticket": ticket,
             "comments": comments,
             "activities": activities,
+            "relationship_notice": relationship_notice,
+            "related_outage_context": related_outage_context,
+            "merged_sources": merged_sources,
             "expense_totals": expense_totals,
             "material_requests": ticket_material_requests,
             "ticket_attachments": ticket_attachments,
@@ -1923,6 +2008,110 @@ def ticket_detail(
             "active_page": "tickets",
         },
     )
+
+
+@router.post(
+    "/tickets/{ticket_ref}/merge",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("support:ticket:update"))],
+)
+def merge_ticket(
+    request: Request,
+    ticket_ref: str,
+    target_ticket_ref: str = Form(...),
+    reason: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    if not _can_manage_ticket_relationships(current_user):
+        return templates.TemplateResponse(
+            "admin/errors/403.html",
+            {"request": request, "message": "Only Agents and Admin can merge tickets."},
+            status_code=403,
+        )
+
+    try:
+        source_ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(source_ticket)
+        if merged_redirect:
+            return merged_redirect
+        target_ticket = tickets_service.tickets.resolve_reference(db, target_ticket_ref.strip())
+        merged_ticket = tickets_service.tickets.merge(
+            db,
+            source_ticket_id=str(source_ticket.id),
+            target_ticket_id=str(target_ticket.id),
+            actor_id=_current_person_id(current_user),
+            reason=reason,
+        )
+        _log_activity(
+            db=db,
+            request=request,
+            action="merge",
+            entity_type="ticket",
+            entity_id=str(source_ticket.id),
+            actor_id=_current_person_id(current_user),
+            metadata={"changes": {"merged_into": {"from": None, "to": _ticket_display_ref(merged_ticket)}}},
+        )
+        return RedirectResponse(
+            url=f"/admin/support/tickets/{merged_ticket.number or merged_ticket.id}?merge_success={merged_ticket.number or merged_ticket.id}",
+            status_code=303,
+        )
+    except Exception as exc:
+        detail = getattr(exc, "detail", str(exc))
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket_ref}?merge_error={detail}", status_code=303)
+
+
+@router.post(
+    "/tickets/{ticket_ref}/link",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("support:ticket:update"))],
+)
+def link_ticket(
+    request: Request,
+    ticket_ref: str,
+    related_outage_ticket_ref: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    if not _can_manage_ticket_relationships(current_user):
+        return templates.TemplateResponse(
+            "admin/errors/403.html",
+            {"request": request, "message": "Only Agents and Admin can link tickets."},
+            status_code=403,
+        )
+
+    try:
+        ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            return merged_redirect
+        related_ticket = tickets_service.tickets.resolve_reference(db, related_outage_ticket_ref.strip())
+        tickets_service.tickets.link_related_outage(
+            db,
+            from_ticket_id=str(ticket.id),
+            to_ticket_id=str(related_ticket.id),
+            actor_id=_current_person_id(current_user),
+        )
+        _log_activity(
+            db=db,
+            request=request,
+            action="link",
+            entity_type="ticket",
+            entity_id=str(ticket.id),
+            actor_id=_current_person_id(current_user),
+            metadata={"changes": {"related_outage": {"from": None, "to": _ticket_display_ref(related_ticket)}}},
+        )
+        return RedirectResponse(
+            url=f"/admin/support/tickets/{ticket.number or ticket.id}?linked_to={related_ticket.number or related_ticket.id}",
+            status_code=303,
+        )
+    except Exception as exc:
+        detail = getattr(exc, "detail", str(exc))
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket_ref}?link_error={detail}", status_code=303)
 
 
 @router.post(
@@ -1940,6 +2129,9 @@ def ticket_delete(
 
     try:
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            return merged_redirect
     except Exception:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -1996,6 +2188,9 @@ def update_ticket_status(
         }
         new_status = status_map.get(status, TicketStatus.open)
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            return merged_redirect
         old_status = ticket.status.value if ticket.status else None
 
         resolved_at = datetime.now(UTC) if status == "resolved" else None
@@ -2057,6 +2252,9 @@ def update_ticket_priority(
         }
         new_priority = priority_map.get(priority, TicketPriority.medium)
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            return merged_redirect
         old_priority = ticket.priority.value if ticket.priority else None
 
         payload = TicketUpdate(priority=new_priority)
@@ -2105,6 +2303,9 @@ def manual_auto_assign_ticket(
 
     try:
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            return merged_redirect
     except Exception:
         return templates.TemplateResponse(
             "admin/errors/404.html",
@@ -2162,6 +2363,10 @@ async def add_ticket_comment(
         prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
         saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
+            return merged_redirect
         current_user = get_current_user(request)
         actor_id = str(current_user.get("person_id")) if current_user else None
         payload = TicketCommentCreate(
@@ -2250,6 +2455,9 @@ def edit_ticket_comment(
 
     try:
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
+        merged_redirect = _redirect_if_ticket_merged(ticket)
+        if merged_redirect:
+            return merged_redirect
         comment = tickets_service.ticket_comments.get(db=db, comment_id=comment_id)
         if str(comment.ticket_id) != str(ticket.id):
             return templates.TemplateResponse(

@@ -8,7 +8,7 @@
     'automations': 'system', 'pop-sites': 'system', 'configuration': 'system',
     'fiber-plant': 'operations', 'fiber-map': 'operations', 'fiber-change-requests': 'operations', 'fdh-cabinets': 'operations', 'splitters': 'operations', 'fiber-strands': 'operations', 'splice-closures': 'operations', 'fiber-reports': 'operations',
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
-    'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-purchase-invoices': 'operations',
+    'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-as-built': 'operations', 'vendor-purchase-invoices': 'operations',
     'material-requests': 'operations',
     'subscriber-overview': 'reports', 'subscriber-lifecycle': 'reports', 'subscriber-service-quality': 'reports', 'subscriber-revenue': 'reports', 'network-report': 'reports',
     'my-performance': 'reports',
@@ -18,7 +18,7 @@
     'service-teams': 'system', 'user-guide': 'system'
 } %}
 {% set field_service_pages = ['installations', 'technicians', 'dispatch', 'work-orders'] %}
-{% set project_pages = ['projects', 'vendor-quotes', 'vendor-purchase-invoices'] %}
+{% set project_pages = ['projects', 'vendor-quotes', 'vendor-as-built', 'vendor-purchase-invoices'] %}
 {% set section_for_menu = {
     'core-network': 'operations', 'gpon': 'operations', 'fiber': 'operations'
 } %}
@@ -438,6 +438,7 @@
             {% if can_vendor_quotes %}
             <a href="/admin/vendors/quotes" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'vendor-quotes' or request.url.path.startswith('/admin/vendors/quotes') else '' }}">Vendor Quotes</a>
             <a href="/admin/vendors/purchase-invoices" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'vendor-purchase-invoices' or request.url.path.startswith('/admin/vendors/purchase-invoices') else '' }}">Vendor Invoices</a>
+            <a href="/admin/vendors/as-built" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'vendor-as-built' or request.url.path.startswith('/admin/vendors/as-built') else '' }}">Variation</a>
             {% endif %}
         </div>
         {% endif %}
@@ -504,6 +505,7 @@
             {% if can_reports_crm %}
             <a href="/admin/reports/crm-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">CRM Performance</a>
             {% endif %}
+            <a href="/admin/reports/operations-sla-violations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'operations-sla-violations' else '' }}">Operations SLA Violations</a>
             {% if can_reports_my_performance %}
             <a href="/agent/my-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'my-performance' else '' }}">My Performance</a>
             {% endif %}

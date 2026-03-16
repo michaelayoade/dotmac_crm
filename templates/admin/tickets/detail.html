@@ -6,6 +6,12 @@
 {% set status_val = ticket.status.value if ticket.status is not string else ticket.status %}
 {% set priority_val = ticket.priority.value if ticket.priority is not string else ticket.priority %}
 {% set channel_val = ticket.channel.value if ticket.channel is not string else ticket.channel %}
+{% set user_roles = current_user.roles if current_user and current_user.roles else [] %}
+{% set can_manage_ticket_relationships = current_user and ('admin' in user_roles or 'Agents' in user_roles or 'support:ticket:update' in (current_user.permissions or [])) %}
+{% set is_merged_source = ticket.merged_into_ticket_id %}
+{% set relationship_notice = relationship_notice|default(None) %}
+{% set merged_sources = merged_sources|default([]) %}
+{% set related_outage_context = related_outage_context|default({'primary_ticket': None, 'linked_tickets': [], 'sibling_tickets': []}) %}
 
 {% block content %}
 <!-- Ambient Background -->
@@ -69,6 +75,11 @@
                         <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         Closed
                     </span>
+                    {% elif status_val == 'merged' %}
+                    <span class="inline-flex items-center gap-1.5 rounded-lg bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
+                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 5h8m-8 5h5"/></svg>
+                        Merged
+                    </span>
                     {% else %}
                     <span class="inline-flex items-center rounded-lg bg-red-100 px-3 py-1 text-sm font-semibold text-red-700 dark:bg-red-500/20 dark:text-red-400">Canceled</span>
                     {% endif %}
@@ -85,13 +96,19 @@
                 <p class="mt-2 text-lg text-slate-700 dark:text-slate-300">{{ ticket.title or 'No title' }}</p>
             </div>
         </div>
-        {% if current_user and (('admin' in (current_user.roles or [])) or ('support:ticket:update' in (current_user.permissions or []))) %}
+        {% if current_user and (('admin' in (current_user.roles or [])) or ('support:ticket:update' in (current_user.permissions or []))) and not is_merged_source %}
         <a href="/admin/support/tickets/{{ ticket.number or ticket.id }}/edit" class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
             Edit Ticket
         </a>
         {% endif %}
     </div>
+
+    {% if relationship_notice %}
+    <div class="animate-fade-in-up rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800 shadow-sm dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-200">
+        {{ relationship_notice }}
+    </div>
+    {% endif %}
 
     <div class="grid gap-6 lg:grid-cols-3">
         <!-- Main Content -->
@@ -243,6 +260,9 @@
 
                 <!-- Add Comment Form -->
                 <div class="border-t border-slate-200/60 bg-slate-50/50 p-6 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    {% if is_merged_source %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Comments are locked here because this ticket has been merged into another ticket.</p>
+                    {% else %}
                     <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/comments" enctype="multipart/form-data" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/comments" hx-encoding="multipart/form-data" hx-swap="none" class="space-y-4">
                         <div>
                             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Add Comment</label>
@@ -272,6 +292,7 @@
                             {{ submit_button("Post Comment", color="amber", loading_label="Posting...") }}
                         </div>
                     </form>
+                    {% endif %}
                 </div>
             </div>
 
@@ -411,6 +432,122 @@
                 </div>
             </div>
 
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 95ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-pink-600 shadow-sm">
+                        <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h6m-9 8h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                    </div>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Relationships</h2>
+                </div>
+                <div class="p-5 space-y-4 text-sm">
+                    {% if ticket.merged_into_ticket %}
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Merged Into</div>
+                        <a href="/admin/support/tickets/{{ ticket.merged_into_ticket.number or ticket.merged_into_ticket.id }}"
+                           class="mt-2 block rounded-xl border border-violet-200 bg-violet-50 px-3 py-3 font-semibold text-violet-800 dark:border-violet-900/40 dark:bg-violet-900/20 dark:text-violet-200">
+                            {{ ticket.merged_into_ticket.number or ticket.merged_into_ticket.id }}
+                            <div class="mt-1 text-xs font-medium opacity-80">{{ ticket.merged_into_ticket.title }}</div>
+                        </a>
+                    </div>
+                    {% endif %}
+
+                    {% if merged_sources %}
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Merged Tickets</div>
+                        <div class="mt-2 space-y-2">
+                            {% for merge in merged_sources %}
+                            <a href="/admin/support/tickets/{{ merge.source_ticket.number or merge.source_ticket.id }}"
+                               class="block rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700 hover:border-violet-300 hover:bg-violet-50/60 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-200 dark:hover:border-violet-700/60 dark:hover:bg-violet-900/10">
+                                <div class="font-semibold">{{ merge.source_ticket.number or merge.source_ticket.id }}</div>
+                                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ merge.source_ticket.title }}</div>
+                                {% if merge.reason %}
+                                <div class="mt-2 text-xs text-slate-500 dark:text-slate-400">Reason: {{ merge.reason }}</div>
+                                {% endif %}
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if related_outage_context.primary_ticket %}
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Primary Outage Ticket</div>
+                        <a href="/admin/support/tickets/{{ related_outage_context.primary_ticket.number or related_outage_context.primary_ticket.id }}"
+                           class="mt-2 block rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 font-semibold text-rose-800 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
+                            {{ related_outage_context.primary_ticket.number or related_outage_context.primary_ticket.id }}
+                            <div class="mt-1 text-xs font-medium opacity-80">{{ related_outage_context.primary_ticket.title }}</div>
+                        </a>
+                    </div>
+                    {% endif %}
+
+                    {% if related_outage_context.linked_tickets %}
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Linked Outage Tickets</div>
+                        <div class="mt-2 space-y-2">
+                            {% for linked_ticket in related_outage_context.linked_tickets %}
+                            <a href="/admin/support/tickets/{{ linked_ticket.number or linked_ticket.id }}"
+                               class="block rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700 hover:border-rose-300 hover:bg-rose-50/60 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-200 dark:hover:border-rose-700/60 dark:hover:bg-rose-900/10">
+                                <div class="font-semibold">{{ linked_ticket.number or linked_ticket.id }}</div>
+                                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ linked_ticket.title }}</div>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if related_outage_context.sibling_tickets %}
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Other Tickets On This Outage</div>
+                        <div class="mt-2 space-y-2">
+                            {% for sibling_ticket in related_outage_context.sibling_tickets %}
+                            <a href="/admin/support/tickets/{{ sibling_ticket.number or sibling_ticket.id }}"
+                               class="block rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-700 hover:border-rose-300 hover:bg-rose-50/60 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-200 dark:hover:border-rose-700/60 dark:hover:bg-rose-900/10">
+                                <div class="font-semibold">{{ sibling_ticket.number or sibling_ticket.id }}</div>
+                                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ sibling_ticket.title }}</div>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if can_manage_ticket_relationships and not is_merged_source %}
+                    <div class="border-t border-slate-100 pt-4 dark:border-slate-700/50">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Manage</div>
+                        <div class="mt-3 space-y-4">
+                            <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/link" class="space-y-3">
+                                <div>
+                                    <label for="related_outage_ticket_ref" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Link To Outage</label>
+                                    <input type="text" name="related_outage_ticket_ref" id="related_outage_ticket_ref" placeholder="Ticket number or UUID" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <button type="submit" class="w-full rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200 dark:hover:bg-rose-900/30">
+                                    Link Related Outage
+                                </button>
+                            </form>
+                            <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/merge" class="space-y-3">
+                                <div>
+                                    <label for="target_ticket_ref" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Merge Into Ticket</label>
+                                    <input type="text" name="target_ticket_ref" id="target_ticket_ref" placeholder="Primary ticket number or UUID" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                </div>
+                                <div>
+                                    <label for="merge_reason" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Reason</label>
+                                    <textarea name="reason" id="merge_reason" rows="3" placeholder="Optional merge note" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+                                </div>
+                                <button type="submit" class="w-full rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:from-violet-400 hover:to-fuchsia-500">
+                                    Merge Ticket
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    {% elif is_merged_source %}
+                    <p class="rounded-xl border border-violet-200 bg-violet-50 px-3 py-3 text-violet-700 dark:border-violet-900/40 dark:bg-violet-900/20 dark:text-violet-200">
+                        This ticket is a merged source. Add updates on the destination ticket instead.
+                    </p>
+                    {% elif not ticket.merged_into_ticket and not merged_sources and not related_outage_context.primary_ticket and not related_outage_context.linked_tickets and not related_outage_context.sibling_tickets %}
+                    <p class="text-slate-500 dark:text-slate-400">No merge or outage relationship linked yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+
             <!-- Quick Actions -->
             <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 100ms;">
                 <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
@@ -420,6 +557,9 @@
                     <h2 class="font-semibold text-slate-900 dark:text-white">Update Status</h2>
                 </div>
                 <div class="p-5">
+                    {% if is_merged_source %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Status is locked because this ticket has been merged into another ticket.</p>
+                    {% else %}
                     <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/status" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/status" hx-swap="none" class="space-y-3">
                         <select name="status"
                                 hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/status"
@@ -439,6 +579,7 @@
                         </select>
                         <noscript>{{ submit_button("Update Status", color="amber", full_width=True, loading_label="Updating...") }}</noscript>
                     </form>
+                    {% endif %}
                 </div>
             </div>
 
@@ -451,6 +592,9 @@
                     <h2 class="font-semibold text-slate-900 dark:text-white">Priority</h2>
                 </div>
                 <div class="p-5">
+                    {% if is_merged_source %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Priority is locked because this ticket has been merged into another ticket.</p>
+                    {% else %}
                     <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority" hx-swap="none" class="space-y-3">
                         <select name="priority"
                                 hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority"
@@ -472,6 +616,7 @@
                             </button>
                         </noscript>
                     </form>
+                    {% endif %}
                 </div>
             </div>
 
@@ -487,11 +632,15 @@
                     <p class="text-xs text-slate-500 dark:text-slate-400">
                         Run ticket rule assignment now using current ticket fields.
                     </p>
+                    {% if is_merged_source %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400">Auto-assignment is disabled for merged source tickets.</p>
+                    {% else %}
                     <form method="POST" action="/admin/support/tickets/{{ ticket.number or ticket.id }}/auto-assign" hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/auto-assign" hx-swap="none">
                         <button type="submit" class="w-full rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:from-sky-400 hover:to-blue-500">
                             {% if ticket.assigned_to_person_id %}Re-run Auto Assignment{% else %}Auto Assign Now{% endif %}
                         </button>
                     </form>
+                    {% endif %}
                 </div>
             </div>
 
