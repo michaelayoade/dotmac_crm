@@ -480,9 +480,7 @@ def _get_technician_stats(
     # Active technician profiles should appear even when they have no jobs in range.
     active_technician_person_ids = {
         row
-        for row in db.scalars(
-            select(TechnicianProfile.person_id).where(TechnicianProfile.is_active.is_(True))
-        ).all()
+        for row in db.scalars(select(TechnicianProfile.person_id).where(TechnicianProfile.is_active.is_(True))).all()
         if row is not None
     }
 
@@ -514,9 +512,7 @@ def _get_technician_stats(
     person_ids = set(active_technician_person_ids) | set(total_by_person.keys()) | set(completed_by_person.keys())
     people_by_id: dict = {}
     if person_ids:
-        people = db.scalars(
-            select(Person).where(Person.id.in_(person_ids), Person.is_active.is_(True))
-        ).all()
+        people = db.scalars(select(Person).where(Person.id.in_(person_ids), Person.is_active.is_(True))).all()
         people_by_id = {person.id: person for person in people}
 
     def _person_name(person: Person | None) -> str:
@@ -561,18 +557,22 @@ def _get_technician_stats(
     }
 
     # Recent completions
-    recent_completions = db.scalars(
-        select(WorkOrder)
-        .options(joinedload(WorkOrder.assigned_to))
-        .where(
-            WorkOrder.is_active.is_(True),
-            WorkOrder.status == WorkOrderStatus.completed,
-            WorkOrder.completed_at >= start_date,
-            WorkOrder.completed_at <= end_date,
+    recent_completions = (
+        db.scalars(
+            select(WorkOrder)
+            .options(joinedload(WorkOrder.assigned_to))
+            .where(
+                WorkOrder.is_active.is_(True),
+                WorkOrder.status == WorkOrderStatus.completed,
+                WorkOrder.completed_at >= start_date,
+                WorkOrder.completed_at <= end_date,
+            )
+            .order_by(WorkOrder.completed_at.desc())
+            .limit(5)
         )
-        .order_by(WorkOrder.completed_at.desc())
-        .limit(5)
-    ).unique().all()
+        .unique()
+        .all()
+    )
 
     return technician_stats, total_jobs_completed, job_type_breakdown, recent_completions
 

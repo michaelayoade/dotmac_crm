@@ -21,43 +21,36 @@ from app.models.network import (
 
 def get_network_kpis(db: Session) -> dict:
     """Core network KPIs: OLT count, ONT count, PON util, fiber health, total km."""
-    active_olts = db.scalar(
-        select(func.count(OLTDevice.id)).where(OLTDevice.is_active.is_(True))
-    ) or 0
+    active_olts = db.scalar(select(func.count(OLTDevice.id)).where(OLTDevice.is_active.is_(True))) or 0
 
-    connected_onts = db.scalar(
-        select(func.count(OntAssignment.id)).where(OntAssignment.active.is_(True))
-    ) or 0
+    connected_onts = db.scalar(select(func.count(OntAssignment.id)).where(OntAssignment.active.is_(True))) or 0
 
     # PON port utilization
-    total_pon = db.scalar(
-        select(func.count(PonPort.id)).where(PonPort.is_active.is_(True))
-    ) or 0
-    assigned_pon = db.scalar(
-        select(func.count(func.distinct(OntAssignment.pon_port_id))).where(
-            OntAssignment.active.is_(True)
-        )
-    ) or 0
+    total_pon = db.scalar(select(func.count(PonPort.id)).where(PonPort.is_active.is_(True))) or 0
+    assigned_pon = (
+        db.scalar(select(func.count(func.distinct(OntAssignment.pon_port_id))).where(OntAssignment.active.is_(True)))
+        or 0
+    )
     pon_util = (assigned_pon / total_pon * 100) if total_pon > 0 else 0
 
     # Fiber strand health: % available or in_use
-    total_strands = db.scalar(
-        select(func.count(FiberStrand.id)).where(FiberStrand.is_active.is_(True))
-    ) or 0
-    healthy_strands = db.scalar(
-        select(func.count(FiberStrand.id)).where(
-            FiberStrand.is_active.is_(True),
-            FiberStrand.status.in_([FiberStrandStatus.available, FiberStrandStatus.in_use]),
+    total_strands = db.scalar(select(func.count(FiberStrand.id)).where(FiberStrand.is_active.is_(True))) or 0
+    healthy_strands = (
+        db.scalar(
+            select(func.count(FiberStrand.id)).where(
+                FiberStrand.is_active.is_(True),
+                FiberStrand.status.in_([FiberStrandStatus.available, FiberStrandStatus.in_use]),
+            )
         )
-    ) or 0
+        or 0
+    )
     fiber_health = (healthy_strands / total_strands * 100) if total_strands > 0 else 0
 
     # Total fiber deployed (km)
-    total_fiber_m = db.scalar(
-        select(func.coalesce(func.sum(FiberSegment.length_m), 0)).where(
-            FiberSegment.is_active.is_(True)
-        )
-    ) or 0
+    total_fiber_m = (
+        db.scalar(select(func.coalesce(func.sum(FiberSegment.length_m), 0)).where(FiberSegment.is_active.is_(True)))
+        or 0
+    )
     total_fiber_km = round(float(total_fiber_m) / 1000, 1)
 
     return {
@@ -73,9 +66,7 @@ def get_network_kpis(db: Session) -> dict:
 
 def get_olt_capacity(db: Session) -> list[dict]:
     """Per-OLT: total PON ports vs assigned (for bar chart)."""
-    olts = db.scalars(
-        select(OLTDevice).where(OLTDevice.is_active.is_(True)).order_by(OLTDevice.name)
-    ).all()
+    olts = db.scalars(select(OLTDevice).where(OLTDevice.is_active.is_(True)).order_by(OLTDevice.name)).all()
 
     olt_ids = [o.id for o in olts]
     if not olt_ids:
@@ -119,15 +110,10 @@ def get_fiber_strand_status(db: Session) -> dict[str, int]:
         .where(FiberStrand.is_active.is_(True))
         .group_by(FiberStrand.status)
     ).all()
-    return {
-        (status.value if status else "unknown"): count
-        for status, count in rows
-    }
+    return {(status.value if status else "unknown"): count for status, count in rows}
 
 
-def get_ont_activation_trend(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> list[dict]:
+def get_ont_activation_trend(db: Session, start_dt: datetime, end_dt: datetime) -> list[dict]:
     """Daily ONT assignment count in range (for line chart)."""
     rows = db.execute(
         select(
@@ -146,9 +132,7 @@ def get_ont_activation_trend(
 
 def get_olt_table(db: Session) -> list[dict]:
     """OLT status table with PON port and ONT counts."""
-    olts = db.scalars(
-        select(OLTDevice).where(OLTDevice.is_active.is_(True)).order_by(OLTDevice.name)
-    ).all()
+    olts = db.scalars(select(OLTDevice).where(OLTDevice.is_active.is_(True)).order_by(OLTDevice.name)).all()
     if not olts:
         return []
 
@@ -204,9 +188,7 @@ def get_olt_table(db: Session) -> list[dict]:
 
 def get_fdh_utilization(db: Session) -> list[dict]:
     """FDH cabinet utilization table."""
-    fdhs = db.scalars(
-        select(FdhCabinet).where(FdhCabinet.is_active.is_(True)).order_by(FdhCabinet.name)
-    ).all()
+    fdhs = db.scalars(select(FdhCabinet).where(FdhCabinet.is_active.is_(True)).order_by(FdhCabinet.name)).all()
     if not fdhs:
         return []
 
@@ -223,35 +205,40 @@ def get_fdh_utilization(db: Session) -> list[dict]:
     # Total and used splitter ports per FDH
     splitter_ids_by_fdh: dict = {}
     splitters = db.execute(
-        select(Splitter.id, Splitter.fdh_id)
-        .where(Splitter.is_active.is_(True), Splitter.fdh_id.in_(fdh_ids))
+        select(Splitter.id, Splitter.fdh_id).where(Splitter.is_active.is_(True), Splitter.fdh_id.in_(fdh_ids))
     ).all()
     for sid, fid in splitters:
         splitter_ids_by_fdh.setdefault(fid, []).append(sid)
 
     all_splitter_ids = [s[0] for s in splitters]
-    total_port_rows = db.execute(
-        select(SplitterPort.splitter_id, func.count(SplitterPort.id))
-        .where(
-            SplitterPort.is_active.is_(True),
-            SplitterPort.splitter_id.in_(all_splitter_ids) if all_splitter_ids else False,
-        )
-        .group_by(SplitterPort.splitter_id)
-    ).all() if all_splitter_ids else []
+    total_port_rows = (
+        db.execute(
+            select(SplitterPort.splitter_id, func.count(SplitterPort.id))
+            .where(
+                SplitterPort.is_active.is_(True),
+                SplitterPort.splitter_id.in_(all_splitter_ids) if all_splitter_ids else False,
+            )
+            .group_by(SplitterPort.splitter_id)
+        ).all()
+        if all_splitter_ids
+        else []
+    )
     total_ports_map = {row[0]: row[1] for row in total_port_rows}
 
     results = []
     for fdh in fdhs:
         sids = splitter_ids_by_fdh.get(fdh.id, [])
         total_ports = sum(total_ports_map.get(sid, 0) for sid in sids)
-        results.append({
-            "name": fdh.name,
-            "code": fdh.code,
-            "splitter_count": splitter_map.get(fdh.id, 0),
-            "total_ports": total_ports,
-            "ports_used": 0,  # Would need FiberStrand upstream tracking
-            "util_pct": 0,
-        })
+        results.append(
+            {
+                "name": fdh.name,
+                "code": fdh.code,
+                "splitter_count": splitter_map.get(fdh.id, 0),
+                "total_ports": total_ports,
+                "ports_used": 0,  # Would need FiberStrand upstream tracking
+                "util_pct": 0,
+            }
+        )
 
     return results
 
@@ -298,12 +285,14 @@ def get_recent_ont_activity(db: Session, limit: int = 10) -> list[dict]:
 
     results = []
     for row in assignments:
-        results.append({
-            "serial_number": row.serial_number,
-            "model": row.model or "Unknown",
-            "olt_name": row.olt_name,
-            "assigned_at": row.assigned_at.strftime("%Y-%m-%d %H:%M") if row.assigned_at else "",
-        })
+        results.append(
+            {
+                "serial_number": row.serial_number,
+                "model": row.model or "Unknown",
+                "olt_name": row.olt_name,
+                "assigned_at": row.assigned_at.strftime("%Y-%m-%d %H:%M") if row.assigned_at else "",
+            }
+        )
 
     return results
 
@@ -313,32 +302,36 @@ def get_network_export_data(db: Session) -> list[dict]:
     olt_data = get_olt_table(db)
     export = []
     for olt in olt_data:
-        export.append({
-            "Type": "OLT",
-            "Name": olt["name"],
-            "Hostname": olt["hostname"],
-            "Management IP": olt["mgmt_ip"],
-            "Vendor": olt["vendor"],
-            "Model": olt["model"],
-            "PON Ports Used": olt["pon_used"],
-            "PON Ports Total": olt["pon_total"],
-            "ONTs Connected": olt["ont_count"],
-            "Role": olt["site_role"],
-        })
+        export.append(
+            {
+                "Type": "OLT",
+                "Name": olt["name"],
+                "Hostname": olt["hostname"],
+                "Management IP": olt["mgmt_ip"],
+                "Vendor": olt["vendor"],
+                "Model": olt["model"],
+                "PON Ports Used": olt["pon_used"],
+                "PON Ports Total": olt["pon_total"],
+                "ONTs Connected": olt["ont_count"],
+                "Role": olt["site_role"],
+            }
+        )
 
     fiber_data = get_fiber_inventory(db)
     for seg in fiber_data:
-        export.append({
-            "Type": f"Fiber ({seg['segment_type']})",
-            "Name": f"{seg['count']} segments",
-            "Hostname": "",
-            "Management IP": "",
-            "Vendor": "",
-            "Model": "",
-            "PON Ports Used": "",
-            "PON Ports Total": "",
-            "ONTs Connected": seg["fiber_count"],
-            "Role": f"{seg['total_km']} km",
-        })
+        export.append(
+            {
+                "Type": f"Fiber ({seg['segment_type']})",
+                "Name": f"{seg['count']} segments",
+                "Hostname": "",
+                "Management IP": "",
+                "Vendor": "",
+                "Model": "",
+                "PON Ports Used": "",
+                "PON Ports Total": "",
+                "ONTs Connected": seg["fiber_count"],
+                "Role": f"{seg['total_km']} km",
+            }
+        )
 
     return export
