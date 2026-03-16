@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.domain_settings import SettingDomain
-from app.models.projects import ProjectTask, TaskStatus
+from app.models.projects import Project, ProjectTask, TaskStatus
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workflow import (
     ProjectTaskStatusTransition,
@@ -75,6 +75,11 @@ def _ensure_entity(db: Session, entity_type: WorkflowEntityType, entity_id: str)
         entity = _get_by_id(db, WorkOrder, entity_id)
         if not entity:
             raise HTTPException(status_code=404, detail="Work order not found")
+        return entity
+    if entity_type == WorkflowEntityType.project:
+        entity = _get_by_id(db, Project, entity_id)
+        if not entity:
+            raise HTTPException(status_code=404, detail="Project not found")
         return entity
     if entity_type == WorkflowEntityType.project_task:
         entity = _get_by_id(db, ProjectTask, entity_id)

@@ -48,14 +48,6 @@ class ProjectQuoteStatus(enum.Enum):
     revision_requested = "revision_requested"
 
 
-class VariationType(enum.Enum):
-    scope_change = "scope_change"
-    route_deviation = "route_deviation"
-    material_change = "material_change"
-    additional_work = "additional_work"
-    reduction = "reduction"
-
-
 class VendorPurchaseInvoiceStatus(enum.Enum):
     draft = "draft"
     submitted = "submitted"
@@ -70,6 +62,15 @@ class ProposedRouteRevisionStatus(enum.Enum):
     submitted = "submitted"
     accepted = "accepted"
     rejected = "rejected"
+
+
+
+class VariationType(enum.Enum):
+    scope_change = "scope_change"
+    route_deviation = "route_deviation"
+    material_change = "material_change"
+    additional_work = "additional_work"
+    reduction = "reduction"
 
 
 class AsBuiltRouteStatus(enum.Enum):

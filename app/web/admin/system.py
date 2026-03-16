@@ -32,7 +32,7 @@ from app.models.rbac import Permission, PersonRole, Role, RolePermission
 from app.models.service_team import ServiceTeam
 from app.models.tickets import Ticket, TicketComment, TicketStatus
 from app.models.webhook import WebhookDelivery, WebhookDeliveryStatus, WebhookEndpoint
-from app.models.workflow import TicketAssignmentStrategy, WorkflowEntityType
+from app.models.workflow import SlaBreachStatus, SlaClockStatus, TicketAssignmentStrategy, WorkflowEntityType
 from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote, WorkOrderStatus
 from app.schemas.auth import UserCredentialCreate
 from app.schemas.crm.campaign_sender import CampaignSenderCreate, CampaignSenderUpdate
@@ -49,6 +49,10 @@ from app.schemas.rbac import (
 from app.schemas.settings import DomainSettingUpdate
 from app.schemas.workflow import (
     ProjectTaskStatusTransitionCreate,
+    SlaBreachCreate,
+    SlaBreachUpdate,
+    SlaClockCreate,
+    SlaClockUpdate,
     SlaPolicyCreate,
     SlaTargetCreate,
     TicketAssignmentRuleCreate,
@@ -209,6 +213,28 @@ def _form_str(value: object | None) -> str:
 def _form_str_opt(value: object | None) -> str | None:
     value_str = _form_str(value).strip()
     return value_str or None
+
+
+def _parse_iso_datetime(value: object | None) -> datetime | None:
+    value_str = _form_str(value).strip()
+    if not value_str:
+        return None
+    try:
+        return datetime.fromisoformat(value_str)
+    except ValueError:
+        return None
+
+
+def _build_sla_entity_labels(clocks: list[object]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for clock in clocks:
+        entity_type = getattr(clock, "entity_type", None)
+        entity_id = getattr(clock, "entity_id", None)
+        if not entity_type or not entity_id:
+            continue
+        entity_type_value = getattr(entity_type, "value", str(entity_type))
+        labels[f"{entity_type_value}:{entity_id}"] = str(entity_id)
+    return labels
 
 
 def _linked_user_labels(db: Session, person_id) -> list[str]:
@@ -959,6 +985,26 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
         limit=200,
         offset=0,
     )
+    sla_clocks = workflow_service.sla_clocks.list(
+        db=db,
+        policy_id=None,
+        entity_type=None,
+        entity_id=None,
+        status=None,
+        order_by="due_at",
+        order_dir="asc",
+        limit=200,
+        offset=0,
+    )
+    sla_breaches = workflow_service.sla_breaches.list(
+        db=db,
+        clock_id=None,
+        status=None,
+        order_by="breached_at",
+        order_dir="desc",
+        limit=200,
+        offset=0,
+    )
     ticket_transitions = workflow_service.ticket_transitions.list(
         db=db,
         from_status=None,
@@ -1022,14 +1068,6 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
     report_start_raw = (request.query_params.get("report_start") or "").strip()
     report_end_raw = (request.query_params.get("report_end") or "").strip()
 
-    def _parse_iso_datetime(value: str) -> datetime | None:
-        if not value:
-            return None
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-
     report_start = _parse_iso_datetime(report_start_raw)
     report_end = _parse_iso_datetime(report_end_raw)
     report_filter_error = None
@@ -1038,6 +1076,8 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
     elif report_end_raw and report_end is None:
         report_filter_error = "Invalid report_end format. Use ISO datetime, e.g. 2026-02-25T23:59:59+00:00."
     sla_report_summary = workflow_service.sla_reports.summary(db, report_start, report_end)
+    policy_labels = {str(policy.id): policy.name for policy in policies}
+    sla_entity_labels = _build_sla_entity_labels(sla_clocks)
     context: dict[str, object] = {
         "request": request,
         "active_page": "workflow",
@@ -1046,6 +1086,8 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
         "sidebar_stats": get_sidebar_stats(db),
         "policies": policies,
         "targets": targets,
+        "sla_clocks": sla_clocks,
+        "sla_breaches": sla_breaches,
         "ticket_transitions": ticket_transitions,
         "work_order_transitions": work_order_transitions,
         "project_task_transitions": project_task_transitions,
@@ -1055,7 +1097,16 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
         "ticket_auto_assignment_enabled": auto_assignment_enabled,
         "ticket_auto_assign_require_presence": auto_assignment_require_presence,
         "ticket_auto_assign_max_open_tickets": auto_assignment_max_open_tickets,
+        "policy_labels": policy_labels,
+        "sla_entity_labels": sla_entity_labels,
         "workflow_entities": [item.value for item in WorkflowEntityType],
+        "sla_clock_statuses": [item.value for item in SlaClockStatus],
+        "sla_clock_manual_statuses": [
+            SlaClockStatus.running.value,
+            SlaClockStatus.paused.value,
+            SlaClockStatus.completed.value,
+        ],
+        "sla_breach_statuses": [item.value for item in SlaBreachStatus],
         "ticket_statuses": [item.value for item in TicketStatus],
         "work_order_statuses": [item.value for item in WorkOrderStatus],
         "task_statuses": [item.value for item in TaskStatus],
@@ -3292,6 +3343,148 @@ async def workflow_target_create(request: Request, db: Session = Depends(get_db)
         error = exc.detail if hasattr(exc, "detail") else str(exc)
         context = _workflow_context(request, db, error or "Unable to create SLA target.")
         return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/sla-clocks",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_sla_clock_create(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        policy_id_raw = _form_str(form.get("policy_id")).strip()
+        entity_type_raw = _form_str(form.get("entity_type")).strip()
+        entity_id_raw = _form_str(form.get("entity_id")).strip()
+        if not policy_id_raw:
+            raise ValueError("Policy is required.")
+        if not entity_type_raw:
+            raise ValueError("Entity type is required.")
+        if not entity_id_raw:
+            raise ValueError("Entity ID is required.")
+        started_at = _parse_iso_datetime(form.get("started_at"))
+        if _form_str(form.get("started_at")).strip() and started_at is None:
+            raise ValueError("Started at must be a valid ISO datetime.")
+        payload = SlaClockCreate(
+            policy_id=coerce_uuid(policy_id_raw),
+            entity_type=WorkflowEntityType(entity_type_raw),
+            entity_id=coerce_uuid(entity_id_raw),
+            priority=_form_str_opt(form.get("priority")),
+            started_at=started_at,
+        )
+        workflow_service.sla_clocks.create(db=db, payload=payload)
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+        context = _workflow_context(request, db, error or "Unable to create SLA clock.")
+        return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/sla-clocks/{clock_id}/update",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_sla_clock_update(clock_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        due_at = _parse_iso_datetime(form.get("due_at"))
+        paused_at = _parse_iso_datetime(form.get("paused_at"))
+        completed_at = _parse_iso_datetime(form.get("completed_at"))
+        breached_at = _parse_iso_datetime(form.get("breached_at"))
+        for field_name, parsed_value in (
+            ("due_at", due_at),
+            ("paused_at", paused_at),
+            ("completed_at", completed_at),
+            ("breached_at", breached_at),
+        ):
+            if _form_str(form.get(field_name)).strip() and parsed_value is None:
+                raise ValueError(f"{field_name.replace('_', ' ').title()} must be a valid ISO datetime.")
+        total_paused_seconds_raw = _form_str(form.get("total_paused_seconds")).strip()
+        payload = SlaClockUpdate(
+            status=SlaClockStatus(_form_str(form.get("status")).strip())
+            if _form_str(form.get("status")).strip()
+            else None,
+            paused_at=paused_at,
+            total_paused_seconds=int(total_paused_seconds_raw) if total_paused_seconds_raw else None,
+            due_at=due_at,
+            completed_at=completed_at,
+            breached_at=breached_at,
+        )
+        workflow_service.sla_clocks.update(db=db, clock_id=clock_id, payload=payload)
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+        context = _workflow_context(request, db, error or "Unable to update SLA clock.")
+        return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/sla-clocks/{clock_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def workflow_sla_clock_delete(clock_id: str, db: Session = Depends(get_db)):
+    workflow_service.sla_clocks.delete(db=db, clock_id=clock_id)
+    return RedirectResponse(url="/admin/system/workflow", status_code=303)
+
+
+@router.post(
+    "/workflow/sla-breaches",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_sla_breach_create(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        clock_id_raw = _form_str(form.get("clock_id")).strip()
+        if not clock_id_raw:
+            raise ValueError("Clock is required.")
+        breached_at = _parse_iso_datetime(form.get("breached_at"))
+        if _form_str(form.get("breached_at")).strip() and breached_at is None:
+            raise ValueError("Breached at must be a valid ISO datetime.")
+        payload = SlaBreachCreate(
+            clock_id=coerce_uuid(clock_id_raw),
+            breached_at=breached_at,
+            notes=_form_str_opt(form.get("notes")),
+        )
+        workflow_service.sla_breaches.create(db=db, payload=payload)
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+        context = _workflow_context(request, db, error or "Unable to create SLA breach.")
+        return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/sla-breaches/{breach_id}/update",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+async def workflow_sla_breach_update(breach_id: str, request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        status_raw = _form_str(form.get("status")).strip()
+        payload = SlaBreachUpdate(
+            status=SlaBreachStatus(status_raw) if status_raw else None,
+            notes=_form_str_opt(form.get("notes")),
+        )
+        workflow_service.sla_breaches.update(db=db, breach_id=breach_id, payload=payload)
+        return RedirectResponse(url="/admin/system/workflow", status_code=303)
+    except Exception as exc:
+        error = exc.detail if hasattr(exc, "detail") else str(exc)
+        context = _workflow_context(request, db, error or "Unable to update SLA breach.")
+        return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
+
+
+@router.post(
+    "/workflow/sla-breaches/{breach_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def workflow_sla_breach_delete(breach_id: str, db: Session = Depends(get_db)):
+    workflow_service.sla_breaches.delete(db=db, breach_id=breach_id)
+    return RedirectResponse(url="/admin/system/workflow", status_code=303)
 
 
 @router.post(

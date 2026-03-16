@@ -136,38 +136,6 @@
     if (!startInput || !endInput) {
         return;
     }
-    const storageKey = "ops:lastAssignedTechId";
-    const setSavedTech = () => {
-        if (!techSelect || techSelect.value) {
-            return;
-        }
-        try {
-            const saved = window.localStorage.getItem(storageKey);
-            if (!saved) {
-                return;
-            }
-            const match = Array.from(techSelect.options).some((opt) => opt.value === saved);
-            if (match) {
-                techSelect.value = saved;
-            }
-        } catch (err) {
-            return;
-        }
-    };
-    const persistTech = () => {
-        if (!techSelect) {
-            return;
-        }
-        try {
-            if (techSelect.value) {
-                window.localStorage.setItem(storageKey, techSelect.value);
-            } else {
-                window.localStorage.removeItem(storageKey);
-            }
-        } catch (err) {
-            return;
-        }
-    };
     const toInputValue = (date) => {
         const pad = (num) => String(num).padStart(2, "0");
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -215,10 +183,6 @@
             setEndFromStart(minutes);
         });
     });
-    if (techSelect) {
-        setSavedTech();
-        techSelect.addEventListener("change", persistTech);
-    }
     validateTimes();
 })();
 </script>

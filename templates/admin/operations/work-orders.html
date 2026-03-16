@@ -223,6 +223,7 @@
                                 </div>
                                 <!-- Status update form -->
                                 <form method="post" action="/admin/operations/work-orders/{{ order.id }}/status" class="flex items-center gap-1.5">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                                     <select name="status" class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                                         {% for item in status_options %}
                                             <option value="{{ item }}" {% if status_val == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
@@ -232,6 +233,7 @@
                                 </form>
                                 <!-- Assignment form -->
                                 <form method="post" action="/admin/operations/work-orders/{{ order.id }}/assign" class="flex items-center gap-1.5">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                                     <select name="assigned_to_person_id" data-assign-select class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                                         <option value="">Unassigned</option>
                                         {% if technicians %}

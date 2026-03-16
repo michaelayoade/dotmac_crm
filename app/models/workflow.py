@@ -12,6 +12,7 @@ from app.db import Base
 class WorkflowEntityType(enum.Enum):
     ticket = "ticket"
     work_order = "work_order"
+    project = "project"
     project_task = "project_task"
 
 

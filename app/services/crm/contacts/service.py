@@ -1079,11 +1079,19 @@ def get_contact_recent_tickets(
     limit: int = 3,
 ) -> list[dict]:
     """Get recent tickets for a person."""
+    from app.models.subscriber import Subscriber
     from app.models.tickets import Ticket
 
     ticket_filters = []
     if person_id:
-        ticket_filters.append(Ticket.created_by_person_id == coerce_uuid(person_id))
+        person_uuid = coerce_uuid(person_id)
+        ticket_filters.append(Ticket.customer_person_id == person_uuid)
+        ticket_filters.append(Ticket.created_by_person_id == person_uuid)
+        if not subscriber_ids:
+            subscriber_ids = [
+                subscriber_id
+                for (subscriber_id,) in db.query(Subscriber.id).filter(Subscriber.person_id == person_uuid).all()
+            ]
     if subscriber_ids:
         ticket_filters.append(Ticket.subscriber_id.in_(subscriber_ids))
 
