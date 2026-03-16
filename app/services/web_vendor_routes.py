@@ -131,7 +131,9 @@ def _vendor_project_quote_statuses(db: Session, projects: list[InstallationProje
     return statuses
 
 
-def _vendor_project_invoice_statuses(db: Session, projects: list[InstallationProject], vendor_id: str) -> dict[str, str]:
+def _vendor_project_invoice_statuses(
+    db: Session, projects: list[InstallationProject], vendor_id: str
+) -> dict[str, str]:
     from app.models.vendor import VendorPurchaseInvoice
 
     project_ids = [project.id for project in projects]
