@@ -496,7 +496,6 @@
             {% if can_reports_crm %}
             <a href="/admin/reports/crm-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">CRM Performance</a>
             {% endif %}
-            <a href="/admin/reports/operations-sla-violations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'operations-sla-violations' else '' }}">Operations SLA Violations</a>
             {% if can_reports_my_performance %}
             <a href="/agent/my-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'my-performance' else '' }}">My Performance</a>
             {% endif %}
