@@ -52,9 +52,7 @@ class DotMacERPPurchaseInvoiceSync:
                 idempotency_key=f"pinv-{invoice.id}",
             )
             erp_id = (
-                response.get("purchase_invoice_id")
-                or response.get("invoice_id")
-                or response.get("name")
+                response.get("purchase_invoice_id") or response.get("invoice_id") or response.get("name")
                 if response
                 else None
             )

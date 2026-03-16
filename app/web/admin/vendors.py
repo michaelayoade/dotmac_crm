@@ -1266,7 +1266,10 @@ def vendor_purchase_invoice_approve(
         )
 
     if not (approved_invoice.erp_purchase_order_id or "").strip():
-        detail = urlquote("Purchase invoice approved, but ERP sync was not queued because no ERP PO is linked to the project.", safe="")
+        detail = urlquote(
+            "Purchase invoice approved, but ERP sync was not queued because no ERP PO is linked to the project.",
+            safe="",
+        )
         redirect_url = _append_query_param(success_redirect, "invoice_action", "approved")
         redirect_url = _append_query_param(redirect_url, "invoice_error_detail", detail)
         return RedirectResponse(url=redirect_url, status_code=303)
