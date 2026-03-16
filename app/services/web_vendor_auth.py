@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import SessionLocal
 from app.models.auth import AuthProvider, UserCredential
 from app.models.person import Person
@@ -66,7 +67,7 @@ def vendor_login_submit(
                 key="vendor_mfa_pending",
                 value=str(result.get("mfa_token", "")),
                 httponly=True,
-                secure=True,
+                secure=settings.cookie_secure,
                 samesite="lax",
                 max_age=300,
             )
@@ -74,7 +75,7 @@ def vendor_login_submit(
                 key="vendor_mfa_remember",
                 value="1" if remember else "0",
                 httponly=True,
-                secure=True,
+                secure=settings.cookie_secure,
                 samesite="lax",
                 max_age=300,
             )
@@ -87,7 +88,7 @@ def vendor_login_submit(
             key=vendor_portal.SESSION_COOKIE_NAME,
             value=str(session_token or ""),
             httponly=True,
-            secure=True,
+            secure=settings.cookie_secure,
             samesite="lax",
             max_age=max_age,
         )
@@ -175,7 +176,7 @@ def vendor_mfa_submit(
             key=vendor_portal.SESSION_COOKIE_NAME,
             value=str(session_token or ""),
             httponly=True,
-            secure=True,
+            secure=settings.cookie_secure,
             samesite="lax",
             max_age=vendor_portal.get_remember_max_age(db) if remember else vendor_portal.get_session_max_age(db),
         )
@@ -231,7 +232,7 @@ def vendor_refresh(request: Request):
         key=vendor_portal.SESSION_COOKIE_NAME,
         value=refreshed_token,
         httponly=True,
-        secure=True,
+        secure=settings.cookie_secure,
         samesite="lax",
         max_age=max_age,
     )

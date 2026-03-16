@@ -12,6 +12,11 @@ from app.services.auth_cache import get_cached_session, set_cached_session
 from app.services.auth_flow import _load_rbac_claims, decode_access_token, hash_session_token
 
 
+def _clear_read_transaction(db: Session) -> None:
+    if db.in_transaction():
+        db.rollback()
+
+
 def _extract_bearer_token(authorization: str | None) -> str | None:
     if not authorization:
         return None
@@ -115,99 +120,102 @@ def require_user_auth(
     authorization: str | None = Header(default=None),
     db: Session = Depends(_get_db),
 ):
-    token = _extract_bearer_token(authorization)
-    if not token and request is not None:
-        token = request.cookies.get("session_token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    payload = decode_access_token(db, token)
-    person_id = payload.get("sub")
-    session_id = payload.get("session_id")
-    if not person_id or not session_id:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    roles_claim = payload.get("roles")
-    scopes_claim = payload.get("scopes")
-    roles_from_claim = list(roles_claim) if isinstance(roles_claim, (list, tuple, set)) else []
-    scopes_from_claim = list(scopes_claim) if isinstance(scopes_claim, (list, tuple, set)) else []
+    try:
+        token = _extract_bearer_token(authorization)
+        if not token and request is not None:
+            token = request.cookies.get("session_token")
+        if not token:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        payload = decode_access_token(db, token)
+        person_id = payload.get("sub")
+        session_id = payload.get("session_id")
+        if not person_id or not session_id:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        roles_claim = payload.get("roles")
+        scopes_claim = payload.get("scopes")
+        roles_from_claim = list(roles_claim) if isinstance(roles_claim, (list, tuple, set)) else []
+        scopes_from_claim = list(scopes_claim) if isinstance(scopes_claim, (list, tuple, set)) else []
 
-    now = datetime.now(UTC)
+        now = datetime.now(UTC)
 
-    # Check cache first
-    cached = get_cached_session(str(session_id))
-    if cached:
-        cached_person_id = cached.get("person_id")
-        cached_expires_at = cached.get("expires_at")
-        if cached_person_id == str(person_id):
-            if cached_expires_at:
-                expires_dt = datetime.fromisoformat(cached_expires_at)
-                if expires_dt <= now:
-                    raise HTTPException(status_code=401, detail="Unauthorized")
-            roles = cached.get("roles")
-            scopes = cached.get("scopes")
-            # Only reload if roles/scopes were never cached (None), not if empty lists
-            if roles is None or scopes is None:
-                roles, scopes = _load_rbac_claims(db, str(person_id))
-                set_cached_session(
-                    str(session_id),
-                    {
-                        "person_id": str(person_id),
-                        "roles": roles,
-                        "scopes": scopes,
-                        "expires_at": cached_expires_at,
-                    },
-                )
-            roles = roles or []
-            scopes = scopes or []
-            actor_id = str(person_id)
-            if request is not None:
-                request.state.actor_id = actor_id
-                request.state.actor_type = "user"
-            return {
+        # Check cache first
+        cached = get_cached_session(str(session_id))
+        if cached:
+            cached_person_id = cached.get("person_id")
+            cached_expires_at = cached.get("expires_at")
+            if cached_person_id == str(person_id):
+                if cached_expires_at:
+                    expires_dt = datetime.fromisoformat(cached_expires_at)
+                    if expires_dt <= now:
+                        raise HTTPException(status_code=401, detail="Unauthorized")
+                roles = cached.get("roles")
+                scopes = cached.get("scopes")
+                # Only reload if roles/scopes were never cached (None), not if empty lists
+                if roles is None or scopes is None:
+                    roles, scopes = _load_rbac_claims(db, str(person_id))
+                    set_cached_session(
+                        str(session_id),
+                        {
+                            "person_id": str(person_id),
+                            "roles": roles,
+                            "scopes": scopes,
+                            "expires_at": cached_expires_at,
+                        },
+                    )
+                roles = roles or []
+                scopes = scopes or []
+                actor_id = str(person_id)
+                if request is not None:
+                    request.state.actor_id = actor_id
+                    request.state.actor_type = "user"
+                return {
+                    "person_id": str(person_id),
+                    "session_id": str(session_id),
+                    "roles": roles,
+                    "scopes": scopes,
+                }
+
+        # Cache miss - query database
+        session = (
+            db.query(AuthSession)
+            .filter(AuthSession.id == session_id)
+            .filter(AuthSession.person_id == person_id)
+            .filter(AuthSession.status == SessionStatus.active)
+            .filter(AuthSession.revoked_at.is_(None))
+            .filter(AuthSession.expires_at > now)
+            .first()
+        )
+        if not session:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        if roles_from_claim or scopes_from_claim:
+            roles = roles_from_claim
+            scopes = scopes_from_claim
+        else:
+            roles, scopes = _load_rbac_claims(db, str(person_id))
+
+        # Cache the session for future requests
+        set_cached_session(
+            str(session_id),
+            {
                 "person_id": str(person_id),
-                "session_id": str(session_id),
                 "roles": roles,
                 "scopes": scopes,
-            }
+                "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+            },
+        )
 
-    # Cache miss - query database
-    session = (
-        db.query(AuthSession)
-        .filter(AuthSession.id == session_id)
-        .filter(AuthSession.person_id == person_id)
-        .filter(AuthSession.status == SessionStatus.active)
-        .filter(AuthSession.revoked_at.is_(None))
-        .filter(AuthSession.expires_at > now)
-        .first()
-    )
-    if not session:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    if roles_from_claim or scopes_from_claim:
-        roles = roles_from_claim
-        scopes = scopes_from_claim
-    else:
-        roles, scopes = _load_rbac_claims(db, str(person_id))
-
-    # Cache the session for future requests
-    set_cached_session(
-        str(session_id),
-        {
+        actor_id = str(person_id)
+        if request is not None:
+            request.state.actor_id = actor_id
+            request.state.actor_type = "user"
+        return {
             "person_id": str(person_id),
+            "session_id": str(session_id),
             "roles": roles,
             "scopes": scopes,
-            "expires_at": session.expires_at.isoformat() if session.expires_at else None,
-        },
-    )
-
-    actor_id = str(person_id)
-    if request is not None:
-        request.state.actor_id = actor_id
-        request.state.actor_type = "user"
-    return {
-        "person_id": str(person_id),
-        "session_id": str(session_id),
-        "roles": roles,
-        "scopes": scopes,
-    }
+        }
+    finally:
+        _clear_read_transaction(db)
 
 
 def require_role(role_name: str):
@@ -215,19 +223,25 @@ def require_role(role_name: str):
         auth=Depends(require_user_auth),
         db: Session = Depends(_get_db),
     ):
-        person_id = auth["person_id"]
-        roles = set(auth.get("roles") or [])
-        if role_name in roles:
+        try:
+            person_id = auth["person_id"]
+            roles = set(auth.get("roles") or [])
+            if role_name in roles:
+                return auth
+            role = db.query(Role).filter(Role.name == role_name).filter(Role.is_active.is_(True)).first()
+            if not role:
+                raise HTTPException(status_code=403, detail="Role not found")
+            link = (
+                db.query(PersonRole)
+                .filter(PersonRole.person_id == person_id)
+                .filter(PersonRole.role_id == role.id)
+                .first()
+            )
+            if not link:
+                raise HTTPException(status_code=403, detail="Forbidden")
             return auth
-        role = db.query(Role).filter(Role.name == role_name).filter(Role.is_active.is_(True)).first()
-        if not role:
-            raise HTTPException(status_code=403, detail="Role not found")
-        link = (
-            db.query(PersonRole).filter(PersonRole.person_id == person_id).filter(PersonRole.role_id == role.id).first()
-        )
-        if not link:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return auth
+        finally:
+            _clear_read_transaction(db)
 
     return _require_role
 
@@ -273,50 +287,56 @@ def require_permission(permission_key: str):
         auth=Depends(require_user_auth),
         db: Session = Depends(_get_db),
     ):
-        person_id = auth["person_id"]
-        roles = set(auth.get("roles") or [])
-        if "admin" in roles:
+        try:
+            person_id = auth["person_id"]
+            roles = set(auth.get("roles") or [])
+            if "admin" in roles:
+                return auth
+
+            # Expand the permission key to include hierarchical matches
+            possible_keys = _expand_permission_keys(permission_key)
+
+            # Check if permission is granted via JWT scopes
+            scopes = set(auth.get("scopes") or [])
+            if scopes & set(possible_keys):
+                return auth
+
+            # Find all matching permissions (exact or hierarchical)
+            permissions = (
+                db.query(Permission)
+                .filter(Permission.key.in_(possible_keys))
+                .filter(Permission.is_active.is_(True))
+                .all()
+            )
+            if not permissions:
+                raise HTTPException(status_code=403, detail="Permission not found")
+
+            permission_ids = [p.id for p in permissions]
+
+            # Check if user has any of the matching permissions via roles
+            has_role_permission = (
+                db.query(RolePermission)
+                .join(Role, RolePermission.role_id == Role.id)
+                .join(PersonRole, PersonRole.role_id == Role.id)
+                .filter(PersonRole.person_id == person_id)
+                .filter(RolePermission.permission_id.in_(permission_ids))
+                .filter(Role.is_active.is_(True))
+                .first()
+            )
+
+            # Check if user has any direct permission grants
+            has_direct_permission = (
+                db.query(PersonPermission)
+                .filter(PersonPermission.person_id == person_id)
+                .filter(PersonPermission.permission_id.in_(permission_ids))
+                .first()
+            )
+
+            if not has_role_permission and not has_direct_permission:
+                raise HTTPException(status_code=403, detail="Forbidden")
             return auth
-
-        # Expand the permission key to include hierarchical matches
-        possible_keys = _expand_permission_keys(permission_key)
-
-        # Check if permission is granted via JWT scopes
-        scopes = set(auth.get("scopes") or [])
-        if scopes & set(possible_keys):
-            return auth
-
-        # Find all matching permissions (exact or hierarchical)
-        permissions = (
-            db.query(Permission).filter(Permission.key.in_(possible_keys)).filter(Permission.is_active.is_(True)).all()
-        )
-        if not permissions:
-            raise HTTPException(status_code=403, detail="Permission not found")
-
-        permission_ids = [p.id for p in permissions]
-
-        # Check if user has any of the matching permissions via roles
-        has_role_permission = (
-            db.query(RolePermission)
-            .join(Role, RolePermission.role_id == Role.id)
-            .join(PersonRole, PersonRole.role_id == Role.id)
-            .filter(PersonRole.person_id == person_id)
-            .filter(RolePermission.permission_id.in_(permission_ids))
-            .filter(Role.is_active.is_(True))
-            .first()
-        )
-
-        # Check if user has any direct permission grants
-        has_direct_permission = (
-            db.query(PersonPermission)
-            .filter(PersonPermission.person_id == person_id)
-            .filter(PersonPermission.permission_id.in_(permission_ids))
-            .first()
-        )
-
-        if not has_role_permission and not has_direct_permission:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return auth
+        finally:
+            _clear_read_transaction(db)
 
     return _require_permission
 
@@ -328,48 +348,51 @@ def require_any_permission(*permission_keys: str):
         auth=Depends(require_user_auth),
         db: Session = Depends(_get_db),
     ):
-        person_id = auth["person_id"]
-        roles = set(auth.get("roles") or [])
-        if "admin" in roles:
+        try:
+            person_id = auth["person_id"]
+            roles = set(auth.get("roles") or [])
+            if "admin" in roles:
+                return auth
+
+            # Expand all permission keys
+            all_possible_keys = set()
+            for key in permission_keys:
+                all_possible_keys.update(_expand_permission_keys(key))
+
+            permissions = (
+                db.query(Permission)
+                .filter(Permission.key.in_(all_possible_keys))
+                .filter(Permission.is_active.is_(True))
+                .all()
+            )
+            if not permissions:
+                raise HTTPException(status_code=403, detail="Permission not found")
+
+            permission_ids = [p.id for p in permissions]
+
+            # Check if user has any of the matching permissions via roles
+            has_role_permission = (
+                db.query(RolePermission)
+                .join(Role, RolePermission.role_id == Role.id)
+                .join(PersonRole, PersonRole.role_id == Role.id)
+                .filter(PersonRole.person_id == person_id)
+                .filter(RolePermission.permission_id.in_(permission_ids))
+                .filter(Role.is_active.is_(True))
+                .first()
+            )
+
+            # Check if user has any direct permission grants
+            has_direct_permission = (
+                db.query(PersonPermission)
+                .filter(PersonPermission.person_id == person_id)
+                .filter(PersonPermission.permission_id.in_(permission_ids))
+                .first()
+            )
+
+            if not has_role_permission and not has_direct_permission:
+                raise HTTPException(status_code=403, detail="Forbidden")
             return auth
-
-        # Expand all permission keys
-        all_possible_keys = set()
-        for key in permission_keys:
-            all_possible_keys.update(_expand_permission_keys(key))
-
-        permissions = (
-            db.query(Permission)
-            .filter(Permission.key.in_(all_possible_keys))
-            .filter(Permission.is_active.is_(True))
-            .all()
-        )
-        if not permissions:
-            raise HTTPException(status_code=403, detail="Permission not found")
-
-        permission_ids = [p.id for p in permissions]
-
-        # Check if user has any of the matching permissions via roles
-        has_role_permission = (
-            db.query(RolePermission)
-            .join(Role, RolePermission.role_id == Role.id)
-            .join(PersonRole, PersonRole.role_id == Role.id)
-            .filter(PersonRole.person_id == person_id)
-            .filter(RolePermission.permission_id.in_(permission_ids))
-            .filter(Role.is_active.is_(True))
-            .first()
-        )
-
-        # Check if user has any direct permission grants
-        has_direct_permission = (
-            db.query(PersonPermission)
-            .filter(PersonPermission.person_id == person_id)
-            .filter(PersonPermission.permission_id.in_(permission_ids))
-            .first()
-        )
-
-        if not has_role_permission and not has_direct_permission:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return auth
+        finally:
+            _clear_read_transaction(db)
 
     return _require_any_permission

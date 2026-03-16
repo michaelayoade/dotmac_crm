@@ -48,19 +48,28 @@ class ProjectQuoteStatus(enum.Enum):
     revision_requested = "revision_requested"
 
 
-class ProposedRouteRevisionStatus(enum.Enum):
-    draft = "draft"
-    submitted = "submitted"
-    accepted = "accepted"
-    rejected = "rejected"
-
-
 class VariationType(enum.Enum):
     scope_change = "scope_change"
     route_deviation = "route_deviation"
     material_change = "material_change"
     additional_work = "additional_work"
     reduction = "reduction"
+
+
+class VendorPurchaseInvoiceStatus(enum.Enum):
+    draft = "draft"
+    submitted = "submitted"
+    under_review = "under_review"
+    approved = "approved"
+    rejected = "rejected"
+    revision_requested = "revision_requested"
+
+
+class ProposedRouteRevisionStatus(enum.Enum):
+    draft = "draft"
+    submitted = "submitted"
+    accepted = "accepted"
+    rejected = "rejected"
 
 
 class AsBuiltRouteStatus(enum.Enum):
@@ -94,6 +103,7 @@ class Vendor(Base):
 
     users = relationship("VendorUser", back_populates="vendor")
     quotes = relationship("ProjectQuote", back_populates="vendor")
+    purchase_invoices = relationship("VendorPurchaseInvoice", back_populates="vendor")
 
 
 class VendorUser(Base):
@@ -137,6 +147,7 @@ class InstallationProject(Base):
     )
     bidding_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     bidding_close_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    erp_purchase_order_id: Mapped[str | None] = mapped_column(String(100), index=True)
     approved_quote_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("project_quotes.id"))
     created_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     notes: Mapped[str | None] = mapped_column(Text)
@@ -158,6 +169,11 @@ class InstallationProject(Base):
     created_by = relationship("Person", foreign_keys=[created_by_person_id])
     quotes = relationship(
         "ProjectQuote", back_populates="project", primaryjoin="InstallationProject.id == ProjectQuote.project_id"
+    )
+    purchase_invoices = relationship(
+        "VendorPurchaseInvoice",
+        back_populates="project",
+        primaryjoin="InstallationProject.id == VendorPurchaseInvoice.project_id",
     )
     project_notes = relationship("InstallationProjectNote", back_populates="project")
     as_built_routes = relationship("AsBuiltRoute", back_populates="project")
@@ -227,6 +243,78 @@ class QuoteLineItem(Base):
     quote = relationship("ProjectQuote", back_populates="line_items")
 
 
+class VendorPurchaseInvoice(Base):
+    __tablename__ = "vendor_purchase_invoices"
+    __table_args__ = (UniqueConstraint("project_id", "vendor_id", name="uq_vendor_purchase_invoice_project_vendor"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invoice_number: Mapped[str | None] = mapped_column(String(80), unique=True, index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("installation_projects.id"), nullable=False
+    )
+    vendor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("vendors.id"), nullable=False)
+    status: Mapped[VendorPurchaseInvoiceStatus] = mapped_column(
+        Enum(VendorPurchaseInvoiceStatus), default=VendorPurchaseInvoiceStatus.draft
+    )
+    currency: Mapped[str] = mapped_column(String(3), default="NGN")
+    tax_rate_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    tax_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    review_notes: Mapped[str | None] = mapped_column(Text)
+    created_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    attachment_storage_key: Mapped[str | None] = mapped_column(String(255))
+    attachment_file_name: Mapped[str | None] = mapped_column(String(255))
+    attachment_mime_type: Mapped[str | None] = mapped_column(String(120))
+    attachment_file_size: Mapped[int | None] = mapped_column(Integer)
+    erp_purchase_order_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    erp_purchase_invoice_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    erp_sync_error: Mapped[str | None] = mapped_column(String(500))
+    erp_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    project = relationship("InstallationProject", back_populates="purchase_invoices", foreign_keys=[project_id])
+    vendor = relationship("Vendor", back_populates="purchase_invoices")
+    reviewed_by = relationship("Person", foreign_keys=[reviewed_by_person_id])
+    created_by = relationship("Person", foreign_keys=[created_by_person_id])
+    line_items = relationship("VendorPurchaseInvoiceLineItem", back_populates="invoice")
+
+
+class VendorPurchaseInvoiceLineItem(Base):
+    __tablename__ = "vendor_purchase_invoice_line_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vendor_purchase_invoices.id"), nullable=False
+    )
+    item_type: Mapped[str | None] = mapped_column(String(80))
+    description: Mapped[str | None] = mapped_column(Text)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("1.000"))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    notes: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    invoice = relationship("VendorPurchaseInvoice", back_populates="line_items")
+
+
 class ProposedRouteRevision(Base):
     __tablename__ = "proposed_route_revisions"
     __table_args__ = (UniqueConstraint("quote_id", "revision_number", name="uq_proposed_route_quote_revision"),)
@@ -274,8 +362,6 @@ class AsBuiltRoute(Base):
     report_file_path: Mapped[str | None] = mapped_column(String(500))
     report_file_name: Mapped[str | None] = mapped_column(String(255))
     report_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-    # Variation workflow fields
     variation_type: Mapped[VariationType | None] = mapped_column(Enum(VariationType))
     variation_reason: Mapped[str | None] = mapped_column(Text)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

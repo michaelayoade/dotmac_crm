@@ -287,6 +287,9 @@ from app.models.vendor import (  # noqa: F401
     VariationType,
     Vendor,
     VendorAssignmentType,
+    VendorPurchaseInvoice,
+    VendorPurchaseInvoiceLineItem,
+    VendorPurchaseInvoiceStatus,
     VendorUser,
 )
 from app.models.webhook import (  # noqa: F401

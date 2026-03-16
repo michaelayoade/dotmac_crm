@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -17,6 +17,13 @@ from app.schemas.vendor import (
     QuoteLineItemRead,
     QuoteLineItemUpdate,
     QuoteVatUpdateRequest,
+    VendorPurchaseInvoiceCreate,
+    VendorPurchaseInvoiceLineItemCreate,
+    VendorPurchaseInvoiceLineItemCreateRequest,
+    VendorPurchaseInvoiceLineItemRead,
+    VendorPurchaseInvoiceLineItemUpdate,
+    VendorPurchaseInvoiceRead,
+    VendorPurchaseInvoiceTaxRateUpdateRequest,
 )
 from app.services import vendor as vendor_service
 from app.services import vendor_portal
@@ -242,6 +249,184 @@ def update_quote_vat(
         vendor_id=str(context["vendor"].id),
         vat_rate_percent=payload.vat_rate_percent,
     )
+
+
+@router.post(
+    "/purchase-invoices",
+    response_model=VendorPurchaseInvoiceRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_purchase_invoice(
+    request: Request,
+    payload: VendorPurchaseInvoiceCreate,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.vendor_purchase_invoices.create(
+        db,
+        payload,
+        vendor_id=str(context["vendor"].id),
+        created_by_person_id=str(context["person"].id),
+    )
+
+
+@router.patch(
+    "/purchase-invoices/{invoice_id}/tax",
+    response_model=VendorPurchaseInvoiceRead,
+)
+def update_purchase_invoice_tax(
+    request: Request,
+    invoice_id: str,
+    payload: VendorPurchaseInvoiceTaxRateUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.vendor_purchase_invoices.set_tax_rate(
+        db,
+        invoice_id=invoice_id,
+        vendor_id=str(context["vendor"].id),
+        tax_rate_percent=payload.tax_rate_percent,
+    )
+
+
+@router.post(
+    "/purchase-invoices/{invoice_id}/line-items",
+    response_model=VendorPurchaseInvoiceLineItemRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_purchase_invoice_line_item(
+    request: Request,
+    invoice_id: str,
+    payload: VendorPurchaseInvoiceLineItemCreateRequest,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    payload_data = payload.model_dump()
+    payload_data["invoice_id"] = invoice_id
+    return vendor_service.vendor_purchase_invoice_line_items.create(
+        db,
+        VendorPurchaseInvoiceLineItemCreate(**payload_data),
+        vendor_id=str(context["vendor"].id),
+    )
+
+
+@router.get(
+    "/purchase-invoices/{invoice_id}/line-items",
+    response_model=ListResponse[VendorPurchaseInvoiceLineItemRead],
+)
+def list_purchase_invoice_line_items(
+    request: Request,
+    invoice_id: str,
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    invoice = vendor_service.vendor_purchase_invoices.get(db, invoice_id)
+    if str(invoice.vendor_id) != str(context["vendor"].id):
+        raise HTTPException(status_code=403, detail="Purchase invoice ownership required")
+    items = vendor_service.vendor_purchase_invoice_line_items.list(
+        db,
+        invoice_id=invoice_id,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=limit,
+        offset=offset,
+    )
+    return list_response(items, limit, offset)
+
+
+@router.patch(
+    "/purchase-invoices/{invoice_id}/line-items/{line_item_id}",
+    response_model=VendorPurchaseInvoiceLineItemRead,
+)
+def update_purchase_invoice_line_item(
+    request: Request,
+    invoice_id: str,
+    line_item_id: str,
+    payload: VendorPurchaseInvoiceLineItemUpdate,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.vendor_purchase_invoice_line_items.update(
+        db,
+        invoice_id=invoice_id,
+        line_item_id=line_item_id,
+        payload=payload,
+        vendor_id=str(context["vendor"].id),
+    )
+
+
+@router.delete(
+    "/purchase-invoices/{invoice_id}/line-items/{line_item_id}",
+    response_model=VendorPurchaseInvoiceLineItemRead,
+)
+def delete_purchase_invoice_line_item(
+    request: Request,
+    invoice_id: str,
+    line_item_id: str,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.vendor_purchase_invoice_line_items.delete(
+        db,
+        invoice_id=invoice_id,
+        line_item_id=line_item_id,
+        vendor_id=str(context["vendor"].id),
+    )
+
+
+@router.post(
+    "/purchase-invoices/{invoice_id}/attachment",
+    response_model=VendorPurchaseInvoiceRead,
+)
+async def upload_purchase_invoice_attachment(
+    request: Request,
+    invoice_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    content = await file.read()
+    return vendor_service.vendor_purchase_invoices.upload_attachment(
+        db,
+        invoice_id,
+        file_name=file.filename or "invoice",
+        mime_type=file.content_type or "application/octet-stream",
+        file_content=content,
+        vendor_id=str(context["vendor"].id),
+    )
+
+
+@router.delete(
+    "/purchase-invoices/{invoice_id}/attachment",
+    response_model=VendorPurchaseInvoiceRead,
+)
+def delete_purchase_invoice_attachment(
+    request: Request,
+    invoice_id: str,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.vendor_purchase_invoices.delete_attachment(
+        db,
+        invoice_id,
+        vendor_id=str(context["vendor"].id),
+    )
+
+
+@router.post(
+    "/purchase-invoices/{invoice_id}/submit",
+    response_model=VendorPurchaseInvoiceRead,
+)
+def submit_purchase_invoice(
+    request: Request,
+    invoice_id: str,
+    db: Session = Depends(get_db),
+):
+    context = require_vendor_context(request, db)
+    return vendor_service.vendor_purchase_invoices.submit(db, invoice_id, vendor_id=str(context["vendor"].id))
 
 
 @router.post(
