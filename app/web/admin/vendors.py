@@ -136,17 +136,6 @@ def _safe_as_built_redirect_target(redirect_to: str | None) -> str | None:
     return target
 
 
-def _safe_purchase_invoice_redirect_target(redirect_to: str | None) -> str | None:
-    if not redirect_to:
-        return None
-    target = str(redirect_to).strip()
-    if not target or "://" in target or target.startswith("//"):
-        return None
-    if not target.startswith("/admin/vendors/purchase-invoices"):
-        return None
-    return target
-
-
 def _append_query_param(url: str, key: str, value: str) -> str:
     parts = urlsplit(url)
     query_pairs = parse_qsl(parts.query, keep_blank_values=True)
