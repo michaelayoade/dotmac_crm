@@ -332,17 +332,12 @@
     if (!selects.length) {
         return;
     }
-    const saved = localStorage.getItem(storageKey);
     selects.forEach((select) => {
-        if (saved && !select.value) {
-            const option = Array.from(select.options).find((opt) => opt.value === saved);
-            if (option) {
-                select.value = saved;
-            }
-        }
         select.addEventListener("change", () => {
             if (select.value) {
                 localStorage.setItem(storageKey, select.value);
+            } else {
+                localStorage.removeItem(storageKey);
             }
         });
     });

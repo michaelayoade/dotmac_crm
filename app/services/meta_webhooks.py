@@ -469,7 +469,7 @@ def _build_meta_lead_metadata(
         "page_id": page_id,
     }
     for source in (detail, change_value):
-        for key in ("ad_id", "adgroup_id", "campaign_id", "form_id"):
+        for key in ("ad_id", "adset_id", "adgroup_id", "campaign_id", "form_id"):
             value = source.get(key) if isinstance(source, dict) else None
             if value:
                 attribution[key] = value
@@ -480,6 +480,7 @@ def _build_meta_lead_metadata(
         "meta_platform": detail.get("platform"),
         "meta_created_time": detail.get("created_time") or change_value.get("created_time"),
         "meta_ad_id": detail.get("ad_id") or change_value.get("ad_id"),
+        "meta_adset_id": detail.get("adset_id") or change_value.get("adset_id"),
         "meta_adgroup_id": detail.get("adgroup_id") or change_value.get("adgroup_id"),
         "meta_campaign_id": detail.get("campaign_id") or change_value.get("campaign_id"),
         "meta_is_organic": detail.get("is_organic"),
@@ -613,7 +614,7 @@ def _fetch_meta_lead_details(
             "created_time",
             "field_data",
             "ad_id",
-            "adgroup_id",
+            "adset_id",
             "campaign_id",
             "form_id",
             "is_organic",

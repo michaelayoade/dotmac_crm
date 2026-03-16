@@ -10,6 +10,7 @@
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-as-built': 'operations',
     'material-requests': 'operations',
+    'subscriber-overview': 'reports', 'subscriber-lifecycle': 'reports', 'subscriber-service-quality': 'reports', 'subscriber-revenue': 'reports', 'network-report': 'reports',
     'my-performance': 'reports',
     'team-performance': 'reports',
     'ai-insights': 'reports',
@@ -124,12 +125,13 @@
 {% set network_section_visible = can_fiber_map %}
 
 {% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
+{% set can_reports_subscribers = is_admin or 'reports:subscribers' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_technician = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_crm = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_ai_insights = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_my_performance = can_inbox %}
 {% set can_reports_team_performance = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
-{% set reports_section_visible = can_reports_network or can_reports_technician or can_reports_crm or can_reports_ai_insights or can_reports_my_performance or can_reports_team_performance %}
+{% set reports_section_visible = can_reports_network or can_reports_subscribers or can_reports_technician or can_reports_crm or can_reports_ai_insights or can_reports_my_performance or can_reports_team_performance %}
 
 {% set can_admin_hub = is_admin
     or 'rbac:roles:read' in user_permissions
@@ -489,8 +491,14 @@
             </svg>
         </button>
         <div x-show="openMenu === 'reports' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
+            {% if can_reports_subscribers %}
+            <a href="/admin/reports/subscribers/overview" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-overview' else '' }}">Subscriber Overview</a>
+            <a href="/admin/reports/subscribers/lifecycle" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-lifecycle' else '' }}">Subscriber Lifecycle</a>
+            <a href="/admin/reports/subscribers/service-quality" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-service-quality' else '' }}">Service Quality</a>
+            <a href="/admin/reports/subscribers/revenue" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-revenue' else '' }}">Revenue & Pipeline</a>
+            {% endif %}
             {% if can_reports_network %}
-            <a href="/admin/reports/network" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">Network Usage</a>
+            <a href="/admin/reports/network" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'network-report' else '' }}">Network Infrastructure</a>
             {% endif %}
             {% if can_reports_technician %}
             <a href="/admin/reports/technician" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">Technician Performance</a>

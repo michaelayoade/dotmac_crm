@@ -7,12 +7,13 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
+from app.models.dispatch import TechnicianProfile
+from app.models.person import Person
 from app.models.workforce import WorkOrder, WorkOrderStatus
-from app.services import dispatch as dispatch_service
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
 from app.web.admin import get_current_user, get_sidebar_stats
@@ -76,21 +77,21 @@ def operations_report_alias():
     return RedirectResponse(url="/admin/operations/work-orders", status_code=302)
 
 
-# Legacy subscriber/churn reports removed - redirect to dashboard
+# Legacy redirects point to new subscriber overview
 @router.get("/subscribers")
 def subscribers_report_redirect():
-    """Legacy subscriber report - redirect to dashboard."""
-    return RedirectResponse(url="/admin/dashboard", status_code=302)
+    """Legacy subscriber report - redirect to overview."""
+    return RedirectResponse(url="/admin/reports/subscribers/overview", status_code=302)
 
 
 @router.get("/churn")
 def churn_report_redirect():
-    """Legacy churn report - redirect to dashboard."""
-    return RedirectResponse(url="/admin/dashboard", status_code=302)
+    """Legacy churn report - redirect to lifecycle."""
+    return RedirectResponse(url="/admin/reports/subscribers/lifecycle", status_code=302)
 
 
 # =============================================================================
-# Network Usage Report
+# Network Infrastructure Report (real data)
 # =============================================================================
 
 
@@ -102,33 +103,20 @@ def network_report(
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
 ):
-    """Network usage report."""
+    """Network infrastructure report with real OLT/ONT/fiber data."""
+    from app.services import network_reports as nr
+
     user = get_current_user(request)
     start_dt, end_dt = _parse_date_range(period_days, start_date, end_date)
-    day_span = max(1, min((end_dt.date() - start_dt.date()).days + 1, 120))
 
-    # Placeholder data - in a real implementation this would pull from
-    # bandwidth metrics or network monitoring
-    stats = {
-        "total_bandwidth": "10 Gbps",
-        "peak_usage": "7.2 Gbps",
-        "average_usage": "4.5 Gbps",
-        "utilization": 45,
-    }
-
-    # Placeholder chart data
-    chart_data = []
-    now = datetime.now(UTC)
-    points = min(24, day_span)
-    for i in range(points):
-        hour = now - timedelta(hours=points - 1 - i)
-        chart_data.append(
-            {
-                "time": hour.strftime("%H:00"),
-                "download": 3.5 + (i % 5) * 0.5,
-                "upload": 1.2 + (i % 3) * 0.3,
-            }
-        )
+    kpis = nr.get_network_kpis(db)
+    olt_capacity = nr.get_olt_capacity(db)
+    fiber_strand_status = nr.get_fiber_strand_status(db)
+    ont_trend = nr.get_ont_activation_trend(db, start_dt, end_dt)
+    olt_table = nr.get_olt_table(db)
+    fdh_table = nr.get_fdh_utilization(db)
+    fiber_inventory = nr.get_fiber_inventory(db)
+    recent_ont = nr.get_recent_ont_activity(db)
 
     return templates.TemplateResponse(
         "admin/reports/network.html",
@@ -137,13 +125,345 @@ def network_report(
             "user": user,
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
-            "stats": stats,
-            "chart_data": chart_data,
+            "active_page": "network-report",
+            "active_menu": "reports",
+            "kpis": kpis,
+            "olt_capacity": olt_capacity,
+            "fiber_strand_status": fiber_strand_status,
+            "ont_trend": ont_trend,
+            "olt_table": olt_table,
+            "fdh_table": fdh_table,
+            "fiber_inventory": fiber_inventory,
+            "recent_ont": recent_ont,
             "period_days": period_days,
             "start_date": start_date or "",
             "end_date": end_date or "",
         },
     )
+
+
+@router.get("/network/export")
+def network_report_export(
+    db: Session = Depends(get_db),
+):
+    """Export network infrastructure report as CSV."""
+    from app.services import network_reports as nr
+
+    export_data = nr.get_network_export_data(db)
+    filename = f"network_infrastructure_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Subscriber Overview Report
+# =============================================================================
+
+
+@router.get("/subscribers/overview", response_class=HTMLResponse)
+def subscriber_overview(
+    request: Request,
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    status: str | None = Query(None),
+    region: str | None = Query(None),
+):
+    """Subscriber overview report."""
+    from app.services import subscriber_reports as sr
+
+    user = get_current_user(request)
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+
+    kpis = sr.overview_kpis(db, start_dt, end_dt)
+    growth_trend = sr.overview_growth_trend(db, start_dt, end_dt)
+    status_dist = sr.overview_status_distribution(db)
+    plan_dist = sr.overview_plan_distribution(db)
+    regional = sr.overview_regional_breakdown(db, start_dt, end_dt)
+    filter_opts = sr.overview_filter_options(db)
+
+    return templates.TemplateResponse(
+        "admin/reports/subscriber_overview.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "subscriber-overview",
+            "active_menu": "reports",
+            "kpis": kpis,
+            "growth_trend": growth_trend,
+            "status_dist": status_dist,
+            "plan_dist": plan_dist,
+            "regional": regional,
+            "filter_opts": filter_opts,
+            "days": days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+            "selected_status": status or "",
+            "selected_region": region or "",
+        },
+    )
+
+
+@router.get("/subscribers/overview/export")
+def subscriber_overview_export(
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Export subscriber overview as CSV."""
+    from app.services import subscriber_reports as sr
+
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    regional = sr.overview_regional_breakdown(db, start_dt, end_dt)
+
+    export_data = [
+        {
+            "Region": r["region"],
+            "Active": r["active"],
+            "Suspended": r["suspended"],
+            "Terminated": r["terminated"],
+            "New in Period": r["new_in_period"],
+            "Tickets": r["ticket_count"],
+        }
+        for r in regional
+    ]
+    filename = f"subscriber_overview_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Subscriber Lifecycle Report
+# =============================================================================
+
+
+@router.get("/subscribers/lifecycle", response_class=HTMLResponse)
+def subscriber_lifecycle(
+    request: Request,
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Subscriber lifecycle and churn report."""
+    from app.services import subscriber_reports as sr
+
+    user = get_current_user(request)
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+
+    kpis = sr.lifecycle_kpis(db, start_dt, end_dt)
+    funnel = sr.lifecycle_funnel(db)
+    churn_trend = sr.lifecycle_churn_trend(db)
+    conversion_by_source = sr.lifecycle_conversion_by_source(db, start_dt, end_dt)
+    recent_churns = sr.lifecycle_recent_churns(db)
+    longest_tenure = sr.lifecycle_longest_tenure(db)
+
+    return templates.TemplateResponse(
+        "admin/reports/subscriber_lifecycle.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "subscriber-lifecycle",
+            "active_menu": "reports",
+            "kpis": kpis,
+            "funnel": funnel,
+            "churn_trend": churn_trend,
+            "conversion_by_source": conversion_by_source,
+            "recent_churns": recent_churns,
+            "longest_tenure": longest_tenure,
+            "days": days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+        },
+    )
+
+
+@router.get("/subscribers/lifecycle/export")
+def subscriber_lifecycle_export(
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Export subscriber lifecycle data as CSV."""
+    from app.services import subscriber_reports as sr
+
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    recent_churns = sr.lifecycle_recent_churns(db, limit=100)
+
+    export_data = [
+        {
+            "Name": c["name"],
+            "Subscriber #": c["subscriber_number"],
+            "Plan": c["plan"],
+            "Region": c["region"],
+            "Activated": c["activated_at"],
+            "Terminated": c["terminated_at"],
+            "Tenure (days)": c["tenure_days"],
+        }
+        for c in recent_churns
+    ]
+    filename = f"subscriber_lifecycle_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Subscriber Service Quality Report
+# =============================================================================
+
+
+@router.get("/subscribers/service-quality", response_class=HTMLResponse)
+def subscriber_service_quality(
+    request: Request,
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Subscriber service quality report."""
+    from app.services import subscriber_reports as sr
+
+    user = get_current_user(request)
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+
+    kpis = sr.service_quality_kpis(db, start_dt, end_dt)
+    tickets_by_type = sr.service_quality_tickets_by_type(db, start_dt, end_dt)
+    wo_by_type = sr.service_quality_wo_by_type(db, start_dt, end_dt)
+    weekly_trend = sr.service_quality_weekly_trend(db, start_dt, end_dt)
+    high_maintenance = sr.service_quality_high_maintenance(db, start_dt, end_dt)
+    regional_quality = sr.service_quality_regional(db, start_dt, end_dt)
+
+    return templates.TemplateResponse(
+        "admin/reports/subscriber_service_quality.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "subscriber-service-quality",
+            "active_menu": "reports",
+            "kpis": kpis,
+            "tickets_by_type": tickets_by_type,
+            "wo_by_type": wo_by_type,
+            "weekly_trend": weekly_trend,
+            "high_maintenance": high_maintenance,
+            "regional_quality": regional_quality,
+            "days": days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+        },
+    )
+
+
+@router.get("/subscribers/service-quality/export")
+def subscriber_service_quality_export(
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Export service quality data as CSV."""
+    from app.services import subscriber_reports as sr
+
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    high_maintenance = sr.service_quality_high_maintenance(db, start_dt, end_dt, limit=100)
+
+    export_data = [
+        {
+            "Name": h["name"],
+            "Subscriber #": h["subscriber_number"],
+            "Region": h["region"],
+            "Plan": h["plan"],
+            "Tickets": h["tickets"],
+            "Work Orders": h["work_orders"],
+            "Projects": h["projects"],
+            "Total Issues": h["total"],
+        }
+        for h in high_maintenance
+    ]
+    filename = f"service_quality_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Subscriber Revenue & Pipeline Report
+# =============================================================================
+
+
+@router.get("/subscribers/revenue", response_class=HTMLResponse)
+def subscriber_revenue(
+    request: Request,
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Subscriber revenue and pipeline report."""
+    from app.services import subscriber_reports as sr
+
+    user = get_current_user(request)
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+
+    kpis = sr.revenue_kpis(db, start_dt, end_dt)
+    monthly_trend = sr.revenue_monthly_trend(db)
+    payment_status = sr.revenue_payment_status(db, start_dt, end_dt)
+    order_status = sr.revenue_order_status(db, start_dt, end_dt)
+    top_subscribers = sr.revenue_top_subscribers(db, start_dt, end_dt)
+    outstanding = sr.revenue_outstanding_balances(db)
+
+    return templates.TemplateResponse(
+        "admin/reports/subscriber_revenue.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "subscriber-revenue",
+            "active_menu": "reports",
+            "kpis": kpis,
+            "monthly_trend": monthly_trend,
+            "payment_status": payment_status,
+            "order_status": order_status,
+            "top_subscribers": top_subscribers,
+            "outstanding": outstanding,
+            "days": days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+        },
+    )
+
+
+@router.get("/subscribers/revenue/export")
+def subscriber_revenue_export(
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Export revenue data as CSV."""
+    from app.services import subscriber_reports as sr
+
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    top_subs = sr.revenue_top_subscribers(db, start_dt, end_dt, limit=100)
+
+    export_data = [
+        {
+            "Name": s["name"],
+            "Email": s["email"],
+            "Total Revenue": s["total_revenue"],
+            "Order Count": s["order_count"],
+            "Avg Order Value": s["avg_value"],
+            "Latest Order": s["latest_order"],
+            "Status": s["status"],
+        }
+        for s in top_subs
+    ]
+    filename = f"subscriber_revenue_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
 
 
 # =============================================================================
@@ -154,86 +474,105 @@ def network_report(
 def _get_technician_stats(
     db: Session,
     start_date: datetime,
+    end_date: datetime,
 ) -> tuple[list[dict], int, dict[str, int], list]:
     """Get technician performance stats for a date range."""
-    # Get all active technicians
-    technicians = dispatch_service.technicians.list(
-        db,
-        person_id=None,
-        region=None,
-        is_active=True,
-        order_by="created_at",
-        order_dir="asc",
-        limit=100,
-        offset=0,
-    )
+    # Active technician profiles should appear even when they have no jobs in range.
+    active_technician_person_ids = {
+        row
+        for row in db.scalars(
+            select(TechnicianProfile.person_id).where(TechnicianProfile.is_active.is_(True))
+        ).all()
+        if row is not None
+    }
 
-    # Build performance data for each technician
+    total_rows = db.execute(
+        select(WorkOrder.assigned_to_person_id, func.count(WorkOrder.id))
+        .where(
+            WorkOrder.is_active.is_(True),
+            WorkOrder.assigned_to_person_id.isnot(None),
+            WorkOrder.created_at >= start_date,
+            WorkOrder.created_at <= end_date,
+        )
+        .group_by(WorkOrder.assigned_to_person_id)
+    ).all()
+    completed_rows = db.execute(
+        select(WorkOrder.assigned_to_person_id, func.count(WorkOrder.id))
+        .where(
+            WorkOrder.is_active.is_(True),
+            WorkOrder.assigned_to_person_id.isnot(None),
+            WorkOrder.status == WorkOrderStatus.completed,
+            WorkOrder.completed_at >= start_date,
+            WorkOrder.completed_at <= end_date,
+        )
+        .group_by(WorkOrder.assigned_to_person_id)
+    ).all()
+
+    total_by_person = {person_id: count for person_id, count in total_rows if person_id is not None}
+    completed_by_person = {person_id: count for person_id, count in completed_rows if person_id is not None}
+
+    person_ids = set(active_technician_person_ids) | set(total_by_person.keys()) | set(completed_by_person.keys())
+    people_by_id: dict = {}
+    if person_ids:
+        people = db.scalars(
+            select(Person).where(Person.id.in_(person_ids), Person.is_active.is_(True))
+        ).all()
+        people_by_id = {person.id: person for person in people}
+
+    def _person_name(person: Person | None) -> str:
+        if not person:
+            return "Unknown"
+        if person.display_name:
+            return person.display_name
+        return f"{person.first_name or ''} {person.last_name or ''}".strip() or "Unknown"
+
     technician_stats = []
-    total_jobs_completed = 0
-
-    for tech in technicians:
-        # Count completed work orders
-        completed = (
-            db.query(func.count(WorkOrder.id))
-            .filter(WorkOrder.assigned_to_person_id == tech.person_id)
-            .filter(WorkOrder.status == WorkOrderStatus.completed)
-            .filter(WorkOrder.completed_at >= start_date)
-            .scalar()
-        ) or 0
-
-        # Count total assigned
-        total_assigned = (
-            db.query(func.count(WorkOrder.id))
-            .filter(WorkOrder.assigned_to_person_id == tech.person_id)
-            .filter(WorkOrder.created_at >= start_date)
-            .scalar()
-        ) or 0
-
-        total_jobs_completed += completed
-
-        # Get technician name
-        tech_name = "Unknown"
-        if tech.person:
-            tech_name = f"{tech.person.first_name or ''} {tech.person.last_name or ''}".strip() or "Unknown"
-
-        # Calculate average hours (placeholder - would need actual time tracking)
-        avg_hours = 2.5 if completed > 0 else 0
-
-        # Rating based on completion rate
+    for person_id in person_ids:
+        total_assigned = int(total_by_person.get(person_id, 0))
+        completed = int(completed_by_person.get(person_id, 0))
         completion_rate = (completed / total_assigned * 100) if total_assigned > 0 else 0
         rating = min(5, max(1, int(completion_rate / 20))) if total_assigned > 0 else 3
-
         technician_stats.append(
             {
-                "name": tech_name,
+                "name": _person_name(people_by_id.get(person_id)),
                 "total_jobs": total_assigned,
                 "completed_jobs": completed,
-                "avg_hours": avg_hours,
+                "avg_hours": 2.5 if completed > 0 else 0,  # Placeholder: use time tracking when available
                 "rating": rating,
                 "completion_rate": round(completion_rate, 1),
             }
         )
 
-    # Sort by completed jobs (descending)
-    technician_stats.sort(key=lambda x: x["completed_jobs"], reverse=True)
+    technician_stats.sort(key=lambda x: (-x["completed_jobs"], -x["total_jobs"], x["name"].lower()))
+    total_jobs_completed = sum(completed_by_person.values())
 
     # Job type breakdown
-    job_type_breakdown: dict[str, int] = {}
-    work_orders = db.query(WorkOrder).filter(WorkOrder.created_at >= start_date).all()
-    for wo in work_orders:
-        work_type = wo.work_type.value if wo.work_type else "other"
-        job_type_breakdown[work_type] = job_type_breakdown.get(work_type, 0) + 1
+    type_rows = db.execute(
+        select(WorkOrder.work_type, func.count(WorkOrder.id))
+        .where(
+            WorkOrder.is_active.is_(True),
+            WorkOrder.created_at >= start_date,
+            WorkOrder.created_at <= end_date,
+        )
+        .group_by(WorkOrder.work_type)
+    ).all()
+    job_type_breakdown: dict[str, int] = {
+        (work_type.value if work_type else "other"): count for work_type, count in type_rows
+    }
 
     # Recent completions
-    recent_completions = (
-        db.query(WorkOrder)
-        .filter(WorkOrder.status == WorkOrderStatus.completed)
-        .filter(WorkOrder.completed_at >= start_date)
+    recent_completions = db.scalars(
+        select(WorkOrder)
+        .options(joinedload(WorkOrder.assigned_to))
+        .where(
+            WorkOrder.is_active.is_(True),
+            WorkOrder.status == WorkOrderStatus.completed,
+            WorkOrder.completed_at >= start_date,
+            WorkOrder.completed_at <= end_date,
+        )
         .order_by(WorkOrder.completed_at.desc())
         .limit(5)
-        .all()
-    )
+    ).unique().all()
 
     return technician_stats, total_jobs_completed, job_type_breakdown, recent_completions
 
@@ -251,7 +590,9 @@ def technician_report(
 
     start_dt, end_dt = _parse_date_range(days, start_date, end_date)
 
-    technician_stats, total_jobs_completed, job_type_breakdown, recent_completions = _get_technician_stats(db, start_dt)
+    technician_stats, total_jobs_completed, job_type_breakdown, recent_completions = _get_technician_stats(
+        db, start_dt, end_dt
+    )
 
     # Summary stats
     avg_completion_hours = 2.5  # Placeholder
@@ -287,7 +628,7 @@ def technician_report_export(
 ):
     """Export technician performance report as CSV."""
     start_dt, end_dt = _parse_date_range(days, start_date, end_date)
-    technician_stats, _, _, _ = _get_technician_stats(db, start_dt)
+    technician_stats, _, _, _ = _get_technician_stats(db, start_dt, end_dt)
 
     # Format for CSV
     export_data = []

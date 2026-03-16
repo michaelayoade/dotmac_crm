@@ -1,7 +1,7 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import status_badge, stats_card, dashboard_kpi_grid, dashboard_filter_panel %}
+{% from "components/ui/macros.html" import stats_card, dashboard_kpi_grid, dashboard_filter_panel, status_badge %}
 
-{% block title %}Network Usage Report - Admin{% endblock %}
+{% block title %}Network Infrastructure Report - Admin{% endblock %}
 
 {% block charts_js %}
 <script src="/static/js/vendor/chart.min.js"></script>
@@ -10,22 +10,25 @@
 
 {% block content %}
 <div class="space-y-6">
+    <!-- Page Header -->
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Network Usage</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Review network utilization and infrastructure status</p>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Network Infrastructure</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">OLT capacity, fiber health, and ONT deployment overview</p>
         </div>
-        <a href="/admin/network" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-            Manage Network
+        <a href="/admin/reports/network/export?period_days={{ period_days }}{% if start_date %}&start_date={{ start_date }}{% endif %}{% if end_date %}&end_date={{ end_date }}{% endif %}"
+           class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Export CSV
         </a>
     </div>
 
-    {% call dashboard_filter_panel(color="blue", title="Date Range") %}
+    <!-- Filter Panel -->
+    {% call dashboard_filter_panel(color="cyan", title="Report Period") %}
     <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-end">
         <div>
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</label>
-            <select name="period_days" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+            <select name="period_days" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
                 <option value="7" {% if period_days == 7 %}selected{% endif %}>Last 7 days</option>
                 <option value="30" {% if period_days == 30 %}selected{% endif %}>Last 30 days</option>
                 <option value="90" {% if period_days == 90 %}selected{% endif %}>Last 90 days</option>
@@ -34,170 +37,293 @@
         </div>
         <div>
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
-            <input type="date" name="start_date" value="{{ start_date or '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+            <input type="date" name="start_date" value="{{ start_date if start_date else '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
         </div>
         <div>
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
-            <input type="date" name="end_date" value="{{ end_date or '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+            <input type="date" name="end_date" value="{{ end_date if end_date else '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
         </div>
-        <div class="md:col-span-2 flex items-center gap-2 md:justify-end">
+        <div class="flex items-center gap-2 md:col-span-2 md:justify-end">
             <a href="/admin/reports/network" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
-            <button type="submit" class="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Apply</button>
+            <button type="submit" class="inline-flex items-center rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700">Apply</button>
         </div>
     </form>
     {% endcall %}
 
-    <!-- Summary Cards -->
-    {% call dashboard_kpi_grid(cols="4") %}
-        {{ stats_card("Active OLTs", active_olts | default(0), color="blue", color2="indigo", href="/admin/network/olts") }}
-        {{ stats_card("Connected ONTs", connected_onts | default(0), color="green", color2="emerald", href="/admin/network/onts") }}
-        {{ stats_card("IP Pool Usage", ("%.1f" | format(ip_pool_usage | default(0))) ~ "%", color="cyan", color2="blue", href="/admin/network/ip-management") }}
-        {{ stats_card("VLANs Active", active_vlans | default(0), color="violet", color2="purple", href="/admin/network/vlans") }}
+    <!-- KPI Cards -->
+    {% call dashboard_kpi_grid(cols="5") %}
+        {{ stats_card("Active OLTs", kpis.active_olts | default(0), color="cyan", color2="blue") }}
+        {{ stats_card("Connected ONTs", kpis.connected_onts | default(0), color="cyan", color2="blue") }}
+        {{ stats_card("PON Utilization", ("%.1f" | format(kpis.pon_util_pct | default(0))) ~ "%", color="cyan", color2="blue") }}
+        {{ stats_card("Fiber Health", ("%.1f" | format(kpis.fiber_health_pct | default(0))) ~ "%", color="cyan", color2="blue") }}
+        {{ stats_card("Fiber Deployed", ("%.1f" | format(kpis.total_fiber_km | default(0))) ~ " km", color="cyan", color2="blue") }}
     {% endcall %}
 
-    <!-- Network Overview Charts -->
+    <!-- Charts Row: OLT Capacity + Fiber Strand Status -->
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <!-- Device Status Doughnut -->
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <!-- OLT Capacity Bar Chart -->
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                <h2 class="font-semibold text-slate-900 dark:text-white">Device Health Overview</h2>
+                <h2 class="font-semibold text-slate-900 dark:text-white">OLT Port Capacity</h2>
+                <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Total vs assigned PON ports per OLT</p>
             </div>
             <div class="p-6">
-                <div class="chart-container" style="min-height: 220px;">
-                    <canvas id="device-health-chart"></canvas>
+                <div class="chart-container" style="min-height: 260px;">
+                    <canvas id="olt-capacity-chart"></canvas>
                 </div>
                 <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    const ctx = document.getElementById('device-health-chart');
+                    const ctx = document.getElementById('olt-capacity-chart');
                     if (!ctx) return;
-                    const chartData = {
-                        labels: ['Online OLTs', 'Offline OLTs', 'Connected ONTs', 'Disconnected ONTs'],
-                        values: [{{ active_olts | default(0) }}, {{ (total_olts | default(0)) - (active_olts | default(0)) }}, {{ connected_onts | default(0) }}, {{ (total_onts | default(0)) - (connected_onts | default(0)) }}],
-                        colors: ['#10b981', '#ef4444', '#06b6d4', '#f59e0b']
-                    };
-                    const chart = DotmacCharts.createDoughnutChart(ctx, chartData, { legendPosition: 'bottom' });
-                    DotmacCharts.registerChart('device-health-chart', chart);
+                    const labels = [{% for o in olt_capacity %}'{{ o.name }}'{% if not loop.last %},{% endif %}{% endfor %}];
+                    const totalData = [{% for o in olt_capacity %}{{ o.total_ports }}{% if not loop.last %},{% endif %}{% endfor %}];
+                    const assignedData = [{% for o in olt_capacity %}{{ o.assigned_ports }}{% if not loop.last %},{% endif %}{% endfor %}];
+                    const chart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                { label: 'Total Ports', data: totalData, backgroundColor: '#06b6d4' },
+                                { label: 'Assigned', data: assignedData, backgroundColor: '#3b82f6' }
+                            ]
+                        },
+                        options: { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+                    });
+                    DotmacCharts.registerChart('olt-capacity-chart', chart);
                 });
                 </script>
             </div>
         </div>
-        <!-- IP Pool Usage Chart -->
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+
+        <!-- Fiber Strand Status Doughnut -->
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
             <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                <h2 class="font-semibold text-slate-900 dark:text-white">IP Pool Utilization</h2>
+                <h2 class="font-semibold text-slate-900 dark:text-white">Fiber Strand Status</h2>
+                <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Distribution of fiber strand conditions</p>
             </div>
             <div class="p-6">
-                <div class="chart-container" style="min-height: 220px;">
-                    <canvas id="ip-pool-chart"></canvas>
+                <div class="chart-container" style="min-height: 260px;">
+                    <canvas id="fiber-strand-chart"></canvas>
                 </div>
                 <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    const ctx = document.getElementById('ip-pool-chart');
+                    const ctx = document.getElementById('fiber-strand-chart');
                     if (!ctx) return;
                     const chartData = {
-                        labels: ['Used IPs', 'Available IPs'],
-                        values: [{{ used_ips | default(0) }}, {{ (total_ips | default(0)) - (used_ips | default(0)) }}],
-                        colors: ['#06b6d4', '#e2e8f0']
+                        labels: [{% for status, count in fiber_strand_status.items() %}'{{ status | replace("_", " ") | title }}'{% if not loop.last %},{% endif %}{% endfor %}],
+                        values: [{% for status, count in fiber_strand_status.items() %}{{ count }}{% if not loop.last %},{% endif %}{% endfor %}],
+                        colors: ['#06b6d4', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981']
                     };
-                    const chart = DotmacCharts.createDoughnutChart(ctx, chartData, { legendPosition: 'bottom' });
-                    DotmacCharts.registerChart('ip-pool-chart', chart);
+                    if (chartData.labels.length > 0) {
+                        const chart = DotmacCharts.createDoughnutChart(ctx, chartData, { legendPosition: 'bottom' });
+                        DotmacCharts.registerChart('fiber-strand-chart', chart);
+                    }
                 });
                 </script>
             </div>
         </div>
     </div>
 
-    <!-- Device Status -->
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                <h2 class="font-semibold text-slate-900 dark:text-white">OLT Status</h2>
-            </div>
-            <div class="p-6">
-                {% if olts %}
-                <div class="space-y-3">
-                    {% for olt in olts[:10] %}
-                    <div class="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-700 last:border-0">
-                        <div class="flex items-center gap-3">
-                            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                                <svg class="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium text-slate-900 dark:text-white">{{ olt.name or olt.serial_number }}</p>
-                                <p class="text-xs text-slate-500 dark:text-slate-400">{{ olt.management_ip or 'No IP' }}</p>
-                            </div>
-                        </div>
-                        {% if olt.is_active %}
-                        {{ status_badge("Online", "online", size="sm") }}
-                        {% else %}
-                        {{ status_badge("Offline", "offline", size="sm") }}
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <p class="text-sm text-slate-500 dark:text-slate-400">No OLTs configured.</p>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                <h2 class="font-semibold text-slate-900 dark:text-white">IP Pool Allocation</h2>
-            </div>
-            <div class="p-6">
-                {% if ip_pools %}
-                <div class="space-y-4">
-                    {% for pool in ip_pools[:5] %}
-                    <div>
-                        <div class="flex justify-between text-sm mb-1">
-                            <span class="text-slate-700 dark:text-slate-300">{{ pool.name }}</span>
-                            <span class="text-slate-500 dark:text-slate-400">{{ pool.cidr }}</span>
-                        </div>
-                        <div class="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700">
-                            <div class="h-2 rounded-full bg-blue-500" style="width: {{ (pool.used_count / pool.total_count * 100) if pool.total_count > 0 else 0 }}%"></div>
-                        </div>
-                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ pool.used_count | default(0) }}/{{ pool.total_count | default(0) }} used</p>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <p class="text-sm text-slate-500 dark:text-slate-400">No IP pools configured.</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- Recent Network Events -->
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <!-- ONT Activations Trend -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
         <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <h2 class="font-semibold text-slate-900 dark:text-white">Recent ONT Activity</h2>
+            <h2 class="font-semibold text-slate-900 dark:text-white">ONT Activations Trend</h2>
+            <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">New ONT connections over the selected period</p>
         </div>
         <div class="p-6">
-            {% if recent_ont_activity %}
+            <div class="chart-container" style="min-height: 280px;">
+                <canvas id="ont-trend-chart"></canvas>
+            </div>
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                const ctx = document.getElementById('ont-trend-chart');
+                if (!ctx) return;
+                const labels = [{% for t in ont_trend %}'{{ t.date }}'{% if not loop.last %},{% endif %}{% endfor %}];
+                const data = [{% for t in ont_trend %}{{ t.count }}{% if not loop.last %},{% endif %}{% endfor %}];
+                const chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'ONT Activations',
+                            data: data,
+                            borderColor: '#06b6d4',
+                            backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            pointBackgroundColor: '#06b6d4',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2,
+                            pointRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { position: 'bottom' } },
+                        scales: {
+                            y: { beginAtZero: true },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+                DotmacCharts.registerChart('ont-trend-chart', chart);
+            });
+            </script>
+        </div>
+    </div>
+
+    <!-- OLT Status Table -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">OLT Status</h2>
+        </div>
+        <div class="p-6">
+            {% if olt_table %}
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
                     <thead>
                         <tr>
-                            <th class="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Device</th>
-                            <th class="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Serial</th>
-                            <th class="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">OLT</th>
-                            <th class="px-4 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Status</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Name</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Hostname</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Mgmt IP</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vendor</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Model</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">PON Used</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">PON Total</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ONTs</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Site Role</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                        {% for ont in recent_ont_activity %}
+                        {% for olt in olt_table %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                            <td class="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ olt.name if olt.name else '' }}</td>
+                            <td class="px-4 py-3 text-sm font-mono text-slate-500 dark:text-slate-400">{{ olt.hostname if olt.hostname else '' }}</td>
+                            <td class="px-4 py-3 text-sm font-mono text-slate-500 dark:text-slate-400">{{ olt.mgmt_ip if olt.mgmt_ip else '' }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{{ olt.vendor if olt.vendor else '' }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{{ olt.model if olt.model else '' }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-900 dark:text-white">{{ olt.pon_used | default(0) }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-500 dark:text-slate-400">{{ olt.pon_total | default(0) }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-900 dark:text-white">{{ olt.ont_count | default(0) }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{{ olt.site_role | replace('_', ' ') | title if olt.site_role else '' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">No OLT data available.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- FDH Utilization Table -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">FDH Utilization</h2>
+        </div>
+        <div class="p-6">
+            {% if fdh_table %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
                         <tr>
-                            <td class="px-4 py-3 text-sm text-slate-900 dark:text-white">{{ ont.model or 'Unknown' }}</td>
-                            <td class="px-4 py-3 text-sm font-mono text-slate-500 dark:text-slate-400">{{ ont.serial_number }}</td>
-                            <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ ont.olt.name if ont.olt else '-' }}</td>
-                            <td class="px-4 py-3">
-                                {% if ont.is_active %}
-                                {{ status_badge("Active", "active", size="sm") }}
-                                {% else %}
-                                {{ status_badge("Inactive", "inactive", size="sm") }}
-                                {% endif %}
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Name</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Code</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Splitters</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Ports</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ports Used</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Utilization</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% for fdh in fdh_table %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                            <td class="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ fdh.name if fdh.name else '' }}</td>
+                            <td class="px-4 py-3 text-sm font-mono text-slate-500 dark:text-slate-400">{{ fdh.code if fdh.code else '' }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-700 dark:text-slate-300">{{ fdh.splitter_count | default(0) }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-700 dark:text-slate-300">{{ fdh.total_ports | default(0) }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-900 dark:text-white">{{ fdh.ports_used | default(0) }}</td>
+                            <td class="px-4 py-3 text-right">
+                                {% set pct = fdh.util_pct | default(0) %}
+                                <div class="inline-flex items-center gap-2">
+                                    <div class="h-2 w-16 rounded-full bg-slate-200 dark:bg-slate-700">
+                                        <div class="h-2 rounded-full {% if pct >= 90 %}bg-red-500{% elif pct >= 70 %}bg-amber-500{% else %}bg-cyan-500{% endif %}" style="width: {{ pct }}%"></div>
+                                    </div>
+                                    <span class="text-sm font-medium {% if pct >= 90 %}text-red-600 dark:text-red-400{% elif pct >= 70 %}text-amber-600 dark:text-amber-400{% else %}text-slate-900 dark:text-white{% endif %}">{{ "%.1f" | format(pct) }}%</span>
+                                </div>
                             </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">No FDH data available.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Fiber Inventory Table -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">Fiber Inventory</h2>
+        </div>
+        <div class="p-6">
+            {% if fiber_inventory %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Segment Type</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Segments</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total km</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Fiber Count</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% for seg in fiber_inventory %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                            <td class="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ seg.segment_type | replace('_', ' ') | title if seg.segment_type else '' }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-700 dark:text-slate-300">{{ seg.count | default(0) }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-900 dark:text-white">{{ "%.2f" | format(seg.total_km | default(0)) }}</td>
+                            <td class="px-4 py-3 text-sm text-right text-slate-700 dark:text-slate-300">{{ seg.fiber_count | default(0) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">No fiber inventory data available.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Recent ONT Activity Table -->
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">Recent ONT Activity</h2>
+            <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Last 10 ONT assignments</p>
+        </div>
+        <div class="p-6">
+            {% if recent_ont %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Serial Number</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Model</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">OLT</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Assigned At</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                        {% for ont in recent_ont[:10] %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                            <td class="px-4 py-3 text-sm font-mono text-slate-900 dark:text-white">{{ ont.serial_number if ont.serial_number else '' }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{{ ont.model if ont.model else '' }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{{ ont.olt_name if ont.olt_name else '' }}</td>
+                            <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ ont.assigned_at.strftime('%b %d, %Y %H:%M') if ont.assigned_at else '' }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -208,9 +334,5 @@
             {% endif %}
         </div>
     </div>
-
-    {% set activity_title = "Reports Activity" %}
-    {% set activity_link = "/admin/system/audit" %}
-    {% include "components/data/recent_activity_panel.html" %}
 </div>
 {% endblock %}
