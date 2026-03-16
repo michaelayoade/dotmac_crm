@@ -120,9 +120,7 @@ def build_work_order_assignment_push(work_order: WorkOrder, work_order_url: str)
     customer_name = _resolve_customer_name(work_order)
     site_address = _resolve_site_address(work_order)
     customer_phone = _resolve_customer_phone(work_order)
-    scheduled_start_time = (
-        work_order.scheduled_start.strftime("%Y-%m-%d %H:%M") if work_order.scheduled_start else None
-    )
+    scheduled_start_time = work_order.scheduled_start.strftime("%Y-%m-%d %H:%M") if work_order.scheduled_start else None
 
     lines = ["You have been assigned this work order as the technician."]
     if customer_name:

@@ -64,7 +64,6 @@ class ProposedRouteRevisionStatus(enum.Enum):
     rejected = "rejected"
 
 
-
 class VariationType(enum.Enum):
     scope_change = "scope_change"
     route_deviation = "route_deviation"
