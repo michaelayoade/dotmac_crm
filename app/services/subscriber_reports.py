@@ -20,60 +20,74 @@ from app.models.workforce import WorkOrder, WorkOrderStatus
 # =====================================================================
 
 
-def overview_kpis(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> dict:
+def overview_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
     """5 KPI cards for subscriber overview."""
-    active_count = db.scalar(
-        select(func.count(Subscriber.id)).where(
-            Subscriber.is_active.is_(True),
-            Subscriber.status == SubscriberStatus.active,
+    active_count = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                Subscriber.is_active.is_(True),
+                Subscriber.status == SubscriberStatus.active,
+            )
         )
-    ) or 0
+        or 0
+    )
 
-    activations = db.scalar(
-        select(func.count(Subscriber.id)).where(
-            Subscriber.is_active.is_(True),
-            Subscriber.activated_at >= start_dt,
-            Subscriber.activated_at <= end_dt,
+    activations = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                Subscriber.is_active.is_(True),
+                Subscriber.activated_at >= start_dt,
+                Subscriber.activated_at <= end_dt,
+            )
         )
-    ) or 0
-    terminations = db.scalar(
-        select(func.count(Subscriber.id)).where(
-            Subscriber.is_active.is_(True),
-            Subscriber.terminated_at >= start_dt,
-            Subscriber.terminated_at <= end_dt,
+        or 0
+    )
+    terminations = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                Subscriber.is_active.is_(True),
+                Subscriber.terminated_at >= start_dt,
+                Subscriber.terminated_at <= end_dt,
+            )
         )
-    ) or 0
+        or 0
+    )
     net_growth = activations - terminations
 
-    suspended_count = db.scalar(
-        select(func.count(Subscriber.id)).where(
-            Subscriber.is_active.is_(True),
-            Subscriber.status == SubscriberStatus.suspended,
+    suspended_count = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                Subscriber.is_active.is_(True),
+                Subscriber.status == SubscriberStatus.suspended,
+            )
         )
-    ) or 0
-    total_subs = db.scalar(
-        select(func.count(Subscriber.id)).where(Subscriber.is_active.is_(True))
-    ) or 0
+        or 0
+    )
+    total_subs = db.scalar(select(func.count(Subscriber.id)).where(Subscriber.is_active.is_(True))) or 0
     suspended_pct = round(suspended_count / total_subs * 100, 1) if total_subs > 0 else 0
 
-    ticket_count = db.scalar(
-        select(func.count(Ticket.id)).where(
-            Ticket.is_active.is_(True),
-            Ticket.subscriber_id.isnot(None),
-            Ticket.created_at >= start_dt,
-            Ticket.created_at <= end_dt,
+    ticket_count = (
+        db.scalar(
+            select(func.count(Ticket.id)).where(
+                Ticket.is_active.is_(True),
+                Ticket.subscriber_id.isnot(None),
+                Ticket.created_at >= start_dt,
+                Ticket.created_at <= end_dt,
+            )
         )
-    ) or 0
+        or 0
+    )
     avg_tickets = round(ticket_count / active_count, 2) if active_count > 0 else 0
 
-    region_count = db.scalar(
-        select(func.count(func.distinct(Subscriber.service_region))).where(
-            Subscriber.is_active.is_(True),
-            Subscriber.service_region.isnot(None),
+    region_count = (
+        db.scalar(
+            select(func.count(func.distinct(Subscriber.service_region))).where(
+                Subscriber.is_active.is_(True),
+                Subscriber.service_region.isnot(None),
+            )
         )
-    ) or 0
+        or 0
+    )
 
     return {
         "active_subscribers": active_count,
@@ -87,9 +101,7 @@ def overview_kpis(
     }
 
 
-def overview_growth_trend(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> list[dict]:
+def overview_growth_trend(db: Session, start_dt: datetime, end_dt: datetime) -> list[dict]:
     """Daily activations vs terminations."""
     act_rows = db.execute(
         select(
@@ -140,10 +152,7 @@ def overview_status_distribution(db: Session) -> dict[str, int]:
         .where(Subscriber.is_active.is_(True))
         .group_by(Subscriber.status)
     ).all()
-    return {
-        (status.value if status else "unknown"): count
-        for status, count in rows
-    }
+    return {(status.value if status else "unknown"): count for status, count in rows}
 
 
 def overview_plan_distribution(db: Session, limit: int = 10) -> list[dict]:
@@ -162,9 +171,7 @@ def overview_plan_distribution(db: Session, limit: int = 10) -> list[dict]:
     return [{"plan": row[0], "count": row[1]} for row in rows]
 
 
-def overview_regional_breakdown(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> list[dict]:
+def overview_regional_breakdown(db: Session, start_dt: datetime, end_dt: datetime) -> list[dict]:
     """Regional breakdown table."""
     regions = db.execute(
         select(
@@ -172,10 +179,12 @@ def overview_regional_breakdown(
             func.count(Subscriber.id).filter(Subscriber.status == SubscriberStatus.active).label("active"),
             func.count(Subscriber.id).filter(Subscriber.status == SubscriberStatus.suspended).label("suspended"),
             func.count(Subscriber.id).filter(Subscriber.status == SubscriberStatus.terminated).label("terminated"),
-            func.count(Subscriber.id).filter(
+            func.count(Subscriber.id)
+            .filter(
                 Subscriber.activated_at >= start_dt,
                 Subscriber.activated_at <= end_dt,
-            ).label("new_in_period"),
+            )
+            .label("new_in_period"),
         )
         .where(Subscriber.is_active.is_(True), Subscriber.service_region.isnot(None))
         .group_by(Subscriber.service_region)
@@ -184,17 +193,21 @@ def overview_regional_breakdown(
 
     # Ticket counts per region
     region_names = [r[0] for r in regions]
-    ticket_rows = db.execute(
-        select(Subscriber.service_region, func.count(Ticket.id))
-        .join(Ticket, Ticket.subscriber_id == Subscriber.id)
-        .where(
-            Subscriber.service_region.in_(region_names),
-            Ticket.is_active.is_(True),
-            Ticket.created_at >= start_dt,
-            Ticket.created_at <= end_dt,
-        )
-        .group_by(Subscriber.service_region)
-    ).all() if region_names else []
+    ticket_rows = (
+        db.execute(
+            select(Subscriber.service_region, func.count(Ticket.id))
+            .join(Ticket, Ticket.subscriber_id == Subscriber.id)
+            .where(
+                Subscriber.service_region.in_(region_names),
+                Ticket.is_active.is_(True),
+                Ticket.created_at >= start_dt,
+                Ticket.created_at <= end_dt,
+            )
+            .group_by(Subscriber.service_region)
+        ).all()
+        if region_names
+        else []
+    )
     ticket_map = {row[0]: row[1] for row in ticket_rows}
 
     return [
@@ -230,35 +243,35 @@ def overview_filter_options(db: Session) -> dict:
 # =====================================================================
 
 
-def lifecycle_kpis(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> dict:
+def lifecycle_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
     """5 KPI cards for lifecycle report."""
     # Leads created in period
-    leads_created = db.scalar(
-        select(func.count(Lead.id)).where(
-            Lead.is_active.is_(True),
-            Lead.created_at >= start_dt,
-            Lead.created_at <= end_dt,
+    leads_created = (
+        db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.is_active.is_(True),
+                Lead.created_at >= start_dt,
+                Lead.created_at <= end_dt,
+            )
         )
-    ) or 0
-    leads_won = db.scalar(
-        select(func.count(Lead.id)).where(
-            Lead.is_active.is_(True),
-            Lead.status == LeadStatus.won,
-            Lead.closed_at >= start_dt,
-            Lead.closed_at <= end_dt,
+        or 0
+    )
+    leads_won = (
+        db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.is_active.is_(True),
+                Lead.status == LeadStatus.won,
+                Lead.closed_at >= start_dt,
+                Lead.closed_at <= end_dt,
+            )
         )
-    ) or 0
+        or 0
+    )
     conversion_rate = round(leads_won / leads_created * 100, 1) if leads_created > 0 else 0
 
     # Avg days to convert
     avg_days_result = db.scalar(
-        select(
-            func.avg(
-                func.extract("epoch", Subscriber.activated_at - Person.created_at) / 86400
-            )
-        )
+        select(func.avg(func.extract("epoch", Subscriber.activated_at - Person.created_at) / 86400))
         .join(Person, Person.id == Subscriber.person_id)
         .where(
             Subscriber.is_active.is_(True),
@@ -270,20 +283,26 @@ def lifecycle_kpis(
     avg_days_to_convert = round(float(avg_days_result), 1) if avg_days_result else 0
 
     # Churn rate
-    active_at_start = db.scalar(
-        select(func.count(Subscriber.id)).where(
-            Subscriber.is_active.is_(True),
-            Subscriber.status.in_([SubscriberStatus.active, SubscriberStatus.suspended]),
-            Subscriber.activated_at < start_dt,
+    active_at_start = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                Subscriber.is_active.is_(True),
+                Subscriber.status.in_([SubscriberStatus.active, SubscriberStatus.suspended]),
+                Subscriber.activated_at < start_dt,
+            )
         )
-    ) or 0
-    terminated_in_period = db.scalar(
-        select(func.count(Subscriber.id)).where(
-            Subscriber.is_active.is_(True),
-            Subscriber.terminated_at >= start_dt,
-            Subscriber.terminated_at <= end_dt,
+        or 0
+    )
+    terminated_in_period = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                Subscriber.is_active.is_(True),
+                Subscriber.terminated_at >= start_dt,
+                Subscriber.terminated_at <= end_dt,
+            )
         )
-    ) or 0
+        or 0
+    )
     churn_rate = round(terminated_in_period / active_at_start * 100, 1) if active_at_start > 0 else 0
 
     # Pipeline value (open leads where person is already a subscriber)
@@ -315,14 +334,9 @@ def lifecycle_funnel(db: Session) -> list[dict]:
         .where(Person.is_active.is_(True))
         .group_by(Person.party_status)
     ).all()
-    status_map = {
-        (s.value if s else "unknown"): c for s, c in rows
-    }
+    status_map = {(s.value if s else "unknown"): c for s, c in rows}
     order = ["lead", "contact", "customer", "subscriber"]
-    return [
-        {"stage": stage, "count": status_map.get(stage, 0)}
-        for stage in order
-    ]
+    return [{"stage": stage, "count": status_map.get(stage, 0)} for stage in order]
 
 
 def lifecycle_churn_trend(db: Session) -> list[dict]:
@@ -343,11 +357,7 @@ def lifecycle_churn_trend(db: Session) -> list[dict]:
         .group_by("month")
         .order_by("month")
     ).all()
-    return [
-        {"month": row[0].strftime("%Y-%m"), "count": row[1]}
-        for row in rows
-        if row[0]
-    ]
+    return [{"month": row[0].strftime("%Y-%m"), "count": row[1]} for row in rows if row[0]]
 
 
 def lifecycle_conversion_by_source(db: Session, start_dt: datetime, end_dt: datetime) -> list[dict]:
@@ -367,10 +377,7 @@ def lifecycle_conversion_by_source(db: Session, start_dt: datetime, end_dt: date
         .group_by(Lead.lead_source)
         .order_by(func.count(Lead.id).desc())
     ).all()
-    return [
-        {"source": row[0], "total": row[1], "won": row[2]}
-        for row in rows
-    ]
+    return [{"source": row[0], "total": row[1], "won": row[2]} for row in rows]
 
 
 def lifecycle_recent_churns(db: Session, limit: int = 20) -> list[dict]:
@@ -401,15 +408,17 @@ def lifecycle_recent_churns(db: Session, limit: int = 20) -> list[dict]:
         tenure = 0
         if row.activated_at and row.terminated_at:
             tenure = (row.terminated_at - row.activated_at).days
-        results.append({
-            "name": name,
-            "subscriber_number": row.subscriber_number,
-            "plan": row.service_plan or "",
-            "region": row.service_region or "",
-            "activated_at": row.activated_at.strftime("%Y-%m-%d") if row.activated_at else "",
-            "terminated_at": row.terminated_at.strftime("%Y-%m-%d") if row.terminated_at else "",
-            "tenure_days": tenure,
-        })
+        results.append(
+            {
+                "name": name,
+                "subscriber_number": row.subscriber_number,
+                "plan": row.service_plan or "",
+                "region": row.service_region or "",
+                "activated_at": row.activated_at.strftime("%Y-%m-%d") if row.activated_at else "",
+                "terminated_at": row.terminated_at.strftime("%Y-%m-%d") if row.terminated_at else "",
+                "tenure_days": tenure,
+            }
+        )
     return results
 
 
@@ -440,14 +449,16 @@ def lifecycle_longest_tenure(db: Session, limit: int = 10) -> list[dict]:
     for row in subs:
         name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or "Unknown"
         tenure = (now - row.activated_at).days if row.activated_at else 0
-        results.append({
-            "name": name,
-            "subscriber_number": row.subscriber_number,
-            "plan": row.service_plan or "",
-            "region": row.service_region or "",
-            "activated_at": row.activated_at.strftime("%Y-%m-%d") if row.activated_at else "",
-            "tenure_days": tenure,
-        })
+        results.append(
+            {
+                "name": name,
+                "subscriber_number": row.subscriber_number,
+                "plan": row.service_plan or "",
+                "region": row.service_region or "",
+                "activated_at": row.activated_at.strftime("%Y-%m-%d") if row.activated_at else "",
+                "tenure_days": tenure,
+            }
+        )
     return results
 
 
@@ -456,27 +467,24 @@ def lifecycle_longest_tenure(db: Session, limit: int = 10) -> list[dict]:
 # =====================================================================
 
 
-def service_quality_kpis(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> dict:
+def service_quality_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
     """5 KPI cards for service quality."""
     open_statuses = [TicketStatus.new, TicketStatus.open, TicketStatus.pending]
 
-    subs_with_open_tickets = db.scalar(
-        select(func.count(func.distinct(Ticket.subscriber_id))).where(
-            Ticket.is_active.is_(True),
-            Ticket.subscriber_id.isnot(None),
-            Ticket.status.in_(open_statuses),
+    subs_with_open_tickets = (
+        db.scalar(
+            select(func.count(func.distinct(Ticket.subscriber_id))).where(
+                Ticket.is_active.is_(True),
+                Ticket.subscriber_id.isnot(None),
+                Ticket.status.in_(open_statuses),
+            )
         )
-    ) or 0
+        or 0
+    )
 
     # Avg resolution time
     avg_res = db.scalar(
-        select(
-            func.avg(
-                func.extract("epoch", Ticket.resolved_at - Ticket.created_at) / 3600
-            )
-        ).where(
+        select(func.avg(func.extract("epoch", Ticket.resolved_at - Ticket.created_at) / 3600)).where(
             Ticket.is_active.is_(True),
             Ticket.subscriber_id.isnot(None),
             Ticket.resolved_at.isnot(None),
@@ -502,32 +510,41 @@ def service_quality_kpis(
     repeat_rate = round(repeat_subs / total_subs_with_tickets * 100, 1) if total_subs_with_tickets > 0 else 0
 
     # Active work orders
-    active_wo = db.scalar(
-        select(func.count(WorkOrder.id)).where(
-            WorkOrder.is_active.is_(True),
-            WorkOrder.subscriber_id.isnot(None),
-            WorkOrder.status.notin_([WorkOrderStatus.completed, WorkOrderStatus.canceled]),
+    active_wo = (
+        db.scalar(
+            select(func.count(WorkOrder.id)).where(
+                WorkOrder.is_active.is_(True),
+                WorkOrder.subscriber_id.isnot(None),
+                WorkOrder.status.notin_([WorkOrderStatus.completed, WorkOrderStatus.canceled]),
+            )
         )
-    ) or 0
+        or 0
+    )
 
     # SLA compliance
-    total_sla = db.scalar(
-        select(func.count(TicketSlaEvent.id)).where(
-            TicketSlaEvent.expected_at.isnot(None),
-            TicketSlaEvent.actual_at.isnot(None),
-            TicketSlaEvent.created_at >= start_dt,
-            TicketSlaEvent.created_at <= end_dt,
+    total_sla = (
+        db.scalar(
+            select(func.count(TicketSlaEvent.id)).where(
+                TicketSlaEvent.expected_at.isnot(None),
+                TicketSlaEvent.actual_at.isnot(None),
+                TicketSlaEvent.created_at >= start_dt,
+                TicketSlaEvent.created_at <= end_dt,
+            )
         )
-    ) or 0
-    met_sla = db.scalar(
-        select(func.count(TicketSlaEvent.id)).where(
-            TicketSlaEvent.expected_at.isnot(None),
-            TicketSlaEvent.actual_at.isnot(None),
-            TicketSlaEvent.actual_at <= TicketSlaEvent.expected_at,
-            TicketSlaEvent.created_at >= start_dt,
-            TicketSlaEvent.created_at <= end_dt,
+        or 0
+    )
+    met_sla = (
+        db.scalar(
+            select(func.count(TicketSlaEvent.id)).where(
+                TicketSlaEvent.expected_at.isnot(None),
+                TicketSlaEvent.actual_at.isnot(None),
+                TicketSlaEvent.actual_at <= TicketSlaEvent.expected_at,
+                TicketSlaEvent.created_at >= start_dt,
+                TicketSlaEvent.created_at <= end_dt,
+            )
         )
-    ) or 0
+        or 0
+    )
     sla_compliance = round(met_sla / total_sla * 100, 1) if total_sla > 0 else 0
 
     return {
@@ -539,9 +556,7 @@ def service_quality_kpis(
     }
 
 
-def service_quality_tickets_by_type(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> dict[str, int]:
+def service_quality_tickets_by_type(db: Session, start_dt: datetime, end_dt: datetime) -> dict[str, int]:
     """Ticket type distribution."""
     rows = db.execute(
         select(Ticket.ticket_type, func.count(Ticket.id))
@@ -556,9 +571,7 @@ def service_quality_tickets_by_type(
     return {(t or "unclassified"): c for t, c in rows}
 
 
-def service_quality_wo_by_type(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> dict[str, int]:
+def service_quality_wo_by_type(db: Session, start_dt: datetime, end_dt: datetime) -> dict[str, int]:
     """Work order type distribution."""
     rows = db.execute(
         select(WorkOrder.work_type, func.count(WorkOrder.id))
@@ -573,9 +586,7 @@ def service_quality_wo_by_type(
     return {(t.value if t else "other"): c for t, c in rows}
 
 
-def service_quality_weekly_trend(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> list[dict]:
+def service_quality_weekly_trend(db: Session, start_dt: datetime, end_dt: datetime) -> list[dict]:
     """Weekly tickets created vs resolved."""
     created_rows = db.execute(
         select(
@@ -621,9 +632,7 @@ def service_quality_weekly_trend(
     ]
 
 
-def service_quality_high_maintenance(
-    db: Session, start_dt: datetime, end_dt: datetime, limit: int = 20
-) -> list[dict]:
+def service_quality_high_maintenance(db: Session, start_dt: datetime, end_dt: datetime, limit: int = 20) -> list[dict]:
     """Subscribers ranked by total tickets + WOs + projects."""
     # Get ticket counts per subscriber
     ticket_counts = db.execute(
@@ -697,26 +706,27 @@ def service_quality_high_maintenance(
         if not s:
             continue
         name = s.display_name or f"{s.first_name or ''} {s.last_name or ''}".strip() or "Unknown"
-        results.append({
-            "name": name,
-            "subscriber_number": s.subscriber_number,
-            "region": s.service_region or "",
-            "plan": s.service_plan or "",
-            "tickets": tickets,
-            "work_orders": wos,
-            "projects": projects,
-            "total": total,
-        })
+        results.append(
+            {
+                "name": name,
+                "subscriber_number": s.subscriber_number,
+                "region": s.service_region or "",
+                "plan": s.service_plan or "",
+                "tickets": tickets,
+                "work_orders": wos,
+                "projects": projects,
+                "total": total,
+            }
+        )
     return results
 
 
-def service_quality_regional(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> list[dict]:
+def service_quality_regional(db: Session, start_dt: datetime, end_dt: datetime) -> list[dict]:
     """Regional service quality metrics."""
     regions = db.scalars(
-        select(func.distinct(Subscriber.service_region))
-        .where(Subscriber.is_active.is_(True), Subscriber.service_region.isnot(None))
+        select(func.distinct(Subscriber.service_region)).where(
+            Subscriber.is_active.is_(True), Subscriber.service_region.isnot(None)
+        )
     ).all()
 
     if not regions:
@@ -724,24 +734,30 @@ def service_quality_regional(
 
     results = []
     for region in regions:
-        active_in_region = db.scalar(
-            select(func.count(Subscriber.id)).where(
-                Subscriber.is_active.is_(True),
-                Subscriber.status == SubscriberStatus.active,
-                Subscriber.service_region == region,
+        active_in_region = (
+            db.scalar(
+                select(func.count(Subscriber.id)).where(
+                    Subscriber.is_active.is_(True),
+                    Subscriber.status == SubscriberStatus.active,
+                    Subscriber.service_region == region,
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        tickets_in_region = db.scalar(
-            select(func.count(Ticket.id))
-            .join(Subscriber, Subscriber.id == Ticket.subscriber_id)
-            .where(
-                Ticket.is_active.is_(True),
-                Subscriber.service_region == region,
-                Ticket.created_at >= start_dt,
-                Ticket.created_at <= end_dt,
+        tickets_in_region = (
+            db.scalar(
+                select(func.count(Ticket.id))
+                .join(Subscriber, Subscriber.id == Ticket.subscriber_id)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Subscriber.service_region == region,
+                    Ticket.created_at >= start_dt,
+                    Ticket.created_at <= end_dt,
+                )
             )
-        ) or 0
+            or 0
+        )
 
         avg_tickets = round(tickets_in_region / active_in_region, 2) if active_in_region > 0 else 0
 
@@ -758,24 +774,29 @@ def service_quality_regional(
         )
         avg_res_hrs = round(float(avg_res), 1) if avg_res else 0
 
-        wo_count = db.scalar(
-            select(func.count(WorkOrder.id))
-            .join(Subscriber, Subscriber.id == WorkOrder.subscriber_id)
-            .where(
-                WorkOrder.is_active.is_(True),
-                Subscriber.service_region == region,
-                WorkOrder.created_at >= start_dt,
-                WorkOrder.created_at <= end_dt,
+        wo_count = (
+            db.scalar(
+                select(func.count(WorkOrder.id))
+                .join(Subscriber, Subscriber.id == WorkOrder.subscriber_id)
+                .where(
+                    WorkOrder.is_active.is_(True),
+                    Subscriber.service_region == region,
+                    WorkOrder.created_at >= start_dt,
+                    WorkOrder.created_at <= end_dt,
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        results.append({
-            "region": region,
-            "active_subscribers": active_in_region,
-            "avg_tickets_per_sub": avg_tickets,
-            "avg_resolution_hrs": avg_res_hrs,
-            "wo_count": wo_count,
-        })
+        results.append(
+            {
+                "region": region,
+                "active_subscribers": active_in_region,
+                "avg_tickets_per_sub": avg_tickets,
+                "avg_resolution_hrs": avg_res_hrs,
+                "wo_count": wo_count,
+            }
+        )
 
     results.sort(key=lambda x: -x["active_subscribers"])
     return results
@@ -786,9 +807,7 @@ def service_quality_regional(
 # =====================================================================
 
 
-def revenue_kpis(
-    db: Session, start_dt: datetime, end_dt: datetime
-) -> dict:
+def revenue_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
     """5 KPI cards for revenue report."""
     total_value = db.scalar(
         select(func.coalesce(func.sum(SalesOrder.total), 0)).where(
@@ -798,13 +817,16 @@ def revenue_kpis(
         )
     ) or Decimal("0")
 
-    order_count = db.scalar(
-        select(func.count(SalesOrder.id)).where(
-            SalesOrder.is_active.is_(True),
-            SalesOrder.created_at >= start_dt,
-            SalesOrder.created_at <= end_dt,
+    order_count = (
+        db.scalar(
+            select(func.count(SalesOrder.id)).where(
+                SalesOrder.is_active.is_(True),
+                SalesOrder.created_at >= start_dt,
+                SalesOrder.created_at <= end_dt,
+            )
         )
-    ) or 0
+        or 0
+    )
 
     avg_value = float(total_value) / order_count if order_count > 0 else 0
 
@@ -824,12 +846,15 @@ def revenue_kpis(
     ) or Decimal("0")
     collection_rate = round(float(total_paid) / float(total_value) * 100, 1) if float(total_value) > 0 else 0
 
-    pending_fulfillment = db.scalar(
-        select(func.count(SalesOrder.id)).where(
-            SalesOrder.is_active.is_(True),
-            SalesOrder.status.in_([SalesOrderStatus.confirmed, SalesOrderStatus.paid]),
+    pending_fulfillment = (
+        db.scalar(
+            select(func.count(SalesOrder.id)).where(
+                SalesOrder.is_active.is_(True),
+                SalesOrder.status.in_([SalesOrderStatus.confirmed, SalesOrderStatus.paid]),
+            )
         )
-    ) or 0
+        or 0
+    )
 
     return {
         "total_value": float(total_value),
@@ -858,11 +883,7 @@ def revenue_monthly_trend(db: Session) -> list[dict]:
         .group_by("month")
         .order_by("month")
     ).all()
-    return [
-        {"month": row[0].strftime("%Y-%m"), "total": float(row[1])}
-        for row in rows
-        if row[0]
-    ]
+    return [{"month": row[0].strftime("%Y-%m"), "total": float(row[1])} for row in rows if row[0]]
 
 
 def revenue_payment_status(db: Session, start_dt: datetime, end_dt: datetime) -> dict[str, int]:
@@ -893,9 +914,7 @@ def revenue_order_status(db: Session, start_dt: datetime, end_dt: datetime) -> d
     return {(s.value if s else "unknown"): c for s, c in rows}
 
 
-def revenue_top_subscribers(
-    db: Session, start_dt: datetime, end_dt: datetime, limit: int = 20
-) -> list[dict]:
+def revenue_top_subscribers(db: Session, start_dt: datetime, end_dt: datetime, limit: int = 20) -> list[dict]:
     """Top subscribers by revenue."""
     rows = db.execute(
         select(
@@ -920,15 +939,17 @@ def revenue_top_subscribers(
 
     person_ids = [r[0] for r in rows]
     people = db.execute(
-        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email)
-        .where(Person.id.in_(person_ids))
+        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email).where(
+            Person.id.in_(person_ids)
+        )
     ).all()
     person_map = {p[0]: p for p in people}
 
     # Get subscriber status for these people
     sub_statuses = db.execute(
-        select(Subscriber.person_id, Subscriber.status)
-        .where(Subscriber.is_active.is_(True), Subscriber.person_id.in_(person_ids))
+        select(Subscriber.person_id, Subscriber.status).where(
+            Subscriber.is_active.is_(True), Subscriber.person_id.in_(person_ids)
+        )
     ).all()
     sub_status_map = {r[0]: r[1].value if r[1] else "unknown" for r in sub_statuses}
 
@@ -938,15 +959,17 @@ def revenue_top_subscribers(
         if not p:
             continue
         name = p.display_name or f"{p.first_name or ''} {p.last_name or ''}".strip() or "Unknown"
-        results.append({
-            "name": name,
-            "email": p.email or "",
-            "total_revenue": float(row.total_revenue),
-            "order_count": row.order_count,
-            "avg_value": round(float(row.avg_value), 2),
-            "latest_order": row.latest_order.strftime("%Y-%m-%d") if row.latest_order else "",
-            "status": sub_status_map.get(row[0], "N/A"),
-        })
+        results.append(
+            {
+                "name": name,
+                "email": p.email or "",
+                "total_revenue": float(row.total_revenue),
+                "order_count": row.order_count,
+                "avg_value": round(float(row.avg_value), 2),
+                "latest_order": row.latest_order.strftime("%Y-%m-%d") if row.latest_order else "",
+                "status": sub_status_map.get(row[0], "N/A"),
+            }
+        )
     return results
 
 
@@ -980,13 +1003,15 @@ def revenue_outstanding_balances(db: Session, limit: int = 30) -> list[dict]:
         if row.payment_due_date:
             delta = now - row.payment_due_date
             days_overdue = max(0, delta.days)
-        results.append({
-            "order_number": row.order_number or "",
-            "customer": name,
-            "total": float(row.total),
-            "paid": float(row.amount_paid),
-            "balance": float(row.balance_due),
-            "due_date": row.payment_due_date.strftime("%Y-%m-%d") if row.payment_due_date else "",
-            "days_overdue": days_overdue,
-        })
+        results.append(
+            {
+                "order_number": row.order_number or "",
+                "customer": name,
+                "total": float(row.total),
+                "paid": float(row.amount_paid),
+                "balance": float(row.balance_due),
+                "due_date": row.payment_due_date.strftime("%Y-%m-%d") if row.payment_due_date else "",
+                "days_overdue": days_overdue,
+            }
+        )
     return results
