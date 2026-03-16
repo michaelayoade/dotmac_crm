@@ -67,6 +67,8 @@ class DotMacERPPurchaseOrderSync:
                 metadata = dict(work_order.metadata_ or {})
                 metadata["erp_po_id"] = erp_po_id
                 work_order.metadata_ = metadata
+                if quote.project is not None:
+                    quote.project.erp_purchase_order_id = erp_po_id
                 self.session.commit()
 
             return PurchaseOrderSyncResult(

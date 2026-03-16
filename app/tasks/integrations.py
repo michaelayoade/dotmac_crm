@@ -220,13 +220,7 @@ def _update_variation_erp_status(
     new_status: str,
     logger: logging.Logger,
 ) -> None:
-    """Update erp_sync_status on pending as-built variations linked to a project.
-
-    Called after a project sync succeeds or fails so that variation approval
-    records reflect the ERP outcome (accounting-safe orchestration).
-    """
-    from datetime import UTC, datetime
-
+    """Update erp_sync_status on pending as-built variations linked to a project."""
     from app.models.vendor import AsBuiltRoute, InstallationProject
 
     try:
@@ -382,7 +376,6 @@ def sync_dotmac_erp_entity(self, entity_type: str, entity_id: str):
                 entity_type,
                 entity_id,
             )
-            # Update erp_sync_status on pending variations linked to this project
             if entity_type == "project":
                 _update_variation_erp_status(session, entity_uuid, "success", logger)
         else:
@@ -914,6 +907,102 @@ def sync_purchase_order_to_erp(self, work_order_id: str, quote_id: str):
         session.close()
         duration = time.monotonic() - start
         observe_job("po_sync", status, duration)
+
+
+@celery_app.task(
+    name="app.tasks.integrations.sync_purchase_invoice_to_erp",
+    bind=True,
+    time_limit=60,
+    soft_time_limit=45,
+    max_retries=5,
+    autoretry_for=(DotMacERPTransientError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+def sync_purchase_invoice_to_erp(self, invoice_id: str):
+    """Push a purchase invoice to DotMac ERP after approval."""
+    from sqlalchemy.orm import joinedload, selectinload
+
+    from app.models.vendor import InstallationProject, VendorPurchaseInvoice
+    from app.services.dotmac_erp import (
+        DotMacERPAuthError,
+        DotMacERPError,
+        DotMacERPRateLimitError,
+        dotmac_erp_purchase_invoice_sync,
+    )
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("PURCHASE_INVOICE_SYNC_START invoice_id=%s", invoice_id)
+
+    try:
+        invoice = session.get(
+            VendorPurchaseInvoice,
+            coerce_uuid(invoice_id),
+            options=[
+                selectinload(VendorPurchaseInvoice.line_items),
+                joinedload(VendorPurchaseInvoice.vendor),
+                joinedload(VendorPurchaseInvoice.reviewed_by),
+                joinedload(VendorPurchaseInvoice.project).joinedload(InstallationProject.project),
+            ],
+        )
+        if not invoice:
+            logger.warning("PURCHASE_INVOICE_SYNC_NOT_FOUND invoice_id=%s", invoice_id)
+            return {"success": False, "error": "Purchase invoice not found"}
+
+        sync_service = dotmac_erp_purchase_invoice_sync(session)
+        result = sync_service.sync_purchase_invoice(invoice)
+        sync_service.close()
+
+        if result.success:
+            logger.info(
+                "PURCHASE_INVOICE_SYNC_COMPLETE invoice_id=%s erp_purchase_invoice_id=%s",
+                invoice_id,
+                result.erp_purchase_invoice_id,
+            )
+        else:
+            status = "error"
+            logger.warning(
+                "PURCHASE_INVOICE_SYNC_FAILED invoice_id=%s error=%s",
+                invoice_id,
+                result.error,
+            )
+
+        return {
+            "success": result.success,
+            "invoice_id": result.invoice_id,
+            "erp_purchase_invoice_id": result.erp_purchase_invoice_id,
+            "error": result.error,
+        }
+    except DotMacERPRateLimitError as e:
+        status = "retry"
+        retry_after = e.retry_after or 60
+        logger.warning(
+            "PURCHASE_INVOICE_SYNC_RATE_LIMITED invoice_id=%s retry_after=%s",
+            invoice_id,
+            retry_after,
+        )
+        raise self.retry(exc=e, countdown=retry_after)
+    except DotMacERPAuthError as e:
+        status = "error"
+        logger.error("PURCHASE_INVOICE_SYNC_AUTH_ERROR invoice_id=%s error=%s", invoice_id, str(e))
+        return {"success": False, "error": str(e), "error_type": "auth"}
+    except DotMacERPError as e:
+        status = "error"
+        logger.error("PURCHASE_INVOICE_SYNC_ERROR invoice_id=%s error=%s", invoice_id, str(e))
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        status = "error"
+        logger.exception("PURCHASE_INVOICE_SYNC_FAILED invoice_id=%s error=%s", invoice_id, str(e))
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("purchase_invoice_sync", status, duration)
 
 
 @celery_app.task(

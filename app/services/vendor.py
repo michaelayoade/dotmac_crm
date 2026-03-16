@@ -2,6 +2,7 @@ import contextlib
 import html
 import json
 import re
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
@@ -29,6 +30,9 @@ from app.models.vendor import (
     QuoteLineItem,
     Vendor,
     VendorAssignmentType,
+    VendorPurchaseInvoice,
+    VendorPurchaseInvoiceLineItem,
+    VendorPurchaseInvoiceStatus,
     VendorUser,
 )
 from app.schemas.vendor import (
@@ -43,16 +47,25 @@ from app.schemas.vendor import (
     QuoteLineItemCreate,
     QuoteLineItemUpdate,
     VendorCreate,
+    VendorPurchaseInvoiceCreate,
+    VendorPurchaseInvoiceLineItemCreate,
+    VendorPurchaseInvoiceLineItemUpdate,
+    VendorPurchaseInvoiceUpdate,
     VendorUpdate,
 )
 from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, round_money
 from app.services.response import ListResponseMixin
+from app.services.storage import storage
 
 _AS_BUILT_ELIGIBLE_QUOTE_STATUSES = {
     ProjectQuoteStatus.submitted,
     ProjectQuoteStatus.under_review,
     ProjectQuoteStatus.approved,
+}
+_PURCHASE_INVOICE_EDITABLE_STATUSES = {
+    VendorPurchaseInvoiceStatus.draft,
+    VendorPurchaseInvoiceStatus.revision_requested,
 }
 _QUOTE_COMMENT_PATTERN = re.compile(
     r"^\[QUOTE:(?P<quote_id>[0-9a-fA-F-]{36})\]\s*(?:\[(?P<action>[A-Z_]+)\]\s*)?(?P<body>.*)$",
@@ -91,7 +104,6 @@ def _now() -> datetime:
 
 
 def _build_variation_event_payload(as_built: AsBuiltRoute, action: str) -> dict:
-    """Build deterministic event payload for variation lifecycle events."""
     project = as_built.project
     parent_project = project.project if project else None
     baseline_refs = {
@@ -101,7 +113,6 @@ def _build_variation_event_payload(as_built: AsBuiltRoute, action: str) -> dict:
         "proposed_revision_id": str(as_built.proposed_revision_id) if as_built.proposed_revision_id else None,
     }
     idempotency_key = f"variation:{as_built.id}:v{as_built.version}"
-    # Resolve work order ref from the installation project
     work_order_ref = as_built.work_order_ref
     return {
         "variation_id": str(as_built.id),
@@ -183,6 +194,20 @@ def _ensure_quote_line_item(db: Session, line_item_id: str) -> QuoteLineItem:
     return item
 
 
+def _ensure_purchase_invoice(db: Session, invoice_id: str) -> VendorPurchaseInvoice:
+    invoice = db.get(VendorPurchaseInvoice, coerce_uuid(invoice_id))
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Vendor purchase invoice not found")
+    return invoice
+
+
+def _ensure_purchase_invoice_line_item(db: Session, line_item_id: str) -> VendorPurchaseInvoiceLineItem:
+    item = db.get(VendorPurchaseInvoiceLineItem, coerce_uuid(line_item_id))
+    if not item:
+        raise HTTPException(status_code=404, detail="Vendor purchase invoice line item not found")
+    return item
+
+
 def _ensure_route_revision(db: Session, revision_id: str) -> ProposedRouteRevision:
     revision = db.get(ProposedRouteRevision, coerce_uuid(revision_id))
     if not revision:
@@ -251,6 +276,63 @@ def _recalculate_quote_totals(db: Session, quote: ProjectQuote) -> None:
         Decimal(quote.tax_total or Decimal("0.00")),
     )
     quote.total = round_money(subtotal + Decimal(quote.tax_total or Decimal("0.00")))
+
+
+def _purchase_invoice_total_from_items(db: Session, invoice_id: str) -> Decimal:
+    total = (
+        db.query(func.coalesce(func.sum(VendorPurchaseInvoiceLineItem.amount), 0))
+        .filter(VendorPurchaseInvoiceLineItem.invoice_id == coerce_uuid(invoice_id))
+        .filter(VendorPurchaseInvoiceLineItem.is_active.is_(True))
+        .scalar()
+    )
+    return round_money(Decimal(total))
+
+
+def _next_vendor_purchase_invoice_number(db: Session) -> str:
+    base = "INV-"
+    existing_numbers = (
+        db.query(VendorPurchaseInvoice.invoice_number)
+        .filter(VendorPurchaseInvoice.invoice_number.isnot(None))
+        .filter(VendorPurchaseInvoice.invoice_number.like(f"{base}%"))
+        .all()
+    )
+    max_seq = 0
+    for (value,) in existing_numbers:
+        if not value:
+            continue
+        suffix = str(value).rsplit("-", 1)[-1]
+        if suffix.isdigit():
+            max_seq = max(max_seq, int(suffix))
+    return f"{base}{max_seq + 1:04d}"
+
+
+def _recalculate_purchase_invoice_totals(db: Session, invoice: VendorPurchaseInvoice) -> None:
+    subtotal = _purchase_invoice_total_from_items(db, str(invoice.id))
+    invoice.subtotal = subtotal
+    invoice.tax_total = _quote_tax_total_from_subtotal(
+        subtotal,
+        _coerce_vat_rate_percent(invoice.tax_rate_percent),
+        Decimal(invoice.tax_total or Decimal("0.00")),
+    )
+    invoice.total = round_money(subtotal + Decimal(invoice.tax_total or Decimal("0.00")))
+
+
+def _ensure_purchase_invoice_editable(invoice: VendorPurchaseInvoice) -> None:
+    if invoice.status not in _PURCHASE_INVOICE_EDITABLE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail="Purchase invoice can only be edited while draft or revision requested",
+        )
+
+
+def _quote_required_for_purchase_invoice(db: Session, installation_project_id: str, vendor_id: str) -> ProjectQuote:
+    quote = ProjectQuotes.get_latest_for_vendor_project(db, installation_project_id, vendor_id)
+    if not quote or quote.status not in _AS_BUILT_ELIGIBLE_QUOTE_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail="Submitted vendor quote is required before a purchase invoice can be created",
+        )
+    return quote
 
 
 def _coerce_int(value: object | None, default: int) -> int:
@@ -877,6 +959,377 @@ class QuoteLineItems(ListResponseMixin):
         return item
 
 
+class VendorPurchaseInvoices(ListResponseMixin):
+    @staticmethod
+    def get_latest_for_vendor_project(
+        db: Session,
+        installation_project_id: str,
+        vendor_id: str,
+    ) -> VendorPurchaseInvoice | None:
+        return (
+            db.query(VendorPurchaseInvoice)
+            .filter(VendorPurchaseInvoice.project_id == coerce_uuid(installation_project_id))
+            .filter(VendorPurchaseInvoice.vendor_id == coerce_uuid(vendor_id))
+            .order_by(VendorPurchaseInvoice.created_at.desc())
+            .first()
+        )
+
+    @staticmethod
+    def get_or_create_for_vendor_project(
+        db: Session,
+        installation_project_id: str,
+        vendor_id: str,
+        created_by_person_id: str | None,
+    ) -> VendorPurchaseInvoice:
+        existing = VendorPurchaseInvoices.get_latest_for_vendor_project(db, installation_project_id, vendor_id)
+        if existing:
+            return existing
+        return VendorPurchaseInvoices.create(
+            db,
+            VendorPurchaseInvoiceCreate(project_id=coerce_uuid(installation_project_id)),
+            vendor_id=vendor_id,
+            created_by_person_id=created_by_person_id,
+        )
+
+    @staticmethod
+    def create(
+        db: Session,
+        payload: VendorPurchaseInvoiceCreate,
+        vendor_id: str,
+        created_by_person_id: str | None,
+    ) -> VendorPurchaseInvoice:
+        project = _ensure_installation_project(db, str(payload.project_id))
+        _ensure_vendor(db, vendor_id)
+        if created_by_person_id:
+            _ensure_person(db, created_by_person_id)
+        if project.assignment_type == VendorAssignmentType.direct and str(project.assigned_vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Project is assigned to another vendor")
+        if VendorPurchaseInvoices.get_latest_for_vendor_project(db, str(project.id), vendor_id):
+            raise HTTPException(status_code=400, detail="Vendor purchase invoice already exists for this project")
+
+        quote = _quote_required_for_purchase_invoice(db, str(project.id), vendor_id)
+        invoice = VendorPurchaseInvoice(
+            invoice_number=_next_vendor_purchase_invoice_number(db),
+            project_id=project.id,
+            vendor_id=coerce_uuid(vendor_id),
+            currency=quote.currency,
+            tax_rate_percent=_coerce_vat_rate_percent(quote.vat_rate_percent),
+            erp_purchase_order_id=(project.erp_purchase_order_id or None),
+            created_by_person_id=coerce_uuid(created_by_person_id) if created_by_person_id else None,
+        )
+        db.add(invoice)
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+
+    @staticmethod
+    def get(db: Session, invoice_id: str) -> VendorPurchaseInvoice:
+        return _ensure_purchase_invoice(db, invoice_id)
+
+    @staticmethod
+    def list(
+        db: Session,
+        project_id: str | None,
+        vendor_id: str | None,
+        status: str | None,
+        is_active: bool | None,
+        order_by: str,
+        order_dir: str,
+        limit: int,
+        offset: int,
+    ) -> list[VendorPurchaseInvoice]:
+        query = db.query(VendorPurchaseInvoice)
+        if project_id:
+            query = query.filter(VendorPurchaseInvoice.project_id == coerce_uuid(project_id))
+        if vendor_id:
+            query = query.filter(VendorPurchaseInvoice.vendor_id == coerce_uuid(vendor_id))
+        if status:
+            try:
+                status_value = VendorPurchaseInvoiceStatus(status)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid status") from exc
+            query = query.filter(VendorPurchaseInvoice.status == status_value)
+        if is_active is None:
+            query = query.filter(VendorPurchaseInvoice.is_active.is_(True))
+        else:
+            query = query.filter(VendorPurchaseInvoice.is_active == is_active)
+        query = apply_ordering(
+            query,
+            order_by,
+            order_dir,
+            {"created_at": VendorPurchaseInvoice.created_at, "total": VendorPurchaseInvoice.total},
+        )
+        return apply_pagination(query, limit, offset).all()
+
+    @staticmethod
+    def update(db: Session, invoice_id: str, payload: VendorPurchaseInvoiceUpdate) -> VendorPurchaseInvoice:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        data = payload.model_dump(exclude_unset=True)
+        if "tax_rate_percent" in data:
+            data["tax_rate_percent"] = _coerce_vat_rate_percent(data.get("tax_rate_percent"))
+        for key, value in data.items():
+            setattr(invoice, key, value)
+        if "tax_rate_percent" in data:
+            _recalculate_purchase_invoice_totals(db, invoice)
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+
+    @staticmethod
+    def set_tax_rate(
+        db: Session,
+        invoice_id: str,
+        vendor_id: str,
+        tax_rate_percent: Decimal,
+    ) -> VendorPurchaseInvoice:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        if str(invoice.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Purchase invoice ownership required")
+        _ensure_purchase_invoice_editable(invoice)
+        invoice.tax_rate_percent = _coerce_vat_rate_percent(tax_rate_percent)
+        _recalculate_purchase_invoice_totals(db, invoice)
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+
+    @staticmethod
+    def upload_attachment(
+        db: Session,
+        invoice_id: str,
+        *,
+        file_name: str,
+        mime_type: str,
+        file_content: bytes,
+        vendor_id: str | None = None,
+    ) -> VendorPurchaseInvoice:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        if vendor_id and str(invoice.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Purchase invoice ownership required")
+        _ensure_purchase_invoice_editable(invoice)
+        if not file_content:
+            raise HTTPException(status_code=400, detail="Attachment file is empty")
+
+        ext = Path(file_name or "invoice").suffix.lower()
+        if not ext:
+            ext = ".bin"
+        storage_key = f"uploads/vendor_purchase_invoices/{invoice.id}/{uuid.uuid4().hex}{ext}"
+        storage.put(storage_key, file_content, mime_type or "application/octet-stream")
+        old_storage_key = invoice.attachment_storage_key
+
+        invoice.attachment_storage_key = storage_key
+        invoice.attachment_file_name = file_name or "invoice"
+        invoice.attachment_mime_type = mime_type or "application/octet-stream"
+        invoice.attachment_file_size = len(file_content)
+        db.commit()
+        db.refresh(invoice)
+
+        if old_storage_key and old_storage_key != storage_key:
+            storage.delete(old_storage_key)
+        return invoice
+
+    @staticmethod
+    def delete_attachment(db: Session, invoice_id: str, vendor_id: str | None = None) -> VendorPurchaseInvoice:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        if vendor_id and str(invoice.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Purchase invoice ownership required")
+        _ensure_purchase_invoice_editable(invoice)
+        old_storage_key = invoice.attachment_storage_key
+        invoice.attachment_storage_key = None
+        invoice.attachment_file_name = None
+        invoice.attachment_mime_type = None
+        invoice.attachment_file_size = None
+        db.commit()
+        db.refresh(invoice)
+        if old_storage_key:
+            storage.delete(old_storage_key)
+        return invoice
+
+    @staticmethod
+    def submit(db: Session, invoice_id: str, vendor_id: str) -> VendorPurchaseInvoice:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        if str(invoice.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Purchase invoice ownership required")
+        _ensure_purchase_invoice_editable(invoice)
+        _quote_required_for_purchase_invoice(db, str(invoice.project_id), vendor_id)
+
+        active_items = (
+            db.query(VendorPurchaseInvoiceLineItem)
+            .filter(VendorPurchaseInvoiceLineItem.invoice_id == invoice.id)
+            .filter(VendorPurchaseInvoiceLineItem.is_active.is_(True))
+            .order_by(VendorPurchaseInvoiceLineItem.created_at.asc())
+            .all()
+        )
+        if not active_items:
+            raise HTTPException(
+                status_code=400,
+                detail="Purchase invoice must have at least one active line item before submission",
+            )
+        for idx, item in enumerate(active_items, start=1):
+            if not (item.description or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Purchase invoice line item {idx} is missing description",
+                )
+
+        invoice.status = VendorPurchaseInvoiceStatus.submitted
+        invoice.submitted_at = _now()
+        _recalculate_purchase_invoice_totals(db, invoice)
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+
+    @staticmethod
+    def approve(
+        db: Session,
+        invoice_id: str,
+        reviewer_person_id: str,
+        review_notes: str | None,
+    ) -> VendorPurchaseInvoice:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        _ensure_person(db, reviewer_person_id)
+        if invoice.status not in {VendorPurchaseInvoiceStatus.submitted, VendorPurchaseInvoiceStatus.under_review}:
+            raise HTTPException(status_code=400, detail="Only submitted purchase invoices can be approved")
+        _recalculate_purchase_invoice_totals(db, invoice)
+        invoice.erp_purchase_order_id = invoice.project.erp_purchase_order_id or invoice.erp_purchase_order_id
+        invoice.status = VendorPurchaseInvoiceStatus.approved
+        invoice.reviewed_at = _now()
+        invoice.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
+        invoice.review_notes = review_notes
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+
+    @staticmethod
+    def reject(
+        db: Session,
+        invoice_id: str,
+        reviewer_person_id: str,
+        review_notes: str | None,
+    ) -> VendorPurchaseInvoice:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        _ensure_person(db, reviewer_person_id)
+        if invoice.status not in {VendorPurchaseInvoiceStatus.submitted, VendorPurchaseInvoiceStatus.under_review}:
+            raise HTTPException(status_code=400, detail="Only submitted purchase invoices can be rejected")
+        invoice.status = VendorPurchaseInvoiceStatus.revision_requested
+        invoice.reviewed_at = _now()
+        invoice.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
+        invoice.review_notes = review_notes
+        db.commit()
+        db.refresh(invoice)
+        return invoice
+
+
+class VendorPurchaseInvoiceLineItems(ListResponseMixin):
+    @staticmethod
+    def create(
+        db: Session,
+        payload: VendorPurchaseInvoiceLineItemCreate,
+        vendor_id: str | None = None,
+    ) -> VendorPurchaseInvoiceLineItem:
+        invoice = _ensure_purchase_invoice(db, str(payload.invoice_id))
+        if vendor_id and str(invoice.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Purchase invoice ownership required")
+        _ensure_purchase_invoice_editable(invoice)
+        data = payload.model_dump()
+        quantity = Decimal(data.get("quantity") or Decimal("1.000"))
+        if quantity < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Purchase invoice line item save rejected: quantity cannot be 0 or less. Minimum allowed is 1.",
+            )
+        unit_price = Decimal(data.get("unit_price") or Decimal("0.00"))
+        data["amount"] = round_money(quantity * unit_price)
+        item = VendorPurchaseInvoiceLineItem(**data)
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        _recalculate_purchase_invoice_totals(db, invoice)
+        db.commit()
+        return item
+
+    @staticmethod
+    def list(
+        db: Session,
+        invoice_id: str | None,
+        is_active: bool | None,
+        order_by: str,
+        order_dir: str,
+        limit: int,
+        offset: int,
+    ) -> list[VendorPurchaseInvoiceLineItem]:
+        query = db.query(VendorPurchaseInvoiceLineItem)
+        if invoice_id:
+            query = query.filter(VendorPurchaseInvoiceLineItem.invoice_id == coerce_uuid(invoice_id))
+        if is_active is None:
+            query = query.filter(VendorPurchaseInvoiceLineItem.is_active.is_(True))
+        else:
+            query = query.filter(VendorPurchaseInvoiceLineItem.is_active == is_active)
+        query = apply_ordering(
+            query,
+            order_by,
+            order_dir,
+            {"created_at": VendorPurchaseInvoiceLineItem.created_at},
+        )
+        return apply_pagination(query, limit, offset).all()
+
+    @staticmethod
+    def update(
+        db: Session,
+        invoice_id: str,
+        line_item_id: str,
+        payload: VendorPurchaseInvoiceLineItemUpdate,
+        vendor_id: str | None = None,
+    ) -> VendorPurchaseInvoiceLineItem:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        item = _ensure_purchase_invoice_line_item(db, line_item_id)
+        if str(item.invoice_id) != str(invoice.id):
+            raise HTTPException(status_code=400, detail="Line item does not belong to purchase invoice")
+        if vendor_id and str(invoice.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Purchase invoice ownership required")
+        _ensure_purchase_invoice_editable(invoice)
+
+        data = payload.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            setattr(item, key, value)
+
+        quantity = Decimal(item.quantity or Decimal("1.000"))
+        if quantity < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Purchase invoice line item save rejected: quantity cannot be 0 or less. Minimum allowed is 1.",
+            )
+        unit_price = Decimal(item.unit_price or Decimal("0.00"))
+        item.amount = round_money(quantity * unit_price)
+
+        db.commit()
+        db.refresh(item)
+        _recalculate_purchase_invoice_totals(db, invoice)
+        db.commit()
+        return item
+
+    @staticmethod
+    def delete(
+        db: Session,
+        invoice_id: str,
+        line_item_id: str,
+        vendor_id: str | None = None,
+    ) -> VendorPurchaseInvoiceLineItem:
+        invoice = _ensure_purchase_invoice(db, invoice_id)
+        item = _ensure_purchase_invoice_line_item(db, line_item_id)
+        if str(item.invoice_id) != str(invoice.id):
+            raise HTTPException(status_code=400, detail="Line item does not belong to purchase invoice")
+        if vendor_id and str(invoice.vendor_id) != str(vendor_id):
+            raise HTTPException(status_code=403, detail="Purchase invoice ownership required")
+        _ensure_purchase_invoice_editable(invoice)
+
+        item.is_active = False
+        db.commit()
+        db.refresh(item)
+        _recalculate_purchase_invoice_totals(db, invoice)
+        db.commit()
+        return item
+
+
 class ProposedRouteRevisions(ListResponseMixin):
     @staticmethod
     def get(db: Session, revision_id: str):
@@ -1082,12 +1535,10 @@ class AsBuiltRoutes(ListResponseMixin):
             revision = _ensure_route_revision(db, str(payload.proposed_revision_id))
             if revision.quote.project_id != project.id:
                 raise HTTPException(status_code=400, detail="Revision does not belong to project")
-        # Compute version: count existing as-built submissions for this project + 1
         existing_count = (
-            db.query(func.count(AsBuiltRoute.id)).filter(AsBuiltRoute.project_id == project.id).scalar()
-        ) or 0
+            db.query(func.count(AsBuiltRoute.id)).filter(AsBuiltRoute.project_id == project.id).scalar() or 0
+        )
         next_version = existing_count + 1
-
         as_built = AsBuiltRoute(
             project_id=project.id,
             proposed_revision_id=coerce_uuid(payload.proposed_revision_id) if payload.proposed_revision_id else None,
@@ -1174,9 +1625,6 @@ class AsBuiltRoutes(ListResponseMixin):
         as_built.report_file_path = str(report_path)
         as_built.report_file_name = filename
         as_built.report_generated_at = _now()
-
-        # Mark ERP sync pending so approval is not considered accounting-complete
-        # until ERP confirms receipt of the variation/amendment.
         as_built.erp_sync_status = "pending"
 
         db.commit()
@@ -1313,6 +1761,8 @@ vendors = Vendors()
 installation_projects = InstallationProjects()
 project_quotes = ProjectQuotes()
 quote_line_items = QuoteLineItems()
+vendor_purchase_invoices = VendorPurchaseInvoices()
+vendor_purchase_invoice_line_items = VendorPurchaseInvoiceLineItems()
 proposed_route_revisions = ProposedRouteRevisions()
 as_built_routes = AsBuiltRoutes()
 installation_project_notes = InstallationProjectNotes()

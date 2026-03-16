@@ -1,0 +1,100 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Purchase Invoice Review - Admin{% endblock %}
+
+{% block content %}
+{% set user_permissions = current_user.permissions if current_user is defined and current_user else [] %}
+{% set user_roles = current_user.roles if current_user is defined and current_user else [] %}
+{% set user_roles_lower = user_roles | map('lower') | list %}
+{% set can_review_invoice = 'admin' in user_roles_lower or 'vendors:quotes:update' in user_permissions %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Purchase invoice review</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Review submitted vendor purchase invoices.</p>
+    </div>
+
+    {% if invoice_action == "approved" %}
+    <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        Purchase invoice approved successfully.
+    </div>
+    {% elif invoice_action == "rejected" %}
+    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+        Purchase invoice sent back for revision.
+    </div>
+    {% endif %}
+
+    {% if invoice_error_detail %}
+    <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+        {{ invoice_error_detail }}
+    </div>
+    {% endif %}
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <tr>
+                    <th class="px-4 py-3">Invoice</th>
+                    <th class="px-4 py-3">Project</th>
+                    <th class="px-4 py-3">Vendor</th>
+                    <th class="px-4 py-3">Status</th>
+                    <th class="px-4 py-3">Total</th>
+                    <th class="px-4 py-3">Attachment</th>
+                    <th class="px-4 py-3">Review</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for invoice in invoices %}
+                <tr>
+                    <td class="px-4 py-3 font-medium">
+                        <a href="/admin/vendors/purchase-invoices/{{ invoice.id }}"
+                           target="_blank"
+                           class="text-primary-700 hover:underline dark:text-primary-400">
+                            {{ invoice.invoice_number or invoice.id }}
+                        </a>
+                    </td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ project_labels.get(invoice.project_id, invoice.project_id) }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ vendor_labels.get(invoice.vendor_id, invoice.vendor_id) }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ invoice.status.value }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ invoice.total }}</td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ invoice.attachment_file_name or '—' }}</td>
+                    <td class="px-4 py-3">
+                        {% set status = invoice.status.value if invoice.status else '' %}
+                        {% if can_review_invoice and status in ['submitted', 'under_review'] %}
+                        <form method="post" class="space-y-2">
+                            <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token | default('') }}" />
+                            <input type="hidden" name="redirect_to" value="{{ request.url.path }}" />
+                            <textarea
+                                name="review_notes"
+                                rows="2"
+                                placeholder="Review notes (optional)"
+                                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+                            <div class="flex items-center gap-2">
+                                <button type="submit"
+                                        formaction="/admin/vendors/purchase-invoices/{{ invoice.id }}/approve"
+                                        class="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
+                                    Approve
+                                </button>
+                                <button type="submit"
+                                        formaction="/admin/vendors/purchase-invoices/{{ invoice.id }}/reject"
+                                        class="inline-flex items-center rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">
+                                    Reject
+                                </button>
+                            </div>
+                        </form>
+                        {% elif status in ['submitted', 'under_review'] %}
+                        <span class="text-xs text-slate-500 dark:text-slate-400">Read-only</span>
+                        {% else %}
+                        <span class="text-xs text-slate-500 dark:text-slate-400">No actions</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="7">No purchase invoices yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

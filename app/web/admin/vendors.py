@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.parse import quote as urlquote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy import func
@@ -24,6 +24,7 @@ from app.models.vendor import (
     ProjectQuoteStatus,
     ProposedRouteRevision,
     Vendor,
+    VendorPurchaseInvoiceStatus,
     VendorUser,
 )
 from app.schemas.auth import UserCredentialCreate
@@ -39,6 +40,7 @@ from app.services.audit_helpers import recent_activity_for_paths
 from app.services.auth_dependencies import require_permission
 from app.services.auth_flow import hash_password
 from app.services.common import coerce_uuid
+from app.services.storage import storage
 
 templates = Jinja2Templates(directory="templates")
 
@@ -108,6 +110,17 @@ def _safe_quote_redirect_target(redirect_to: str | None) -> str | None:
     if not target or "://" in target or target.startswith("//"):
         return None
     if not target.startswith("/admin/vendors/quotes"):
+        return None
+    return target
+
+
+def _safe_purchase_invoice_redirect_target(redirect_to: str | None) -> str | None:
+    if not redirect_to:
+        return None
+    target = str(redirect_to).strip()
+    if not target or "://" in target or target.startswith("//"):
+        return None
+    if not target.startswith("/admin/vendors/purchase-invoices"):
         return None
     return target
 
@@ -809,6 +822,148 @@ def vendor_quote_detail(
     return templates.TemplateResponse("admin/vendors/quotes/detail.html", context)
 
 
+@router.get(
+    "/purchase-invoices",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:read"))],
+)
+def vendor_purchase_invoices_list(
+    request: Request,
+    db: Session = Depends(get_db),
+    invoice_action: str | None = None,
+    invoice_error_detail: str | None = None,
+):
+    invoices = vendor_service.vendor_purchase_invoices.list(
+        db=db,
+        project_id=None,
+        vendor_id=None,
+        status=None,
+        is_active=True,
+        order_by="created_at",
+        order_dir="desc",
+        limit=200,
+        offset=0,
+    )
+    vendor_ids = {invoice.vendor_id for invoice in invoices if invoice.vendor_id}
+    installation_project_ids = {invoice.project_id for invoice in invoices if invoice.project_id}
+    vendor_labels: dict[object, str] = {}
+    project_labels: dict[object, str] = {}
+    if vendor_ids:
+        vendor_rows = db.query(Vendor.id, Vendor.name).filter(Vendor.id.in_(vendor_ids)).all()
+        vendor_labels = {vendor_id: name for vendor_id, name in vendor_rows}
+    if installation_project_ids:
+        project_rows = (
+            db.query(InstallationProject.id, Project.name, Project.code)
+            .join(Project, InstallationProject.project_id == Project.id)
+            .filter(InstallationProject.id.in_(installation_project_ids))
+            .all()
+        )
+        project_labels = {
+            installation_project_id: f"{project_name} ({project_code})" if project_code else project_name
+            for installation_project_id, project_name, project_code in project_rows
+        }
+    context = _base_context(request, db, active_page="vendor-purchase-invoices")
+    context.update(
+        {
+            "invoices": invoices,
+            "project_labels": project_labels,
+            "vendor_labels": vendor_labels,
+            "invoice_action": invoice_action,
+            "invoice_error_detail": invoice_error_detail,
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/purchase_invoices/review.html", context)
+
+
+@router.get(
+    "/purchase-invoices/{invoice_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:read"))],
+)
+def vendor_purchase_invoice_detail(
+    invoice_id: str,
+    request: Request,
+    invoice_action: str | None = None,
+    invoice_error_detail: str | None = None,
+    db: Session = Depends(get_db),
+):
+    invoice = vendor_service.vendor_purchase_invoices.get(db, invoice_id)
+    line_items = vendor_service.vendor_purchase_invoice_line_items.list(
+        db,
+        invoice_id=invoice_id,
+        is_active=True,
+        order_by="created_at",
+        order_dir="asc",
+        limit=500,
+        offset=0,
+    )
+
+    project_label = str(invoice.project_id)
+    if invoice.project_id:
+        project_row = (
+            db.query(Project.name, Project.code)
+            .join(InstallationProject, InstallationProject.project_id == Project.id)
+            .filter(InstallationProject.id == invoice.project_id)
+            .first()
+        )
+        if project_row:
+            project_label = f"{project_row.name} ({project_row.code})" if project_row.code else project_row.name
+
+    vendor_label = str(invoice.vendor_id)
+    if invoice.vendor_id:
+        vendor_row = db.query(Vendor.name).filter(Vendor.id == invoice.vendor_id).first()
+        if vendor_row and vendor_row.name:
+            vendor_label = vendor_row.name
+
+    reviewer_label: str | None = None
+    if invoice.reviewed_by:
+        reviewer_label = (invoice.reviewed_by.display_name or "").strip()
+        if not reviewer_label:
+            first = (invoice.reviewed_by.first_name or "").strip()
+            last = (invoice.reviewed_by.last_name or "").strip()
+            reviewer_label = f"{first} {last}".strip()
+        if not reviewer_label:
+            reviewer_label = invoice.reviewed_by.email
+
+    context = _base_context(request, db, active_page="vendor-purchase-invoices")
+    context.update(
+        {
+            "invoice": invoice,
+            "project_label": project_label,
+            "vendor_label": vendor_label,
+            "line_items": line_items,
+            "reviewer_label": reviewer_label,
+            "invoice_action": invoice_action,
+            "invoice_error_detail": invoice_error_detail,
+        }
+    )
+    return templates.TemplateResponse("admin/vendors/purchase_invoices/detail.html", context)
+
+
+@router.get(
+    "/purchase-invoices/{invoice_id}/attachment",
+    dependencies=[Depends(require_permission("vendors:quotes:read"))],
+)
+def vendor_purchase_invoice_attachment_download(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+):
+    invoice = vendor_service.vendor_purchase_invoices.get(db, invoice_id)
+    storage_key = (invoice.attachment_storage_key or "").strip()
+    if not storage_key:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    try:
+        data = storage.get(storage_key)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Attachment not found") from exc
+
+    file_name = (invoice.attachment_file_name or "purchase-invoice-attachment").strip() or "purchase-invoice-attachment"
+    media_type = (invoice.attachment_mime_type or "application/octet-stream").strip() or "application/octet-stream"
+    headers = {"Content-Disposition": f'attachment; filename="{file_name}"'}
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
 @router.post(
     "/quotes/{quote_id}/comments",
     response_class=HTMLResponse,
@@ -1079,6 +1234,117 @@ def vendor_quote_reject(
 
 
 @router.post(
+    "/purchase-invoices/{invoice_id}/approve",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+def vendor_purchase_invoice_approve(
+    invoice_id: str,
+    request: Request,
+    review_notes: str | None = Form(None),
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    success_redirect = _safe_purchase_invoice_redirect_target(redirect_to) or "/admin/vendors/purchase-invoices"
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "invoice_error_detail", detail),
+            status_code=303,
+        )
+
+    invoice = vendor_service.vendor_purchase_invoices.get(db, invoice_id)
+    if invoice.status not in {VendorPurchaseInvoiceStatus.submitted, VendorPurchaseInvoiceStatus.under_review}:
+        detail = urlquote("Only submitted purchase invoices can be approved.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "invoice_error_detail", detail),
+            status_code=303,
+        )
+
+    try:
+        approved_invoice = vendor_service.vendor_purchase_invoices.approve(
+            db,
+            invoice_id=invoice_id,
+            reviewer_person_id=reviewer_person_id,
+            review_notes=(review_notes or "").strip() or None,
+        )
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to approve purchase invoice."), safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "invoice_error_detail", detail),
+            status_code=303,
+        )
+
+    if not (approved_invoice.erp_purchase_order_id or "").strip():
+        detail = urlquote(
+            "Purchase invoice approved, but ERP sync was not queued because no ERP PO is linked to the project.",
+            safe="",
+        )
+        redirect_url = _append_query_param(success_redirect, "invoice_action", "approved")
+        redirect_url = _append_query_param(redirect_url, "invoice_error_detail", detail)
+        return RedirectResponse(url=redirect_url, status_code=303)
+
+    try:
+        from app.tasks.integrations import sync_purchase_invoice_to_erp
+
+        sync_purchase_invoice_to_erp.apply_async(args=[invoice_id], countdown=2, priority=5)
+    except Exception as exc:
+        detail = urlquote(f"Purchase invoice approved, but ERP sync could not be queued: {exc}", safe="")
+        redirect_url = _append_query_param(success_redirect, "invoice_action", "approved")
+        redirect_url = _append_query_param(redirect_url, "invoice_error_detail", detail)
+        return RedirectResponse(url=redirect_url, status_code=303)
+
+    return RedirectResponse(url=_append_query_param(success_redirect, "invoice_action", "approved"), status_code=303)
+
+
+@router.post(
+    "/purchase-invoices/{invoice_id}/reject",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("vendors:quotes:update"))],
+)
+def vendor_purchase_invoice_reject(
+    invoice_id: str,
+    request: Request,
+    review_notes: str | None = Form(None),
+    redirect_to: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    success_redirect = _safe_purchase_invoice_redirect_target(redirect_to) or "/admin/vendors/purchase-invoices"
+    reviewer_person_id = _current_person_id(request)
+    if not reviewer_person_id:
+        detail = urlquote("Missing reviewer identity.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "invoice_error_detail", detail),
+            status_code=303,
+        )
+
+    invoice = vendor_service.vendor_purchase_invoices.get(db, invoice_id)
+    if invoice.status not in {VendorPurchaseInvoiceStatus.submitted, VendorPurchaseInvoiceStatus.under_review}:
+        detail = urlquote("Only submitted purchase invoices can be rejected.", safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "invoice_error_detail", detail),
+            status_code=303,
+        )
+
+    try:
+        vendor_service.vendor_purchase_invoices.reject(
+            db,
+            invoice_id=invoice_id,
+            reviewer_person_id=reviewer_person_id,
+            review_notes=(review_notes or "").strip() or None,
+        )
+    except HTTPException as exc:
+        detail = urlquote(str(exc.detail or "Failed to reject purchase invoice."), safe="")
+        return RedirectResponse(
+            url=_append_query_param(success_redirect, "invoice_error_detail", detail),
+            status_code=303,
+        )
+
+    return RedirectResponse(url=_append_query_param(success_redirect, "invoice_action", "rejected"), status_code=303)
+
+
+@router.post(
     "/quotes/{quote_id}/route-revisions/{revision_id}/approve",
     response_class=HTMLResponse,
     dependencies=[Depends(require_permission("vendors:quotes:update"))],
@@ -1196,17 +1462,7 @@ def vendor_route_revision_view(
 
 @router.get("/as-built", response_class=HTMLResponse)
 def vendor_as_built_list(request: Request, db: Session = Depends(get_db)):
-    as_built_routes = vendor_service.as_built_routes.list(
-        db=db,
-        project_id=None,
-        status=None,
-        order_by="created_at",
-        order_dir="desc",
-        limit=200,
-        offset=0,
-    )
     context = _base_context(request, db, active_page="vendor-as-built")
-    context.update({"as_built_routes": as_built_routes})
     return templates.TemplateResponse("admin/vendors/as-built/review.html", context)
 
 
