@@ -475,7 +475,7 @@ def _get_technician_stats(
     db: Session,
     start_date: datetime,
     end_date: datetime,
-) -> tuple[list[dict], int, dict[str, int], list]:
+) -> tuple[list[dict[str, object]], int, dict[str, int], list[WorkOrder]]:
     """Get technician performance stats for a date range."""
     # Active technician profiles should appear even when they have no jobs in range.
     active_technician_person_ids = {
@@ -539,7 +539,7 @@ def _get_technician_stats(
             }
         )
 
-    technician_stats.sort(key=lambda x: (-x["completed_jobs"], -x["total_jobs"], x["name"].lower()))
+    technician_stats.sort(key=lambda x: (-int(x["completed_jobs"]), -int(x["total_jobs"]), str(x["name"]).lower()))
     total_jobs_completed = sum(completed_by_person.values())
 
     # Job type breakdown
@@ -574,7 +574,7 @@ def _get_technician_stats(
         .all()
     )
 
-    return technician_stats, total_jobs_completed, job_type_breakdown, recent_completions
+    return technician_stats, total_jobs_completed, job_type_breakdown, list(recent_completions)
 
 
 @router.get("/technician", response_class=HTMLResponse)

@@ -180,7 +180,7 @@ def get_olt_table(db: Session) -> list[dict]:
             "pon_used": used_pon_map.get(olt.id, 0),
             "pon_total": pon_map.get(olt.id, 0),
             "ont_count": ont_map.get(olt.id, 0),
-            "site_role": olt.site_role.value if olt.site_role else "olt",
+            "site_role": olt.site_role if olt.site_role else "olt",
         }
         for olt in olts
     ]
@@ -216,7 +216,7 @@ def get_fdh_utilization(db: Session) -> list[dict]:
             select(SplitterPort.splitter_id, func.count(SplitterPort.id))
             .where(
                 SplitterPort.is_active.is_(True),
-                SplitterPort.splitter_id.in_(all_splitter_ids) if all_splitter_ids else False,
+                SplitterPort.splitter_id.in_(all_splitter_ids) if all_splitter_ids else SplitterPort.id.is_(None),
             )
             .group_by(SplitterPort.splitter_id)
         ).all()
