@@ -539,7 +539,13 @@ def _get_technician_stats(
             }
         )
 
-    technician_stats.sort(key=lambda x: (-int(x["completed_jobs"]), -int(x["total_jobs"]), str(x["name"]).lower()))
+    technician_stats.sort(
+        key=lambda x: (
+            -(x["completed_jobs"] if isinstance(x["completed_jobs"], int) else 0),
+            -(x["total_jobs"] if isinstance(x["total_jobs"], int) else 0),
+            str(x.get("name", "")).lower(),
+        )
+    )
     total_jobs_completed = sum(completed_by_person.values())
 
     # Job type breakdown
