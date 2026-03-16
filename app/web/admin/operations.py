@@ -716,6 +716,32 @@ def work_order_new(
     )
 
 
+@router.post(
+    "/work-orders/{order_id}/assign",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
+)
+def work_order_assign(
+    request: Request,
+    order_id: UUID,
+    assigned_to_person_id: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Quick inline assignee update from work order list."""
+    referer = request.headers.get("referer") or ""
+    return_url = referer if referer.startswith("/") else "/admin/operations/work-orders"
+    try:
+        payload = WorkOrderUpdate(
+            assigned_to_person_id=UUID(assigned_to_person_id) if assigned_to_person_id else None,
+        )
+        workforce_service.work_orders.update(db, str(order_id), payload)
+        return RedirectResponse(url=return_url, status_code=303)
+    except HTTPException as exc:
+        detail = quote(str(exc.detail), safe="")
+        separator = "&" if "?" in return_url else "?"
+        return RedirectResponse(url=f"{return_url}{separator}error={detail}", status_code=303)
+
+
 @router.post("/work-orders", response_class=HTMLResponse)
 def work_order_create(
     request: Request,
