@@ -109,25 +109,50 @@ def _quote_comments_for_project(db: Session, project_id: str, quote_id: str) -> 
     return comments
 
 
-def _as_built_eligible_project_ids(db: Session, projects: list[InstallationProject], vendor_id: str) -> set[str]:
-    from app.models.vendor import ProjectQuote, ProjectQuoteStatus
+def _vendor_project_quote_statuses(db: Session, projects: list[InstallationProject], vendor_id: str) -> dict[str, str]:
+    from app.models.vendor import ProjectQuote
 
     project_ids = [project.id for project in projects]
     if not project_ids:
-        return set()
-    eligible_statuses = (ProjectQuoteStatus.submitted, ProjectQuoteStatus.under_review, ProjectQuoteStatus.approved)
+        return {}
     rows = (
-        db.query(ProjectQuote.project_id)
-        .filter(
-            ProjectQuote.project_id.in_(project_ids),
-            ProjectQuote.vendor_id == coerce_uuid(vendor_id),
-            ProjectQuote.is_active.is_(True),
-            ProjectQuote.status.in_(eligible_statuses),
-        )
-        .distinct()
+        db.query(ProjectQuote)
+        .filter(ProjectQuote.project_id.in_(project_ids))
+        .filter(ProjectQuote.vendor_id == coerce_uuid(vendor_id))
+        .filter(ProjectQuote.is_active.is_(True))
+        .order_by(ProjectQuote.created_at.desc())
         .all()
     )
-    return {str(row[0]) for row in rows}
+    statuses: dict[str, str] = {}
+    for row in rows:
+        key = str(row.project_id)
+        if key not in statuses:
+            statuses[key] = row.status.value if row.status else ""
+    return statuses
+
+
+def _vendor_project_invoice_statuses(
+    db: Session, projects: list[InstallationProject], vendor_id: str
+) -> dict[str, str]:
+    from app.models.vendor import VendorPurchaseInvoice
+
+    project_ids = [project.id for project in projects]
+    if not project_ids:
+        return {}
+    rows = (
+        db.query(VendorPurchaseInvoice)
+        .filter(VendorPurchaseInvoice.project_id.in_(project_ids))
+        .filter(VendorPurchaseInvoice.vendor_id == coerce_uuid(vendor_id))
+        .filter(VendorPurchaseInvoice.is_active.is_(True))
+        .order_by(VendorPurchaseInvoice.created_at.desc())
+        .all()
+    )
+    statuses: dict[str, str] = {}
+    for row in rows:
+        key = str(row.project_id)
+        if key not in statuses:
+            statuses[key] = row.status.value if row.status else ""
+    return statuses
 
 
 def vendor_home(request: Request, db: Session):
@@ -144,7 +169,8 @@ def vendor_dashboard(request: Request, db: Session):
     vendor_id = str(context["vendor"].id)
     available = vendor_service.installation_projects.list_available_for_vendor(db, vendor_id, limit=10, offset=0)
     mine = vendor_service.installation_projects.list_for_vendor(db, vendor_id, limit=10, offset=0)
-    as_built_project_ids = _as_built_eligible_project_ids(db, mine, vendor_id)
+    quote_statuses_by_project = _vendor_project_quote_statuses(db, mine, vendor_id)
+    invoice_statuses_by_project = _vendor_project_invoice_statuses(db, mine, vendor_id)
     return templates.TemplateResponse(
         "vendor/dashboard/index.html",
         {
@@ -154,7 +180,8 @@ def vendor_dashboard(request: Request, db: Session):
             "current_user": context["current_user"],
             "available_projects": available,
             "my_projects": mine,
-            "as_built_project_ids": as_built_project_ids,
+            "quote_statuses_by_project": quote_statuses_by_project,
+            "invoice_statuses_by_project": invoice_statuses_by_project,
         },
     )
 
@@ -183,7 +210,8 @@ def vendor_projects_mine(request: Request, db: Session):
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     vendor_id = str(context["vendor"].id)
     projects = vendor_service.installation_projects.list_for_vendor(db, vendor_id, limit=50, offset=0)
-    as_built_project_ids = _as_built_eligible_project_ids(db, projects, vendor_id)
+    quote_statuses_by_project = _vendor_project_quote_statuses(db, projects, vendor_id)
+    invoice_statuses_by_project = _vendor_project_invoice_statuses(db, projects, vendor_id)
     return templates.TemplateResponse(
         "vendor/projects/my-projects.html",
         {
@@ -192,7 +220,8 @@ def vendor_projects_mine(request: Request, db: Session):
             "vendor": context["vendor"],
             "current_user": context["current_user"],
             "projects": projects,
-            "as_built_project_ids": as_built_project_ids,
+            "quote_statuses_by_project": quote_statuses_by_project,
+            "invoice_statuses_by_project": invoice_statuses_by_project,
         },
     )
 
@@ -266,45 +295,63 @@ def quote_builder(request: Request, project_id: str, db: Session):
     )
 
 
-def as_built_submit(request: Request, project_id: str, db: Session):
+def purchase_invoice_builder(request: Request, project_id: str, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
     vendor_id = str(context["vendor"].id)
     project = _resolve_installation_project(db, project_id)
+    existing_invoice = vendor_service.vendor_purchase_invoices.get_latest_for_vendor_project(
+        db,
+        installation_project_id=str(project.id),
+        vendor_id=vendor_id,
+    )
     existing_quote = vendor_service.project_quotes.get_latest_for_vendor_project(
         db,
         installation_project_id=str(project.id),
         vendor_id=vendor_id,
     )
-    approved_quote_vendor_match = False
-    if project.approved_quote_id:
-        approved_quote = None
-        try:
-            approved_quote = vendor_service.project_quotes.get(db, str(project.approved_quote_id))
-        except HTTPException as exc:
-            if exc.status_code != 404:
-                raise
-        if approved_quote:
-            approved_quote_vendor_match = str(approved_quote.vendor_id) == vendor_id
-
-    # Allow as-built only for assigned vendor, approved quote vendor, or a vendor with an existing quote.
     is_assigned_vendor = str(project.assigned_vendor_id or "") == vendor_id
-    if not (is_assigned_vendor or approved_quote_vendor_match or existing_quote):
+    if not (is_assigned_vendor or existing_invoice or existing_quote):
         return HTMLResponse(content="Forbidden", status_code=403)
     if not vendor_service.project_quotes.has_submitted_for_vendor_project(db, str(project.id), vendor_id):
-        return HTMLResponse(content="Quote must be submitted before as-built can be provided.", status_code=403)
+        return HTMLResponse(content="Quote must be submitted before purchase invoice can be provided.", status_code=403)
+
+    invoice = existing_invoice or vendor_service.vendor_purchase_invoices.get_or_create_for_vendor_project(
+        db,
+        installation_project_id=str(project.id),
+        vendor_id=vendor_id,
+        created_by_person_id=str(context["person"].id),
+    )
+    line_items = vendor_service.vendor_purchase_invoice_line_items.list(
+        db,
+        invoice_id=str(invoice.id),
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=200,
+        offset=0,
+    )
     return templates.TemplateResponse(
-        "vendor/as-built/submit.html",
+        "vendor/invoices/builder.html",
         {
             "request": request,
-            "active_page": "as-built",
+            "active_page": "purchase-invoice-builder",
             "vendor": context["vendor"],
             "current_user": context["current_user"],
             "project": project,
-            "project_id": str(project.id),
+            "invoice": invoice,
+            "line_items": line_items,
         },
     )
+
+
+def as_built_submit(request: Request, project_id: str, db: Session):
+    del project_id
+    context = _require_vendor_context(request, db)
+    if not context:
+        return RedirectResponse(url="/vendor/auth/login", status_code=303)
+    return RedirectResponse(url="/vendor/projects/mine", status_code=303)
 
 
 def vendor_fiber_map(request: Request, db: Session):

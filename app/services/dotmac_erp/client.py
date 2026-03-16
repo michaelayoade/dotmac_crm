@@ -372,6 +372,31 @@ class DotMacERPClient:
         )
         return result if isinstance(result, dict) else {}
 
+    def create_purchase_invoice(self, payload: dict, idempotency_key: str | None = None) -> dict:
+        """Push an approved vendor purchase invoice to ERP."""
+        result = self._request(
+            "POST",
+            "/api/v1/sync/crm/purchase-invoices",
+            json_data=payload,
+            idempotency_key=idempotency_key or f"pinv-{uuid.uuid4()}",
+        )
+        return result if isinstance(result, dict) else {}
+
+    def upload_purchase_invoice_attachment(
+        self,
+        purchase_invoice_id: str,
+        payload: dict,
+        idempotency_key: str | None = None,
+    ) -> dict:
+        """Upload a supporting attachment for an already-created ERP purchase invoice."""
+        result = self._request(
+            "POST",
+            f"/api/v1/sync/crm/purchase-invoices/{purchase_invoice_id}/attachments",
+            json_data=payload,
+            idempotency_key=idempotency_key or f"pinv-attach-{uuid.uuid4()}",
+        )
+        return result if isinstance(result, dict) else {}
+
     # ============ Customer/Contact API Methods ============
 
     def get_companies(

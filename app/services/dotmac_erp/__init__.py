@@ -33,6 +33,11 @@ from app.services.dotmac_erp.po_sync import (
     PurchaseOrderSyncResult,
     dotmac_erp_purchase_order_sync,
 )
+from app.services.dotmac_erp.purchase_invoice_sync import (
+    DotMacERPPurchaseInvoiceSync,
+    PurchaseInvoiceSyncResult,
+    dotmac_erp_purchase_invoice_sync,
+)
 from app.services.dotmac_erp.shift_sync import (
     DotMacERPShiftSync,
     ShiftSyncResult,
@@ -85,6 +90,7 @@ __all__ = [
     "DotMacERPInventorySync",
     "DotMacERPMaterialRequestSync",
     "DotMacERPNotFoundError",
+    "DotMacERPPurchaseInvoiceSync",
     "DotMacERPPurchaseOrderSync",
     "DotMacERPRateLimitError",
     "DotMacERPShiftSync",
@@ -94,6 +100,7 @@ __all__ = [
     "DotMacERPTransientError",
     "InventorySyncResult",
     "MaterialRequestSyncResult",
+    "PurchaseInvoiceSyncResult",
     "PurchaseOrderSyncResult",
     "ShiftSyncResult",
     "SyncResult",
@@ -103,6 +110,7 @@ __all__ = [
     "dotmac_erp_contact_sync",
     "dotmac_erp_inventory_sync",
     "dotmac_erp_material_request_sync",
+    "dotmac_erp_purchase_invoice_sync",
     "dotmac_erp_purchase_order_sync",
     "dotmac_erp_shift_sync",
     "dotmac_erp_sync",

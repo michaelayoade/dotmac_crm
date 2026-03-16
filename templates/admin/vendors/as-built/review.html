@@ -1,139 +1,16 @@
 {% extends "layouts/admin.html" %}
 
-{% block title %}Variation Review - Admin{% endblock %}
+{% block title %}As-Built Review - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
     <div>
-        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Variation review</h1>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Review vendor variation submissions.</p>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">As-built review</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">As-built review is hidden from the admin UI.</p>
     </div>
 
-    {% set as_built_action = request.query_params.get('as_built_action') %}
-    {% set as_built_error_detail = request.query_params.get('as_built_error_detail') %}
-
-    {% if as_built_action == "approved" %}
-    <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-        Variation approved successfully.
-    </div>
-    {% elif as_built_action == "rejected" %}
-    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-        Variation rejected.
-    </div>
-    {% endif %}
-
-    {% if as_built_error_detail %}
-    <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-        {{ as_built_error_detail }}
-    </div>
-    {% endif %}
-
-    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <table class="w-full text-sm">
-            <thead class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                <tr>
-                    <th class="px-4 py-3">Submission</th>
-                    <th class="px-4 py-3">Project</th>
-                    <th class="px-4 py-3">Status</th>
-                    <th class="px-4 py-3">Route</th>
-                    <th class="px-4 py-3">Revised Items</th>
-                    <th class="px-4 py-3">Length (m)</th>
-                    <th class="px-4 py-3">Review</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                {% for route in as_built_routes %}
-                {% set project = route.project %}
-                {% set project_row = project.project if project else none %}
-                {% set route_status = route.status.value if route.status else '' %}
-                {% set line_items = route.line_items or [] %}
-                <tr class="align-top">
-                    <td class="px-4 py-3 font-medium text-slate-900 dark:text-white">
-                        <a href="/admin/vendors/as-built/{{ route.id }}" class="text-primary-700 hover:text-primary-800 hover:underline dark:text-primary-400 dark:hover:text-primary-300">
-                            {{ project.assigned_vendor.name if project and project.assigned_vendor else 'Vendor submission' }}
-                        </a>
-                    </td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
-                        <div class="font-medium text-slate-900 dark:text-white">
-                            {{ project_row.name or project_row.code or project_row.number if project_row else route.project_id }}
-                        </div>
-                        <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            {{ project_row.code if project_row and project_row.code else 'No code' }}
-                        </div>
-                    </td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ route_status or '—' }}</td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
-                        {% if route.route_geom %}
-                        <span class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Included</span>
-                        {% else %}
-                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">None</span>
-                        {% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
-                        <div class="font-medium">{{ line_items|length }}</div>
-                        {% if line_items %}
-                        <details class="mt-2">
-                            <summary class="cursor-pointer text-xs font-semibold text-primary-700 dark:text-primary-400">View items</summary>
-                            <div class="mt-2 space-y-2">
-                                {% for item in line_items %}
-                                <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/40">
-                                    <div class="font-semibold text-slate-800 dark:text-slate-100">{{ item.description or item.item_type or 'Line item' }}</div>
-                                    <div class="mt-1 text-slate-500 dark:text-slate-400">Qty {{ item.quantity }} at {{ item.unit_price }} = {{ item.amount }}</div>
-                                    {% if item.notes %}
-                                    <div class="mt-1 text-slate-500 dark:text-slate-400">{{ item.notes }}</div>
-                                    {% endif %}
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </details>
-                        {% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ route.actual_length_meters or '—' }}</td>
-                    <td class="px-4 py-3">
-                        <div class="space-y-2">
-                            {% if route.report_file_path %}
-                            <a href="/admin/vendors/as-built/{{ route.id }}/report" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
-                                Download report
-                            </a>
-                            {% endif %}
-
-                            {% if route_status in ['submitted', 'under_review'] %}
-                            <form method="post" class="space-y-2">
-                                <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token | default('') }}" />
-                                <input type="hidden" name="redirect_to" value="{{ request.url.path }}" />
-                                <textarea
-                                    name="review_notes"
-                                    rows="2"
-                                    placeholder="Review notes (optional)"
-                                    class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <button type="submit"
-                                            formaction="/admin/vendors/as-built/{{ route.id }}/approve"
-                                            class="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
-                                        Approve
-                                    </button>
-                                    <button type="submit"
-                                            formaction="/admin/vendors/as-built/{{ route.id }}/reject"
-                                            class="inline-flex items-center rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700">
-                                        Reject
-                                    </button>
-                                </div>
-                            </form>
-                            {% else %}
-                            <div class="space-y-2">
-                                <span class="text-xs text-slate-500 dark:text-slate-400">No review actions</span>
-                            </div>
-                            {% endif %}
-                        </div>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="7">No variation submissions yet.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+        Existing as-built records remain stored, but submission and review are no longer exposed through the portal UI.
     </div>
 </div>
 {% endblock %}
