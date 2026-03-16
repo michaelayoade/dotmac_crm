@@ -103,6 +103,11 @@ def quote_builder(request: Request, project_id: str, db: Session = Depends(get_d
     return web_vendor_routes_service.quote_builder(request, project_id, db)
 
 
+@router.get("/invoices/builder", response_class=HTMLResponse)
+def purchase_invoice_builder(request: Request, project_id: str, db: Session = Depends(get_db)):
+    return web_vendor_routes_service.purchase_invoice_builder(request, project_id, db)
+
+
 @router.get("/as-built/submit", response_class=HTMLResponse)
 def as_built_submit(request: Request, project_id: str, db: Session = Depends(get_db)):
     return web_vendor_routes_service.as_built_submit(request, project_id, db)

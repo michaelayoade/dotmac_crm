@@ -80,6 +80,7 @@ FIBER_INSTALLATION_STAGE_TITLES: dict[str, str] = {
 }
 
 FIBER_PROJECT_TASK_SLA_POLICY_NAME = "Fiber Project Task SLA"
+PROJECT_COMPLETION_SLA_POLICY_NAME = "Project Completion SLA"
 
 
 def _normalize_title(value: str | None) -> str:
@@ -223,6 +224,75 @@ def _ensure_project_task_sla_policy(db: Session) -> SlaPolicy:
     db.add(policy)
     db.flush()
     return policy
+
+
+def _ensure_project_sla_policy(db: Session) -> SlaPolicy:
+    policy = (
+        db.query(SlaPolicy)
+        .filter(SlaPolicy.entity_type == WorkflowEntityType.project)
+        .filter(SlaPolicy.name == PROJECT_COMPLETION_SLA_POLICY_NAME)
+        .filter(SlaPolicy.is_active.is_(True))
+        .first()
+    )
+    if policy:
+        return policy
+    policy = SlaPolicy(
+        name=PROJECT_COMPLETION_SLA_POLICY_NAME,
+        entity_type=WorkflowEntityType.project,
+        description="SLA policy for overall project completion timelines",
+        is_active=True,
+    )
+    db.add(policy)
+    db.flush()
+    return policy
+
+
+def _latest_project_sla_clock(db: Session, project_id: UUID) -> SlaClock | None:
+    return (
+        db.query(SlaClock)
+        .filter(
+            SlaClock.entity_type == WorkflowEntityType.project,
+            SlaClock.entity_id == project_id,
+        )
+        .order_by(SlaClock.created_at.desc())
+        .first()
+    )
+
+
+def _sync_project_sla_clock(db: Session, project: Project) -> None:
+    if not project.due_at:
+        return
+    policy = _ensure_project_sla_policy(db)
+    clock = _latest_project_sla_clock(db, project.id)
+    now = datetime.now(UTC)
+    terminal = {ProjectStatus.completed, ProjectStatus.canceled}
+
+    if project.status in terminal:
+        if clock and clock.status != SlaClockStatus.completed:
+            clock.status = SlaClockStatus.completed
+            clock.completed_at = project.completed_at or now
+        return
+
+    if not clock or clock.status == SlaClockStatus.completed:
+        db.add(
+            SlaClock(
+                policy_id=policy.id,
+                entity_type=WorkflowEntityType.project,
+                entity_id=project.id,
+                priority=project.project_type.value if project.project_type else None,
+                status=SlaClockStatus.running,
+                started_at=project.start_at or project.created_at or now,
+                due_at=project.due_at,
+            )
+        )
+        return
+
+    if clock.status in {SlaClockStatus.paused, SlaClockStatus.breached}:
+        clock.status = SlaClockStatus.running
+        clock.paused_at = None
+    clock.priority = project.project_type.value if project.project_type else None
+    clock.completed_at = None
+    clock.due_at = project.due_at
 
 
 def _latest_task_sla_clock(db: Session, task_id: UUID) -> SlaClock | None:
@@ -957,6 +1027,8 @@ class Projects(ListResponseMixin):
                     data["due_at"] = start_at + timedelta(days=duration_days)
         project = Project(**data)
         db.add(project)
+        db.flush()
+        _sync_project_sla_clock(db, project)
         db.commit()
         db.refresh(project)
 
@@ -1219,6 +1291,7 @@ class Projects(ListResponseMixin):
             setattr(project, key, value)
         if data.get("status") == ProjectStatus.completed and project.completed_at is None:
             project.completed_at = datetime.now(UTC)
+        _sync_project_sla_clock(db, project)
         db.commit()
         db.refresh(project)
 

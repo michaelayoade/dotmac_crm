@@ -1,0 +1,530 @@
+{% extends "layouts/vendor.html" %}
+
+{% block title %}Purchase Invoice Builder{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Purchase invoice</h1>
+            {% set proj = project.project %}
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Project {{ (proj.name or proj.code or proj.number) if proj else (project.project_id|string|truncate(8, True, '')) }}
+            </p>
+            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Invoice status:
+                <span id="invoice-status-label" class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                    {{ invoice.status.value if invoice.status else "draft" }}
+                </span>
+            </p>
+        </div>
+        <div class="flex flex-col items-start gap-2 sm:items-end">
+            <button id="invoice-submit"
+                    class="inline-flex items-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-60">
+                Submit invoice
+            </button>
+            <div id="invoice-submit-message" class="text-xs text-slate-500 dark:text-slate-400"></div>
+        </div>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]">
+        <div class="space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Line items</h2>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">These are authoritative for approval and future ERP creation.</p>
+                    </div>
+                    <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                        {{ line_items|length }}
+                    </span>
+                </div>
+
+                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Type</label>
+                            <input id="li-item-type" type="text" placeholder="labor / material / transport ..."
+                                   class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Description</label>
+                            <input id="li-description" type="text" placeholder="Describe the invoice line item"
+                                   class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Quantity</label>
+                            <input id="li-quantity" type="number" step="0.001" min="1" value="1.000"
+                                   class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Unit price</label>
+                            <input id="li-unit-price" type="number" step="0.01" min="0" value="0.00"
+                                   class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Notes</label>
+                            <input id="li-notes" type="text" placeholder="Optional"
+                                   class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                        </div>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between gap-3">
+                        <div id="li-message" class="text-sm text-slate-600 dark:text-slate-300"></div>
+                        <button id="li-add"
+                                class="inline-flex items-center rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/30">
+                            Add line item
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mt-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                    <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                        <thead class="bg-slate-50 dark:bg-slate-900/40">
+                            <tr>
+                                <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Description</th>
+                                <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Qty</th>
+                                <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Unit</th>
+                                <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Amount</th>
+                                <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lineitems-body" class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
+                            {% if line_items %}
+                            {% for item in line_items %}
+                            <tr data-lineitem-row
+                                data-id="{{ item.id }}"
+                                data-item-type="{{ (item.item_type or '')|e }}"
+                                data-description="{{ (item.description or '')|e }}"
+                                data-quantity="{{ item.quantity }}"
+                                data-unit-price="{{ item.unit_price }}"
+                                data-notes="{{ (item.notes or '')|e }}">
+                                <td class="px-3 py-2 text-slate-900 dark:text-white">
+                                    <div class="font-medium">{{ item.description or item.item_type or 'Line item' }}</div>
+                                    {% if item.notes %}<div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{ item.notes }}</div>{% endif %}
+                                </td>
+                                <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">{{ item.quantity }}</td>
+                                <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">{{ item.unit_price }}</td>
+                                <td class="px-3 py-2 text-right font-medium text-slate-900 dark:text-white" data-amount>{{ item.amount }}</td>
+                                <td class="px-3 py-2 text-right">
+                                    <div class="inline-flex items-center gap-2">
+                                        <button type="button" data-lineitem-edit
+                                                class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                                            Edit
+                                        </button>
+                                        <button type="button" data-lineitem-delete
+                                                class="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            {% else %}
+                            <tr id="lineitems-empty">
+                                <td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                                    No line items yet. Add one above.
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-3 space-y-2 text-sm">
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                            <div class="flex-1">
+                                <label for="invoice-tax-rate-percent" class="block text-xs font-semibold text-slate-700 dark:text-slate-200">Tax (%)</label>
+                                <input id="invoice-tax-rate-percent" type="number" step="0.01" min="0" max="100"
+                                       value="{{ '%.2f'|format(invoice.tax_rate_percent if invoice.tax_rate_percent is not none else 0) }}"
+                                       class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200">
+                            </div>
+                            <button id="invoice-tax-apply" type="button"
+                                    class="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white">
+                                Apply tax
+                            </button>
+                        </div>
+                        <div id="invoice-tax-message" class="mt-2 text-xs text-slate-500 dark:text-slate-400"></div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="text-slate-500 dark:text-slate-400">Subtotal:</div>
+                        <div id="lineitems-subtotal" class="font-semibold text-slate-900 dark:text-white"></div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="text-slate-500 dark:text-slate-400">Tax:</div>
+                        <div id="lineitems-tax" class="font-semibold text-slate-900 dark:text-white"></div>
+                    </div>
+                    <div class="flex items-center justify-between border-t border-slate-200 pt-2 dark:border-slate-700">
+                        <div class="font-semibold text-slate-700 dark:text-slate-200">Total:</div>
+                        <div id="lineitems-total" class="text-base font-bold text-slate-900 dark:text-white"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Supporting invoice upload</h2>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Optional. This document supports review but does not replace line items.</p>
+
+                <div class="mt-4 space-y-3">
+                    <input id="attachment-file" type="file"
+                           accept=".pdf,.png,.jpg,.jpeg,.webp"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-emerald-700 hover:file:bg-emerald-100 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:file:bg-emerald-900/30 dark:file:text-emerald-300">
+                    <div class="flex items-center gap-2">
+                        <button id="attachment-upload" type="button"
+                                class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white">
+                            Upload file
+                        </button>
+                        <button id="attachment-delete" type="button"
+                                class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                            Remove file
+                        </button>
+                    </div>
+                    <div id="attachment-message" class="text-xs text-slate-500 dark:text-slate-400"></div>
+                </div>
+
+                <div id="attachment-summary" class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+                    {% if invoice.attachment_file_name %}
+                    <div class="font-semibold text-slate-900 dark:text-white">{{ invoice.attachment_file_name }}</div>
+                    <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {{ invoice.attachment_mime_type or 'file' }}{% if invoice.attachment_file_size %} • {{ invoice.attachment_file_size }} bytes{% endif %}
+                    </div>
+                    {% else %}
+                    No supporting file uploaded.
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Invoice details</h2>
+                <dl class="mt-4 space-y-3 text-sm">
+                    <div class="flex items-start justify-between gap-3">
+                        <dt class="text-slate-500 dark:text-slate-400">Invoice ID</dt>
+                        <dd class="font-mono text-slate-900 dark:text-white">{{ invoice.invoice_number or invoice.id }}</dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-3">
+                        <dt class="text-slate-500 dark:text-slate-400">Currency</dt>
+                        <dd class="font-semibold text-slate-900 dark:text-white">{{ invoice.currency }}</dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-3">
+                        <dt class="text-slate-500 dark:text-slate-400">ERP PO Link</dt>
+                        <dd class="text-right text-slate-900 dark:text-white">{{ invoice.erp_purchase_order_id or 'Pending ERP linkage' }}</dd>
+                    </div>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+(function() {
+    const invoiceId = '{{ invoice.id }}';
+    let invoiceStatus = '{{ invoice.status.value if invoice.status else "draft" }}';
+    let invoiceTaxRate = Number('{{ invoice.tax_rate_percent if invoice.tax_rate_percent is not none else 0 }}' || '0');
+    const lineItemsBody = document.getElementById('lineitems-body');
+    const subtotalEl = document.getElementById('lineitems-subtotal');
+    const taxEl = document.getElementById('lineitems-tax');
+    const totalEl = document.getElementById('lineitems-total');
+    const taxInput = document.getElementById('invoice-tax-rate-percent');
+    const taxApplyBtn = document.getElementById('invoice-tax-apply');
+    const taxMsg = document.getElementById('invoice-tax-message');
+    const statusLabel = document.getElementById('invoice-status-label');
+    const submitBtn = document.getElementById('invoice-submit');
+    const submitMsg = document.getElementById('invoice-submit-message');
+    const lineItemMsg = document.getElementById('li-message');
+    const attachmentMsg = document.getElementById('attachment-message');
+    const attachmentSummary = document.getElementById('attachment-summary');
+    const editableStatuses = new Set(['draft', 'revision_requested']);
+
+    function money(value) {
+        return Number(value || 0).toFixed(2);
+    }
+
+    function moneyToNumber(value) {
+        if (value == null) return 0;
+        const s = String(value).replace(/[^0-9.+-]/g, '');
+        const n = Number(s);
+        return Number.isFinite(n) ? n : 0;
+    }
+
+    function setText(el, value) {
+        if (el) el.textContent = value || '';
+    }
+
+    function isEditable() {
+        return editableStatuses.has(invoiceStatus);
+    }
+
+    function updateTotals() {
+        let subtotal = 0;
+        lineItemsBody.querySelectorAll('[data-lineitem-row]').forEach((row) => {
+            const qty = Number(row.dataset.quantity || '0');
+            const unit = Number(row.dataset.unitPrice || '0');
+            subtotal += qty * unit;
+        });
+        const safeRate = Math.min(100, Math.max(0, moneyToNumber(invoiceTaxRate)));
+        const invoiceTax = subtotal * (safeRate / 100);
+        setText(subtotalEl, money(subtotal));
+        setText(taxEl, money(invoiceTax));
+        setText(totalEl, money(subtotal + invoiceTax));
+    }
+
+    function setInvoiceStatus(value) {
+        invoiceStatus = value || 'draft';
+        if (statusLabel) statusLabel.textContent = invoiceStatus;
+        if (submitBtn) {
+            const canSubmit = isEditable();
+            submitBtn.disabled = !canSubmit;
+            submitBtn.textContent = canSubmit ? 'Submit invoice' : 'Invoice submitted';
+        }
+        document.querySelectorAll('[data-lineitem-edit], [data-lineitem-delete], #li-add, #attachment-upload, #attachment-delete, #attachment-file, #invoice-tax-rate-percent, #invoice-tax-apply').forEach((el) => {
+            el.disabled = !isEditable();
+        });
+    }
+
+    function ensureEmptyState() {
+        const rows = lineItemsBody.querySelectorAll('[data-lineitem-row]');
+        let empty = document.getElementById('lineitems-empty');
+        if (!rows.length && !empty) {
+            empty = document.createElement('tr');
+            empty.id = 'lineitems-empty';
+            empty.innerHTML = '<td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No line items yet. Add one above.</td>';
+            lineItemsBody.appendChild(empty);
+        } else if (rows.length && empty) {
+            empty.remove();
+        }
+    }
+
+    function renderLineItemRow(item) {
+        const row = document.createElement('tr');
+        row.dataset.lineitemRow = '1';
+        row.dataset.id = item.id;
+        row.dataset.itemType = item.item_type || '';
+        row.dataset.description = item.description || '';
+        row.dataset.quantity = item.quantity;
+        row.dataset.unitPrice = item.unit_price;
+        row.dataset.notes = item.notes || '';
+        row.className = 'divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800';
+        row.innerHTML = `
+            <td class="px-3 py-2 text-slate-900 dark:text-white">
+                <div class="font-medium">${item.description || item.item_type || 'Line item'}</div>
+                ${item.notes ? `<div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">${item.notes}</div>` : ''}
+            </td>
+            <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">${item.quantity}</td>
+            <td class="px-3 py-2 text-right text-slate-700 dark:text-slate-200">${item.unit_price}</td>
+            <td class="px-3 py-2 text-right font-medium text-slate-900 dark:text-white" data-amount>${item.amount}</td>
+            <td class="px-3 py-2 text-right">
+                <div class="inline-flex items-center gap-2">
+                    <button type="button" data-lineitem-edit class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/50">Edit</button>
+                    <button type="button" data-lineitem-delete class="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30">Delete</button>
+                </div>
+            </td>`;
+        return row;
+    }
+
+    function updateAttachmentSummary(data) {
+        if (!attachmentSummary) return;
+        if (data?.attachment_file_name) {
+            attachmentSummary.innerHTML = `
+                <div class="font-semibold text-slate-900 dark:text-white">${data.attachment_file_name}</div>
+                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    ${data.attachment_mime_type || 'file'}${data.attachment_file_size ? ` • ${data.attachment_file_size} bytes` : ''}
+                </div>`;
+        } else {
+            attachmentSummary.textContent = 'No supporting file uploaded.';
+        }
+    }
+
+    async function saveTaxRate() {
+        const taxRatePercent = moneyToNumber(taxInput?.value || '0');
+        if (!Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100) {
+            throw new Error('Tax percentage must be between 0 and 100.');
+        }
+        if (taxApplyBtn) {
+            taxApplyBtn.disabled = true;
+            taxApplyBtn.textContent = 'Applying...';
+        }
+        if (taxInput) taxInput.disabled = true;
+        try {
+            const res = await fetch(`/api/v1/vendor/purchase-invoices/${invoiceId}/tax`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ tax_rate_percent: taxRatePercent.toFixed(2) }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Failed to save tax percentage.');
+            invoiceTaxRate = moneyToNumber(data?.tax_rate_percent);
+            if (taxInput) taxInput.value = money(invoiceTaxRate);
+            updateTotals();
+            setText(taxMsg, 'Tax saved.');
+        } finally {
+            if (taxApplyBtn) {
+                taxApplyBtn.disabled = !isEditable();
+                taxApplyBtn.textContent = 'Apply tax';
+            }
+            if (taxInput) taxInput.disabled = !isEditable();
+        }
+    }
+
+    document.getElementById('li-add')?.addEventListener('click', async () => {
+        const payload = {
+            item_type: document.getElementById('li-item-type').value.trim() || null,
+            description: document.getElementById('li-description').value.trim(),
+            quantity: document.getElementById('li-quantity').value || '1.000',
+            unit_price: document.getElementById('li-unit-price').value || '0.00',
+            notes: document.getElementById('li-notes').value.trim() || null,
+        };
+        try {
+            const res = await fetch(`/api/v1/vendor/purchase-invoices/${invoiceId}/line-items`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Failed to add line item.');
+            lineItemsBody.appendChild(renderLineItemRow(data));
+            ensureEmptyState();
+            updateTotals();
+            setText(lineItemMsg, 'Line item added.');
+            ['li-item-type', 'li-description', 'li-notes'].forEach((id) => document.getElementById(id).value = '');
+            document.getElementById('li-quantity').value = '1.000';
+            document.getElementById('li-unit-price').value = '0.00';
+        } catch (err) {
+            setText(lineItemMsg, err.message || 'Failed to add line item.');
+        }
+    });
+
+    lineItemsBody.addEventListener('click', async (event) => {
+        const editBtn = event.target.closest('[data-lineitem-edit]');
+        const deleteBtn = event.target.closest('[data-lineitem-delete]');
+        const row = event.target.closest('[data-lineitem-row]');
+        if (!row || !isEditable()) return;
+
+        if (editBtn) {
+            const description = window.prompt('Description', row.dataset.description || '');
+            if (description === null) return;
+            const quantity = window.prompt('Quantity', row.dataset.quantity || '1.000');
+            if (quantity === null) return;
+            const unitPrice = window.prompt('Unit price', row.dataset.unitPrice || '0.00');
+            if (unitPrice === null) return;
+            const itemType = window.prompt('Type', row.dataset.itemType || '');
+            if (itemType === null) return;
+            const notes = window.prompt('Notes', row.dataset.notes || '');
+            if (notes === null) return;
+            try {
+                const res = await fetch(`/api/v1/vendor/purchase-invoices/${invoiceId}/line-items/${row.dataset.id}`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        item_type: itemType.trim() || null,
+                        description: description.trim(),
+                        quantity,
+                        unit_price: unitPrice,
+                        notes: notes.trim() || null,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Failed to update line item.');
+                row.replaceWith(renderLineItemRow(data));
+                ensureEmptyState();
+                updateTotals();
+                setText(lineItemMsg, 'Line item updated.');
+            } catch (err) {
+                setText(lineItemMsg, err.message || 'Failed to update line item.');
+            }
+        }
+
+        if (deleteBtn) {
+            try {
+                const res = await fetch(`/api/v1/vendor/purchase-invoices/${invoiceId}/line-items/${row.dataset.id}`, {
+                    method: 'DELETE',
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Failed to delete line item.');
+                row.remove();
+                ensureEmptyState();
+                updateTotals();
+                setText(lineItemMsg, 'Line item removed.');
+            } catch (err) {
+                setText(lineItemMsg, err.message || 'Failed to delete line item.');
+            }
+        }
+    });
+
+    document.getElementById('attachment-upload')?.addEventListener('click', async () => {
+        const fileInput = document.getElementById('attachment-file');
+        const file = fileInput?.files?.[0];
+        if (!file) {
+            setText(attachmentMsg, 'Choose a file first.');
+            return;
+        }
+        const form = new FormData();
+        form.append('file', file);
+        try {
+            const res = await fetch(`/api/v1/vendor/purchase-invoices/${invoiceId}/attachment`, {
+                method: 'POST',
+                body: form,
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Failed to upload file.');
+            updateAttachmentSummary(data);
+            setText(attachmentMsg, 'Supporting file uploaded.');
+        } catch (err) {
+            setText(attachmentMsg, err.message || 'Failed to upload file.');
+        }
+    });
+
+    document.getElementById('attachment-delete')?.addEventListener('click', async () => {
+        try {
+            const res = await fetch(`/api/v1/vendor/purchase-invoices/${invoiceId}/attachment`, {
+                method: 'DELETE',
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Failed to remove file.');
+            updateAttachmentSummary(data);
+            setText(attachmentMsg, 'Supporting file removed.');
+            const fileInput = document.getElementById('attachment-file');
+            if (fileInput) fileInput.value = '';
+        } catch (err) {
+            setText(attachmentMsg, err.message || 'Failed to remove file.');
+        }
+    });
+
+    taxApplyBtn?.addEventListener('click', async () => {
+        try {
+            setText(taxMsg, '');
+            await saveTaxRate();
+        } catch (err) {
+            setText(taxMsg, err.message || 'Failed to save tax percentage.');
+        }
+    });
+
+    taxInput?.addEventListener('input', () => {
+        invoiceTaxRate = moneyToNumber(taxInput.value || '0');
+        updateTotals();
+    });
+
+    submitBtn?.addEventListener('click', async () => {
+        try {
+            const res = await fetch(`/api/v1/vendor/purchase-invoices/${invoiceId}/submit`, {
+                method: 'POST',
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Failed to submit invoice.');
+            setInvoiceStatus(data?.status || 'submitted');
+            setText(submitMsg, 'Purchase invoice submitted successfully.');
+        } catch (err) {
+            setText(submitMsg, err.message || 'Failed to submit invoice.');
+        }
+    });
+
+    ensureEmptyState();
+    updateTotals();
+    setInvoiceStatus(invoiceStatus);
+})();
+</script>
+{% endblock %}

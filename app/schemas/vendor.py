@@ -11,8 +11,8 @@ from app.models.vendor import (
     InstallationProjectStatus,
     ProjectQuoteStatus,
     ProposedRouteRevisionStatus,
-    VariationType,
     VendorAssignmentType,
+    VendorPurchaseInvoiceStatus,
 )
 
 
@@ -64,6 +64,7 @@ class InstallationProjectBase(BaseModel):
     status: InstallationProjectStatus = InstallationProjectStatus.draft
     bidding_open_at: datetime | None = None
     bidding_close_at: datetime | None = None
+    erp_purchase_order_id: str | None = None
     approved_quote_id: UUID | None = None
     created_by_person_id: UUID | None = None
     notes: str | None = None
@@ -83,6 +84,7 @@ class InstallationProjectUpdate(BaseModel):
     status: InstallationProjectStatus | None = None
     bidding_open_at: datetime | None = None
     bidding_close_at: datetime | None = None
+    erp_purchase_order_id: str | None = None
     approved_quote_id: UUID | None = None
     notes: str | None = None
     is_active: bool | None = None
@@ -186,6 +188,100 @@ class QuoteLineItemRead(QuoteLineItemBase):
     updated_at: datetime
 
 
+class VendorPurchaseInvoiceBase(BaseModel):
+    project_id: UUID
+    invoice_number: str | None = None
+    vendor_id: UUID | None = None
+    status: VendorPurchaseInvoiceStatus = VendorPurchaseInvoiceStatus.draft
+    currency: str = Field(default="NGN", max_length=3)
+    tax_rate_percent: Decimal | None = Field(default=None, ge=0, le=100)
+    subtotal: Decimal = Decimal("0.00")
+    tax_total: Decimal = Decimal("0.00")
+    total: Decimal = Decimal("0.00")
+    submitted_at: datetime | None = None
+    reviewed_at: datetime | None = None
+    reviewed_by_person_id: UUID | None = None
+    review_notes: str | None = None
+    created_by_person_id: UUID | None = None
+    attachment_storage_key: str | None = None
+    attachment_file_name: str | None = None
+    attachment_mime_type: str | None = None
+    attachment_file_size: int | None = None
+    erp_purchase_order_id: str | None = None
+    erp_purchase_invoice_id: str | None = None
+    erp_sync_error: str | None = None
+    erp_synced_at: datetime | None = None
+    is_active: bool = True
+
+
+class VendorPurchaseInvoiceCreate(BaseModel):
+    project_id: UUID
+
+
+class VendorPurchaseInvoiceUpdate(BaseModel):
+    tax_rate_percent: Decimal | None = Field(default=None, ge=0, le=100)
+    review_notes: str | None = None
+    erp_purchase_order_id: str | None = None
+    erp_purchase_invoice_id: str | None = None
+    erp_sync_error: str | None = None
+    erp_synced_at: datetime | None = None
+
+
+class VendorPurchaseInvoiceTaxRateUpdateRequest(BaseModel):
+    tax_rate_percent: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
+
+
+class VendorPurchaseInvoiceRead(VendorPurchaseInvoiceBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class VendorPurchaseInvoiceLineItemBase(BaseModel):
+    invoice_id: UUID
+    item_type: str | None = Field(default=None, max_length=80)
+    description: str | None = None
+    quantity: Decimal = Field(default=Decimal("1.000"), ge=1)
+    unit_price: Decimal = Decimal("0.00")
+    amount: Decimal = Decimal("0.00")
+    notes: str | None = None
+    is_active: bool = True
+
+
+class VendorPurchaseInvoiceLineItemCreate(VendorPurchaseInvoiceLineItemBase):
+    pass
+
+
+class VendorPurchaseInvoiceLineItemCreateRequest(BaseModel):
+    item_type: str | None = Field(default=None, max_length=80)
+    description: str | None = None
+    quantity: Decimal = Field(default=Decimal("1.000"), ge=1)
+    unit_price: Decimal = Decimal("0.00")
+    amount: Decimal = Decimal("0.00")
+    notes: str | None = None
+    is_active: bool = True
+
+
+class VendorPurchaseInvoiceLineItemUpdate(BaseModel):
+    item_type: str | None = Field(default=None, max_length=80)
+    description: str | None = None
+    quantity: Decimal | None = Field(default=None, ge=1)
+    unit_price: Decimal | None = None
+    amount: Decimal | None = None
+    notes: str | None = None
+    is_active: bool | None = None
+
+
+class VendorPurchaseInvoiceLineItemRead(VendorPurchaseInvoiceLineItemBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
 class ProposedRouteRevisionBase(BaseModel):
     quote_id: UUID
     revision_number: int
@@ -229,46 +325,13 @@ class AsBuiltRouteBase(BaseModel):
     fiber_segment_id: UUID | None = None
     report_file_name: str | None = None
     report_generated_at: datetime | None = None
-    variation_type: VariationType | None = None
-    variation_reason: str | None = None
-    version: int = 1
-    work_order_ref: str | None = Field(default=None, max_length=120)
-    erp_sync_status: str | None = Field(default=None, max_length=40)
-    erp_reference: str | None = Field(default=None, max_length=120)
-
-
-class AsBuiltLineItemInput(BaseModel):
-    item_type: str | None = Field(default=None, max_length=80)
-    description: str | None = None
-    cable_type: str | None = Field(default=None, max_length=120)
-    fiber_count: int | None = None
-    splice_count: int | None = None
-    quantity: Decimal = Field(default=Decimal("1.000"), ge=1)
-    unit_price: Decimal = Decimal("0.00")
-    amount: Decimal | None = None
-    notes: str | None = None
-    is_active: bool = True
-
-
-class AsBuiltLineItemRead(AsBuiltLineItemInput):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    as_built_id: UUID
-    amount: Decimal
-    created_at: datetime
-    updated_at: datetime
 
 
 class AsBuiltRouteCreate(BaseModel):
     project_id: UUID
     proposed_revision_id: UUID | None = None
-    geojson: dict | None = None
+    geojson: dict
     actual_length_meters: float | None = None
-    line_items: list[AsBuiltLineItemInput] = Field(default_factory=list)
-    variation_type: VariationType | None = None
-    variation_reason: str | None = None
-    work_order_ref: str | None = Field(default=None, max_length=120)
 
 
 class AsBuiltRouteRead(AsBuiltRouteBase):
@@ -277,7 +340,6 @@ class AsBuiltRouteRead(AsBuiltRouteBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
-    line_items: list[AsBuiltLineItemRead] = Field(default_factory=list)
 
 
 class InstallationProjectNoteCreate(BaseModel):

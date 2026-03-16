@@ -59,6 +59,8 @@ def _make_quote(vendor, line_items=None) -> MagicMock:
     reviewer.email = "admin@dotmac.io"
     q.reviewed_by = reviewer
     q.line_items = line_items if line_items is not None else [_make_line_item()]
+    q.project = MagicMock()
+    q.project.erp_purchase_order_id = None
     return q
 
 
@@ -265,6 +267,7 @@ class TestSyncPurchaseOrder:
         assert result.success is True
         assert result.erp_po_id == "PO-2026-00045"
         assert wo.metadata_["erp_po_id"] == "PO-2026-00045"
+        assert quote.project.erp_purchase_order_id == "PO-2026-00045"
         session.commit.assert_called_once()
         client.create_purchase_order.assert_called_once()
 
