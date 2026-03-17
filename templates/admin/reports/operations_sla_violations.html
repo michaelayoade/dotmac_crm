@@ -1,0 +1,163 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import dashboard_filter_panel, dashboard_kpi_grid, stats_card, table_shell, table_row, empty_state %}
+
+{% block title %}Operations SLA Violations - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Operations SLA Violations</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track active SLA breaches across tickets, projects, and project tasks.</p>
+    </div>
+
+    {% call dashboard_filter_panel(color="rose", title="Filters") %}
+    <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-end">
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Data Type</label>
+            <select name="data_type" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                {% for option in data_type_options %}
+                <option value="{{ option.value }}" {% if selected_data_type == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Region</label>
+            <select name="region" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                <option value="">All Regions</option>
+                {% for item in region_options %}
+                <option value="{{ item }}" {% if selected_region == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+            <input type="date" name="start_date" value="{{ start_date }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+            <input type="date" name="end_date" value="{{ end_date }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+            <input type="hidden" name="days" value="{{ days }}">
+        </div>
+        <div class="flex items-center gap-2 md:justify-end">
+            <a href="/admin/reports/operations-sla-violations" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
+            <button type="submit" class="inline-flex items-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">Apply Filter</button>
+        </div>
+    </form>
+    {% endcall %}
+
+    {% call dashboard_kpi_grid(cols="4") %}
+        {{ stats_card("Total Violations", summary.total_violations, color="rose", color2="red") }}
+        {{ stats_card("Open Violations", summary.open_violations, color="amber", color2="orange") }}
+        {{ stats_card("Regions Affected", summary.regions_affected, color="blue", color2="cyan") }}
+        {{ stats_card("Longest Active Breach", summary.longest_active_breach, color="slate", color2="gray") }}
+    {% endcall %}
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Violations by Region</h2>
+            </div>
+            <div class="p-6">
+                <div class="chart-container" style="min-height: 280px;">
+                    <canvas id="violations-by-region-chart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Violations Trend</h2>
+            </div>
+            <div class="p-6">
+                <div class="chart-container" style="min-height: 280px;">
+                    <canvas id="violations-trend-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% call table_shell(table_id="operations-sla-violations-table", title="Detailed Violations", color="rose", count=records|length) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead>
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">ID</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Title</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Project</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">SLA Type</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Breach Duration</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% for record in records %}
+            {% call table_row(color="rose") %}
+                <td class="px-6 py-3 text-sm font-medium">
+                    <a href="{{ record.detail_url }}" class="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300">{{ record.id }}</a>
+                </td>
+                <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ record.title }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ record.project or "-" }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ record.region }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ record.sla_type }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ record.status | replace('_', ' ') | title }}</td>
+                <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ record.breach_duration }}</td>
+            {% endcall %}
+            {% else %}
+            {{ empty_state(title="No SLA violations found", message="No breaches match the selected filters.", colspan=7) }}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endcall %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const regionCtx = document.getElementById('violations-by-region-chart');
+    if (regionCtx) {
+        const regionData = {{ region_chart | tojson }};
+        if (regionData.length > 0) {
+            const chart = DotmacCharts.createBarChart(regionCtx, {
+                labels: regionData.map(item => item.label),
+                datasets: [{
+                    label: 'Violations',
+                    data: regionData.map(item => item.count),
+                    backgroundColor: '#f43f5e',
+                    borderColor: '#e11d48',
+                    borderWidth: 1
+                }]
+            }, {
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            });
+            DotmacCharts.registerChart('violations-by-region-chart', chart);
+        }
+    }
+
+    const trendCtx = document.getElementById('violations-trend-chart');
+    if (trendCtx) {
+        const trendData = {{ trend_chart | tojson }};
+        if (trendData.length > 0) {
+            const chart = DotmacCharts.createLineChart(trendCtx, {
+                labels: trendData.map(item => item.date),
+                datasets: [{
+                    label: 'Violations',
+                    data: trendData.map(item => item.count),
+                    borderColor: '#0f766e',
+                    backgroundColor: 'rgba(15, 118, 110, 0.16)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            }, {
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            });
+            DotmacCharts.registerChart('violations-trend-chart', chart);
+        }
+    }
+});
+</script>
+{% endblock %}
