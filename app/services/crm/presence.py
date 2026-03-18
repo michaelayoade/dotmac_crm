@@ -33,19 +33,18 @@ class AgentPresenceManager(ListResponseMixin):
         *,
         stale_after_minutes: int = DEFAULT_STALE_MINUTES,
     ) -> AgentPresenceStatus:
-        # Preserve existing behavior: stale or missing heartbeat => offline.
+        if presence.manual_override_status is not None:
+            return presence.manual_override_status
+
+        # Logged-in but idle/stale agents are considered away, not offline.
         if not presence.last_seen_at:
-            return AgentPresenceStatus.offline
+            return AgentPresenceStatus.away
         last_seen_at = presence.last_seen_at
         if last_seen_at.tzinfo is None:
             last_seen_at = last_seen_at.replace(tzinfo=UTC)
         cutoff = AgentPresenceManager._now() - timedelta(minutes=stale_after_minutes)
         if last_seen_at < cutoff:
-            return AgentPresenceStatus.offline
-
-        # Manual override wins when heartbeat is fresh.
-        if presence.manual_override_status is not None:
-            return presence.manual_override_status
+            return AgentPresenceStatus.away
 
         return presence.status
 
