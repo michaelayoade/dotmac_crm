@@ -29,7 +29,7 @@
                     <div class="flex items-center justify-between gap-2 mb-0.5">
                         <h4 class="text-sm font-semibold text-slate-900 truncate dark:text-white">{{ conv.author_name }}</h4>
                         <span class="text-xs text-slate-500 font-mono-tight whitespace-nowrap dark:text-slate-400">
-                            {{ conv.last_message_at.strftime('%H:%M') if conv.last_message_at else '' }}
+                            {{ conv.last_message_at_label or (conv.last_message_at.strftime('%H:%M') if conv.last_message_at else '') }}
                         </span>
                     </div>
                     <p class="text-xs text-slate-500 truncate leading-relaxed dark:text-slate-400">{{ conv.preview }}</p>
@@ -107,7 +107,7 @@
                         <span class="text-xs text-slate-500 font-mono-tight whitespace-nowrap dark:text-slate-400"
                               data-role="last-message-at"
                               {% if conv.last_message_at %}data-timestamp="{{ conv.last_message_at.isoformat() }}"{% endif %}>
-                            {{ conv.last_message_at.strftime('%H:%M') if conv.last_message_at else '' }}
+                            {{ conv.last_message_at_label or (conv.last_message_at.strftime('%H:%M') if conv.last_message_at else '') }}
                         </span>
                     </div>
 
