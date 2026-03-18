@@ -25,6 +25,7 @@ from app.services.crm.inbox.comments_context import list_comment_inboxes, load_c
 from app.services.crm.inbox.csat import get_conversation_csat_event
 from app.services.crm.inbox.dashboard import load_inbox_stats
 from app.services.crm.inbox.formatting import (
+    _format_inbox_datetime_label,
     filter_messages_for_user,
     format_contact_for_template,
     format_conversation_for_template,
@@ -36,6 +37,7 @@ from app.services.crm.inbox.listing import load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
+from app.services.time_preferences import resolve_company_time_prefs
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,21 @@ def _person_label(person: Person | None) -> str | None:
         return None
     full_name = person.display_name or " ".join(part for part in [person.first_name, person.last_name] if part).strip()
     return full_name or person.email or None
+
+
+def _annotate_conversation_time_labels(db: Session, conversations: list[dict]) -> None:
+    """Ensure all inbox list items have a timezone-aware display label."""
+    for item in conversations:
+        if item.get("last_message_at_label"):
+            continue
+        value = item.get("last_message_at")
+        if isinstance(value, datetime):
+            try:
+                from app.services.crm.inbox.formatting import _format_inbox_time_label
+
+                item["last_message_at_label"] = _format_inbox_time_label(value, db)
+            except Exception:
+                logger.debug("Failed to annotate inbox conversation time label.", exc_info=True)
 
 
 def _load_assignment_activity(
@@ -153,6 +170,9 @@ async def build_inbox_page_context(
             except Exception:
                 logger.debug("Failed to format contact details for inbox context.", exc_info=True)
 
+    inbox_timezone, _date_format, time_format, _week_start = resolve_company_time_prefs(db)
+    inbox_time_hour12 = "%I" in time_format
+
     if not comments_mode:
         listing = await load_inbox_list(
             db,
@@ -204,6 +224,7 @@ async def build_inbox_page_context(
 
             conversations.sort(key=_sort_key, reverse=True)
             conversations = conversations[:page_limit]
+        _annotate_conversation_time_labels(db, conversations)
         enrich_formatted_conversations_with_labels(
             db,
             [item for item in conversations if item.get("kind") != "comment"],
@@ -316,6 +337,8 @@ async def build_inbox_page_context(
         "current_assigned_to": assigned_to.strftime("%Y-%m-%d") if assigned_to else "",
         "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
         "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
+        "inbox_timezone": inbox_timezone,
+        "inbox_time_hour12": inbox_time_hour12,
         "message_templates": templates,
         "macros": conversation_macros.list_for_agent(db, str(current_agent_id))
         if current_agent_id
@@ -393,6 +416,7 @@ async def build_inbox_conversations_partial_context(
 
         conversations.sort(key=_sort_key, reverse=True)
         conversations = conversations[:page_limit]
+    _annotate_conversation_time_labels(db, conversations)
     enrich_formatted_conversations_with_labels(
         db,
         [item for item in conversations if item.get("kind") != "comment"],
@@ -413,6 +437,8 @@ async def build_inbox_conversations_partial_context(
         "conversations_page": (safe_offset // page_limit) + 1,
         "conversations_prev_page": (safe_page - 1) if safe_page > 1 else None,
         "conversations_next_page": (safe_page + 1) if listing.has_more else None,
+        "inbox_timezone": resolve_company_time_prefs(db)[0],
+        "inbox_time_hour12": "%I" in resolve_company_time_prefs(db)[2],
     }
     return template_name, context
 
@@ -498,6 +524,7 @@ def build_inbox_conversation_detail_context(
                 "id": f"csat-{csat_event.id}",
                 "direction": "system",
                 "timestamp": csat_event.timestamp,
+                "timestamp_label": _format_inbox_datetime_label(csat_event.timestamp, db),
                 "is_private_note": False,
                 "is_csat": True,
                 "sender": {"name": "CSAT", "initials": "CS"},
@@ -515,6 +542,7 @@ def build_inbox_conversation_detail_context(
                 "id": f"assignment-{conversation_id}-{latest_manual_assignment['assigned_at'].isoformat()}",
                 "direction": "system",
                 "timestamp": latest_manual_assignment["assigned_at"],
+                "timestamp_label": _format_inbox_datetime_label(latest_manual_assignment["assigned_at"], db),
                 "is_private_note": False,
                 "is_assignment_event": True,
                 "sender": {"name": "Assignment", "initials": "AS"},

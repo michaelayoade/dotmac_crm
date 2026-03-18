@@ -1958,7 +1958,12 @@ function inboxController() {
             if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
                 return 'now';
             }
-            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return new Intl.DateTimeFormat([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: {{ 'true' if inbox_time_hour12 else 'false' }},
+                timeZone: {{ inbox_timezone|tojson }},
+            }).format(date);
         },
 
         getAccessToken() {
@@ -2635,7 +2640,7 @@ function inboxController() {
                 if (timeEl) {
                     timeEl.dataset.timestamp = summary.last_message_at;
                     const date = new Date(summary.last_message_at);
-                    timeEl.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    timeEl.textContent = this.formatTimeLabel(date);
                 }
             }
             this.moveConversationRowToTop(row);

@@ -422,7 +422,7 @@
                     <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
                         Manual assignment
                     </span>
-                    <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') if msg.timestamp else '' }}</span>
+                    <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp_label or (msg.timestamp.strftime('%b %d, %Y %H:%M') if msg.timestamp else '') }}</span>
                 </div>
             </div>
         </div>
@@ -439,7 +439,7 @@
                     </div>
                     <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-emerald-900 dark:text-emerald-100">
                         <span class="font-semibold">Rating: {{ msg.csat.rating if msg.csat and msg.csat.rating is not none else "N/A" }}/5</span>
-                        <span>{{ msg.timestamp.strftime('%b %d, %Y %H:%M') if msg.timestamp else '' }}</span>
+                        <span>{{ msg.timestamp_label or (msg.timestamp.strftime('%b %d, %Y %H:%M') if msg.timestamp else '') }}</span>
                     </div>
                     {% if msg.csat and msg.csat.feedback %}
                     <p class="mt-2 whitespace-pre-wrap rounded-lg border border-emerald-200/80 bg-white/80 px-3 py-2 text-sm text-slate-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200">{{ msg.csat.feedback }}</p>
@@ -510,7 +510,7 @@
                             {% endif %}
                         </div>
                         <div class="flex items-center gap-2 mt-1.5 px-1">
-                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
+                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp_label or msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
                             <button type="button"
                                     data-quote-button
                                     data-quote-id="{{ msg.id }}"
@@ -581,7 +581,7 @@
                             {% endif %}
                         </div>
                         <div class="flex items-center gap-2 mt-1.5 px-1 justify-end">
-                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
+                            <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp_label or msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
                             <button type="button"
                                     data-quote-button
                                     data-quote-id="{{ msg.id }}"

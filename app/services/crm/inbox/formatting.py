@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from html.parser import HTMLParser
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,7 @@ from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
 from app.models.person import Person
 from app.models.subscriber import Organization
+from app.services import time_preferences
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
@@ -27,6 +29,30 @@ from app.services.crm.inbox.permissions import can_view_private_note
 
 logger = logging.getLogger(__name__)
 _URL_RE = re.compile(r"(https?://[^\s<]+)", flags=re.IGNORECASE)
+
+
+def _localize_inbox_datetime(value: datetime | None, db: Session) -> tuple[datetime | None, str, str]:
+    """Convert timestamps to the configured company timezone for inbox rendering."""
+    timezone, date_format, time_format, _ = time_preferences.resolve_company_time_prefs(db)
+    if value is None:
+        return None, date_format, time_format
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=datetime.UTC)
+    return value.astimezone(ZoneInfo(timezone)), date_format, time_format
+
+
+def _format_inbox_time_label(value: datetime | None, db: Session) -> str:
+    local_value, _date_format, time_format = _localize_inbox_datetime(value, db)
+    if local_value is None:
+        return ""
+    return local_value.strftime(time_format)
+
+
+def _format_inbox_datetime_label(value: datetime | None, db: Session) -> str:
+    local_value, date_format, time_format = _localize_inbox_datetime(value, db)
+    if local_value is None:
+        return ""
+    return local_value.strftime(f"{date_format} {time_format}")
 
 
 def get_initials(name: str | None) -> str:
@@ -478,6 +504,8 @@ def format_conversation_for_template(
                 "until_at": str(until_at) if until_at else None,
             }
 
+    rendered_last_message_at = conv.last_message_at or latest_message_at or conv.updated_at
+
     return {
         "id": str(conv.id),
         "contact": {
@@ -497,7 +525,8 @@ def format_conversation_for_template(
         "subject": conv.subject,
         "preview": preview,
         "unread_count": unread_count or 0,
-        "last_message_at": conv.last_message_at or latest_message_at or conv.updated_at,
+        "last_message_at": rendered_last_message_at,
+        "last_message_at_label": _format_inbox_time_label(rendered_last_message_at, db),
         "assigned_to": assigned_to,
         "assigned_team": assigned_team,
         "assigned_agent_id": assigned_agent_id,
@@ -749,6 +778,8 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
                 "channel_type": reply_msg.channel_type.value if reply_msg.channel_type else None,
             }
 
+    timestamp = msg.received_at or msg.sent_at or msg.created_at
+
     return {
         "id": str(msg.id),
         "conversation_id": str(msg.conversation_id),
@@ -756,7 +787,8 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "content": content,
         "content_html": content_html,
         "html_body": html_body,
-        "timestamp": msg.received_at or msg.sent_at or msg.created_at,
+        "timestamp": timestamp,
+        "timestamp_label": _format_inbox_datetime_label(timestamp, db),
         "status": msg.status.value if msg.status else "received",
         "read_at": msg.read_at,
         "attachments": attachments,
