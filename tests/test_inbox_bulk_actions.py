@@ -85,8 +85,8 @@ def test_bulk_assign_me_applies_agent_assignment(db_session):
     )
 
     assert result.kind == "success"
-    assert result.applied == 0
-    assert result.failed == 1
+    assert result.applied == 1
+    assert result.failed == 0
 
 
 def test_bulk_label_add_and_remove(db_session):
