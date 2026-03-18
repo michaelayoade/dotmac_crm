@@ -892,11 +892,6 @@
 		            send(document.hidden ? "away" : getMode());
 		        });
 
-		        window.addEventListener("beforeunload", () => {
-		            if (!isCheckedIn()) return;
-		            send("offline");
-		        });
-
 		        // Allow UI to trigger check-in immediately.
 		        window.addEventListener("crm-presence-checkin", () => {
 		            try {

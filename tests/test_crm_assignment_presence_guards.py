@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -8,6 +8,7 @@ from app.models.crm.presence import AgentPresence
 from app.schemas.crm.conversation import ConversationCreate
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox.routing import _list_active_agents
+from app.services.crm.presence import agent_presence as agent_presence_service
 
 
 def test_manual_assignment_rejects_offline_agent(db_session, crm_contact, crm_agent, crm_team, person):
@@ -98,3 +99,31 @@ def test_auto_routing_includes_online_agents_with_fresh_presence(db_session, crm
 
     agents = _list_active_agents(db_session, str(crm_agent_team.team_id))
     assert [agent.id for agent in agents] == [crm_agent.id]
+
+
+def test_effective_status_treats_stale_presence_as_away(db_session, crm_agent):
+    presence = AgentPresence(
+        agent_id=crm_agent.id,
+        status=AgentPresenceStatus.online,
+        manual_override_status=None,
+        last_seen_at=datetime.now(UTC),
+    )
+    db_session.add(presence)
+    db_session.commit()
+
+    presence.last_seen_at = datetime.now(UTC) - timedelta(minutes=10)
+
+    assert agent_presence_service.effective_status(presence) == AgentPresenceStatus.away
+
+
+def test_effective_status_keeps_manual_offline_override(db_session, crm_agent):
+    presence = AgentPresence(
+        agent_id=crm_agent.id,
+        status=AgentPresenceStatus.online,
+        manual_override_status=AgentPresenceStatus.offline,
+        last_seen_at=None,
+    )
+    db_session.add(presence)
+    db_session.commit()
+
+    assert agent_presence_service.effective_status(presence) == AgentPresenceStatus.offline
