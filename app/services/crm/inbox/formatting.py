@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -37,7 +37,7 @@ def _localize_inbox_datetime(value: datetime | None, db: Session) -> tuple[datet
     if value is None:
         return None, date_format, time_format
     if value.tzinfo is None:
-        value = value.replace(tzinfo=datetime.UTC)
+        value = value.replace(tzinfo=UTC)
     return value.astimezone(ZoneInfo(timezone)), date_format, time_format
 
 

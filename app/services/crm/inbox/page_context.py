@@ -518,13 +518,14 @@ def build_inbox_conversation_detail_context(
         limit=5,
     )
     csat_event = get_conversation_csat_event(db, conversation_id=conversation_id)
-    if csat_event and csat_event.timestamp is not None:
+    csat_timestamp = csat_event.timestamp if csat_event and isinstance(csat_event.timestamp, datetime) else None
+    if csat_event and csat_timestamp is not None:
         messages.append(
             {
                 "id": f"csat-{csat_event.id}",
                 "direction": "system",
-                "timestamp": csat_event.timestamp,
-                "timestamp_label": _format_inbox_datetime_label(csat_event.timestamp, db),
+                "timestamp": csat_timestamp,
+                "timestamp_label": _format_inbox_datetime_label(csat_timestamp, db),
                 "is_private_note": False,
                 "is_csat": True,
                 "sender": {"name": "CSAT", "initials": "CS"},
