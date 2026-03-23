@@ -59,7 +59,7 @@ from app.tasks.webhooks import (
     process_whatsapp_webhook,
     retry_failed_deliveries,
 )
-from app.tasks.workflow import detect_sla_breaches
+from app.tasks.workflow import detect_sla_breaches, send_daily_sla_violation_report
 
 __all__ = [
     "aggregate_bandwidth_to_metrics",
@@ -89,6 +89,7 @@ __all__ = [
     "retry_failed_deliveries",
     "run_integration_job",
     "run_scheduled_analysis",
+    "send_daily_sla_violation_report",
     "send_outbound_message_task",
     "send_outbox_item_task",
     "send_reply_reminders_task",
