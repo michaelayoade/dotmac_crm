@@ -382,6 +382,14 @@ def build_beat_schedule() -> dict:
             interval_seconds=sla_breach_interval_seconds,
         )
 
+        _sync_scheduled_task(
+            session,
+            name="daily_sla_violation_report",
+            task_name="app.tasks.workflow.send_daily_sla_violation_report",
+            enabled=True,
+            interval_seconds=900,
+        )
+
         # Campaign scheduled send - checks for campaigns due to send
         _sync_scheduled_task(
             session,

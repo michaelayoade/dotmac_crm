@@ -69,12 +69,15 @@ class OperationsSlaViolationsReport:
         start_at: datetime | None,
         end_at: datetime | None,
         limit: int = 200,
+        open_only: bool = False,
     ) -> list[dict]:
         query = _base_query(db, entity_type)
         if start_at:
             query = query.filter(SlaBreach.breached_at >= start_at)
         if end_at:
             query = query.filter(SlaBreach.breached_at <= end_at)
+        if open_only:
+            query = query.filter(SlaBreach.status != SlaBreachStatus.resolved)
 
         records: list[dict] = []
         if entity_type == "ticket":
@@ -92,12 +95,17 @@ class OperationsSlaViolationsReport:
                 records.append(
                     {
                         "id": ref,
+                        "reference": ref,
                         "title": ticket.title,
                         "project": "",
                         "region": ticket.region or "Unassigned",
                         "sla_type": "Ticket",
+                        "entity_type": "ticket",
                         "status": breach.status.value,
+                        "sla_status": breach.status.value,
+                        "breached_at": breach.breached_at,
                         "breach_duration": _duration_label(breach.breached_at, ended_at),
+                        "time_over_target": _duration_label(breach.breached_at, ended_at),
                         "detail_url": f"/admin/support/tickets/{ref}",
                     }
                 )
@@ -118,12 +126,17 @@ class OperationsSlaViolationsReport:
                 records.append(
                     {
                         "id": ref,
+                        "reference": ref,
                         "title": project.name,
                         "project": "",
                         "region": project.region or "Unassigned",
                         "sla_type": "Project",
+                        "entity_type": "project",
                         "status": breach.status.value,
+                        "sla_status": breach.status.value,
+                        "breached_at": breach.breached_at,
                         "breach_duration": _duration_label(breach.breached_at, ended_at),
+                        "time_over_target": _duration_label(breach.breached_at, ended_at),
                         "detail_url": f"/admin/projects/{ref}",
                     }
                 )
@@ -144,12 +157,17 @@ class OperationsSlaViolationsReport:
             records.append(
                 {
                     "id": ref,
+                    "reference": ref,
                     "title": task.title,
                     "project": project.name,
                     "region": project.region or "Unassigned",
                     "sla_type": "Project Task",
+                    "entity_type": "project_task",
                     "status": breach.status.value,
+                    "sla_status": breach.status.value,
+                    "breached_at": breach.breached_at,
                     "breach_duration": _duration_label(breach.breached_at, ended_at),
+                    "time_over_target": _duration_label(breach.breached_at, ended_at),
                     "detail_url": f"/admin/projects/tasks/{ref}",
                 }
             )
