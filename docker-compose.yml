@@ -108,6 +108,7 @@ services:
       OPENBAO_ADDR: ${OPENBAO_ADDR}
       OPENBAO_TOKEN: ${OPENBAO_ROOT_TOKEN}
       CRM_AI_PENDING_INTAKE_ENABLED: ${CRM_AI_PENDING_INTAKE_ENABLED:-1}
+      UVICORN_RELOAD: ${UVICORN_RELOAD:-0}
     env_file:
       - .env
     depends_on:
@@ -132,7 +133,12 @@ services:
       - /bin/sh
       - -c
       - |
-        alembic upgrade heads && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        set -eu
+        alembic upgrade heads
+        if [ "$${UVICORN_RELOAD}" = "1" ]; then
+          exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        fi
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
     healthcheck:
       test:
         - CMD

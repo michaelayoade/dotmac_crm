@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.db import get_db
 from app.models.dispatch import TechnicianProfile
 from app.models.person import Person
+from app.models.subscriber import SubscriberStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.crm import reports as crm_reports_service
@@ -168,8 +169,8 @@ def subscribers_report_redirect():
 
 @router.get("/churn")
 def churn_report_redirect():
-    """Legacy churn report - redirect to lifecycle."""
-    return RedirectResponse(url="/admin/reports/subscribers/lifecycle", status_code=302)
+    """Legacy churn report - redirect to churned subscribers."""
+    return RedirectResponse(url="/admin/reports/subscribers/churned", status_code=302)
 
 
 # =============================================================================
@@ -256,13 +257,20 @@ def subscriber_overview(
 
     user = get_current_user(request)
     start_dt, end_dt = _parse_date_range(days, start_date, end_date)
-
-    kpis = sr.overview_kpis(db, start_dt, end_dt)
-    growth_trend = sr.overview_growth_trend(db, start_dt, end_dt)
-    status_dist = sr.overview_status_distribution(db)
-    plan_dist = sr.overview_plan_distribution(db)
-    regional = sr.overview_regional_breakdown(db, start_dt, end_dt)
     filter_opts = sr.overview_filter_options(db)
+    region_options = filter_opts.get("regions", [])
+    region_value = region if isinstance(region, str) else None
+    status_value = status if isinstance(status, str) else None
+    selected_region = region_value if region_value in region_options else None
+    valid_statuses = {status.value: status for status in SubscriberStatus}
+    selected_status = valid_statuses.get((status_value or "").strip().lower())
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
+
+    kpis = sr.overview_kpis(db, start_dt, end_dt, subscriber_ids=subscriber_ids)
+    growth_trend = sr.overview_growth_trend(db, start_dt, end_dt, subscriber_ids=subscriber_ids)
+    status_dist = sr.overview_status_distribution(db, subscriber_ids=subscriber_ids)
+    plan_dist = sr.overview_plan_distribution(db, subscriber_ids=subscriber_ids)
+    regional = sr.overview_regional_breakdown(db, start_dt, end_dt, subscriber_ids=subscriber_ids)
 
     return templates.TemplateResponse(
         "admin/reports/subscriber_overview.html",
@@ -282,8 +290,8 @@ def subscriber_overview(
             "days": days,
             "start_date": start_date or "",
             "end_date": end_date or "",
-            "selected_status": status or "",
-            "selected_region": region or "",
+            "selected_status": selected_status.value if selected_status else "",
+            "selected_region": selected_region or "",
         },
     )
 
@@ -294,12 +302,22 @@ def subscriber_overview_export(
     days: int = Query(30, ge=7, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
+    status: str | None = Query(None),
+    region: str | None = Query(None),
 ):
     """Export subscriber overview as CSV."""
     from app.services import subscriber_reports as sr
 
     start_dt, end_dt = _parse_date_range(days, start_date, end_date)
-    regional = sr.overview_regional_breakdown(db, start_dt, end_dt)
+    filter_opts = sr.overview_filter_options(db)
+    region_options = filter_opts.get("regions", [])
+    region_value = region if isinstance(region, str) else None
+    status_value = status if isinstance(status, str) else None
+    selected_region = region_value if region_value in region_options else None
+    valid_statuses = {subscriber_status.value: subscriber_status for subscriber_status in SubscriberStatus}
+    selected_status = valid_statuses.get((status_value or "").strip().lower())
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
+    regional = sr.overview_regional_breakdown(db, start_dt, end_dt, subscriber_ids=subscriber_ids)
 
     export_data = [
         {
@@ -390,6 +408,77 @@ def subscriber_lifecycle_export(
         for c in recent_churns
     ]
     filename = f"subscriber_lifecycle_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Churned Subscribers Report
+# =============================================================================
+
+
+@router.get("/subscribers/churned", response_class=HTMLResponse)
+def churned_subscribers(
+    request: Request,
+    db: Session = Depends(get_db),
+    days: int = Query(90, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Subscribers churned in the selected period."""
+    from app.services import subscriber_reports as sr
+
+    user = get_current_user(request)
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+
+    kpis = sr.churned_subscribers_kpis(db, start_dt, end_dt)
+    churn_trend = sr.churned_subscribers_trend(db, start_dt, end_dt)
+    churned_rows = sr.churned_subscribers_rows(db, start_dt, end_dt)
+
+    return templates.TemplateResponse(
+        "admin/reports/churned_subscribers.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "subscriber-churned",
+            "active_menu": "reports",
+            "kpis": kpis,
+            "churn_trend": churn_trend,
+            "churned_rows": churned_rows,
+            "days": days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+        },
+    )
+
+
+@router.get("/subscribers/churned/export")
+def churned_subscribers_export(
+    db: Session = Depends(get_db),
+    days: int = Query(90, ge=7, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Export churned subscribers data as CSV."""
+    from app.services import subscriber_reports as sr
+
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    churned_rows = sr.churned_subscribers_rows(db, start_dt, end_dt, limit=1000)
+
+    export_data = [
+        {
+            "Name": row["name"],
+            "Subscriber #": row["subscriber_number"],
+            "Plan": row["plan"],
+            "Region": row["region"],
+            "Activated": row["activated_at"],
+            "Terminated": row["terminated_at"],
+            "Tenure (days)": row["tenure_days"],
+        }
+        for row in churned_rows
+    ]
+    filename = f"churned_subscribers_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
 
 

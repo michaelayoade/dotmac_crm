@@ -486,10 +486,7 @@ def test_overview_regional_breakdown_normalizes_region_variants(db_session):
     regional = subscriber_reports_service.overview_regional_breakdown(db_session, start_dt, end_dt)
 
     assert any(
-        row["region"] == "Abuja"
-        and row["active"] == 2
-        and row["suspended"] == 1
-        and row["new_in_period"] == 3
+        row["region"] == "Abuja" and row["active"] == 2 and row["suspended"] == 1 and row["new_in_period"] == 3
         for row in regional
     )
 
@@ -527,12 +524,7 @@ def test_overview_regional_breakdown_groups_abuja_address_strings(db_session):
 
     regional = subscriber_reports_service.overview_regional_breakdown(db_session, start_dt, end_dt)
 
-    assert any(
-        row["region"] == "Abuja"
-        and row["active"] == 2
-        and row["new_in_period"] == 2
-        for row in regional
-    )
+    assert any(row["region"] == "Abuja" and row["active"] == 2 and row["new_in_period"] == 2 for row in regional)
 
 
 def test_overview_regional_breakdown_groups_other_nigerian_city_localities(db_session):
@@ -1326,7 +1318,9 @@ def test_subscriber_overview_page_calculates_net_growth(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "overview_growth_trend",
-        lambda _db, _start_dt, _end_dt, subscriber_ids=None: [{"date": "2026-03-01", "activations": 10, "terminations": 3}],
+        lambda _db, _start_dt, _end_dt, subscriber_ids=None: [
+            {"date": "2026-03-01", "activations": 10, "terminations": 3}
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
@@ -1341,7 +1335,9 @@ def test_subscriber_overview_page_calculates_net_growth(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "overview_regional_breakdown",
-        lambda _db, _start_dt, _end_dt, subscriber_ids=None: [{"region": "Central", "active": 60, "suspended": 2, "terminated": 1, "new_in_period": 4, "ticket_count": 3}],
+        lambda _db, _start_dt, _end_dt, subscriber_ids=None: [
+            {"region": "Central", "active": 60, "suspended": 2, "terminated": 1, "new_in_period": 4, "ticket_count": 3}
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
@@ -1401,7 +1397,9 @@ def test_subscriber_overview_page_renders_filters_kpis_and_distribution_sections
     monkeypatch.setattr(
         subscriber_reports_service,
         "overview_growth_trend",
-        lambda _db, _start_dt, _end_dt, subscriber_ids=None: [{"date": "2026-03-01", "activations": 10, "terminations": 3}],
+        lambda _db, _start_dt, _end_dt, subscriber_ids=None: [
+            {"date": "2026-03-01", "activations": 10, "terminations": 3}
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
@@ -1416,7 +1414,9 @@ def test_subscriber_overview_page_renders_filters_kpis_and_distribution_sections
     monkeypatch.setattr(
         subscriber_reports_service,
         "overview_regional_breakdown",
-        lambda _db, _start_dt, _end_dt, subscriber_ids=None: [{"region": "Central", "active": 60, "suspended": 2, "terminated": 1, "new_in_period": 4, "ticket_count": 3}],
+        lambda _db, _start_dt, _end_dt, subscriber_ids=None: [
+            {"region": "Central", "active": 60, "suspended": 2, "terminated": 1, "new_in_period": 4, "ticket_count": 3}
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
@@ -1476,14 +1476,18 @@ def test_subscriber_overview_status_and_region_filters_affect_scope(monkeypatch)
         return ["sub-1"]
 
     monkeypatch.setattr(subscriber_reports_service, "overview_filtered_subscriber_ids", _capture_scope)
-    monkeypatch.setattr(subscriber_reports_service, "overview_kpis", lambda _db, _start_dt, _end_dt, subscriber_ids=None: {
-        "active_subscribers": 1,
-        "activations": 1,
-        "terminations": 0,
-        "suspended_count": 0,
-        "avg_tickets_per_sub": 0,
-        "regions_covered": 1,
-    })
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "overview_kpis",
+        lambda _db, _start_dt, _end_dt, subscriber_ids=None: {
+            "active_subscribers": 1,
+            "activations": 1,
+            "terminations": 0,
+            "suspended_count": 0,
+            "avg_tickets_per_sub": 0,
+            "regions_covered": 1,
+        },
+    )
     monkeypatch.setattr(
         subscriber_reports_service,
         "overview_growth_trend",
@@ -1546,9 +1550,7 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
             "leads_won": 4,
         },
     )
-    monkeypatch.setattr(
-        subscriber_reports_service, "lifecycle_funnel", lambda _db: [{"stage": "lead", "count": 20}]
-    )
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_funnel", lambda _db: [{"stage": "lead", "count": 20}])
     monkeypatch.setattr(
         subscriber_reports_service, "lifecycle_churn_trend", lambda _db: [{"month": "2026-03", "count": 2}]
     )
@@ -1560,7 +1562,15 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "lifecycle_recent_churns",
-        lambda _db: [{"name": "Jane Doe", "subscriber_number": "SUB-1", "region": "North", "terminated_at": "2026-03-01", "tenure_days": 90}],
+        lambda _db: [
+            {
+                "name": "Jane Doe",
+                "subscriber_number": "SUB-1",
+                "region": "North",
+                "terminated_at": "2026-03-01",
+                "tenure_days": 90,
+            }
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
@@ -1595,6 +1605,124 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
     assert "Recent Churn" in body
 
 
+def test_churned_subscribers_kpis_and_rows_use_selected_period(db_session):
+    now = datetime.now(UTC)
+    start_dt = now - timedelta(days=90)
+    end_dt = now
+
+    recent_person = Person(first_name="Recent", last_name="Churn", email=f"recent-{uuid4().hex}@example.com")
+    old_person = Person(first_name="Old", last_name="Churn", email=f"old-{uuid4().hex}@example.com")
+    db_session.add_all([recent_person, old_person])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=recent_person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.terminated,
+                is_active=False,
+                service_plan="Home 200",
+                service_region="Wuse 2",
+                activated_at=now - timedelta(days=180),
+                terminated_at=now - timedelta(days=20),
+            ),
+            Subscriber(
+                person_id=old_person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.terminated,
+                is_active=False,
+                service_plan="Business 500",
+                service_region="Lagos",
+                activated_at=now - timedelta(days=400),
+                terminated_at=now - timedelta(days=150),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    kpis = subscriber_reports_service.churned_subscribers_kpis(db_session, start_dt, end_dt)
+    rows = subscriber_reports_service.churned_subscribers_rows(db_session, start_dt, end_dt, limit=20)
+    trend = subscriber_reports_service.churned_subscribers_trend(db_session, start_dt, end_dt)
+
+    assert kpis["churned_count"] == 1
+    assert kpis["impacted_regions"] == 1
+    assert kpis["impacted_plans"] == 1
+    assert rows == [
+        {
+            "name": "Recent Churn",
+            "subscriber_number": rows[0]["subscriber_number"],
+            "plan": "Home 200",
+            "region": "Abuja",
+            "activated_at": (now - timedelta(days=180)).strftime("%Y-%m-%d"),
+            "terminated_at": (now - timedelta(days=20)).strftime("%Y-%m-%d"),
+            "tenure_days": 160,
+        }
+    ]
+    assert trend == [{"date": (now - timedelta(days=20)).strftime("%Y-%m-%d"), "count": 1}]
+
+
+def test_churned_subscribers_page_renders(monkeypatch):
+    monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churned_subscribers_kpis",
+        lambda _db, _start_dt, _end_dt: {
+            "churned_count": 12,
+            "avg_tenure_days": 147.5,
+            "impacted_regions": 4,
+            "impacted_plans": 3,
+        },
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churned_subscribers_trend",
+        lambda _db, _start_dt, _end_dt: [{"date": "2026-03-01", "count": 2}],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churned_subscribers_rows",
+        lambda _db, _start_dt, _end_dt: [
+            {
+                "name": "Jane Doe",
+                "subscriber_number": "SUB-1",
+                "plan": "Home 100",
+                "region": "Abuja",
+                "activated_at": "2025-01-10",
+                "terminated_at": "2026-03-01",
+                "tenure_days": 416,
+            }
+        ],
+    )
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/churned",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+
+    response = reports_web.churned_subscribers(
+        request=request,
+        db=None,
+        days=90,
+        start_date=None,
+        end_date=None,
+    )
+
+    assert response.status_code == 200
+    body = response.body.decode()
+    assert "Churned Subscribers" in body
+    assert "Average Tenure" in body
+    assert "Jane Doe" in body
+
+
 def test_subscriber_service_quality_page_renders(monkeypatch):
     monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
     monkeypatch.setattr(
@@ -1622,12 +1750,22 @@ def test_subscriber_service_quality_page_renders(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "service_quality_high_maintenance",
-        lambda _db, _start_dt, _end_dt: [{"name": "Acme Corp", "region": "Central", "tickets": 3, "work_orders": 1, "projects": 0, "total": 4}],
+        lambda _db, _start_dt, _end_dt: [
+            {"name": "Acme Corp", "region": "Central", "tickets": 3, "work_orders": 1, "projects": 0, "total": 4}
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
         "service_quality_regional",
-        lambda _db, _start_dt, _end_dt: [{"region": "Central", "active_subscribers": 40, "avg_tickets_per_sub": 0.5, "avg_resolution_hrs": 5.0, "wo_count": 3}],
+        lambda _db, _start_dt, _end_dt: [
+            {
+                "region": "Central",
+                "active_subscribers": 40,
+                "avg_tickets_per_sub": 0.5,
+                "avg_resolution_hrs": 5.0,
+                "wo_count": 3,
+            }
+        ],
     )
 
     request = Request(
@@ -1683,12 +1821,28 @@ def test_subscriber_revenue_page_renders(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "revenue_top_subscribers",
-        lambda _db, _start_dt, _end_dt: [{"name": "Revenue Leader", "email": "lead@example.com", "total_revenue": 50000.0, "order_count": 3, "status": "active"}],
+        lambda _db, _start_dt, _end_dt: [
+            {
+                "name": "Revenue Leader",
+                "email": "lead@example.com",
+                "total_revenue": 50000.0,
+                "order_count": 3,
+                "status": "active",
+            }
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
         "revenue_outstanding_balances",
-        lambda _db: [{"order_number": "SO-1", "customer": "Customer A", "balance": 1500.0, "due_date": "2026-03-05", "days_overdue": 10}],
+        lambda _db: [
+            {
+                "order_number": "SO-1",
+                "customer": "Customer A",
+                "balance": 1500.0,
+                "due_date": "2026-03-05",
+                "days_overdue": 10,
+            }
+        ],
     )
 
     request = Request(

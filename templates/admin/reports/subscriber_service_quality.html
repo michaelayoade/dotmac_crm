@@ -1,0 +1,243 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, dashboard_kpi_grid, stats_card, table_shell, table_row, empty_state %}
+
+{% block title %}Subscriber Service Quality - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header("Subscriber Service Quality", "Support load, resolution velocity, and maintenance hotspots.", color="cyan", color2="blue") %}
+        {{ action_button(
+            "Export CSV",
+            href="/admin/reports/subscribers/service-quality/export?days=" ~ days ~ ("&start_date=" ~ start_date if start_date else "") ~ ("&end_date=" ~ end_date if end_date else ""),
+            variant="secondary",
+            color="cyan",
+            icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>'
+        ) }}
+    {% endcall %}
+
+    {% call dashboard_filter_panel(color="cyan", title="Report Period") %}
+    <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-end">
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</label>
+            <select name="days" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 days</option>
+                <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 days</option>
+                <option value="90" {% if days == 90 %}selected{% endif %}>Last 90 days</option>
+                <option value="180" {% if days == 180 %}selected{% endif %}>Last 180 days</option>
+                <option value="365" {% if days == 365 %}selected{% endif %}>Last 365 days</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+            <input type="date" name="start_date" value="{{ start_date }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+            <input type="date" name="end_date" value="{{ end_date }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div class="rounded-2xl border border-cyan-200/70 bg-cyan-50/70 px-4 py-3 dark:border-cyan-900/40 dark:bg-cyan-900/10">
+            <p class="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">Repeat Contact Rate</p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ kpis.repeat_contact_rate | default(0) }}%</p>
+        </div>
+        <div class="flex items-center gap-2 md:justify-end">
+            <a href="/admin/reports/subscribers/service-quality" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
+            <button type="submit" class="inline-flex items-center rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700">Apply</button>
+        </div>
+    </form>
+    {% endcall %}
+
+    {% call dashboard_kpi_grid(cols="5") %}
+        {{ stats_card("Subscribers With Open Tickets", kpis.subs_with_open_tickets | default(0), color="cyan", color2="blue") }}
+        {{ stats_card("Avg Resolution Hours", kpis.avg_resolution_hrs | default(0), color="emerald", color2="teal") }}
+        {{ stats_card("Repeat Contact Rate", (kpis.repeat_contact_rate | default(0)) ~ "%", color="amber", color2="orange") }}
+        {{ stats_card("Active Work Orders", kpis.active_work_orders | default(0), color="slate", color2="gray") }}
+        {{ stats_card("SLA Compliance", (kpis.sla_compliance | default(0)) ~ "%", color="blue", color2="cyan") }}
+    {% endcall %}
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60"><h2 class="font-semibold text-slate-900 dark:text-white">Tickets By Type</h2></div>
+            <div class="p-6"><div class="chart-container" style="min-height: 280px;"><canvas id="service-quality-ticket-type-chart"></canvas></div></div>
+        </div>
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60"><h2 class="font-semibold text-slate-900 dark:text-white">Work Orders By Type</h2></div>
+            <div class="p-6"><div class="chart-container" style="min-height: 280px;"><canvas id="service-quality-work-type-chart"></canvas></div></div>
+        </div>
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60"><h2 class="font-semibold text-slate-900 dark:text-white">Weekly Trend</h2></div>
+            <div class="p-6"><div class="chart-container" style="min-height: 280px;"><canvas id="service-quality-weekly-trend-chart"></canvas></div></div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {% call table_shell(table_id="service-quality-maintenance-table", title="High Maintenance Subscribers", color="cyan", count=high_maintenance|length, bulk_selectable=False) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tickets</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">WOs</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Projects</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for row in high_maintenance %}
+                {% call table_row(color="cyan") %}
+                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.region }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.tickets }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.work_orders }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.projects }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.total }}</td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state(title="No high maintenance subscribers", message="No support hotspots were found for the selected period.", color="cyan", color2="blue", colspan=6) }}
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endcall %}
+
+        {% call table_shell(table_id="service-quality-regional-table", title="Regional Quality", color="cyan", count=regional_quality|length, bulk_selectable=False) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Active Subs</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Avg Tickets/Sub</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Avg Resolution</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Work Orders</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for row in regional_quality %}
+                {% call table_row(color="cyan") %}
+                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.region }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.active_subscribers }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.avg_tickets_per_sub }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.avg_resolution_hrs }}h</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.wo_count }}</td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state(title="No regional quality data", message="No regional metrics were found for the selected period.", color="cyan", color2="blue", colspan=5) }}
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endcall %}
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const formatChartLabel = (label) => {
+        const raw = String(label || '').replaceAll('_', ' ').trim();
+        if (!raw) {
+            return 'Unclassified';
+        }
+
+        const normalized = raw
+            .replace('Slow Browsing/Intermittent Connectivity', 'Slow Browsing / Intermittent Connectivity')
+            .replace(/^unclassified$/i, 'Unclassified');
+
+        return normalized
+            .split(/\s+/)
+            .map((word) => {
+                if (/^[A-Z0-9&/-]{2,}$/.test(word)) {
+                    return word;
+                }
+                return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+            })
+            .join(' ')
+            .replace(/'S\b/g, "'s");
+    };
+
+    const ticketsCtx = document.getElementById('service-quality-ticket-type-chart');
+    if (ticketsCtx) {
+        const ticketsData = {{ tickets_by_type | tojson }};
+        const ticketTypeColors = {
+            'Cabinet Disconnection': '#22C1C3',
+            'Call Down Support': '#4DA3FF',
+            'Customer Link Disconnection': '#F59E0B',
+            'Customer Realignment': '#10B981',
+            'LAN Troubleshooting': '#8B5CF6',
+            'Multiple Customer Link Disconnection': '#EF4444',
+            'Power Optimization': '#2DD4BF',
+            'Router Replacement': '#3B82F6',
+            'Router Troubleshooting': '#FBBF24',
+            'Slow Browsing / Intermittent Connectivity': '#34D399',
+            'Unclassified': '#A78BFA',
+        };
+        const sortedEntries = Object.entries(ticketsData)
+            .sort((a, b) => b[1] - a[1]);
+        if (sortedEntries.length > 0) {
+            const labels = sortedEntries.map(([label]) => formatChartLabel(label));
+            const values = sortedEntries.map(([, value]) => value);
+            const barColors = sortedEntries.map(([label]) => {
+                const normalizedLabel = formatChartLabel(label);
+                return ticketTypeColors[normalizedLabel] || '#06b6d4';
+            });
+            const chart = DotmacCharts.createHorizontalBarChart(ticketsCtx, {
+                labels: labels,
+                datasets: [{
+                    label: 'Tickets',
+                    data: values,
+                    backgroundColor: barColors,
+                    borderColor: barColors,
+                    borderWidth: 1,
+                }]
+            }, {
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: { precision: 0 }
+                    },
+                    y: {
+                        ticks: {
+                            autoSkip: false,
+                            color: '#ffffff',
+                            font: {
+                                size: 13,
+                                weight: 600,
+                            }
+                        }
+                    }
+                }
+            });
+            DotmacCharts.registerChart('service-quality-ticket-type-chart', chart);
+        }
+    }
+
+    const workCtx = document.getElementById('service-quality-work-type-chart');
+    if (workCtx) {
+        const workData = {{ wo_by_type | tojson }};
+        const labels = Object.keys(workData);
+        if (labels.length > 0) {
+            const chart = DotmacCharts.createDoughnutChart(workCtx, { labels: labels.map((label) => label.replaceAll('_', ' ')), values: labels.map((label) => workData[label]), colors: ['#0f766e', '#14b8a6', '#f59e0b', '#6366f1', '#64748b', '#e11d48'] }, { legendPosition: 'bottom' });
+            DotmacCharts.registerChart('service-quality-work-type-chart', chart);
+        }
+    }
+
+    const weeklyCtx = document.getElementById('service-quality-weekly-trend-chart');
+    if (weeklyCtx) {
+        const weeklyData = {{ weekly_trend | tojson }};
+        if (weeklyData.length > 0) {
+            const chart = DotmacCharts.createLineChart(weeklyCtx, {
+                labels: weeklyData.map((item) => item.week),
+                datasets: [
+                    { label: 'Created', data: weeklyData.map((item) => item.created), borderColor: '#06b6d4', backgroundColor: 'rgba(6, 182, 212, 0.12)', fill: true, tension: 0.3 },
+                    { label: 'Resolved', data: weeklyData.map((item) => item.resolved), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.08)', fill: false, tension: 0.3 }
+                ]
+            }, { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } });
+            DotmacCharts.registerChart('service-quality-weekly-trend-chart', chart);
+        }
+    }
+});
+</script>
+{% endblock %}

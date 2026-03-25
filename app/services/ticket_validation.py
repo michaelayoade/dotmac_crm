@@ -31,9 +31,63 @@ _OPEN_STATUSES = {
     TicketStatus.on_hold,
 }
 
+_SUBSCRIBER_REQUIRED_TICKET_TYPES = {
+    "bandwidth complaint",
+    "customer link disconnection",
+    "customer realignment",
+    "dns/domain issue",
+    "lan troubleshooting",
+    "power optimization (if specific to customer premises)",
+    "slow browsing / intermittent connectivity",
+    "router troubleshooting",
+    "router replacement",
+    "call down support",
+}
+
+_BASE_STATION_REQUIRED_TICKET_TYPES = {
+    "cabinet disconnection",
+    "cedar view (likely a site/location issue)",
+    "core link disconnection",
+    "dell server down",
+    "multiple cabinet disconnection",
+    "multiple customer link disconnection",
+    "nextcloud service down",
+    "splynx server issue",
+    "access point outage",
+    "multiple cabinet link disconnection",
+    "bts outage",
+}
+
+
+def ticket_type_requires_subscriber(ticket_type: str | None) -> bool:
+    if not isinstance(ticket_type, str):
+        return False
+    return ticket_type.strip().lower() in _SUBSCRIBER_REQUIRED_TICKET_TYPES
+
+
+def subscriber_required_ticket_types() -> list[str]:
+    return sorted(_SUBSCRIBER_REQUIRED_TICKET_TYPES)
+
+
+def ticket_type_requires_base_station(ticket_type: str | None) -> bool:
+    if not isinstance(ticket_type, str):
+        return False
+    return ticket_type.strip().lower() in _BASE_STATION_REQUIRED_TICKET_TYPES
+
+
+def base_station_required_ticket_types() -> list[str]:
+    return sorted(_BASE_STATION_REQUIRED_TICKET_TYPES)
+
 
 def validate_ticket_creation(db: Session, payload: TicketCreate) -> None:
     """Evaluate pre-creation rules and reject if a matching rule fires reject_creation."""
+    if ticket_type_requires_subscriber(payload.ticket_type) and not payload.subscriber_id:
+        raise HTTPException(status_code=400, detail="Subscriber is required for the selected ticket type.")
+    metadata = payload.metadata_ if isinstance(payload.metadata_, dict) else {}
+    base_station_details = str(metadata.get("base_station_details") or "").strip()
+    if ticket_type_requires_base_station(payload.ticket_type) and not base_station_details:
+        raise HTTPException(status_code=400, detail="Base station details are required for the selected ticket type.")
+
     rules: list[AutomationRule] = AutomationRulesManager.get_active_rules_for_event(
         db, EventType.ticket_pre_create.value
     )

@@ -90,7 +90,7 @@
                                 responsive: true,
                                 maintainAspectRatio: false,
                                 plugins: {
-                                    legend: { position: 'top' }
+                                    legend: { position: 'bottom' }
                                 },
                                 scales: {
                                     y: { beginAtZero: true }
@@ -133,8 +133,14 @@
                     const channelData = {{ channel_breakdown | tojson }};
                     const keys = Object.keys(channelData);
                     const channelLabels = {{ channel_labels | tojson }};
-                    const labels = keys.map(k => channelLabels[k] || k.replace('ChannelType.', '').replace(/_/g, ' '));
-                    const values = Object.values(channelData);
+                    function cleanChannelLabel(label) {
+                        return String(label || '')
+                            .replace('ChannelType.', '')
+                            .replace(/_/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                            .replace(/\b\w/g, (char) => char.toUpperCase());
+                    }
                     function inboxColor(key, label) {
                         const name = (label || '').toLowerCase();
                         if (name.includes('support')) return '#22c55e';
@@ -154,20 +160,56 @@
                         if (key.startsWith('email:')) return inboxColor(key, channelLabels[k] || '');
                         return '#06b6d4';
                     });
+                    const rows = keys.map((key, index) => ({
+                        key: key,
+                        label: cleanChannelLabel(channelLabels[key] || key),
+                        value: Object.values(channelData)[index],
+                        color: colors[index]
+                    })).sort((left, right) => right.value - left.value);
+                    const labels = rows.map((row) => row.label);
+                    const values = rows.map((row) => row.value);
+                    const sortedColors = rows.map((row) => row.color);
                     if (labels.length > 0) {
                         const chart = new Chart(ctx, {
-                            type: 'doughnut',
+                            type: 'bar',
                             data: {
                                 labels: labels,
                                 datasets: [{
+                                    label: 'Messages',
                                     data: values,
-                                    backgroundColor: colors
+                                    backgroundColor: sortedColors,
+                                    borderRadius: 6,
+                                    borderSkipped: false
                                 }]
                             },
                             options: {
+                                indexAxis: 'y',
                                 responsive: true,
                                 maintainAspectRatio: false,
-                                plugins: { legend: { display: false } }
+                                plugins: { legend: { display: false } },
+                                scales: {
+                                    x: {
+                                        beginAtZero: true,
+                                        ticks: {
+                                            callback(value) {
+                                                const numericValue = Number(value) || 0;
+                                                if (Math.abs(numericValue) >= 1000) {
+                                                    return `${Math.round(numericValue / 1000)}K`;
+                                                }
+                                                return numericValue;
+                                            }
+                                        }
+                                    },
+                                    y: {
+                                        ticks: {
+                                            autoSkip: false,
+                                            font: {
+                                                size: 12,
+                                                weight: 400
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         });
                         if (typeof DotmacCharts !== 'undefined') {

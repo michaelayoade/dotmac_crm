@@ -35,6 +35,7 @@ from app.services.splynx import (
     _resolve_customer_url,
     _resolve_invoice_urls,
     ensure_person_customer,
+    map_customer_to_subscriber_data,
 )
 from app.services.subscriber import subscriber as subscriber_service
 from app.tasks.subscribers import _map_splynx_status
@@ -218,6 +219,30 @@ class TestResolveInvoiceUrls:
             "invoice_url": "https://splynx.example.com/api/2.0/admin/finance/invoices",
         }
         assert _resolve_invoice_urls(config) == ["https://splynx.example.com/api/2.0/admin/finance/invoices"]
+
+
+class TestMapCustomerToSubscriberData:
+    def test_maps_lifecycle_dates_from_primary_service(self, db_session):
+        data = map_customer_to_subscriber_data(
+            db_session,
+            _make_splynx_customer(
+                status="terminated",
+                internet_services=[
+                    {
+                        "id": 1,
+                        "status": "active",
+                        "start_date": "2026-03-01",
+                        "end_date": "2026-03-15",
+                        "description": "Fiber 100Mbps",
+                    }
+                ],
+            ),
+            include_remote_details=False,
+        )
+
+        assert data["status"] == SubscriberStatus.terminated.value
+        assert data["activated_at"].strftime("%Y-%m-%d") == "2026-03-01"
+        assert data["terminated_at"].strftime("%Y-%m-%d") == "2026-03-15"
 
     def test_default_candidates(self):
         config = {"base_url": "https://splynx.example.com/api/2.0", "invoice_url": None}

@@ -1,0 +1,176 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, dashboard_kpi_grid, stats_card, table_shell, table_row, empty_state %}
+
+{% block title %}Subscriber Revenue - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header("Subscriber Revenue & Pipeline", "Sales order value, pipeline health, and outstanding balances.", color="emerald", color2="teal") %}
+        {{ action_button(
+            "Export CSV",
+            href="/admin/reports/subscribers/revenue/export?days=" ~ days ~ ("&start_date=" ~ start_date if start_date else "") ~ ("&end_date=" ~ end_date if end_date else ""),
+            variant="secondary",
+            color="emerald",
+            icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>'
+        ) }}
+    {% endcall %}
+
+    {% call dashboard_filter_panel(color="emerald", title="Report Period") %}
+    <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-end">
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</label>
+            <select name="days" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 days</option>
+                <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 days</option>
+                <option value="90" {% if days == 90 %}selected{% endif %}>Last 90 days</option>
+                <option value="180" {% if days == 180 %}selected{% endif %}>Last 180 days</option>
+                <option value="365" {% if days == 365 %}selected{% endif %}>Last 365 days</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+            <input type="date" name="start_date" value="{{ start_date }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+            <input type="date" name="end_date" value="{{ end_date }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+        </div>
+        <div class="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 px-4 py-3 dark:border-emerald-900/40 dark:bg-emerald-900/10">
+            <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Collection Rate</p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ kpis.collection_rate | default(0) }}%</p>
+        </div>
+        <div class="flex items-center gap-2 md:justify-end">
+            <a href="/admin/reports/subscribers/revenue" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
+            <button type="submit" class="inline-flex items-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Apply</button>
+        </div>
+    </form>
+    {% endcall %}
+
+    {% call dashboard_kpi_grid(cols="5") %}
+        {{ stats_card("Order Value", "NGN " ~ ("%.2f"|format(kpis.total_value | default(0))), color="emerald", color2="teal") }}
+        {{ stats_card("Orders", kpis.order_count | default(0), color="blue", color2="cyan") }}
+        {{ stats_card("Avg Order Value", "NGN " ~ ("%.2f"|format(kpis.avg_value | default(0))), color="amber", color2="orange") }}
+        {{ stats_card("Pipeline Value", "NGN " ~ ("%.2f"|format(kpis.pipeline_value | default(0))), color="violet", color2="purple") }}
+        {{ stats_card("Pending Fulfillment", kpis.pending_fulfillment | default(0), color="slate", color2="gray") }}
+    {% endcall %}
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div class="xl:col-span-2 rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60"><h2 class="font-semibold text-slate-900 dark:text-white">Monthly Revenue Trend</h2></div>
+            <div class="p-6"><div class="chart-container" style="min-height: 300px;"><canvas id="subscriber-revenue-trend-chart"></canvas></div></div>
+        </div>
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60"><h2 class="font-semibold text-slate-900 dark:text-white">Payment Status</h2></div>
+            <div class="p-6"><div class="chart-container" style="min-height: 300px;"><canvas id="subscriber-payment-status-chart"></canvas></div></div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {% call table_shell(table_id="subscriber-top-revenue-table", title="Top Subscribers By Revenue", color="emerald", count=top_subscribers|length, bulk_selectable=False) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Email</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Revenue</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Orders</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for row in top_subscribers %}
+                {% call table_row(color="emerald") %}
+                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.email }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "%.2f"|format(row.total_revenue) }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.order_count }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.status | replace('_', ' ') | title }}</td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state(title="No revenue records", message="No subscriber orders match the selected period.", color="emerald", color2="teal", colspan=5) }}
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endcall %}
+
+        {% call table_shell(table_id="subscriber-outstanding-table", title="Outstanding Balances", color="rose", count=outstanding|length, bulk_selectable=False) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Order #</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Balance</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Due Date</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Overdue</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for row in outstanding %}
+                {% call table_row(color="rose") %}
+                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.order_number }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.customer }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "%.2f"|format(row.balance) }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.due_date }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.days_overdue }}</td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state(title="No outstanding balances", message="No unpaid balances were found.", color="rose", color2="red", colspan=5) }}
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endcall %}
+    </div>
+
+    {% call table_shell(table_id="subscriber-order-status-table", title="Order Status Mix", color="emerald", count=order_status|length, bulk_selectable=False) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead>
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Orders</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% for key, value in order_status.items() %}
+            {% call table_row(color="emerald") %}
+                <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ key | replace('_', ' ') | title }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ value }}</td>
+            {% endcall %}
+            {% else %}
+            {{ empty_state(title="No order status data", message="No sales orders match the selected period.", color="emerald", color2="teal", colspan=2) }}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endcall %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const revenueCtx = document.getElementById('subscriber-revenue-trend-chart');
+    if (revenueCtx) {
+        const revenueData = {{ monthly_trend | tojson }};
+        if (revenueData.length > 0) {
+            const chart = DotmacCharts.createLineChart(revenueCtx, {
+                labels: revenueData.map((item) => item.month),
+                datasets: [{ label: 'Revenue', data: revenueData.map((item) => item.total), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.12)', fill: true, tension: 0.3 }]
+            }, { plugins: { legend: { display: false } } });
+            DotmacCharts.registerChart('subscriber-revenue-trend-chart', chart);
+        }
+    }
+
+    const paymentCtx = document.getElementById('subscriber-payment-status-chart');
+    if (paymentCtx) {
+        const paymentData = {{ payment_status | tojson }};
+        const labels = Object.keys(paymentData);
+        if (labels.length > 0) {
+            const chart = DotmacCharts.createDoughnutChart(paymentCtx, { labels: labels.map((label) => label.replaceAll('_', ' ')), values: labels.map((label) => paymentData[label]), colors: ['#f59e0b', '#06b6d4', '#10b981', '#8b5cf6', '#e11d48'] }, { legendPosition: 'bottom' });
+            DotmacCharts.registerChart('subscriber-payment-status-chart', chart);
+        }
+    }
+});
+</script>
+{% endblock %}

@@ -114,3 +114,49 @@ def test_status_update_redirects_merged_ticket_to_canonical(db_session, person, 
     assert response.headers["location"] == (
         f"/admin/support/tickets/{target.number or target.id}?merged_from={source.number or source.id}"
     )
+
+
+def test_ticket_list_relationship_map_includes_merged_and_linked_markers(db_session, person):
+    primary = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Primary outage", number="TKT-PRIMARY"),
+    )
+    merged_target = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Canonical merge target", number="TKT-TARGET"),
+    )
+    merged_source = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Merged source", number="TKT-MERGED"),
+    )
+    linked_child = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Linked child", number="TKT-CHILD"),
+    )
+
+    tickets_service.tickets.merge(
+        db_session,
+        source_ticket_id=str(merged_source.id),
+        target_ticket_id=str(merged_target.id),
+        actor_id=str(person.id),
+    )
+    tickets_service.tickets.link_related_outage(
+        db_session,
+        from_ticket_id=str(linked_child.id),
+        to_ticket_id=str(primary.id),
+        actor_id=str(person.id),
+    )
+
+    merged_source = tickets_service.tickets.get(db_session, str(merged_source.id))
+    merged_target = tickets_service.tickets.get(db_session, str(merged_target.id))
+    primary = tickets_service.tickets.get(db_session, str(primary.id))
+    linked_child = tickets_service.tickets.get(db_session, str(linked_child.id))
+
+    relationship_map = tickets_web._build_ticket_relationships_map(
+        db_session,
+        [merged_source, merged_target, primary, linked_child],
+    )
+
+    assert relationship_map[str(merged_source.id)]["merged_into_ref"] == "TKT-TARGET"
+    assert relationship_map[str(linked_child.id)]["linked_to_ref"] == "TKT-PRIMARY"
+    assert relationship_map[str(primary.id)]["linked_children_count"] == 1

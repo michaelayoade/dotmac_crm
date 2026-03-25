@@ -1,5 +1,7 @@
 {% from "components/ui/macros.html" import typeahead_input %}
 {% set prefill = prefill or {} %}
+{% set subscriber_required_ticket_types = subscriber_required_ticket_types | default([], true) %}
+{% set base_station_required_ticket_types = base_station_required_ticket_types | default([], true) %}
 {% include "components/forms/csrf_input.html" %}
 <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
     <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
@@ -48,7 +50,10 @@
             </div>
 
             <div>
-                <label for="subscriber_search" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Subscriber</label>
+                <label for="subscriber_search" class="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Subscriber
+                    <span id="ticket-subscriber-required-indicator" class="hidden text-red-500">*</span>
+                </label>
                 {% if ticket and ticket.subscriber %}
                     {% if ticket.subscriber.person %}
                         {% set subscriber_label = ticket.subscriber.person.first_name ~ ' ' ~ ticket.subscriber.person.last_name %}
@@ -64,6 +69,9 @@
                     {% set subscriber_label = prefill.subscriber_label or '' %}
                 {% endif %}
                 {{ typeahead_input("subscriber_id", "/api/v1/search/subscribers", value=(ticket.subscriber_id if ticket else (prefill.subscriber_id or '')), display_value=subscriber_label, placeholder="Search subscribers...", min_chars=0, id="subscriber_search") }}
+                <p id="ticket-subscriber-required-help" class="mt-1 hidden text-xs text-red-600 dark:text-red-400">
+                    Subscriber details are required for the selected ticket type.
+                </p>
             </div>
 
             <div class="sm:col-span-2">
@@ -91,9 +99,13 @@
                             <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Organization</p>
                             <p id="ticket-customer-org">—</p>
                         </div>
-                        <div class="sm:col-span-2">
-                            <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Address</p>
-                            <p id="ticket-customer-address">—</p>
+                        <div>
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Street</p>
+                            <p id="ticket-customer-street">—</p>
+                        </div>
+                        <div>
+                            <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</p>
+                            <p id="ticket-customer-location">—</p>
                         </div>
                     </div>
 
@@ -116,9 +128,13 @@
                                 <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Plan</p>
                                 <p id="ticket-subscriber-plan">—</p>
                             </div>
-                            <div class="sm:col-span-2">
-                                <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Service Address</p>
-                                <p id="ticket-subscriber-address">—</p>
+                            <div>
+                                <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Street</p>
+                                <p id="ticket-subscriber-street">—</p>
+                            </div>
+                            <div>
+                                <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</p>
+                                <p id="ticket-subscriber-location">—</p>
                             </div>
                         </div>
                     </div>
@@ -137,6 +153,28 @@
                     </option>
                     {% endfor %}
                 </select>
+            </div>
+
+            <div>
+                <label for="base_station_details" class="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Base Station Details
+                    <span id="ticket-base-station-required-indicator" class="hidden text-red-500">*</span>
+                </label>
+                {% set base_station_value = '' %}
+                {% if ticket and ticket.metadata_ and ticket.metadata_ is mapping %}
+                    {% set base_station_value = ticket.metadata_.get('base_station_details', '') %}
+                {% else %}
+                    {% set base_station_value = prefill.base_station_details or '' %}
+                {% endif %}
+                <input type="text"
+                    name="base_station_details"
+                    id="base_station_details"
+                    value="{{ base_station_value }}"
+                    placeholder="Enter base station / site reference"
+                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <p id="ticket-base-station-required-help" class="mt-1 hidden text-xs text-red-600 dark:text-red-400">
+                    Base station details are required for the selected ticket type.
+                </p>
             </div>
 
             <div>
@@ -238,6 +276,8 @@
                 <label for="ticket_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ticket Type</label>
                 <select name="ticket_type" id="ticket_type"
                     data-priority-map='{{ ticket_type_priority_map | tojson }}'
+                    data-subscriber-required-types='{{ subscriber_required_ticket_types | tojson }}'
+                    data-base-station-required-types='{{ base_station_required_ticket_types | tojson }}'
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">Select a type</option>
                     {% for ttype in ticket_types or [] %}
@@ -332,22 +372,99 @@
     (function () {
         const typeSelect = document.getElementById("ticket_type");
         const prioritySelect = document.getElementById("priority");
+        const subscriberHidden = document.querySelector('input[name="subscriber_id"][data-typeahead-hidden]');
+        const subscriberIndicator = document.getElementById("ticket-subscriber-required-indicator");
+        const subscriberHelp = document.getElementById("ticket-subscriber-required-help");
+        const subscriberSearchInput = document.querySelector('#subscriber_search[data-typeahead-input], #subscriber_search');
+        const baseStationInput = document.getElementById("base_station_details");
+        const baseStationIndicator = document.getElementById("ticket-base-station-required-indicator");
+        const baseStationHelp = document.getElementById("ticket-base-station-required-help");
         if (!typeSelect || !prioritySelect) {
             return;
         }
         let priorityMap = {};
+        let subscriberRequiredTypes = [];
+        let baseStationRequiredTypes = [];
         try {
             priorityMap = JSON.parse(typeSelect.dataset.priorityMap || "{}");
         } catch (err) {
             priorityMap = {};
         }
+        try {
+            subscriberRequiredTypes = JSON.parse(typeSelect.dataset.subscriberRequiredTypes || "[]");
+        } catch (err) {
+            subscriberRequiredTypes = [];
+        }
+        try {
+            baseStationRequiredTypes = JSON.parse(typeSelect.dataset.baseStationRequiredTypes || "[]");
+        } catch (err) {
+            baseStationRequiredTypes = [];
+        }
+
+        const normalizeType = (value) => String(value || "").trim().toLowerCase();
+        const isSubscriberRequired = () => subscriberRequiredTypes.includes(normalizeType(typeSelect.value));
+        const isBaseStationRequired = () => baseStationRequiredTypes.includes(normalizeType(typeSelect.value));
+        const updateSubscriberRequirement = () => {
+            const required = isSubscriberRequired();
+            if (subscriberHidden) {
+                subscriberHidden.required = required;
+                subscriberHidden.toggleAttribute("aria-required", required);
+                subscriberHidden.setCustomValidity(required && !subscriberHidden.value ? "Subscriber is required for this ticket type." : "");
+            }
+            if (subscriberIndicator) {
+                subscriberIndicator.classList.toggle("hidden", !required);
+            }
+            if (subscriberHelp) {
+                subscriberHelp.classList.toggle("hidden", !(required && !(subscriberHidden && subscriberHidden.value)));
+            }
+            if (subscriberSearchInput) {
+                subscriberSearchInput.toggleAttribute("aria-required", required);
+            }
+        };
+        const updateBaseStationRequirement = () => {
+            const required = isBaseStationRequired();
+            if (baseStationInput) {
+                baseStationInput.required = required;
+                baseStationInput.toggleAttribute("aria-required", required);
+                baseStationInput.setCustomValidity(required && !baseStationInput.value.trim() ? "Base station details are required for this ticket type." : "");
+            }
+            if (baseStationIndicator) {
+                baseStationIndicator.classList.toggle("hidden", !required);
+            }
+            if (baseStationHelp) {
+                baseStationHelp.classList.toggle("hidden", !(required && !(baseStationInput && baseStationInput.value.trim())));
+            }
+        };
+
         typeSelect.addEventListener("change", function () {
             const selected = this.value;
             const mapped = priorityMap[selected];
             if (mapped) {
                 prioritySelect.value = mapped;
             }
+            updateSubscriberRequirement();
+            updateBaseStationRequirement();
         });
+        if (subscriberHidden) {
+            subscriberHidden.addEventListener("input", updateSubscriberRequirement);
+            subscriberHidden.addEventListener("change", updateSubscriberRequirement);
+        }
+        if (baseStationInput) {
+            baseStationInput.addEventListener("input", updateBaseStationRequirement);
+            baseStationInput.addEventListener("change", updateBaseStationRequirement);
+        }
+        const form = typeSelect.closest("form");
+        if (form) {
+            form.addEventListener("submit", function (event) {
+                updateSubscriberRequirement();
+                updateBaseStationRequirement();
+                if (subscriberHidden && !form.reportValidity()) {
+                    event.preventDefault();
+                }
+            });
+        }
+        updateSubscriberRequirement();
+        updateBaseStationRequirement();
     })();
 
     (function () {
@@ -369,12 +486,14 @@
                 setText("ticket-customer-email", "");
                 setText("ticket-customer-phone", "");
                 setText("ticket-customer-org", "");
-                setText("ticket-customer-address", "");
+                setText("ticket-customer-street", "");
+                setText("ticket-customer-location", "");
                 setText("ticket-subscriber-number", "");
                 setText("ticket-subscriber-account", "");
                 setText("ticket-subscriber-status", "");
                 setText("ticket-subscriber-plan", "");
-                setText("ticket-subscriber-address", "");
+                setText("ticket-subscriber-street", "");
+                setText("ticket-subscriber-location", "");
                 return;
             }
 
@@ -395,14 +514,16 @@
                 setText("ticket-customer-email", customer.email);
                 setText("ticket-customer-phone", customer.phone);
                 setText("ticket-customer-org", customer.organization);
-                setText("ticket-customer-address", customer.address);
+                setText("ticket-customer-street", customer.street || customer.address);
+                setText("ticket-customer-location", customer.location);
 
                 setText("ticket-subscriber-number", subscriber.subscriber_number);
                 setText("ticket-subscriber-account", subscriber.account_number);
                 setText("ticket-subscriber-status", subscriber.status);
                 const plan = [subscriber.service_plan, subscriber.service_speed].filter(Boolean).join(" · ");
                 setText("ticket-subscriber-plan", plan);
-                setText("ticket-subscriber-address", subscriber.service_address);
+                setText("ticket-subscriber-street", subscriber.service_street || subscriber.service_address);
+                setText("ticket-subscriber-location", subscriber.service_location);
 
                 const regionSelect = document.getElementById("region");
                 if (regionSelect && !regionSelect.value) {

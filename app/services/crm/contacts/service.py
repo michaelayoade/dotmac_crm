@@ -21,6 +21,11 @@ def _now():
     return datetime.now(UTC)
 
 
+def _ticket_reference(ticket) -> str:
+    """Return the canonical ticket reference shown in the UI."""
+    return str(ticket.number or ticket.id)
+
+
 def _to_person_channel_type(channel_type: CrmChannelType) -> PersonChannelType:
     return PersonChannelType(channel_type.value)
 
@@ -771,13 +776,14 @@ def get_contact_context(db: Session, contact: Person) -> dict:
     )
     for t in tickets:
         ticket_status = t.status.value if hasattr(t.status, "value") else str(t.status)
+        ticket_ref = _ticket_reference(t)
         recent_tickets.append(
             {
                 "id": str(t.id),
-                "label": f"TKT-{str(t.id)[:8].upper()}",
+                "label": ticket_ref,
                 "subject": t.title or "No subject",
                 "status": ticket_status,
-                "href": f"/admin/support/tickets/{t.id}",
+                "href": f"/admin/support/tickets/{ticket_ref}",
             }
         )
 
@@ -1103,13 +1109,14 @@ def get_contact_recent_tickets(
     result = []
     for t in tickets:
         ticket_status = t.status.value if hasattr(t.status, "value") else str(t.status)
+        ticket_ref = _ticket_reference(t)
         result.append(
             {
                 "id": str(t.id),
-                "label": f"TKT-{str(t.id)[:8].upper()}",
+                "label": ticket_ref,
                 "subject": t.title or "No subject",
                 "status": ticket_status,
-                "href": f"/admin/support/tickets/{t.id}",
+                "href": f"/admin/support/tickets/{ticket_ref}",
             }
         )
 

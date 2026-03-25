@@ -6,6 +6,7 @@ from app.services.ai.personas import inbox_analyst as _inbox_analyst  # noqa: F4
 from app.services.ai.personas import performance_coach as _performance_coach  # noqa: F401
 from app.services.ai.personas import project_advisor as _project_advisor  # noqa: F401
 from app.services.ai.personas import ticket_analyst as _ticket_analyst  # noqa: F401
+from app.services.ai.personas import ticket_customer_update_writer as _ticket_customer_update_writer  # noqa: F401
 from app.services.ai.personas import vendor_analyst as _vendor_analyst  # noqa: F401
 from app.services.ai.personas._registry import persona_registry
 

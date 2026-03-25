@@ -356,6 +356,9 @@ def map_customer_to_subscriber_data(
     speed_value = _extract_speed(primary_service if primary_service else customer, description)
     balance_value = _extract_balance(customer, billing, primary_service)
     next_bill_date = _extract_next_bill_date(customer, billing, primary_service)
+    activated_at = _extract_activation_date(customer, primary_service)
+    terminated_at = _extract_termination_date(customer, primary_service, status_value)
+    suspended_at = _extract_suspended_date(customer, billing, primary_service, status_value)
 
     candidate_fields: dict[str, Any] = {
         "subscriber_number": _coalesce_str(
@@ -372,6 +375,9 @@ def map_customer_to_subscriber_data(
         "service_region": _coalesce_str(customer.get("state"), customer.get("region")),
         "service_postal_code": _coalesce_str(customer.get("zip"), customer.get("zip_code")),
         "next_bill_date": next_bill_date,
+        "activated_at": activated_at,
+        "terminated_at": terminated_at,
+        "suspended_at": suspended_at,
     }
     return {key: value for key, value in candidate_fields.items() if _has_value(value)}
 
@@ -524,6 +530,61 @@ def _extract_next_bill_date(
         if parsed_blocking is not None:
             return parsed_blocking
 
+    return None
+
+
+def _extract_activation_date(customer: dict[str, Any], primary_service: dict[str, Any] | None) -> datetime | None:
+    for candidate in (
+        primary_service.get("start_date") if primary_service else None,
+        customer.get("start_date"),
+        customer.get("created_at"),
+        customer.get("created"),
+        customer.get("registration_date"),
+    ):
+        parsed = _parse_splynx_date(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _extract_termination_date(
+    customer: dict[str, Any],
+    primary_service: dict[str, Any] | None,
+    status_value: str,
+) -> datetime | None:
+    if status_value != SubscriberStatus.terminated.value:
+        return None
+
+    for candidate in (
+        primary_service.get("end_date") if primary_service else None,
+        customer.get("end_date"),
+        customer.get("expire"),
+        customer.get("terminated_at"),
+    ):
+        parsed = _parse_splynx_date(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _extract_suspended_date(
+    customer: dict[str, Any],
+    billing: dict[str, Any] | None,
+    primary_service: dict[str, Any] | None,
+    status_value: str,
+) -> datetime | None:
+    if status_value != SubscriberStatus.suspended.value:
+        return None
+
+    for candidate in (
+        billing.get("blocking_date") if billing else None,
+        customer.get("blocking_date"),
+        primary_service.get("blocking_date") if primary_service else None,
+        customer.get("suspended_at"),
+    ):
+        parsed = _parse_splynx_date(candidate)
+        if parsed is not None:
+            return parsed
     return None
 
 
