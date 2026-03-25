@@ -1,0 +1,248 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, dashboard_kpi_grid, stats_card, table_shell, table_row, empty_state %}
+
+{% block title %}Subscriber Lifecycle - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script src="/static/js/charts.js"></script>
+<style>
+input[type="date"].lifecycle-date-input::-webkit-calendar-picker-indicator {
+    filter: invert(56%) sepia(96%) saturate(1439%) hue-rotate(360deg) brightness(100%) contrast(95%);
+    opacity: 1;
+}
+</style>
+{% endblock %}
+
+{% macro lifecycle_kpi_card(label, value, icon, value_class="text-3xl", value_style="") %}
+<div class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all duration-200 hover:shadow-md dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{{ label }}</p>
+            <p class="mt-3 {{ value_class }} font-bold tracking-tight text-slate-950 dark:text-white" {% if value_style %}style="{{ value_style }}"{% endif %}>{{ value }}</p>
+        </div>
+        <div class="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-600 text-white shadow-[0_0_18px_rgba(245,158,11,0.35),0_10px_24px_rgba(217,119,6,0.28)]">
+            {{ icon|safe }}
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header("Subscriber Lifecycle", "Lead conversion, churn, and tenure across the subscriber journey.", color="amber", color2="orange") %}
+        {{ action_button(
+            "Export CSV",
+            href="/admin/reports/subscribers/lifecycle/export?days=" ~ days ~ ("&start_date=" ~ start_date if start_date else "") ~ ("&end_date=" ~ end_date if end_date else ""),
+            variant="secondary",
+            color="amber",
+            icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>'
+        ) }}
+    {% endcall %}
+
+    {% call dashboard_filter_panel(color="amber", title="Filters") %}
+    <form method="get" class="space-y-3">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-3 lg:items-end">
+            <div>
+                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <svg class="h-3.5 w-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
+                    Period
+                </label>
+                <select name="days" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 days</option>
+                <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 days</option>
+                <option value="90" {% if days == 90 %}selected{% endif %}>Last 90 days</option>
+                <option value="180" {% if days == 180 %}selected{% endif %}>Last 180 days</option>
+                <option value="365" {% if days == 365 %}selected{% endif %}>Last 365 days</option>
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <svg class="h-3.5 w-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
+                    From
+                </label>
+                <input type="date" name="start_date" value="{{ start_date }}" class="lifecycle-date-input block h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700/50">
+            </div>
+            <div>
+                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <svg class="h-3.5 w-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
+                    To
+                </label>
+                <input type="date" name="end_date" value="{{ end_date }}" class="lifecycle-date-input block h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700/50">
+            </div>
+        </div>
+        <div class="flex items-center gap-2 lg:justify-end">
+            <a href="/admin/reports/subscribers/lifecycle" class="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 dark:hover:text-white">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M5.8 9A7 7 0 0119 12m-.8 3A7 7 0 015 12"/></svg>
+                Reset
+            </a>
+            <button type="submit" class="inline-flex h-10 items-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-semibold text-white hover:bg-amber-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
+                Apply
+            </button>
+        </div>
+    </form>
+    {% endcall %}
+
+    {% call dashboard_kpi_grid(cols="5") %}
+        {{ lifecycle_kpi_card("Conversion Rate", (kpis.conversion_rate | default(0)) ~ "%", '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M5 16l5-5 4 4 5-7"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 8h5v5"/></svg>') }}
+        {{ lifecycle_kpi_card("Avg Days To Convert", kpis.avg_days_to_convert | default(0), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>') }}
+        {{ lifecycle_kpi_card("Churn Rate", ("%.5f"|format(kpis.churn_rate | default(0))) ~ "%", '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 17l-5-5-4 4-5-5"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 11v6h-6"/></svg>', value_style="font-size: 28px !important; line-height: 1 !important;") }}
+        {{ lifecycle_kpi_card("Terminated In Period", kpis.terminated_in_period | default(0), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 18L18 6M6 6l12 12"/></svg>') }}
+        {{ lifecycle_kpi_card("Pipeline Value", "NGN " ~ "{:,.0f}".format(kpis.pipeline_value | default(0)), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3v18M16 7.5c0-1.933-1.79-3.5-4-3.5s-4 1.567-4 3.5 1.79 3.5 4 3.5 4 1.567 4 3.5-1.79 3.5-4 3.5-4-1.567-4-3.5"/></svg>') }}
+    {% endcall %}
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Lifecycle Funnel</h2>
+            </div>
+            <div class="p-6">
+                <div class="chart-container" style="min-height: 280px;">
+                    <canvas id="subscriber-lifecycle-funnel-chart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Conversion By Source</h2>
+            </div>
+            <div class="p-6">
+                <div class="chart-container" style="min-height: 280px;">
+                    <canvas id="subscriber-conversion-by-source-chart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Churn Trend</h2>
+            </div>
+            <div class="p-6">
+                <div class="chart-container" style="min-height: 280px;">
+                    <canvas id="subscriber-churn-trend-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6">
+        {% call table_shell(table_id="lifecycle-tenure-table", title="Longest Active Tenure", color="amber", count=longest_tenure|length, bulk_selectable=False) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Activated</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tenure</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for row in longest_tenure %}
+                {% call table_row(color="amber") %}
+                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.region }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.activated_at }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.tenure_days }}</td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state(title="No tenure data", message="No active subscribers with tenure data were found.", color="amber", color2="orange", colspan=6) }}
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endcall %}
+    </div>
+
+    {% call table_shell(table_id="recent-churn-table", title="Recent Churn (Last 30 Days)", color="rose", count=recent_churns|length, bulk_selectable=False) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead>
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Terminated</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tenure Days</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% for row in recent_churns %}
+            {% call table_row(color="rose") %}
+                <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.region }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.terminated_at }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.tenure_days }}</td>
+            {% endcall %}
+            {% else %}
+            {{ empty_state(title="No churn records", message="No churn records were found in the last 30 days.", color="rose", color2="red", colspan=5) }}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endcall %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const conversionCtx = document.getElementById('subscriber-conversion-by-source-chart');
+    if (conversionCtx) {
+        const conversionData = {{ conversion_by_source | tojson }};
+        if (conversionData.length > 0) {
+            const chart = DotmacCharts.createBarChart(conversionCtx, {
+                labels: conversionData.map((item) => item.source),
+                datasets: [{
+                    label: 'Won Leads',
+                    data: conversionData.map((item) => item.won),
+                    backgroundColor: '#f59e0b',
+                    borderRadius: 10,
+                    borderSkipped: false
+                }]
+            }, {
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { precision: 0 } },
+                    x: { grid: { display: false } }
+                }
+            });
+            DotmacCharts.registerChart('subscriber-conversion-by-source-chart', chart);
+        }
+    }
+
+    const funnelCtx = document.getElementById('subscriber-lifecycle-funnel-chart');
+    if (funnelCtx) {
+        const funnelData = {{ funnel | tojson }};
+        if (funnelData.length > 0) {
+            const chart = DotmacCharts.createBarChart(funnelCtx, {
+                labels: funnelData.map((item) => item.stage.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase())),
+                datasets: [{ label: 'Count', data: funnelData.map((item) => item.count), backgroundColor: '#f59e0b' }]
+            }, { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } });
+            DotmacCharts.registerChart('subscriber-lifecycle-funnel-chart', chart);
+        }
+    }
+
+    const churnCtx = document.getElementById('subscriber-churn-trend-chart');
+    if (churnCtx) {
+        const churnData = {{ churn_trend | tojson }};
+        if (churnData.length > 0) {
+            const hasSinglePoint = churnData.length === 1;
+            const chart = DotmacCharts.createLineChart(churnCtx, {
+                labels: churnData.map((item) => item.month),
+                datasets: [{
+                    label: 'Churn',
+                    data: churnData.map((item) => item.count),
+                    borderColor: '#e11d48',
+                    backgroundColor: 'rgba(225, 29, 72, 0.12)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: hasSinglePoint ? 5 : 0,
+                    pointHoverRadius: hasSinglePoint ? 7 : 6,
+                }]
+            }, { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } });
+            DotmacCharts.registerChart('subscriber-churn-trend-chart', chart);
+        }
+    }
+});
+</script>
+{% endblock %}

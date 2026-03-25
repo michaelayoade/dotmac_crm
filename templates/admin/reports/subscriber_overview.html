@@ -1,0 +1,704 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, dashboard_kpi_grid, table_shell, table_row, empty_state %}
+
+{% block title %}Subscriber Overview - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script src="/static/js/charts.js"></script>
+<style>
+input[type="date"].report-date-input::-webkit-calendar-picker-indicator {
+    filter: invert(56%) sepia(96%) saturate(1439%) hue-rotate(360deg) brightness(100%) contrast(95%);
+    opacity: 1;
+}
+</style>
+{% endblock %}
+
+{% macro overview_kpi_card(label, value, accent, accent2, icon, trend_pct=0, trend_direction="up", trend_text="", spark_points="8,28 22,20 36,24 50,14 64,18 78,10") %}
+<div class="group relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white px-5 py-4 shadow-[0_15px_40px_rgba(0,0,0,0.08)] transition-all duration-200 ease-out hover:shadow-[0_18px_44px_rgba(0,0,0,0.12)] dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="flex items-start justify-between gap-3">
+        <div class="relative grid min-h-[96px] min-w-0 flex-1 grid-rows-[auto_1fr] self-stretch">
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{{ label }}</p>
+            <div class="flex items-end pt-3">
+                <p class="font-bold leading-none tracking-tight text-slate-950 dark:text-white" style="font-size: 35px !important; line-height: 1 !important;">{{ value }}</p>
+            </div>
+        </div>
+        <div class="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-600 text-white shadow-[0_0_18px_rgba(245,158,11,0.35),0_10px_24px_rgba(217,119,6,0.28)]">
+            {{ icon|safe }}
+        </div>
+    </div>
+    <div class="relative mt-2 flex items-end justify-end">
+        <svg class="h-6 w-16 shrink-0" viewBox="0 0 86 38" fill="none" aria-hidden="true">
+            <path d="M2 32C12 26 18 24 26 25C34 26 39 16 47 14C55 12 60 22 69 18C75 15 79 9 84 6" class="stroke-slate-200 dark:stroke-slate-700" stroke-width="1.5" stroke-linecap="round"/>
+            <polyline points="{{ spark_points }}" class="fill-none stroke-{{ accent }}-300/90" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </div>
+</div>
+{% endmacro %}
+
+{% block content %}
+{% set overview_kpis = kpis if kpis is defined else {} %}
+{% set overview_filter_opts = filter_opts if filter_opts is defined else {} %}
+{% set overview_regions = overview_filter_opts.get("regions", []) %}
+{% set overview_plan_dist = plan_dist if plan_dist is defined else [] %}
+{% set overview_regional = regional if regional is defined else [] %}
+{% set overview_growth_trend = growth_trend if growth_trend is defined else [] %}
+{% set overview_status_dist = status_dist if status_dist is defined else {} %}
+{% set overview_net_growth = overview_kpis.get("net_growth", overview_kpis.get("activations", 0) - overview_kpis.get("terminations", 0)) %}
+{% set overview_active_subscribers = overview_kpis.get("active_subscribers", 0) %}
+{% set overview_suspended_count = overview_kpis.get("suspended_count", 0) %}
+{% set overview_avg_tickets = overview_kpis.get("avg_tickets_per_sub", 0) %}
+{% set overview_regions_covered = overview_kpis.get("regions_covered", 0) %}
+{% set overview_activations = overview_kpis.get("activations", 0) %}
+{% set overview_terminations = overview_kpis.get("terminations", 0) %}
+{% set overview_suspended_pct = overview_kpis.get("suspended_pct", 0) %}
+{% set overview_top_plan = overview_plan_dist[0] if overview_plan_dist else None %}
+{% set overview_total_plan_count = overview_plan_dist | sum(attribute='count') if overview_plan_dist else 0 %}
+{% set overview_top_plan_pct = ((overview_top_plan.count / overview_total_plan_count) * 100) if overview_top_plan and overview_total_plan_count else 0 %}
+{% set overview_active_trend = ((overview_net_growth / overview_active_subscribers) * 100) if overview_active_subscribers else 0 %}
+{% set overview_net_growth_pct = ((overview_net_growth / overview_activations) * 100) if overview_activations else 0 %}
+{% set overview_ticket_trend = ((overview_avg_tickets - 1) * 100) if overview_avg_tickets else 0 %}
+{% set overview_region_trend = ((overview_regions_covered / (overview_regions|length)) * 100) if overview_regions|length else 0 %}
+<div class="space-y-6">
+    {% call page_header("Subscriber Overview", "Subscriber counts, growth activity, and plan mix across the CRM footprint.", color="amber", color2="orange") %}
+        {{ action_button(
+            "Export CSV",
+            href="/admin/reports/subscribers/overview/export?days=" ~ days ~ ("&start_date=" ~ start_date if start_date else "") ~ ("&end_date=" ~ end_date if end_date else "") ~ ("&status=" ~ selected_status|urlencode if selected_status else "") ~ ("&region=" ~ selected_region|urlencode if selected_region else ""),
+            variant="secondary",
+            color="amber",
+            icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>'
+        ) }}
+    {% endcall %}
+
+    {% call dashboard_filter_panel(color="amber", title="Filters") %}
+    <form method="get" class="space-y-3">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-5 lg:items-end">
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</label>
+                <select name="days" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white" style="background-color: rgb(255 255 255); color: rgb(15 23 42);" data-dashboard-select>
+                    <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 days</option>
+                    <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 days</option>
+                    <option value="90" {% if days == 90 %}selected{% endif %}>Last 90 days</option>
+                    <option value="180" {% if days == 180 %}selected{% endif %}>Last 180 days</option>
+                    <option value="365" {% if days == 365 %}selected{% endif %}>Last 365 days</option>
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+                <input type="date" name="start_date" value="{{ start_date }}" class="report-date-input block h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700/50">
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+                <input type="date" name="end_date" value="{{ end_date }}" class="report-date-input block h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700/50">
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Region</label>
+                <select name="region" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white" style="background-color: rgb(255 255 255); color: rgb(15 23 42);" data-dashboard-select>
+                    <option value="">All regions</option>
+                    {% for option in overview_regions %}
+                    <option value="{{ option }}" {% if selected_region == option %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
+                <select name="status" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white" style="background-color: rgb(255 255 255); color: rgb(15 23 42);" data-dashboard-select>
+                    <option value="">All statuses</option>
+                    <option value="active" {% if selected_status == "active" %}selected{% endif %}>Active</option>
+                    <option value="pending" {% if selected_status == "pending" %}selected{% endif %}>Pending</option>
+                    <option value="suspended" {% if selected_status == "suspended" %}selected{% endif %}>Suspended</option>
+                    <option value="terminated" {% if selected_status == "terminated" %}selected{% endif %}>Terminated</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 lg:justify-end">
+            <a href="/admin/reports/subscribers/overview" class="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 dark:hover:text-white">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M5.8 9A7 7 0 0119 12m-.8 3A7 7 0 015 12"/></svg>
+                Reset
+            </a>
+            <button type="submit" class="inline-flex h-10 items-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-semibold text-white hover:bg-amber-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
+                Apply
+            </button>
+        </div>
+    </form>
+    {% endcall %}
+
+    {% call dashboard_kpi_grid(cols="5") %}
+        {{ overview_kpi_card(
+            "Active Subscribers",
+            overview_active_subscribers,
+            "amber",
+            "orange",
+            '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 20h4v-.5a3.5 3.5 0 00-3.5-3.5H17M17 20H7m10 0v-.5a5.5 5.5 0 00-10 0V20M7 20H3v-.5A3.5 3.5 0 016.5 16H7m8-8a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
+            trend_pct=overview_active_trend|abs,
+            trend_direction="up" if overview_active_trend >= 0 else "down",
+            trend_text="Net change in the selected period",
+            spark_points="8,28 22,25 36,22 50,18 64,15 78,10"
+        ) }}
+        {{ overview_kpi_card(
+            "Net Growth",
+            overview_net_growth,
+            "emerald",
+            "teal",
+            '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M5 16l5-5 4 4 5-7"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 8h5v5"/></svg>',
+            trend_pct=overview_net_growth_pct|abs,
+            trend_direction="up" if overview_net_growth >= 0 else "down",
+            trend_text="Share of gross adds retained as net gain",
+            spark_points="8,30 22,26 36,24 50,16 64,12 78,8"
+        ) }}
+        {{ overview_kpi_card(
+            "Suspended Accounts",
+            overview_suspended_count,
+            "rose",
+            "red",
+            '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 4l16 16"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.6 10.6a2 2 0 102.8 2.8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9.9 4.6A8.97 8.97 0 0112 4c4.97 0 9 4.03 9 9 0 1.8-.53 3.47-1.45 4.86"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6.24 6.23A8.97 8.97 0 003 13c0 4.97 4.03 9 9 9 2.42 0 4.61-.96 6.23-2.52"/></svg>',
+            trend_pct=overview_suspended_pct|abs,
+            trend_direction="down" if overview_suspended_count > 0 else "neutral",
+            trend_text="Suspended share of tracked subscribers",
+            spark_points="8,12 22,15 36,18 50,20 64,24 78,28"
+        ) }}
+        {{ overview_kpi_card(
+            "Avg Tickets per Subscriber",
+            overview_avg_tickets,
+            "blue",
+            "cyan",
+            '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 8h10M7 12h6m-8 8l3.6-3H19a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2v3z"/></svg>',
+            trend_pct=overview_ticket_trend|abs,
+            trend_direction="down" if overview_ticket_trend > 0 else "up",
+            trend_text="Against a baseline of 1.0 ticket per subscriber",
+            spark_points="8,24 22,22 36,20 50,21 64,18 78,17"
+        ) }}
+        {{ overview_kpi_card(
+            "Regions Covered",
+            overview_regions_covered,
+            "slate",
+            "gray",
+            '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 21s7-5.2 7-11a7 7 0 10-14 0c0 5.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5" stroke-width="1.8"/></svg>',
+            trend_pct=overview_region_trend|abs,
+            trend_direction="up" if overview_region_trend > 0 else "neutral",
+            trend_text="Coverage across available regional labels",
+            spark_points="8,29 22,27 36,22 50,20 64,16 78,14"
+        ) }}
+    {% endcall %}
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Executive Readout</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-950 dark:text-white">
+                        {% if overview_net_growth > 0 %}
+                        The base is growing net positive.
+                        {% elif overview_net_growth < 0 %}
+                        Churn is outpacing new adds.
+                        {% else %}
+                        Growth is currently flat.
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+            <p class="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                {{ overview_activations }} new activations against {{ overview_terminations }} terminations produced a net movement of {{ overview_net_growth }} subscribers in the selected window.
+            </p>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-7.938 4h15.876c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Operational Risk</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-950 dark:text-white">
+                        {% if overview_suspended_pct >= 10 %}
+                        Suspension pressure is elevated.
+                        {% elif overview_suspended_pct >= 5 %}
+                        Suspension rate warrants monitoring.
+                        {% else %}
+                        Service risk is within range.
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+            <p class="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                {{ overview_suspended_count }} suspended accounts now represent {{ overview_suspended_pct }}% of the tracked base, while average ticket load is {{ overview_avg_tickets }} per subscriber.
+            </p>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6m4 6V7m4 10v-3M5 19h14"/></svg>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Portfolio Concentration</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-950 dark:text-white">
+                        {% if overview_top_plan %}
+                        {{ overview_top_plan.plan }} is the lead package.
+                        {% else %}
+                        Plan mix visibility is limited.
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+            <p class="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                {% if overview_top_plan %}
+                The lead plan represents {{ "%.1f"|format(overview_top_plan_pct) }}% of visible distribution across {{ overview_regions_covered }} covered regions.
+                {% else %}
+                No plan concentration signal is available for the selected period.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Growth Trend</h2>
+            </div>
+            <div class="px-5 pb-3 pt-4">
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="rounded-xl bg-emerald-50/80 px-4 py-3 dark:bg-emerald-500/10">
+                        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Activations</p>
+                        <p class="mt-2 text-2xl font-bold text-slate-950 dark:text-white">{{ overview_activations }}</p>
+                    </div>
+                    <div class="rounded-xl bg-rose-50/80 px-4 py-3 dark:bg-rose-500/10">
+                        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700 dark:text-rose-300">Terminations</p>
+                        <p class="mt-2 text-2xl font-bold text-slate-950 dark:text-white">{{ overview_terminations }}</p>
+                    </div>
+                </div>
+                <div style="height: 120px;"></div>
+                <div class="chart-container" style="min-height: 500px;">
+                    <canvas id="subscriber-overview-growth-chart"></canvas>
+                </div>
+                <div style="height: 28px;"></div>
+                <div id="subscriber-overview-growth-legend" class="flex flex-wrap items-center gap-3"></div>
+            </div>
+        </div>
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Status Distribution</h2>
+            </div>
+            <div class="p-6">
+                <div class="space-y-6">
+                    <div class="chart-container relative mx-auto w-full max-w-[220px]" style="min-height: 220px;">
+                        <canvas id="subscriber-overview-status-chart"></canvas>
+                        <div id="subscriber-overview-status-center" class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                            <div class="text-center">
+                                <p id="subscriber-overview-status-center-value" class="text-[32px] font-bold tracking-tight text-slate-950 dark:text-white">0%</p>
+                                <p id="subscriber-overview-status-center-label" class="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Active Subscribers</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="subscriber-overview-status-legend" class="space-y-3">
+                        <div class="rounded-xl bg-slate-50/80 px-4 py-3 dark:bg-slate-900/40">
+                            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Status Mix</p>
+                            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Subscriber totals by current account state.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6">
+        <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Service Plan Distribution</h2>
+            </div>
+            <div class="p-6">
+                <div class="chart-container relative" style="min-height: 300px;">
+                    <canvas id="subscriber-overview-plan-chart"></canvas>
+                    <div id="subscriber-overview-plan-labels" class="pointer-events-none absolute inset-0"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% call table_shell(table_id="subscriber-regional-breakdown", title="Regional Breakdown", color="amber", count=overview_regional|length, bulk_selectable=False) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead>
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Active</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Suspended</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Terminated</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">New In Period</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tickets</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% for row in overview_regional %}
+            {% call table_row(color="amber") %}
+                <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.region }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.active }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.suspended }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.terminated }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.new_in_period }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.ticket_count }}</td>
+            {% endcall %}
+            {% else %}
+            {{ empty_state(title="No regional data", message="No regional subscriber data is available for the selected period.", color="amber", color2="orange", colspan=6) }}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endcall %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('[data-dashboard-select]').forEach(function(select) {
+        const isDark = document.documentElement.classList.contains('dark');
+        if (isDark) {
+            select.style.backgroundColor = 'rgb(30 41 59)';
+            select.style.color = 'rgb(255 255 255)';
+        }
+        Array.from(select.options).forEach(function(option) {
+            option.style.backgroundColor = isDark ? 'rgb(30 41 59)' : 'rgb(255 255 255)';
+            option.style.color = isDark ? 'rgb(255 255 255)' : 'rgb(15 23 42)';
+        });
+    });
+
+    const growthCtx = document.getElementById('subscriber-overview-growth-chart');
+    if (growthCtx && typeof DotmacCharts !== 'undefined' && typeof Chart !== 'undefined') {
+        const growthChartContext = growthCtx.getContext('2d');
+        const growthLegend = document.getElementById('subscriber-overview-growth-legend');
+        const rawGrowthData = {{ overview_growth_trend | tojson }} || [];
+        const groupGrowthTrendByWeek = function(data) {
+            if (data.length <= 45) {
+                return data;
+            }
+
+            const grouped = [];
+            for (let index = 0; index < data.length; index += 7) {
+                const slice = data.slice(index, index + 7);
+                if (!slice.length) {
+                    continue;
+                }
+                grouped.push({
+                    date: `${slice[0].date} to ${slice[slice.length - 1].date}`,
+                    activations: slice.reduce((sum, item) => sum + (item.activations || 0), 0),
+                    terminations: slice.reduce((sum, item) => sum + (item.terminations || 0), 0)
+                });
+            }
+            return grouped;
+        };
+        const compressInactivePeriods = function(data) {
+            if (data.length <= 2) {
+                return data;
+            }
+
+            const filtered = data.filter((item, index, list) => {
+                const currentTotal = (item.activations || 0) + (item.terminations || 0);
+                if (currentTotal > 0) {
+                    return true;
+                }
+
+                const previous = list[index - 1];
+                const next = list[index + 1];
+                const previousTotal = previous ? (previous.activations || 0) + (previous.terminations || 0) : null;
+                const nextTotal = next ? (next.activations || 0) + (next.terminations || 0) : null;
+                return index === 0 || index === list.length - 1 || previousTotal > 0 || nextTotal > 0;
+            });
+
+            return filtered.length ? filtered : data.slice(-1);
+        };
+
+        const growthData = compressInactivePeriods(groupGrowthTrendByWeek(rawGrowthData));
+        const growthValues = growthData.reduce((values, item) => {
+            values.push(item.activations || 0);
+            values.push(item.terminations || 0);
+            return values;
+        }, []);
+        const hasPositiveValue = growthValues.some((value) => value > 0);
+        const pointRadius = growthData.length <= 1 ? 5 : growthData.length <= 12 ? 3 : 0;
+        const labelStep = growthData.length > 60 ? 6 : growthData.length > 30 ? 4 : growthData.length > 14 ? 2 : 1;
+        const activationsGradient = growthChartContext.createLinearGradient(0, 0, 0, 320);
+        activationsGradient.addColorStop(0, 'rgba(34, 197, 94, 0.24)');
+        activationsGradient.addColorStop(1, 'rgba(34, 197, 94, 0.02)');
+        const terminationsGradient = growthChartContext.createLinearGradient(0, 0, 0, 320);
+        terminationsGradient.addColorStop(0, 'rgba(239, 68, 68, 0.18)');
+        terminationsGradient.addColorStop(1, 'rgba(239, 68, 68, 0.02)');
+        const chart = DotmacCharts.createLineChart(growthCtx, {
+            labels: growthData.map((item) => item.date),
+            datasets: [
+                {
+                    label: 'Activations',
+                    data: growthData.map((item) => item.activations),
+                    borderColor: '#22c55e',
+                    backgroundColor: activationsGradient,
+                    fill: true,
+                    tension: 0.42,
+                    borderWidth: 3,
+                    pointRadius: pointRadius,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#22c55e',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2
+                },
+                {
+                    label: 'Terminations',
+                    data: growthData.map((item) => item.terminations),
+                    borderColor: '#ef4444',
+                    backgroundColor: terminationsGradient,
+                    fill: true,
+                    tension: 0.42,
+                    borderWidth: 3,
+                    pointRadius: pointRadius,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#ef4444',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2
+                }
+            ]
+        }, {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#e2e8f0',
+                    borderColor: 'rgba(148, 163, 184, 0.18)',
+                    borderWidth: 1,
+                    cornerRadius: 14,
+                    padding: 12,
+                    displayColors: true,
+                    callbacks: {
+                        title(items) {
+                            return items[0] ? items[0].label : '';
+                        },
+                        label(context) {
+                            return `${context.dataset.label}: ${context.parsed.y}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: false,
+                        drawBorder: false
+                    },
+                    ticks: {
+                        color: '#94a3b8',
+                        autoSkip: true,
+                        maxTicksLimit: 8,
+                        maxRotation: 0,
+                        minRotation: 0,
+                        callback(value, index) {
+                            return index % labelStep === 0 ? this.getLabelForValue(value) : '';
+                        }
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    suggestedMax: hasPositiveValue ? undefined : 1,
+                    ticks: {
+                        color: '#94a3b8',
+                        padding: 10,
+                        precision: 0
+                    },
+                    grid: {
+                        color: 'rgba(148, 163, 184, 0.12)',
+                        borderDash: [4, 4],
+                        drawBorder: false
+                    }
+                }
+            }
+        });
+        if (growthLegend) {
+            growthLegend.innerHTML = `
+                <div class="inline-flex items-center gap-2 rounded-full border border-emerald-500/50 bg-white px-3 py-1.5 dark:border-emerald-500/40 dark:bg-slate-800">
+                    <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+                    <span class="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Activations</span>
+                </div>
+                <div class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-600 dark:bg-slate-800">
+                    <span class="h-2.5 w-2.5 rounded-full bg-rose-500"></span>
+                    <span class="text-sm font-semibold text-rose-700 dark:text-rose-300">Terminations</span>
+                </div>
+            `;
+        }
+        DotmacCharts.registerChart('subscriber-overview-growth-chart', chart);
+    }
+
+    const statusCtx = document.getElementById('subscriber-overview-status-chart');
+    if (statusCtx) {
+        const statusData = {{ overview_status_dist | tojson }};
+        const labels = Object.keys(statusData);
+        if (labels.length > 0) {
+            const statusLegend = document.getElementById('subscriber-overview-status-legend');
+            const total = labels.reduce((sum, label) => sum + (statusData[label] || 0), 0);
+            const primaryLabel = labels.includes('active')
+                ? 'active'
+                : labels.reduce((best, current) => ((statusData[current] || 0) > (statusData[best] || 0) ? current : best), labels[0]);
+            const primaryValue = statusData[primaryLabel] || 0;
+            const primaryPct = total > 0 ? Math.round((primaryValue / total) * 100) : 0;
+            const centerValue = document.getElementById('subscriber-overview-status-center-value');
+            const centerLabel = document.getElementById('subscriber-overview-status-center-label');
+            const colorMap = {
+                active: '#22c55e',
+                pending: '#facc15',
+                suspended: '#ef4444',
+                terminated: '#ef4444',
+            };
+            const chartColors = labels.map((label) => colorMap[label] || '#64748b');
+            if (centerValue) {
+                centerValue.textContent = `${primaryPct}%`;
+            }
+            if (centerLabel) {
+                centerLabel.textContent = 'Active Subscribers';
+            }
+            if (statusLegend) {
+                statusLegend.innerHTML = '';
+                labels.forEach((label, index) => {
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center justify-between rounded-xl bg-slate-50/80 px-4 py-3 dark:bg-slate-900/40';
+                    const count = statusData[label] || 0;
+                    row.innerHTML = `
+                        <div class="flex items-center gap-3">
+                            <span class="h-2.5 w-2.5 rounded-full" style="background:${chartColors[index]}"></span>
+                            <span class="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">${count}</span>
+                        </div>
+                        <span class="text-sm font-medium capitalize text-slate-600 dark:text-slate-300">${label.replaceAll('_', ' ')} subscribers</span>
+                    `;
+                    statusLegend.appendChild(row);
+                });
+            }
+            const chart = DotmacCharts.createDoughnutChart(statusCtx, {
+                labels: labels.map((label) => label.replaceAll('_', ' ')),
+                values: labels.map((label) => statusData[label]),
+                colors: chartColors
+            }, {
+                cutout: '76%',
+                plugins: {
+                    legend: { display: false }
+                },
+                elements: {
+                    arc: {
+                        borderWidth: 0,
+                        borderRadius: 10,
+                        spacing: 2
+                    }
+                },
+                animation: {
+                    duration: 900,
+                    easing: 'easeOutCubic'
+                }
+            });
+            DotmacCharts.registerChart('subscriber-overview-status-chart', chart);
+        }
+    }
+
+    const planCtx = document.getElementById('subscriber-overview-plan-chart');
+    const planLabels = document.getElementById('subscriber-overview-plan-labels');
+    if (planCtx && planLabels && typeof DotmacCharts !== 'undefined') {
+        const isDarkMode = document.documentElement.classList.contains('dark');
+        const renderPlanLabels = function(chart) {
+            planLabels.innerHTML = '';
+            const dataset = chart.data.datasets[0];
+            const meta = chart.getDatasetMeta(0);
+            meta.data.forEach((bar, index) => {
+                const value = dataset.data[index];
+                if (value === null || value === undefined) {
+                    return;
+                }
+                const valueLabel = document.createElement('span');
+                valueLabel.className = 'absolute text-[11px] font-semibold text-amber-600 dark:text-amber-300';
+                valueLabel.textContent = String(value);
+                valueLabel.style.left = `${bar.x + 10}px`;
+                valueLabel.style.top = `${bar.y}px`;
+                valueLabel.style.transform = 'translateY(-50%)';
+                planLabels.appendChild(valueLabel);
+            });
+        };
+        const planData = {{ overview_plan_dist | tojson }};
+        if (planData.length > 0) {
+            DotmacCharts.unregisterChart('subscriber-overview-plan-chart');
+            const chart = DotmacCharts.createBarChart(planCtx, {
+                labels: planData.map((item) => item.plan),
+                datasets: [{
+                    label: 'Subscribers',
+                    data: planData.map((item) => item.count),
+                    backgroundColor(context) {
+                        const chartRef = context.chart;
+                        const chartArea = chartRef.chartArea;
+                        if (!chartArea) {
+                            return '#f59e0b';
+                        }
+                        const gradient = chartRef.ctx.createLinearGradient(chartArea.left, 0, chartArea.right, 0);
+                        gradient.addColorStop(0, '#f59e0b');
+                        gradient.addColorStop(1, '#f97316');
+                        return gradient;
+                    },
+                    borderRadius: 999,
+                    borderSkipped: false,
+                    barThickness: 18
+                }]
+            }, {
+                indexAxis: 'y',
+                layout: { padding: { right: 52, left: 8 } },
+                plugins: {
+                    legend: { display: false },
+                    datalabels: { display: false }
+                },
+                animation: {
+                    duration: 900,
+                    easing: 'easeOutCubic',
+                    onComplete(animation) {
+                        renderPlanLabels(animation.chart);
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0,
+                            color: isDarkMode ? '#e2e8f0' : '#334155',
+                            font: {
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
+                        grid: {
+                            color: isDarkMode ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.12)',
+                            drawBorder: false
+                        },
+                        border: {
+                            display: false
+                        }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: {
+                            color: isDarkMode ? '#f8fafc' : '#0f172a',
+                            font: {
+                                size: 12,
+                                weight: '700'
+                            },
+                            padding: 14
+                        },
+                        border: {
+                            display: false
+                        }
+                    }
+                }
+            });
+            renderPlanLabels(chart);
+            DotmacCharts.registerChart('subscriber-overview-plan-chart', chart);
+        }
+    }
+});
+</script>
+{% endblock %}
