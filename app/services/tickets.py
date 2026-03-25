@@ -719,17 +719,18 @@ class Tickets(ListResponseMixin):
             assignee_ids = [str(value) for value in (payload.assigned_to_person_ids or [])]
         elif payload.assigned_to_person_id:
             assignee_ids = [str(payload.assigned_to_person_id)]
-        number = generate_number(
-            db=db,
-            domain=SettingDomain.numbering,
-            sequence_key="ticket_number",
-            enabled_key="ticket_number_enabled",
-            prefix_key="ticket_number_prefix",
-            padding_key="ticket_number_padding",
-            start_key="ticket_number_start",
-        )
-        if number:
-            data["number"] = number
+        if not data.get("number"):
+            number = generate_number(
+                db=db,
+                domain=SettingDomain.numbering,
+                sequence_key="ticket_number",
+                enabled_key="ticket_number_enabled",
+                prefix_key="ticket_number_prefix",
+                padding_key="ticket_number_padding",
+                start_key="ticket_number_start",
+            )
+            if number:
+                data["number"] = number
         # Auto-assign project manager + SPC based on region if not already specified
         if data.get("region"):
             auto_manager, auto_spc = _get_region_ticket_assignments(db, data["region"])

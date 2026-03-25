@@ -45,7 +45,6 @@ _SUBSCRIBER_REQUIRED_TICKET_TYPES = {
 }
 
 _BASE_STATION_REQUIRED_TICKET_TYPES = {
-    "cabinet disconnection",
     "cedar view (likely a site/location issue)",
     "core link disconnection",
     "dell server down",

@@ -278,6 +278,26 @@ def _ticket_display_ref(ticket: Ticket) -> str:
     return ticket.number or str(ticket.id)
 
 
+def _coerce_int_query_value(
+    value: object,
+    *,
+    default: int,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    if isinstance(value, int):
+        result = value
+    else:
+        result = getattr(value, "default", default)
+        if not isinstance(result, int):
+            result = default
+    if minimum is not None:
+        result = max(minimum, result)
+    if maximum is not None:
+        result = min(maximum, result)
+    return result
+
+
 def _redirect_if_ticket_merged(ticket: Ticket) -> RedirectResponse | None:
     target_url = _merged_redirect_target(ticket)
     if not target_url:
@@ -618,6 +638,8 @@ def tickets_list(
     db: Session = Depends(get_db),
 ):
     """List all tickets with filters."""
+    page = _coerce_int_query_value(page, default=1, minimum=1)
+    per_page = _coerce_int_query_value(per_page, default=25, minimum=10, maximum=100)
     if order_by not in {"created_at", "updated_at", "status", "priority"}:
         order_by = "created_at"
     if order_dir not in {"asc", "desc"}:

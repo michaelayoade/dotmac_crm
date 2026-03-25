@@ -26,6 +26,7 @@ class TicketBase(BaseModel):
     status: TicketStatus = TicketStatus.open
     priority: TicketPriority = TicketPriority.normal
     ticket_type: str | None = Field(default=None, max_length=120)
+    number: str | None = Field(default=None, max_length=40)
     channel: TicketChannel = TicketChannel.web
     tags: list[str] | None = None
     metadata_: dict | None = Field(
@@ -59,6 +60,7 @@ class TicketUpdate(BaseModel):
     status: TicketStatus | None = None
     priority: TicketPriority | None = None
     ticket_type: str | None = Field(default=None, max_length=120)
+    number: str | None = Field(default=None, max_length=40)
     channel: TicketChannel | None = None
     tags: list[str] | None = None
     metadata_: dict | None = Field(
