@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.mutable import MutableDict
@@ -169,6 +170,26 @@ class Subscriber(Base):
         Index("ix_subscribers_external", "external_system", "external_id"),
         Index("ix_subscribers_status", "status"),
         Index("ix_subscribers_sales_order", "sales_order_id"),
+        Index(
+            "ix_subscribers_active_activated_at",
+            "activated_at",
+            postgresql_where=text("is_active IS TRUE AND activated_at IS NOT NULL"),
+        ),
+        Index(
+            "ix_subscribers_active_terminated_at",
+            "terminated_at",
+            postgresql_where=text("is_active IS TRUE AND terminated_at IS NOT NULL"),
+        ),
+        Index(
+            "ix_subscribers_active_service_region",
+            "service_region",
+            postgresql_where=text("is_active IS TRUE AND service_region IS NOT NULL"),
+        ),
+        Index(
+            "ix_subscribers_active_service_plan",
+            "service_plan",
+            postgresql_where=text("is_active IS TRUE AND service_plan IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -493,6 +493,19 @@ def _resolve_technician_contact(db: Session, person_id) -> dict | None:
     }
 
 
+def _ticket_has_technician(ticket: Ticket, person_id: UUID) -> bool:
+    if ticket.assigned_to_person_id == person_id:
+        return True
+    return any(assignee.person_id == person_id for assignee in ticket.assignees or [])
+
+
+def _fallback_customer_update_message(comment_body: str | None) -> str:
+    text = " ".join((comment_body or "").split()).strip()
+    if not text:
+        return "There is an update on your support ticket."
+    return text[:4000]
+
+
 def _get_region_ticket_assignments(db: Session, region: str | None) -> tuple[str | None, str | None]:
     """Look up project manager + SPC person_id for the given region from settings."""
     if not region:
@@ -1412,6 +1425,89 @@ class Tickets(ListResponseMixin):
             )
 
         return ticket
+
+    @staticmethod
+    def notify_customer_of_public_technician_comment(
+        db: Session,
+        *,
+        ticket_id: str,
+        comment_id: str,
+        actor_person_id: str | None,
+        request=None,
+    ) -> dict | None:
+        if not actor_person_id:
+            return None
+
+        ticket = db.get(Ticket, coerce_uuid(ticket_id))
+        comment = db.get(TicketComment, coerce_uuid(comment_id))
+        if not ticket or not comment or comment.is_internal:
+            return None
+
+        actor_uuid = coerce_uuid(actor_person_id)
+        if comment.author_person_id != actor_uuid or not _ticket_has_technician(ticket, actor_uuid):
+            return None
+
+        customer_name = _resolve_customer_name(ticket, db)
+        customer_email = _resolve_customer_email(ticket, db)
+        technician_contact = _resolve_technician_contact(db, actor_uuid)
+
+        try:
+            from app.services.ai.use_cases.ticket_customer_update import draft_customer_ticket_update
+
+            draft = draft_customer_ticket_update(
+                db,
+                request=request,
+                ticket_id=str(ticket.id),
+                comment_id=str(comment.id),
+                actor_person_id=actor_person_id,
+            )
+            update_message = draft.update_message
+            ai_meta = draft.meta
+        except Exception:
+            logger.exception("ticket_customer_update_ai_failed ticket_id=%s comment_id=%s", ticket.id, comment.id)
+            update_message = _fallback_customer_update_message(comment.body)
+            ai_meta = {"fallback": True}
+
+        from app.services import email as email_service
+        from app.services.branding import get_branding
+
+        app_url = (email_service.get_app_url(db) or "").rstrip("/")
+        ticket_ref = ticket.number or str(ticket.id)
+        ticket_url = (
+            f"{app_url}/admin/support/tickets/{ticket_ref}" if app_url else f"/admin/support/tickets/{ticket_ref}"
+        )
+        company_name = get_branding(db).get("company_name") or "Dotmac"
+
+        emit_event(
+            db,
+            EventType.ticket_customer_update,
+            {
+                "ticket_id": str(ticket.id),
+                "ticket_number": ticket_ref,
+                "ticket_subject": ticket.title,
+                "title": ticket.title,
+                "subject": ticket.title,
+                "status": ticket.status.value if ticket.status else None,
+                "customer_name": customer_name,
+                "email": customer_email,
+                "update_message": update_message,
+                "ticket_link": ticket_url,
+                "ticket_url": ticket_url,
+                "company_name": company_name,
+                "comment_id": str(comment.id),
+                "technician_name": technician_contact["name"] if technician_contact else None,
+                "ai_meta": ai_meta,
+            },
+            actor=actor_person_id,
+            ticket_id=ticket.id,
+            subscriber_id=ticket.subscriber_id,
+        )
+        return {
+            "ticket_id": str(ticket.id),
+            "comment_id": str(comment.id),
+            "update_message": update_message,
+            "ai_meta": ai_meta,
+        }
 
     @staticmethod
     def bulk_update(db: Session, ticket_ids: builtins.list[str], payload: TicketUpdate) -> int:

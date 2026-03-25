@@ -59,6 +59,8 @@ htmlcov/
 # Reports (may contain PII)
 docs/reports/
 reports/
+!templates/admin/reports/
+!templates/admin/reports/*.html
 .aider*
 
 # Seabone agent bootstrap (auto-generated, never commit)

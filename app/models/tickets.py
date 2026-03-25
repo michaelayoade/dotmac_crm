@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,19 @@ class TicketChannel(enum.Enum):
 
 class Ticket(Base):
     __tablename__ = "tickets"
+    __table_args__ = (
+        Index(
+            "ix_tickets_active_created_subscriber",
+            "created_at",
+            "subscriber_id",
+            postgresql_where=text("is_active IS TRUE AND subscriber_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_tickets_active_status",
+            "status",
+            postgresql_where=text("is_active IS TRUE"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     subscriber_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("subscribers.id"))

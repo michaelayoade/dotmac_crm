@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from sqlalchemy import String, cast, exists, or_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
+from app.models.person import Person
 from app.models.service_team import ServiceTeamMember
 from app.models.tickets import (
     Ticket,
@@ -176,7 +178,7 @@ class TicketQuery(BaseQuery[Ticket]):
         return clone
 
     def search(self, term: str | None) -> TicketQuery:
-        """Search tickets by title, description, or ID.
+        """Search tickets by ticket fields and linked customer identity.
 
         Performs case-insensitive search across multiple fields.
         """
@@ -184,7 +186,7 @@ class TicketQuery(BaseQuery[Ticket]):
             return self
         clone = self._clone()
         like_term = f"%{term.strip()}%"
-        search_filters = [
+        search_filters: list[ColumnElement[bool]] = [
             Ticket.title.ilike(like_term),
             Ticket.description.ilike(like_term),
             cast(Ticket.id, String).ilike(like_term),
@@ -192,6 +194,16 @@ class TicketQuery(BaseQuery[Ticket]):
         ticket_number_attr = getattr(Ticket, "number", None)
         if ticket_number_attr is not None:
             search_filters.append(ticket_number_attr.ilike(like_term))
+        search_filters.append(
+            Ticket.customer.has(
+                or_(
+                    Person.display_name.ilike(like_term),
+                    Person.first_name.ilike(like_term),
+                    Person.last_name.ilike(like_term),
+                    cast(Person.id, String).ilike(like_term),
+                )
+            )
+        )
         clone._query = clone._query.filter(or_(*search_filters))
         return clone
 
@@ -223,6 +235,17 @@ class TicketQuery(BaseQuery[Ticket]):
                 TicketStatus.merged,
             ]
         )
+
+    def not_closed_tickets(self) -> TicketQuery:
+        """Filter to tickets whose status is neither closed nor canceled."""
+        clone = self._clone()
+        clone._query = clone._query.filter(
+            or_(
+                Ticket.status.is_(None),
+                Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled]),
+            )
+        )
+        return clone
 
     def with_relations(self) -> TicketQuery:
         """Eager load common relationships to avoid N+1 queries.

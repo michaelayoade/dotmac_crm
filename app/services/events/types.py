@@ -67,6 +67,7 @@ class EventType(enum.Enum):
     ticket_pre_create = "ticket.pre_create"
     ticket_created = "ticket.created"
     ticket_updated = "ticket.updated"
+    ticket_customer_update = "ticket.customer_update"
     ticket_escalated = "ticket.escalated"
     ticket_resolved = "ticket.resolved"
     ticket_assigned = "ticket.assigned"

@@ -22,7 +22,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.service_team import ServiceTeam
 from app.models.subscriber import Subscriber
-from app.models.tickets import Ticket, TicketChannel, TicketMerge, TicketPriority, TicketStatus
+from app.models.tickets import Ticket, TicketChannel, TicketLink, TicketMerge, TicketPriority, TicketStatus
 from app.queries.tickets import TicketQuery
 from app.services import audit as audit_service
 from app.services import filter_preferences as filter_preferences_service
@@ -33,11 +33,13 @@ from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.services.filter_engine import parse_filter_payload_json
 from app.services.subscriber import subscriber as subscriber_service
+from app.services.ticket_validation import base_station_required_ticket_types, subscriber_required_ticket_types
 
 logger = get_logger(__name__)
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/support", tags=["web-admin-support"])
+DEFAULT_TICKET_STATUS_FILTER = "not_closed"
 
 
 def _clean_text(value: object | None) -> str | None:
@@ -308,9 +310,8 @@ def _ticket_relationship_notice_from_request(request: Request) -> str | None:
 def _can_manage_ticket_relationships(current_user: dict | None) -> bool:
     if not current_user:
         return False
-    roles = set(current_user.get("roles") or [])
-    permissions = set(current_user.get("permissions") or [])
-    return "admin" in roles or "Agents" in roles or "support:ticket:update" in permissions
+    roles = {str(role).strip().lower() for role in (current_user.get("roles") or []) if role}
+    return bool({"admin", "agent", "agents"} & roles)
 
 
 def _log_activity(
@@ -539,6 +540,62 @@ def _load_ticket_pm_spc_options(db: Session) -> tuple[list[dict[str, str]], list
     return pm_options, spc_options
 
 
+def _build_ticket_relationships_map(db: Session, tickets: list[Ticket]) -> dict[str, dict[str, Any]]:
+    """Build relationship metadata for the current ticket page without N+1 queries."""
+    if not tickets:
+        return {}
+
+    ticket_ids = [ticket.id for ticket in tickets if getattr(ticket, "id", None)]
+    if not ticket_ids:
+        return {}
+
+    relationships: dict[str, dict[str, Any]] = {str(ticket_id): {} for ticket_id in ticket_ids}
+
+    for ticket in tickets:
+        if ticket.merged_into_ticket:
+            relationships[str(ticket.id)]["merged_into_ref"] = _ticket_display_ref(ticket.merged_into_ticket)
+
+    related_links = (
+        db.query(TicketLink)
+        .filter(TicketLink.link_type == tickets_service.RELATED_OUTAGE_LINK_TYPE)
+        .filter((TicketLink.from_ticket_id.in_(ticket_ids)) | (TicketLink.to_ticket_id.in_(ticket_ids)))
+        .all()
+    )
+
+    target_ids = {link.to_ticket_id for link in related_links if link.to_ticket_id}
+    if target_ids:
+        target_tickets = db.query(Ticket).filter(Ticket.id.in_(target_ids)).all()
+        target_refs = {ticket.id: _ticket_display_ref(ticket) for ticket in target_tickets}
+    else:
+        target_refs = {}
+
+    for link in related_links:
+        if link.from_ticket_id in ticket_ids:
+            relationships[str(link.from_ticket_id)]["linked_to_ref"] = target_refs.get(
+                link.to_ticket_id, str(link.to_ticket_id)
+            )
+        if link.to_ticket_id in ticket_ids:
+            entry = relationships[str(link.to_ticket_id)]
+            entry["linked_children_count"] = int(entry.get("linked_children_count", 0)) + 1
+
+    return relationships
+
+
+def _normalize_ticket_status_filter(status: str | None) -> str:
+    """Return the effective ticket list status filter for the UI and query layer."""
+    return DEFAULT_TICKET_STATUS_FILTER if status is None else status
+
+
+def _apply_ticket_status_filter(query: TicketQuery, status: str | None) -> TicketQuery:
+    """Apply the ticket list status filter, including synthetic list-only values."""
+    effective_status = _normalize_ticket_status_filter(status)
+    if effective_status == "":
+        return query
+    if effective_status == DEFAULT_TICKET_STATUS_FILTER:
+        return query.not_closed_tickets()
+    return query.by_status(effective_status)
+
+
 @router.get(
     "/tickets",
     response_class=HTMLResponse,
@@ -566,6 +623,7 @@ def tickets_list(
     if order_dir not in {"asc", "desc"}:
         order_dir = "desc"
     offset = (page - 1) * per_page
+    effective_status = _normalize_ticket_status_filter(status)
     from app.csrf import get_csrf_token
 
     subscriber_display = None
@@ -658,11 +716,10 @@ def tickets_list(
         total = 0
         total_pages = 1
     else:
+        base_query = TicketQuery(db).by_subscriber(subscriber_id)
+        base_query = _apply_ticket_status_filter(base_query, status)
         base_query = (
-            TicketQuery(db)
-            .by_subscriber(subscriber_id)
-            .by_status(status if status else None)
-            .by_ticket_type(ticket_type if ticket_type else None)
+            base_query.by_ticket_type(ticket_type if ticket_type else None)
             .search(search if search else None)
             .by_ticket_manager(pm_person_id)
             .by_assistant_manager(spc_person_id)
@@ -684,6 +741,8 @@ def tickets_list(
 
     # Get stats by status
     stats = tickets_service.tickets.status_stats(db)
+    stats["not_closed"] = max(0, stats.get("total", 0) - stats.get("closed", 0) - stats.get("canceled", 0))
+    ticket_relationships = _build_ticket_relationships_map(db, tickets)
     ticket_types, _ticket_type_priority_map = _load_ticket_types(db)
     ticket_type_options = [item.get("name") for item in ticket_types if item.get("is_active") and item.get("name")]
     if ticket_type and ticket_type not in ticket_type_options:
@@ -697,9 +756,11 @@ def tickets_list(
             {
                 "request": request,
                 "tickets": tickets,
+                "ticket_relationships": ticket_relationships,
                 "csrf_token": csrf_token,
                 "search": search,
                 "status": status,
+                "effective_status": effective_status,
                 "ticket_type": ticket_type,
                 "assigned": assigned,
                 "pm": pm,
@@ -722,10 +783,12 @@ def tickets_list(
         {
             "request": request,
             "tickets": tickets,
+            "ticket_relationships": ticket_relationships,
             "stats": stats,
             "csrf_token": csrf_token,
             "search": search,
             "status": status,
+            "effective_status": effective_status,
             "ticket_type": ticket_type,
             "ticket_type_options": ticket_type_options,
             "assigned": assigned,
@@ -788,6 +851,7 @@ def ticket_create(
         "customer": None,
         "region": None,
         "related_outage_ticket_ref": None,
+        "base_station_details": None,
     }
 
     if conversation_id:
@@ -903,6 +967,8 @@ def ticket_create(
             "region_ticket_assignments": _load_region_ticket_assignments(db),
             "ticket_types": ticket_types,
             "ticket_type_priority_map": ticket_type_priority_map,
+            "subscriber_required_ticket_types": subscriber_required_ticket_types(),
+            "base_station_required_ticket_types": base_station_required_ticket_types(),
             "action_url": "/admin/support/tickets",
             "prefill": prefill,
             "active_page": "tickets",
@@ -938,6 +1004,35 @@ def ticket_customer_lookup(
         ]
         return ", ".join([p for p in parts if p]) or None
 
+    def _format_person_street(person: Person | None) -> str | None:
+        if not person:
+            return None
+        parts = [person.address_line1, person.address_line2]
+        return ", ".join([p for p in parts if p]) or None
+
+    def _format_person_location(person: Person | None) -> str | None:
+        if not person:
+            return None
+        parts = [person.city, person.region, person.postal_code, person.country_code]
+        return ", ".join([p for p in parts if p]) or None
+
+    def _format_subscriber_street(subscriber: Subscriber | None) -> str | None:
+        if not subscriber:
+            return None
+        parts = [subscriber.service_address_line1, subscriber.service_address_line2]
+        return ", ".join([p for p in parts if p]) or None
+
+    def _format_subscriber_location(subscriber: Subscriber | None) -> str | None:
+        if not subscriber:
+            return None
+        parts = [
+            subscriber.service_city,
+            subscriber.service_region,
+            subscriber.service_postal_code,
+            subscriber.service_country_code,
+        ]
+        return ", ".join([p for p in parts if p]) or None
+
     customer = None
     subscriber = None
 
@@ -963,6 +1058,8 @@ def ticket_customer_lookup(
             "name": name or person.email,
             "email": person.email,
             "phone": person.phone,
+            "street": _format_person_street(person),
+            "location": _format_person_location(person),
             "address": _format_person_address(person),
             "organization": person.organization.name if person.organization else None,
             "region": person.region,
@@ -977,6 +1074,8 @@ def ticket_customer_lookup(
             "status": subscriber.status.value if subscriber.status else None,
             "service_plan": subscriber.service_plan,
             "service_speed": subscriber.service_speed,
+            "service_street": _format_subscriber_street(subscriber),
+            "service_location": _format_subscriber_location(subscriber),
             "service_address": subscriber.service_address,
             "service_region": subscriber.service_region,
         }
@@ -1016,6 +1115,7 @@ async def ticket_create_post(
     status: str = Form("open"),
     due_at: str | None = Form(None),
     related_outage_ticket_ref: str | None = Form(None),
+    base_station_details: str | None = Form(None),
     tags: str | None = Form(None),
     attachments: list[UploadFile] = File(default_factory=list),
     conversation_id: str | None = Form(None),
@@ -1148,6 +1248,9 @@ async def ticket_create_post(
         metadata: dict[str, object] = {}
         if saved_attachments:
             metadata["attachments"] = saved_attachments
+        cleaned_base_station_details = _clean_text(base_station_details)
+        if cleaned_base_station_details:
+            metadata["base_station_details"] = cleaned_base_station_details
         metadata_value: dict[str, object] | None = metadata or None
 
         current_user = get_current_user(request)
@@ -1283,6 +1386,7 @@ async def ticket_create_post(
             "status": status or "open",
             "due_at": due_at or "",
             "related_outage_ticket_ref": related_outage_ticket_ref or "",
+            "base_station_details": base_station_details or "",
             "tags": tags or "",
         }
         return templates.TemplateResponse(
@@ -1297,6 +1401,8 @@ async def ticket_create_post(
                 "region_ticket_assignments": _load_region_ticket_assignments(db),
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
+                "subscriber_required_ticket_types": subscriber_required_ticket_types(),
+                "base_station_required_ticket_types": base_station_required_ticket_types(),
                 "action_url": "/admin/support/tickets",
                 "prefill": prefill,
                 "error": error_msg,
@@ -1381,6 +1487,8 @@ def ticket_edit(
             "region_ticket_assignments": _load_region_ticket_assignments(db),
             "ticket_types": ticket_types,
             "ticket_type_priority_map": ticket_type_priority_map,
+            "subscriber_required_ticket_types": subscriber_required_ticket_types(),
+            "base_station_required_ticket_types": base_station_required_ticket_types(),
             "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
             "error": error_message,
             "active_page": "tickets",
@@ -1415,6 +1523,7 @@ async def ticket_edit_post(
     channel: str | None = Form(None),
     status: str | None = Form(None),
     due_at: str | None = Form(None),
+    base_station_details: str | None = Form(None),
     tags: str | None = Form(None),
     attachments: list[UploadFile] = File(default_factory=list),
     db: Session = Depends(get_db),
@@ -1480,6 +1589,8 @@ async def ticket_edit_post(
                 "region_ticket_assignments": _load_region_ticket_assignments(db),
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
+                "subscriber_required_ticket_types": subscriber_required_ticket_types(),
+                "base_station_required_ticket_types": base_station_required_ticket_types(),
                 "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
                 "error": "This ticket is closed or canceled and cannot be edited.",
                 "active_page": "tickets",
@@ -1612,6 +1723,18 @@ async def ticket_edit_post(
 
             if metadata_changed:
                 metadata_update = new_metadata if new_metadata else None
+        existing_metadata = dict(ticket.metadata_) if ticket.metadata_ and isinstance(ticket.metadata_, dict) else {}
+        if base_station_details is not None:
+            metadata_source = dict(metadata_update) if isinstance(metadata_update, dict) else dict(existing_metadata)
+            previous_base_station_details = str(metadata_source.get("base_station_details") or "").strip()
+            cleaned_base_station_details = _clean_text(base_station_details)
+            if cleaned_base_station_details:
+                metadata_source["base_station_details"] = cleaned_base_station_details
+            else:
+                metadata_source.pop("base_station_details", None)
+            if str(metadata_source.get("base_station_details") or "").strip() != previous_base_station_details:
+                metadata_changed = True
+            metadata_update = metadata_source or None
 
         resolved_customer_person_id = ticket.customer_person_id
         if customer_person_id is not None or customer_search is not None:
@@ -1709,6 +1832,21 @@ async def ticket_edit_post(
 
         if metadata_changed:
             update_data["metadata_"] = metadata_update
+        effective_ticket_type = ticket_type_value
+        effective_base_station_details = ""
+        if isinstance(metadata_update, dict):
+            effective_base_station_details = str(metadata_update.get("base_station_details") or "").strip()
+        elif isinstance(existing_metadata, dict):
+            effective_base_station_details = str(existing_metadata.get("base_station_details") or "").strip()
+        if (
+            effective_ticket_type
+            and base_station_required_ticket_types()
+            and effective_ticket_type.strip().lower() in set(base_station_required_ticket_types())
+            and not effective_base_station_details
+        ):
+            raise HTTPException(
+                status_code=400, detail="Base station details are required for the selected ticket type."
+            )
 
         payload = TicketUpdate(**update_data)
         tickets_service.tickets.update(db=db, ticket_id=str(ticket.id), payload=payload)
@@ -1817,6 +1955,8 @@ async def ticket_edit_post(
                 "region_ticket_assignments": _load_region_ticket_assignments(db),
                 "ticket_types": ticket_types,
                 "ticket_type_priority_map": ticket_type_priority_map,
+                "subscriber_required_ticket_types": subscriber_required_ticket_types(),
+                "base_station_required_ticket_types": base_station_required_ticket_types(),
                 "action_url": f"/admin/support/tickets/{ticket.number or ticket.id}/edit",
                 "error": str(e),
                 "active_page": "tickets",
@@ -1838,6 +1978,8 @@ def ticket_detail(
     db: Session = Depends(get_db),
 ):
     """View ticket details."""
+    from app.csrf import get_csrf_token
+
     try:
         ticket, should_redirect = _resolve_ticket_reference(db, ticket_ref)
         if should_redirect:
@@ -1884,6 +2026,7 @@ def ticket_detail(
     activities = _build_activity_feed(db, audit_events)
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
+    csrf_token = get_csrf_token(request)
     relationship_notice = _ticket_relationship_notice_from_request(request)
     related_outage_context = tickets_service.tickets.related_outage_context(db, ticket_id=str(ticket.id))
     merged_sources = (
@@ -2004,6 +2147,7 @@ def ticket_detail(
             "subscriber_details": subscriber_details,
             "mention_agents": mention_agents,
             "current_user": current_user,
+            "csrf_token": csrf_token,
             "sidebar_stats": sidebar_stats,
             "active_page": "tickets",
         },
@@ -2174,6 +2318,7 @@ def update_ticket_status(
     from app.web.admin import get_current_user
 
     try:
+        current_user = get_current_user(request)
         status_map = {
             "new": TicketStatus.new,
             "open": TicketStatus.open,
@@ -2187,6 +2332,14 @@ def update_ticket_status(
             "canceled": TicketStatus.canceled,
         }
         new_status = status_map.get(status, TicketStatus.open)
+        if new_status in {TicketStatus.closed, TicketStatus.canceled} and not _can_manage_ticket_relationships(
+            current_user
+        ):
+            return templates.TemplateResponse(
+                "admin/errors/403.html",
+                {"request": request, "message": "Only Agents and Admin can close or cancel tickets."},
+                status_code=403,
+            )
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
         merged_redirect = _redirect_if_ticket_merged(ticket)
         if merged_redirect:
@@ -2197,7 +2350,6 @@ def update_ticket_status(
         closed_at = datetime.now(UTC) if status == "closed" else None
         payload = TicketUpdate(status=new_status, resolved_at=resolved_at, closed_at=closed_at)
         tickets_service.tickets.update(db=db, ticket_id=str(ticket.id), payload=payload)
-        current_user = get_current_user(request)
         _log_activity(
             db=db,
             request=request,
@@ -2376,7 +2528,14 @@ async def add_ticket_comment(
             is_internal=is_internal == "true",
             attachments=saved_attachments or None,
         )
-        tickets_service.ticket_comments.create(db=db, payload=payload)
+        created_comment = tickets_service.ticket_comments.create(db=db, payload=payload)
+        tickets_service.tickets.notify_customer_of_public_technician_comment(
+            db,
+            ticket_id=str(ticket.id),
+            comment_id=str(created_comment.id),
+            actor_person_id=actor_id,
+            request=request,
+        )
 
         # Best-effort @mention notifications (does not affect comment creation).
         if mentions:

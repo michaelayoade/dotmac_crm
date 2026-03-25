@@ -48,6 +48,7 @@
                 {% set status_val = ticket.status.value if ticket.status is not string else ticket.status %}
                 {% set priority_val = ticket.priority.value if ticket.priority is not string else ticket.priority %}
                 {% set channel_val = ticket.channel.value if ticket.channel is not string else ticket.channel %}
+                {% set relationship = (ticket_relationships or {}).get(ticket.id|string, {}) %}
                 {% call table_row(color="amber") %}
                     <td data-ticket-column="ticket" class="{{ pad }} align-top">
                         <div class="flex items-center gap-3">
@@ -169,6 +170,30 @@
                         </span>
                         {% else %}
                         <span class="inline-flex items-center rounded-lg bg-red-100 px-2.5 py-1 text-xs font-medium text-red-600 dark:bg-red-500/20 dark:text-red-400">Canceled</span>
+                        {% endif %}
+                        {% if relationship.merged_into_ref or relationship.linked_to_ref or relationship.linked_children_count %}
+                        <div class="mt-2 flex flex-col gap-1">
+                            {% if relationship.merged_into_ref %}
+                            <a href="/admin/support/tickets/{{ relationship.merged_into_ref }}"
+                               class="inline-flex max-w-full items-center gap-1 self-start rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-700 hover:bg-violet-100 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20">
+                                <span>Merged</span>
+                                <span class="truncate">{{ relationship.merged_into_ref }}</span>
+                            </a>
+                            {% endif %}
+                            {% if relationship.linked_to_ref %}
+                            <a href="/admin/support/tickets/{{ relationship.linked_to_ref }}"
+                               class="inline-flex max-w-full items-center gap-1 self-start rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700 hover:bg-sky-100 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20">
+                                <span>Linked</span>
+                                <span class="truncate">{{ relationship.linked_to_ref }}</span>
+                            </a>
+                            {% endif %}
+                            {% if relationship.linked_children_count %}
+                            <span class="inline-flex max-w-full items-center gap-1 self-start rounded-md border border-cyan-200 bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-700 dark:border-cyan-500/20 dark:bg-cyan-500/10 dark:text-cyan-300">
+                                <span>Primary Link</span>
+                                <span>{{ relationship.linked_children_count }}</span>
+                            </span>
+                            {% endif %}
+                        </div>
                         {% endif %}
                     </td>
                     <td data-ticket-column="assigned" class="{{ pad }} align-top">
