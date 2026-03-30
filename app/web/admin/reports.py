@@ -90,11 +90,7 @@ def _resolve_lifecycle_date_range(
 
     now = datetime.now(UTC)
     activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
-    inception = db.scalar(
-        select(
-            func.min(activation_event_at)
-        )
-    )
+    inception = db.scalar(select(func.min(activation_event_at)))
     if inception is None:
         return now - timedelta(days=30), now
     if inception.tzinfo is None:

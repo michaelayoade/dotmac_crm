@@ -224,9 +224,7 @@ def _create_inbound_message(db_session, conversation):
     return message
 
 
-def test_inbound_routing_reassigns_unavailable_existing_assignee(
-    db_session, crm_contact, crm_agent, crm_team, person
-):
+def test_inbound_routing_reassigns_unavailable_existing_assignee(db_session, crm_contact, crm_agent, crm_team, person):
     conversation = conversation_service.Conversations.create(
         db_session,
         ConversationCreate(person_id=crm_contact.id),

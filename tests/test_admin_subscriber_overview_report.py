@@ -1346,13 +1346,17 @@ def test_subscriber_lifecycle_sorts_top_subscribers_by_tenure_when_requested(mon
     )
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_funnel", lambda _db: [])
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_churn_trend", lambda _db: [])
-    monkeypatch.setattr(subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(
+        subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: []
+    )
     monkeypatch.setattr(
         subscriber_reports_service,
         "lifecycle_retention_cohorts",
         lambda _db, _start_dt, _end_dt: {"months": [], "rows": []},
     )
-    monkeypatch.setattr(subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(
+        subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: []
+    )
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_plan_migration_flow", lambda _db, _start_dt, _end_dt: [])
     monkeypatch.setattr(subscriber_reports_service, "overview_plan_distribution", lambda _db, limit=8: [])
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_recent_churns", lambda _db: [])
@@ -1441,13 +1445,17 @@ def test_subscriber_lifecycle_sorts_top_subscribers_by_plan_type_when_requested(
     )
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_funnel", lambda _db: [])
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_churn_trend", lambda _db: [])
-    monkeypatch.setattr(subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(
+        subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: []
+    )
     monkeypatch.setattr(
         subscriber_reports_service,
         "lifecycle_retention_cohorts",
         lambda _db, _start_dt, _end_dt: {"months": [], "rows": []},
     )
-    monkeypatch.setattr(subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(
+        subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: []
+    )
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_plan_migration_flow", lambda _db, _start_dt, _end_dt: [])
     monkeypatch.setattr(subscriber_reports_service, "overview_plan_distribution", lambda _db, limit=8: [])
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_recent_churns", lambda _db: [])
@@ -2146,7 +2154,13 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
         "lifecycle_retention_cohorts",
         lambda _db, _start_dt, _end_dt: {
             "months": ["2026-02", "2026-03"],
-            "rows": [{"cohort": "2026-02", "size": 4, "values": [{"retention_pct": 100, "retained": 4}, {"retention_pct": 75, "retained": 3}]}],
+            "rows": [
+                {
+                    "cohort": "2026-02",
+                    "size": 4,
+                    "values": [{"retention_pct": 100, "retained": 4}, {"retention_pct": 75, "retained": 3}],
+                }
+            ],
         },
     )
     monkeypatch.setattr(
@@ -2185,33 +2199,56 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "lifecycle_top_subscribers_by_value",
-        lambda _db: [{
-            "subscriber_id": "sub-3",
-            "name": "Value Doe",
-            "subscriber_number": "SUB-3",
-            "plan": "Home 200",
-            "status": "active",
-            "activated_at": "2025-01-01",
-            "tenure_months": 14.2,
-            "order_count": 2,
-            "total_paid": 25000.0,
-            "avg_monthly_spend": 1760.56,
-        }],
+        lambda _db: [
+            {
+                "subscriber_id": "sub-3",
+                "name": "Value Doe",
+                "subscriber_number": "SUB-3",
+                "plan": "Home 200",
+                "status": "active",
+                "activated_at": "2025-01-01",
+                "tenure_months": 14.2,
+                "order_count": 2,
+                "total_paid": 25000.0,
+                "avg_monthly_spend": 1760.56,
+            }
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
         "lifecycle_top_subscribers_by_tenure_proxy",
-        lambda _db: [{"subscriber_number": "SUB-TENURE", "name": "Tenure Doe", "activated_at": "2017-09-19", "tenure_months": 102.0}],
+        lambda _db: [
+            {
+                "subscriber_number": "SUB-TENURE",
+                "name": "Tenure Doe",
+                "activated_at": "2017-09-19",
+                "tenure_months": 102.0,
+            }
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
         "lifecycle_top_subscribers_by_estimated_plan_value",
-        lambda _db: [{"subscriber_number": "SUB-PLAN", "name": "Plan Doe", "service_plan": "Business Fiber", "annualized_plan_estimate": 1080000.0}],
+        lambda _db: [
+            {
+                "subscriber_number": "SUB-PLAN",
+                "name": "Plan Doe",
+                "service_plan": "Business Fiber",
+                "annualized_plan_estimate": 1080000.0,
+            }
+        ],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
         "lifecycle_top_subscribers_by_hybrid_score",
-        lambda _db: [{"subscriber_number": "SUB-HYBRID", "name": "Hybrid Doe", "activated_at": "2018-01-01", "hybrid_score": 2500000.0}],
+        lambda _db: [
+            {
+                "subscriber_number": "SUB-HYBRID",
+                "name": "Hybrid Doe",
+                "activated_at": "2018-01-01",
+                "hybrid_score": 2500000.0,
+            }
+        ],
     )
 
     request = Request(
@@ -2290,11 +2327,17 @@ def test_subscriber_lifecycle_defaults_to_inception_when_days_is_zero(monkeypatc
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_kpis", _capture_kpis)
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_funnel", lambda _db: [])
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_churn_trend", lambda _db: [])
-    monkeypatch.setattr(subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: [])
     monkeypatch.setattr(
-        subscriber_reports_service, "lifecycle_retention_cohorts", lambda _db, _start_dt, _end_dt: {"months": [], "rows": []}
+        subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: []
     )
-    monkeypatch.setattr(subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_retention_cohorts",
+        lambda _db, _start_dt, _end_dt: {"months": [], "rows": []},
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: []
+    )
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_plan_migration_flow", lambda _db, _start_dt, _end_dt: [])
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_recent_churns", lambda _db: [])
     monkeypatch.setattr(subscriber_reports_service, "lifecycle_longest_tenure", lambda _db: [])
