@@ -2,7 +2,6 @@
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.models.person import Person
@@ -11,6 +10,7 @@ from app.models.vendor import InstallationProject, InstallationProjectNote
 from app.services import vendor as vendor_service
 from app.services import vendor_portal
 from app.services.common import coerce_uuid
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 

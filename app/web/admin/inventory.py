@@ -4,7 +4,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
@@ -19,6 +18,7 @@ from app.schemas.inventory import (
 from app.services import audit as audit_service
 from app.services import inventory as inventory_service
 from app.services.audit_helpers import build_changes_metadata, extract_changes, format_changes, log_audit_event
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/inventory", tags=["web-admin-inventory"])

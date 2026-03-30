@@ -5,13 +5,13 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.legal import LegalDocumentType
 from app.schemas.legal import LegalDocumentCreate, LegalDocumentUpdate
 from app.services import legal as legal_service
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/legal", tags=["web-admin-legal"])

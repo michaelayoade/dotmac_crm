@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
@@ -15,6 +14,7 @@ from app.schemas.service_team import ServiceTeamCreate, ServiceTeamMemberCreate,
 from app.services.audit_helpers import log_audit_event
 from app.services.common import coerce_uuid
 from app.services.service_teams import service_team_members, service_teams
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/system/teams", tags=["web-admin-service-teams"])

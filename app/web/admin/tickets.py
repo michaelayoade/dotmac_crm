@@ -10,7 +10,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
@@ -34,6 +33,7 @@ from app.services.common import coerce_uuid
 from app.services.filter_engine import parse_filter_payload_json
 from app.services.subscriber import subscriber as subscriber_service
 from app.services.ticket_validation import base_station_required_ticket_types, subscriber_required_ticket_types
+from app.web.templates import Jinja2Templates
 
 logger = get_logger(__name__)
 

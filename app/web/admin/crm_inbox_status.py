@@ -6,7 +6,6 @@ from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
@@ -17,6 +16,7 @@ from app.services.crm.inbox.formatting import (
     format_conversation_for_template,
     format_message_for_template,
 )
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")

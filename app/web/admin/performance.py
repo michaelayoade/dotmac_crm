@@ -5,7 +5,6 @@ from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.celery_app import celery_app
@@ -26,6 +25,7 @@ from app.services.performance.reviews import performance_reviews
 from app.services.settings_spec import resolve_value
 from app.tasks.performance import compute_weekly_scores, generate_flagged_reviews
 from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/performance", tags=["web-admin-performance"])
 templates = Jinja2Templates(directory="templates")

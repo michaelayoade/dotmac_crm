@@ -4,7 +4,6 @@ from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -23,6 +22,7 @@ from app.services.crm.web_leads import (
     update_lead,
     update_lead_status,
 )
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")

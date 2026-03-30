@@ -8,7 +8,6 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -21,6 +20,7 @@ from app.services import connector as connector_service
 from app.services import integration as integration_service
 from app.services import webhook as webhook_service
 from app.services.audit_helpers import recent_activity_for_paths
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/integrations", tags=["web-admin-integrations"])
 templates = Jinja2Templates(directory="templates")

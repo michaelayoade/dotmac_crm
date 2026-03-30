@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -13,6 +12,7 @@ from app.services.crm.web_widget import (
     widget_list_data,
     widget_update_payload_from_form,
 )
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")

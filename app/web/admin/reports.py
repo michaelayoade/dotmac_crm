@@ -7,7 +7,6 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -20,6 +19,7 @@ from app.services import operations_sla_reports as operations_sla_reports_servic
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
 from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")

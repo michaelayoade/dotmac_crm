@@ -5,7 +5,6 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -15,6 +14,7 @@ from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm.inbox.formatting import format_contact_for_template
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")

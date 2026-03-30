@@ -13,7 +13,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from app.web.templates import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
@@ -43,6 +42,7 @@ from app.services.fiber_plant import fiber_plant
 from app.services.network_impl import fdh_cabinets as fdh_cabinets_service
 from app.services.network_impl import splitters as splitters_service
 from app.services.pdf_utils import ensure_pydyf_compat
+from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 

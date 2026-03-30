@@ -4,7 +4,6 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -29,6 +28,7 @@ from app.services.crm.inbox.settings_admin import (
     update_routing_rule,
 )
 from app.services.crm.inbox.settings_view import build_inbox_settings_context
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")

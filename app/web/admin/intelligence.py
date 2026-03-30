@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -29,6 +28,7 @@ from app.services.ai.engine import intelligence_engine
 from app.services.ai.insights import ai_insights
 from app.services.ai.personas import persona_registry
 from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/intelligence", tags=["web-admin-intelligence"])

@@ -3,13 +3,13 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
-from app.web.templates import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from starlette.responses import JSONResponse, Response
 
 from app.db import SessionLocal
 from app.services.crm.inbox.formatting import filter_messages_for_user, format_message_for_template
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")

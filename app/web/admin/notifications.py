@@ -5,7 +5,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -13,6 +12,7 @@ from app.models.notification import NotificationChannel, NotificationStatus
 from app.services import notification as notification_service
 from app.services import web_admin_notifications as web_admin_notifications_service
 from app.services.auth_dependencies import require_permission
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/notifications", tags=["web-admin-notifications"])

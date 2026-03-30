@@ -6,13 +6,13 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.csrf import CSRF_COOKIE_NAME, generate_csrf_token, set_csrf_cookie, validate_csrf_token
 from app.db import SessionLocal
 from app.models.comms import CustomerSurveyStatus, SurveyInvitationStatus
 from app.services.surveys import survey_invitations, survey_manager, survey_responses
+from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory="templates")

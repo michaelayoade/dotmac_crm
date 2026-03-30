@@ -4,11 +4,11 @@ import os
 
 from fastapi import Request
 from fastapi.responses import FileResponse, HTMLResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.models.legal import LegalDocumentType
 from app.services import legal as legal_service
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 

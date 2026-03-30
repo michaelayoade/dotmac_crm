@@ -5,13 +5,13 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.crm.enums import AgentPresenceStatus
 from app.services import crm as crm_service
 from app.services.crm.inbox.agents import get_current_agent_id
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")

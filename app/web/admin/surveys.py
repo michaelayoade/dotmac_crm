@@ -6,7 +6,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -16,6 +15,7 @@ from app.schemas.comms import SurveyCreate, SurveyQuestion, SurveyUpdate
 from app.services.surveys import survey_invitations, survey_manager, survey_responses
 from app.tasks.surveys import distribute_survey
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory="templates")
