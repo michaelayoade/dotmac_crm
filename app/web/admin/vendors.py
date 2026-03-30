@@ -7,7 +7,6 @@ from urllib.parse import quote as urlquote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
-from app.web.templates import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -41,6 +40,7 @@ from app.services.auth_dependencies import require_permission
 from app.services.auth_flow import hash_password
 from app.services.common import coerce_uuid
 from app.services.storage import storage
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 

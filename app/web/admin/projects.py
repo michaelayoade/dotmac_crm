@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
@@ -59,6 +58,7 @@ from app.services.audit_helpers import (
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.services.filter_engine import parse_filter_payload_json
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/projects", tags=["web-admin-projects"])

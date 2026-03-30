@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -10,6 +9,7 @@ from app.models.auth import ApiKey, UserCredential
 from app.models.integration import IntegrationJob
 from app.models.rbac import Role
 from app.models.scheduler import ScheduledTask
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/admin-hub", tags=["web-admin-hub"])

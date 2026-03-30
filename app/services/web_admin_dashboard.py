@@ -3,7 +3,6 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import Request
-from app.web.templates import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -41,6 +40,7 @@ from app.services.audit_helpers import (
 )
 from app.services.crm.inbox.metrics import get_inbox_metrics
 from app.services.crm.inbox.queries import get_inbox_stats, get_waiting_queue_counts_by_channel
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 

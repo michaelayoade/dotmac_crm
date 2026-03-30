@@ -9,7 +9,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -20,6 +19,7 @@ from app.services import reseller_admin as reseller_admin_service
 from app.services.audit_helpers import log_audit_event
 from app.services.subscriber import subscriber as subscriber_service
 from app.web.auth.rbac import require_web_role
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/subscribers", tags=["admin-subscribers"])
 templates = Jinja2Templates(directory="templates")

@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
@@ -19,6 +18,7 @@ from app.services.audit_helpers import log_audit_event
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.services.material_requests import material_requests
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/operations/material-requests", tags=["web-admin-material-requests"])

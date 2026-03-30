@@ -2,13 +2,13 @@
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.gis import GeoAreaType, GeoLocationType
 from app.schemas.gis import GeoLocationCreate, GeoLocationUpdate
 from app.services import gis as gis_service
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/gis", tags=["web-admin-gis"])

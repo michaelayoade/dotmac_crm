@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -12,6 +11,7 @@ from app.services.performance.reports import performance_reports
 from app.services.performance.reviews import performance_reviews
 from app.web.admin import get_current_user, get_sidebar_stats
 from app.web.auth.dependencies import require_web_auth
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/agent", tags=["web-agent-performance"], dependencies=[Depends(require_web_auth)])
 templates = Jinja2Templates(directory="templates")

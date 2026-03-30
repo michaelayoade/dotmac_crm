@@ -14,7 +14,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from app.web.templates import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -93,6 +92,7 @@ from app.services.auth_flow import hash_password
 from app.services.common import coerce_uuid
 from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/system", tags=["web-admin-system"])

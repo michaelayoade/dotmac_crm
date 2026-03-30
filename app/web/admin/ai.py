@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -12,6 +11,7 @@ from app.services.ai.client import AIClientError
 from app.services.ai.engine import intelligence_engine
 from app.services.ai.use_cases.ticket_summary import summarize_ticket
 from app.web.admin import get_current_user
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/ai", tags=["web-admin-ai"])

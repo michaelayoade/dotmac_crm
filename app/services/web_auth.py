@@ -6,13 +6,13 @@ from urllib.parse import quote, urlparse, urlunparse
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.services import auth_flow as auth_flow_service
 from app.services.auth_flow import AuthFlow
 from app.services.email import send_password_reset_email
+from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 

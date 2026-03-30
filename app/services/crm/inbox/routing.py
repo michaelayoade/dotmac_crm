@@ -14,8 +14,8 @@ from app.models.crm.enums import AgentPresenceStatus, ConversationStatus
 from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmRoutingRule, CrmTeam
 from app.services.crm import conversation as conversation_service
-from app.services.crm.presence import agent_presence as presence_service
 from app.services.crm.presence import DEFAULT_STALE_MINUTES
+from app.services.crm.presence import agent_presence as presence_service
 
 
 @dataclass(frozen=True)

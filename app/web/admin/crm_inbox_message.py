@@ -6,7 +6,6 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -16,6 +15,7 @@ from app.services.crm.inbox.formatting import (
     format_conversation_for_template,
     format_message_for_template,
 )
+from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 

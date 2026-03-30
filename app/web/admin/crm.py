@@ -10,7 +10,6 @@ from urllib.parse import urlencode, urljoin, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
@@ -47,6 +46,7 @@ from app.web.admin.crm_presence import router as crm_presence_router
 from app.web.admin.crm_quotes import router as crm_quotes_router
 from app.web.admin.crm_sales import router as crm_sales_router
 from app.web.admin.crm_widget import router as crm_widget_router
+from app.web.templates import Jinja2Templates
 
 
 # Simple tax rate stub for quotes (billing service was removed)

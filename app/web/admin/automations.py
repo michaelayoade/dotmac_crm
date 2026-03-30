@@ -5,7 +5,6 @@ import logging
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -15,6 +14,7 @@ from app.services.auth_dependencies import require_permission
 from app.services.automation_rules import AutomationRulesManager, automation_rules_service
 from app.services.events.types import EventType
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 

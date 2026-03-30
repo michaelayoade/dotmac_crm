@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -14,6 +13,7 @@ from app.services.crm.inbox.agents import get_current_agent_id
 from app.services.crm.inbox.permissions import can_view_inbox
 from app.web.admin import get_current_user, get_sidebar_stats
 from app.web.auth.dependencies import require_web_auth
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(
     prefix="/agent",

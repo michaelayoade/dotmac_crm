@@ -4,12 +4,12 @@ import re
 from html import unescape
 
 from fastapi import Request
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.models.notification import Notification, NotificationChannel
 from app.services import notification as notification_service
 from app.services import web_admin as web_admin_service
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 

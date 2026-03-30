@@ -4,7 +4,6 @@ import logging
 
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -15,6 +14,7 @@ from app.models.vendor import Vendor
 from app.services import auth_flow as auth_flow_service
 from app.services import vendor_portal
 from app.services.email import send_password_reset_email
+from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 

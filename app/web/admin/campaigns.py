@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -32,6 +31,7 @@ from app.services.crm.web_campaigns import (
 )
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.admin.crm import REGION_OPTIONS
+from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/crm/campaigns", tags=["web-admin-campaigns"])

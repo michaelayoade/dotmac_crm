@@ -10,7 +10,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -34,6 +33,7 @@ from app.services import workforce as workforce_service
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/operations", tags=["admin-operations"])
 templates = Jinja2Templates(directory="templates")

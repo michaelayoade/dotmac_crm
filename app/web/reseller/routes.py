@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
 from app.services import reseller_portal as reseller_portal_service
 from app.web.reseller.dependencies import require_reseller_portal_context
+from app.web.templates import Jinja2Templates
 
 router = APIRouter(
     prefix="/reseller",
