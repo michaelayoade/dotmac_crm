@@ -37,9 +37,6 @@ def test_ticket_full_lifecycle(admin_page, settings, test_identities: dict):
     detail_page.update_status("open")
     detail_page.expect_status("Open")
 
-    detail_page.update_status("resolved")
-    detail_page.expect_status("Resolved")
-
     detail_page.update_status("closed")
     detail_page.expect_status("Closed")
 

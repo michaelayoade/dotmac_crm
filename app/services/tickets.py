@@ -58,7 +58,6 @@ logger = logging.getLogger(__name__)
 RELATED_OUTAGE_LINK_TYPE = "related_outage"
 TICKET_SLA_POLICY_NAME = "Ticket Resolution SLA"
 TICKET_SLA_TERMINAL_STATUSES = {
-    TicketStatus.resolved,
     TicketStatus.closed,
     TicketStatus.canceled,
     TicketStatus.merged,
@@ -713,6 +712,10 @@ class Tickets(ListResponseMixin):
         validate_ticket_creation(db, payload)
 
         data = payload.model_dump(exclude={"assigned_to_person_ids"})
+        if data.get("status") == TicketStatus.closed:
+            closed_at = data.get("closed_at") or datetime.now(UTC)
+            data["closed_at"] = closed_at
+            data["resolved_at"] = data.get("resolved_at") or closed_at
         fields_set = payload.model_fields_set
         assignee_ids: list[str] | None = None
         if "assigned_to_person_ids" in fields_set:
@@ -1204,7 +1207,6 @@ class Tickets(ListResponseMixin):
             "open": counts.get("open", 0),
             "pending": counts.get("pending", 0),
             "on_hold": counts.get("on_hold", 0),
-            "resolved": counts.get("resolved", 0),
             "closed": counts.get("closed", 0),
             "merged": counts.get("merged", 0),
         }
@@ -1272,6 +1274,11 @@ class Tickets(ListResponseMixin):
         had_field_visit = _has_field_visit_tag(ticket.tags)
         new_tags = data.get("tags")
         will_have_field_visit = _has_field_visit_tag(new_tags) if new_tags is not None else had_field_visit
+
+        if data.get("status") == TicketStatus.closed:
+            closed_at = data.get("closed_at") or ticket.closed_at or datetime.now(UTC)
+            data["closed_at"] = closed_at
+            data["resolved_at"] = data.get("resolved_at") or ticket.resolved_at or closed_at
 
         for key, value in data.items():
             setattr(ticket, key, value)

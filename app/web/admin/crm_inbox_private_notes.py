@@ -3,7 +3,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from starlette.responses import JSONResponse, Response

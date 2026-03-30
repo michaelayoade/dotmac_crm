@@ -120,14 +120,21 @@ def list_inbox_conversations(
         )
         query = query.filter(Conversation.id.in_(assigned_subq))
     elif assignment_filter == "unassigned":
-        # Treat team-only assignments as unassigned (agent_id is NULL).
         assigned_subq = (
             db.query(ConversationAssignment.conversation_id)
             .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.agent_id.isnot(None))
             .distinct()
         )
         query = query.filter(~Conversation.id.in_(assigned_subq))
+    elif assignment_filter == "team_assigned":
+        team_assigned_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.team_id.isnot(None))
+            .filter(ConversationAssignment.agent_id.is_(None))
+            .distinct()
+        )
+        query = query.filter(Conversation.id.in_(team_assigned_subq))
     elif assignment_filter == "unreplied":
         inbound_exists = (
             db.query(Message.id)

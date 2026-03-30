@@ -193,3 +193,52 @@ def test_existing_filters_unaffected(db_session):
     ids = _result_ids(results)
     assert conv_unassigned.id in ids
     assert conv_assigned.id not in ids
+
+
+def test_unassigned_excludes_team_only_assignments(db_session):
+    """Team-only assignments should no longer appear in the unassigned bucket."""
+    contact = _create_person(db_session, name="TeamOnly")
+
+    conv_team_assigned = _create_conversation(db_session, contact)
+    conv_unassigned = _create_conversation(db_session, contact)
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conv_team_assigned.id,
+            team_id=uuid.uuid4(),
+            assigned_at=datetime.now(UTC),
+            is_active=True,
+        )
+    )
+    db_session.flush()
+
+    results = list_inbox_conversations(db_session, assignment="unassigned")
+    ids = _result_ids(results)
+    assert conv_unassigned.id in ids
+    assert conv_team_assigned.id not in ids
+
+
+def test_team_assigned_filter_returns_team_only_assignments(db_session):
+    """The team_assigned filter should return team-only queue conversations."""
+    contact = _create_person(db_session, name="Queue")
+    agent_person = _create_person(db_session, name="DirectAgent")
+    agent = _create_agent(db_session, agent_person)
+
+    conv_team_assigned = _create_conversation(db_session, contact)
+    conv_agent_assigned = _create_conversation(db_session, contact)
+    conv_unassigned = _create_conversation(db_session, contact)
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conv_team_assigned.id,
+            team_id=uuid.uuid4(),
+            assigned_at=datetime.now(UTC),
+            is_active=True,
+        )
+    )
+    _assign(db_session, conv_agent_assigned, agent, assigned_at=datetime.now(UTC))
+    db_session.flush()
+
+    results = list_inbox_conversations(db_session, assignment="team_assigned")
+    ids = _result_ids(results)
+    assert conv_team_assigned.id in ids
+    assert conv_agent_assigned.id not in ids
+    assert conv_unassigned.id not in ids

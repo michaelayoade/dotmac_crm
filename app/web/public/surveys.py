@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.csrf import CSRF_COOKIE_NAME, generate_csrf_token, set_csrf_cookie, validate_csrf_token

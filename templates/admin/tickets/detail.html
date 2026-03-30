@@ -7,8 +7,10 @@
 {% set priority_val = ticket.priority.value if ticket.priority is not string else ticket.priority %}
 {% set channel_val = ticket.channel.value if ticket.channel is not string else ticket.channel %}
 {% set user_roles = current_user.roles if current_user and current_user.roles else [] %}
+{% set user_permissions = current_user.permissions if current_user and current_user.permissions else [] %}
 {% set normalized_user_roles = user_roles | map('lower') | list %}
-{% set can_manage_ticket_relationships = current_user and ('admin' in normalized_user_roles or 'agents' in normalized_user_roles or 'agent' in normalized_user_roles) %}
+{% set normalized_user_permissions = user_permissions | map('lower') | list %}
+{% set can_manage_ticket_relationships = current_user and ('admin' in normalized_user_roles or 'agents' in normalized_user_roles or 'agent' in normalized_user_roles or 'support:ticket:close' in normalized_user_permissions) %}
 {% set is_merged_source = ticket.merged_into_ticket_id %}
 {% set relationship_notice = relationship_notice|default(None) %}
 {% set merged_sources = merged_sources|default([]) %}
@@ -65,11 +67,6 @@
                     <span class="inline-flex items-center gap-1.5 rounded-lg bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-700 dark:bg-orange-500/20 dark:text-orange-400">
                         <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         On Hold
-                    </span>
-                    {% elif status_val == 'resolved' %}
-                    <span class="inline-flex items-center gap-1.5 rounded-lg bg-teal-100 px-3 py-1 text-sm font-semibold text-teal-700 dark:bg-teal-500/20 dark:text-teal-400">
-                        <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        Resolved
                     </span>
                     {% elif status_val == 'closed' %}
                     <span class="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
@@ -576,7 +573,6 @@
                             <option value="lastmile_rerun" {% if status_val == 'lastmile_rerun' %}selected{% endif %}>Lastmile Rerun</option>
                             <option value="site_under_construction" {% if status_val == 'site_under_construction' %}selected{% endif %}>Site Under Construction</option>
                             <option value="on_hold" {% if status_val == 'on_hold' %}selected{% endif %}>On Hold</option>
-                            <option value="resolved" {% if status_val == 'resolved' %}selected{% endif %}>Resolved</option>
                             {% if can_manage_ticket_relationships or status_val == 'closed' %}
                             <option value="closed" {% if status_val == 'closed' %}selected{% endif %}>Closed</option>
                             {% endif %}
@@ -814,12 +810,6 @@
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Created</dt>
                         <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ ticket.created_at.strftime('%b %d, %Y at %H:%M') if ticket.created_at else '-' }}</dd>
                     </div>
-                    {% if ticket.resolved_at %}
-                    <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Resolved</dt>
-                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ ticket.resolved_at.strftime('%b %d, %Y at %H:%M') }}</dd>
-                    </div>
-                    {% endif %}
                     {% if ticket.closed_at %}
                     <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Closed</dt>

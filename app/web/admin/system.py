@@ -14,7 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -128,6 +128,45 @@ def _placeholder_context(request: Request, db: Session, title: str, active_page:
         "empty_title": f"No {title.lower()} yet",
         "empty_message": "System configuration will appear once it is enabled.",
     }
+
+
+def _build_changed_person_update_payload(
+    *,
+    person: Person,
+    first_name: str,
+    last_name: str,
+    display_name: str | None,
+    email: str,
+    phone: str | None,
+    is_active: bool,
+    status: str,
+) -> PersonUpdate | None:
+    normalized_first_name = first_name.strip()
+    normalized_last_name = last_name.strip()
+    normalized_display_name = (display_name or "").strip() or None
+    normalized_email = person_service._normalize_email(email) or email.strip()
+    normalized_phone = person_service._normalize_phone(phone)
+
+    changed_fields: dict[str, Any] = {}
+    if (person.first_name or "") != normalized_first_name:
+        changed_fields["first_name"] = normalized_first_name
+    if (person.last_name or "") != normalized_last_name:
+        changed_fields["last_name"] = normalized_last_name
+    if (person.display_name or None) != normalized_display_name:
+        changed_fields["display_name"] = normalized_display_name
+    if (person_service._normalize_email(person.email) or person.email) != normalized_email:
+        changed_fields["email"] = normalized_email
+    if person_service._normalize_phone(person.phone) != normalized_phone:
+        changed_fields["phone"] = normalized_phone
+    if bool(person.is_active) != is_active:
+        changed_fields["is_active"] = is_active
+    current_status = person.status.value if hasattr(person.status, "value") else person.status
+    if current_status != status:
+        changed_fields["status"] = status
+
+    if not changed_fields:
+        return None
+    return PersonUpdate.model_validate(changed_fields)
 
 
 @router.get("/health", response_class=HTMLResponse)
@@ -1618,21 +1657,24 @@ async def user_edit_submit(
 
     try:
         status_value = "active" if _form_bool(is_active) else "inactive"
-        payload = PersonUpdate(
-            first_name=first_name.strip(),
-            last_name=last_name.strip(),
+        payload = _build_changed_person_update_payload(
+            person=person,
+            first_name=first_name,
+            last_name=last_name,
             display_name=display_name,
-            email=email.strip(),
+            email=email,
             phone=phone,
             is_active=_form_bool(is_active),
             status=status_value,
         )
 
-        person_service.people.update(db, user_id, payload)
-        db.query(UserCredential).filter(
-            UserCredential.person_id == person.id,
-            UserCredential.is_active.is_(True),
-        ).update({"username": email.strip()})
+        if payload is not None:
+            person_service.people.update(db, user_id, payload)
+            if "email" in payload.model_fields_set:
+                db.query(UserCredential).filter(
+                    UserCredential.person_id == person.id,
+                    UserCredential.is_active.is_(True),
+                ).update({"username": (person_service._normalize_email(email) or email.strip())})
 
         # Sync roles - add new, remove deselected, keep existing
         desired_role_ids = set(role_ids)

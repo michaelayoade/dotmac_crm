@@ -69,6 +69,13 @@ class Conversation(Base):
 class ConversationAssignment(Base):
     __tablename__ = "crm_conversation_assignments"
     __table_args__ = (
+        Index(
+            "uq_crm_conversation_one_active_assignment",
+            "conversation_id",
+            unique=True,
+            sqlite_where=text("is_active IS TRUE"),
+            postgresql_where=text("is_active IS TRUE"),
+        ),
         UniqueConstraint(
             "conversation_id",
             "team_id",

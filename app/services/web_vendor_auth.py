@@ -4,7 +4,7 @@ import logging
 
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config import settings

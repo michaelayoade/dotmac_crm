@@ -88,7 +88,6 @@ class DotMacERPSync:
         TicketStatus.lastmile_rerun: "active",
         TicketStatus.site_under_construction: "active",
         TicketStatus.on_hold: "active",
-        TicketStatus.resolved: "completed",
         TicketStatus.closed: "completed",
         TicketStatus.canceled: "canceled",
     }

@@ -614,6 +614,12 @@ def assign_conversation(
                     )
                 # Keep team assignment, but drop the agent assignment.
                 agent_uuid = None
+        if assigned_by_id is not None and conversation.status == ConversationStatus.snoozed:
+            from app.services.crm.inbox import cache as inbox_cache
+            from app.services.crm.inbox.conversation_status import _clear_snooze_metadata
+
+            conversation.status = ConversationStatus.open
+            _clear_snooze_metadata(conversation)
         payload = ConversationAssignmentCreate(
             conversation_id=conversation.id,
             agent_id=agent_uuid,
@@ -630,6 +636,11 @@ def assign_conversation(
                 Lead.is_active.is_(True),
             ).update({"owner_agent_id": agent_uuid}, synchronize_session=False)
             db.commit()
+
+        if assigned_by_id is not None:
+            from app.services.crm.inbox import cache as inbox_cache
+
+            inbox_cache.invalidate_inbox_list()
 
         return assignment
     else:

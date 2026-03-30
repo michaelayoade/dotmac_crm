@@ -215,7 +215,7 @@ class TicketQuery(BaseQuery[Ticket]):
         return clone
 
     def open_tickets(self) -> TicketQuery:
-        """Filter to only open tickets (not resolved/closed)."""
+        """Filter to only active tickets."""
         return self.by_statuses(
             [
                 TicketStatus.new,
@@ -229,7 +229,6 @@ class TicketQuery(BaseQuery[Ticket]):
         """Filter to only closed tickets."""
         return self.by_statuses(
             [
-                TicketStatus.resolved,
                 TicketStatus.closed,
                 TicketStatus.canceled,
                 TicketStatus.merged,
@@ -242,7 +241,7 @@ class TicketQuery(BaseQuery[Ticket]):
         clone._query = clone._query.filter(
             or_(
                 Ticket.status.is_(None),
-                Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled]),
+                Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged]),
             )
         )
         return clone

@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
@@ -331,7 +331,8 @@ def _can_manage_ticket_relationships(current_user: dict | None) -> bool:
     if not current_user:
         return False
     roles = {str(role).strip().lower() for role in (current_user.get("roles") or []) if role}
-    return bool({"admin", "agent", "agents"} & roles)
+    permissions = {str(permission).strip().lower() for permission in (current_user.get("permissions") or []) if permission}
+    return bool({"admin", "agent", "agents"} & roles) or "support:ticket:close" in permissions
 
 
 def _log_activity(
@@ -1253,7 +1254,6 @@ async def ticket_create_post(
             "lastmile_rerun": TicketStatus.lastmile_rerun,
             "site_under_construction": TicketStatus.site_under_construction,
             "on_hold": TicketStatus.on_hold,
-            "resolved": TicketStatus.resolved,
             "closed": TicketStatus.closed,
         }
 
@@ -1724,7 +1724,6 @@ async def ticket_edit_post(
             "lastmile_rerun": TicketStatus.lastmile_rerun,
             "site_under_construction": TicketStatus.site_under_construction,
             "on_hold": TicketStatus.on_hold,
-            "resolved": TicketStatus.resolved,
             "closed": TicketStatus.closed,
             "canceled": TicketStatus.canceled,
         }
@@ -1847,9 +1846,8 @@ async def ticket_edit_post(
         if assignee_field_present:
             update_data["assigned_to_person_ids"] = assignee_ids
 
-        if effective_status == TicketStatus.resolved and not ticket.resolved_at:
-            update_data["resolved_at"] = datetime.now(UTC)
         if effective_status == TicketStatus.closed and not ticket.closed_at:
+            update_data["resolved_at"] = ticket.resolved_at or datetime.now(UTC)
             update_data["closed_at"] = datetime.now(UTC)
 
         if metadata_changed:
@@ -2349,7 +2347,6 @@ def update_ticket_status(
             "lastmile_rerun": TicketStatus.lastmile_rerun,
             "site_under_construction": TicketStatus.site_under_construction,
             "on_hold": TicketStatus.on_hold,
-            "resolved": TicketStatus.resolved,
             "closed": TicketStatus.closed,
             "canceled": TicketStatus.canceled,
         }
@@ -2368,7 +2365,7 @@ def update_ticket_status(
             return merged_redirect
         old_status = ticket.status.value if ticket.status else None
 
-        resolved_at = datetime.now(UTC) if status == "resolved" else None
+        resolved_at = datetime.now(UTC) if status == "closed" else None
         closed_at = datetime.now(UTC) if status == "closed" else None
         payload = TicketUpdate(status=new_status, resolved_at=resolved_at, closed_at=closed_at)
         tickets_service.tickets.update(db=db, ticket_id=str(ticket.id), payload=payload)

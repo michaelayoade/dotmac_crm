@@ -76,8 +76,6 @@ class TicketUpdate(BaseModel):
     def _validate_status_timestamps(self) -> TicketUpdate:
         fields_set = self.model_fields_set
         if "status" in fields_set:
-            if self.status == TicketStatus.resolved and "resolved_at" not in fields_set:
-                raise ValueError("resolved_at is required when status is resolved")
             if self.status == TicketStatus.closed and "closed_at" not in fields_set:
                 raise ValueError("closed_at is required when status is closed")
         return self

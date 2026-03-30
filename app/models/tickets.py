@@ -17,7 +17,6 @@ class TicketStatus(enum.Enum):
     lastmile_rerun = "lastmile_rerun"
     site_under_construction = "site_under_construction"
     on_hold = "on_hold"
-    resolved = "resolved"
     closed = "closed"
     canceled = "canceled"
     # Compatibility value for databases that still contain stamped/legacy merged tickets.
