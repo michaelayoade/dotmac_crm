@@ -6,7 +6,7 @@ from urllib.parse import quote, urlparse, urlunparse
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config import settings

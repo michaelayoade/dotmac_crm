@@ -4,7 +4,7 @@ from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 

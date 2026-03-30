@@ -77,7 +77,7 @@ def _map_lookup(mapping: dict[str, T], value: Any, default: T) -> T:
 HD_TICKET_STATUS_MAP = {
     "Open": TicketStatus.open,
     "Replied": TicketStatus.pending,
-    "Resolved": TicketStatus.resolved,
+    "Resolved": TicketStatus.closed,
     "Closed": TicketStatus.closed,
     "On Hold": TicketStatus.on_hold,
 }
@@ -150,7 +150,7 @@ def map_hd_ticket(doc: dict[str, Any]) -> dict[str, Any]:
     - name: Ticket ID (e.g., "HD-TICKET-00001")
     - subject: Ticket subject/title
     - description: Detailed description
-    - status: Open, Replied, Resolved, Closed
+    - status: Open, Replied, Resolved, Closed (Resolved maps to Closed)
     - priority: Low, Medium, High, Urgent
     - raised_by: Email of person who raised ticket
     - customer: Link to Customer doctype

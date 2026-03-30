@@ -328,7 +328,6 @@
                     <option value="lastmile_rerun" {% if (ticket and ticket.status.value == 'lastmile_rerun') or (not ticket and prefill.status == 'lastmile_rerun') %}selected{% endif %}>Lastmile Rerun</option>
                     <option value="site_under_construction" {% if (ticket and ticket.status.value == 'site_under_construction') or (not ticket and prefill.status == 'site_under_construction') %}selected{% endif %}>Site Under Construction</option>
                     <option value="on_hold" {% if (ticket and ticket.status.value == 'on_hold') or (not ticket and prefill.status == 'on_hold') %}selected{% endif %}>On Hold</option>
-                    <option value="resolved" {% if (ticket and ticket.status.value == 'resolved') or (not ticket and prefill.status == 'resolved') %}selected{% endif %}>Resolved</option>
                     <option value="closed" {% if (ticket and ticket.status.value == 'closed') or (not ticket and prefill.status == 'closed') %}selected{% endif %}>Closed</option>
                 </select>
             </div>

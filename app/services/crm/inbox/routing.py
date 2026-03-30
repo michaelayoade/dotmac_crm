@@ -14,6 +14,7 @@ from app.models.crm.enums import AgentPresenceStatus, ConversationStatus
 from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmRoutingRule, CrmTeam
 from app.services.crm import conversation as conversation_service
+from app.services.crm.presence import agent_presence as presence_service
 from app.services.crm.presence import DEFAULT_STALE_MINUTES
 
 
@@ -115,6 +116,38 @@ def _pick_round_robin_agent(db: Session, team: CrmTeam, rule_id: str) -> str | N
     return next_agent_id
 
 
+def _agent_is_assignable(db: Session, agent_id: str) -> bool:
+    agent = db.get(CrmAgent, agent_id)
+    if not agent or not agent.is_active:
+        return False
+    presence = db.query(AgentPresence).filter(AgentPresence.agent_id == agent.id).first()
+    effective_status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
+    return effective_status in {AgentPresenceStatus.online, AgentPresenceStatus.away}
+
+
+def _invalidate_unavailable_existing_assignment(
+    db: Session,
+    *,
+    conversation: Conversation,
+) -> bool:
+    existing = (
+        db.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .filter(ConversationAssignment.agent_id.isnot(None))
+        .first()
+    )
+    if not existing:
+        return False
+    if _agent_is_assignable(db, str(existing.agent_id)):
+        return True
+
+    existing.is_active = False
+    existing.updated_at = datetime.now(UTC)
+    db.commit()
+    return False
+
+
 def _resolve_agent_for_rule(db: Session, team: CrmTeam, rule: CrmRoutingRule) -> str | None:
     config = rule.rule_config if isinstance(rule.rule_config, dict) else {}
     strategy = str(config.get("strategy") or "round_robin").lower()
@@ -130,14 +163,7 @@ def apply_routing_rules(
     message: Message,
 ) -> RoutingDecision | None:
     # Skip if already assigned to an agent
-    existing = (
-        db.query(ConversationAssignment)
-        .filter(ConversationAssignment.conversation_id == conversation.id)
-        .filter(ConversationAssignment.is_active.is_(True))
-        .filter(ConversationAssignment.agent_id.isnot(None))
-        .first()
-    )
-    if existing:
+    if _invalidate_unavailable_existing_assignment(db, conversation=conversation):
         return None
 
     rules = (

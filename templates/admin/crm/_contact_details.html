@@ -137,8 +137,7 @@
                         <p class="text-xs text-white truncate">{{ ticket.subject }}</p>
                     </div>
                     <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium
-                        {% if ticket.status == 'resolved' %}bg-green-500/10 text-green-400
-                        {% elif ticket.status == 'closed' %}bg-slate-500/10 text-slate-400
+                        {% if ticket.status == 'closed' %}bg-slate-500/10 text-slate-400
                         {% else %}bg-yellow-500/10 text-yellow-400{% endif %}">
                         {{ ticket.status | capitalize }}
                     </span>

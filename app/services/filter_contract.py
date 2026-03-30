@@ -44,7 +44,6 @@ FILTER_SCHEMA: dict[str, dict[str, FieldSpec]] = {
                 "lastmile_rerun",
                 "site_under_construction",
                 "on_hold",
-                "resolved",
                 "closed",
                 "canceled",
             },

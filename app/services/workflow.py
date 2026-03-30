@@ -926,9 +926,8 @@ def transition_ticket(db: Session, ticket_id: str, payload: StatusTransitionRequ
         raise HTTPException(status_code=400, detail="Transition note required")
     ticket.status = to_status
     now = datetime.now(UTC)
-    if to_status == TicketStatus.resolved:
-        ticket.resolved_at = ticket.resolved_at or now
     if to_status == TicketStatus.closed:
+        ticket.resolved_at = ticket.resolved_at or now
         ticket.closed_at = ticket.closed_at or now
     db.commit()
     db.refresh(ticket)

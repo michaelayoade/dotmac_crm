@@ -38,7 +38,6 @@ SLA_PAUSE_STATUSES = frozenset(
 # Ticket statuses that stop/complete SLA clocks
 SLA_COMPLETE_STATUSES = frozenset(
     {
-        TicketStatus.resolved,
         TicketStatus.closed,
         TicketStatus.canceled,
     }

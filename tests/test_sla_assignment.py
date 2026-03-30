@@ -218,15 +218,15 @@ class TestStatusChangeClocks:
         # Due time should be extended by the pause duration
         assert clock.due_at >= original_due
 
-    def test_complete_on_resolved(self, db_session, ticket, sla_policy):
+    def test_complete_on_closed(self, db_session, ticket, sla_policy):
         clock = self._create_running_clock(db_session, ticket, sla_policy)
-        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.resolved)
+        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.closed)
         db_session.commit()
         db_session.refresh(clock)
         assert clock.status == SlaClockStatus.completed
         assert clock.completed_at is not None
 
-    def test_breach_on_late_resolution(self, db_session, ticket, sla_policy):
+    def test_breach_on_late_close(self, db_session, ticket, sla_policy):
         # Create a clock that's already overdue
         now = datetime.now(UTC)
         clock = SlaClock(
@@ -241,7 +241,7 @@ class TestStatusChangeClocks:
         db_session.add(clock)
         db_session.commit()
 
-        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.resolved)
+        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.closed)
         db_session.commit()
         db_session.refresh(clock)
         assert clock.status == SlaClockStatus.breached

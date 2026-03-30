@@ -7,14 +7,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
 from app.models.dispatch import TechnicianProfile
 from app.models.person import Person
-from app.models.subscriber import SubscriberStatus
+from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.crm import reports as crm_reports_service
@@ -73,6 +73,35 @@ def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+def _resolve_lifecycle_date_range(
+    db: Session,
+    days: int | None,
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[datetime, datetime]:
+    """Resolve lifecycle report range, defaulting to inception when days is 0/None."""
+    if start_date and end_date:
+        return _parse_date_range(days, start_date, end_date)
+
+    if days and days > 0:
+        return _parse_date_range(days, start_date, end_date)
+
+    now = datetime.now(UTC)
+    activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
+    inception = db.scalar(
+        select(
+            func.min(activation_event_at)
+        )
+    )
+    if inception is None:
+        return now - timedelta(days=30), now
+    if inception.tzinfo is None:
+        inception = inception.replace(tzinfo=UTC)
+    else:
+        inception = inception.astimezone(UTC)
+    return inception, now
 
 
 @router.get("/operations")
@@ -343,22 +372,51 @@ def subscriber_overview_export(
 def subscriber_lifecycle(
     request: Request,
     db: Session = Depends(get_db),
-    days: int = Query(30, ge=7, le=365),
+    days: int = Query(0, ge=0, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
+    sort_by: str = Query("total_paid"),
 ):
     """Subscriber lifecycle and churn report."""
     from app.services import subscriber_reports as sr
 
     user = get_current_user(request)
-    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    start_dt, end_dt = _resolve_lifecycle_date_range(db, days, start_date, end_date)
 
     kpis = sr.lifecycle_kpis(db, start_dt, end_dt)
     funnel = sr.lifecycle_funnel(db)
     churn_trend = sr.lifecycle_churn_trend(db)
     conversion_by_source = sr.lifecycle_conversion_by_source(db, start_dt, end_dt)
+    retention_cohorts = sr.lifecycle_retention_cohorts(db, start_dt, end_dt)
+    time_to_convert_distribution = sr.lifecycle_time_to_convert_distribution(db, start_dt, end_dt)
+    plan_migration_flow = sr.lifecycle_plan_migration_flow(db, start_dt, end_dt)
+    plan_distribution = sr.overview_plan_distribution(db, limit=8)
     recent_churns = sr.lifecycle_recent_churns(db)
     longest_tenure = sr.lifecycle_longest_tenure(db)
+    top_subscribers_by_value = sr.lifecycle_top_subscribers_by_value(db)
+    top_subscribers_title = "Top Subscribers By Value (All Time)"
+    top_subscribers_description = "Sorted by total paid across all subscriber histories."
+    if sort_by == "tenure_months":
+        top_subscribers_by_value = sorted(
+            top_subscribers_by_value,
+            key=lambda row: (-(row.get("tenure_months") or 0), -(row.get("total_paid") or 0), row.get("name") or ""),
+        )
+        top_subscribers_title = "By Tenure"
+        top_subscribers_description = "Sorted by tenure, with total paid as tie-breaker."
+    elif sort_by == "plan_type":
+        top_subscribers_by_value = sorted(
+            top_subscribers_by_value,
+            key=lambda row: (
+                (row.get("plan") or "").lower(),
+                -(row.get("total_paid") or 0),
+                -(row.get("tenure_months") or 0),
+                row.get("name") or "",
+            ),
+        )
+        top_subscribers_title = "Plan Type"
+        top_subscribers_description = "Sorted alphabetically by plan type, with revenue and tenure as tie-breakers."
+    else:
+        sort_by = "total_paid"
 
     return templates.TemplateResponse(
         "admin/reports/subscriber_lifecycle.html",
@@ -373,11 +431,19 @@ def subscriber_lifecycle(
             "funnel": funnel,
             "churn_trend": churn_trend,
             "conversion_by_source": conversion_by_source,
+            "retention_cohorts": retention_cohorts,
+            "time_to_convert_distribution": time_to_convert_distribution,
+            "plan_migration_flow": plan_migration_flow,
+            "plan_distribution": plan_distribution,
             "recent_churns": recent_churns,
             "longest_tenure": longest_tenure,
+            "top_subscribers_by_value": top_subscribers_by_value,
+            "top_subscribers_title": top_subscribers_title,
+            "top_subscribers_description": top_subscribers_description,
             "days": days,
             "start_date": start_date or "",
             "end_date": end_date or "",
+            "sort_by": sort_by,
         },
     )
 
@@ -385,14 +451,14 @@ def subscriber_lifecycle(
 @router.get("/subscribers/lifecycle/export")
 def subscriber_lifecycle_export(
     db: Session = Depends(get_db),
-    days: int = Query(30, ge=7, le=365),
+    days: int = Query(0, ge=0, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
 ):
     """Export subscriber lifecycle data as CSV."""
     from app.services import subscriber_reports as sr
 
-    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    start_dt, end_dt = _resolve_lifecycle_date_range(db, days, start_date, end_date)
     recent_churns = sr.lifecycle_recent_churns(db, limit=100)
 
     export_data = [
@@ -434,6 +500,18 @@ def churned_subscribers(
     churn_trend = sr.churned_subscribers_trend(db, start_dt, end_dt)
     churned_rows = sr.churned_subscribers_rows(db, start_dt, end_dt)
 
+    def _optional_rows(loader):
+        if db is None:
+            return []
+        try:
+            return loader()
+        except Exception:
+            return []
+
+    churned_failed_payment_rows = _optional_rows(lambda: sr.churned_failed_payment_rows(db, start_dt, end_dt))
+    churned_cancelled_rows = _optional_rows(lambda: sr.churned_cancelled_rows(db, start_dt, end_dt))
+    churned_inactive_usage_rows = _optional_rows(lambda: sr.churned_inactive_usage_rows(db, end_dt))
+
     return templates.TemplateResponse(
         "admin/reports/churned_subscribers.html",
         {
@@ -446,6 +524,9 @@ def churned_subscribers(
             "kpis": kpis,
             "churn_trend": churn_trend,
             "churned_rows": churned_rows,
+            "churned_failed_payment_rows": churned_failed_payment_rows,
+            "churned_cancelled_rows": churned_cancelled_rows,
+            "churned_inactive_usage_rows": churned_inactive_usage_rows,
             "days": days,
             "start_date": start_date or "",
             "end_date": end_date or "",

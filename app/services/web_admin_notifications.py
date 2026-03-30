@@ -4,7 +4,7 @@ import re
 from html import unescape
 
 from fastapi import Request
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.models.notification import Notification, NotificationChannel

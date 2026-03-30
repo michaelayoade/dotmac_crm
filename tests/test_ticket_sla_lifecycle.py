@@ -82,6 +82,37 @@ def test_ticket_terminal_status_completes_existing_sla_clock(db_session):
     assert completed >= before_close
 
 
+def test_ticket_create_closed_backfills_resolved_timestamp(db_session):
+    ticket = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Already closed", status=TicketStatus.closed),
+    )
+
+    assert ticket.closed_at is not None
+    assert ticket.resolved_at == ticket.closed_at
+
+
+def test_ticket_update_closed_backfills_resolved_timestamp(db_session):
+    ticket = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Close later"),
+    )
+    closed_at = datetime.now(UTC)
+
+    tickets_service.tickets.update(
+        db_session,
+        str(ticket.id),
+        TicketUpdate(status=TicketStatus.closed, closed_at=closed_at),
+    )
+
+    ticket_closed_at = ticket.closed_at.replace(tzinfo=UTC) if ticket.closed_at.tzinfo is None else ticket.closed_at
+    ticket_resolved_at = (
+        ticket.resolved_at.replace(tzinfo=UTC) if ticket.resolved_at.tzinfo is None else ticket.resolved_at
+    )
+    assert ticket_closed_at == closed_at
+    assert ticket_resolved_at == closed_at
+
+
 def test_ticket_close_and_reopen_keeps_clock_state(db_session):
     """Closing a ticket completes the SLA clock; reopening resumes via status change."""
     _seed_ticket_sla(db_session)

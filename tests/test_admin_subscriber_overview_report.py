@@ -1,11 +1,14 @@
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 from starlette.requests import Request
 
 from app.models.crm.enums import LeadStatus
 from app.models.crm.sales import Lead
+from app.models.event_store import EventStore
 from app.models.person import PartyStatus, Person
+from app.models.sales_order import SalesOrder, SalesOrderStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
@@ -811,6 +814,231 @@ def test_lifecycle_kpis_avg_days_to_convert_uses_won_lead_cycle_time(db_session)
     assert kpis["avg_days_to_convert"] == 7.0
 
 
+def test_lifecycle_kpis_calculates_average_lifecycle_upgrade_downgrade_and_engagement(db_session):
+    now = datetime.now(UTC)
+    start_dt = now - timedelta(days=30)
+    end_dt = now
+
+    people = [
+        Person(first_name="Active", last_name="One", email=f"active-one-{uuid4().hex}@example.com"),
+        Person(first_name="Active", last_name="Two", email=f"active-two-{uuid4().hex}@example.com"),
+        Person(first_name="Churn", last_name="One", email=f"churn-one-{uuid4().hex}@example.com"),
+        Person(first_name="Churn", last_name="Two", email=f"churn-two-{uuid4().hex}@example.com"),
+    ]
+    db_session.add_all(people)
+    db_session.flush()
+
+    subscribers = [
+        Subscriber(
+            person_id=people[0].id,
+            subscriber_number=f"SUB-{uuid4().hex[:8]}",
+            status=SubscriberStatus.active,
+            is_active=True,
+            activated_at=now - timedelta(days=120),
+        ),
+        Subscriber(
+            person_id=people[1].id,
+            subscriber_number=f"SUB-{uuid4().hex[:8]}",
+            status=SubscriberStatus.active,
+            is_active=True,
+            activated_at=now - timedelta(days=90),
+        ),
+        Subscriber(
+            person_id=people[2].id,
+            subscriber_number=f"SUB-{uuid4().hex[:8]}",
+            status=SubscriberStatus.terminated,
+            is_active=False,
+            activated_at=now - timedelta(days=70),
+            terminated_at=now - timedelta(days=10),
+        ),
+        Subscriber(
+            person_id=people[3].id,
+            subscriber_number=f"SUB-{uuid4().hex[:8]}",
+            status=SubscriberStatus.terminated,
+            is_active=False,
+            activated_at=now - timedelta(days=65),
+            terminated_at=now - timedelta(days=5),
+        ),
+    ]
+    db_session.add_all(subscribers)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            EventStore(
+                event_id=uuid4(),
+                event_type="subscription.upgraded",
+                payload={},
+                subscriber_id=subscribers[0].id,
+                created_at=now - timedelta(days=8),
+            ),
+            EventStore(
+                event_id=uuid4(),
+                event_type="subscription.downgraded",
+                payload={},
+                subscriber_id=subscribers[1].id,
+                created_at=now - timedelta(days=6),
+            ),
+        ]
+    )
+    db_session.add(
+        Ticket(
+            title="Active engagement",
+            status=TicketStatus.open,
+            is_active=True,
+            subscriber_id=subscribers[0].id,
+            created_at=now - timedelta(days=4),
+        )
+    )
+    db_session.add(
+        WorkOrder(
+            title="Active work order",
+            status=WorkOrderStatus.draft,
+            is_active=True,
+            subscriber_id=subscribers[1].id,
+            project_id=uuid4(),
+            created_at=now - timedelta(days=3),
+        )
+    )
+    db_session.commit()
+
+    kpis = subscriber_reports_service.lifecycle_kpis(db_session, start_dt, end_dt)
+
+    assert kpis["avg_lifecycle_days"] == 60.0
+    assert kpis["avg_lifecycle_months"] == 2.0
+    assert kpis["upgraded_in_period"] == 1
+    assert kpis["downgraded_in_period"] == 1
+    assert kpis["upgrade_rate"] == 25.0
+    assert kpis["downgrade_rate"] == 25.0
+    assert kpis["engagement_score"] == 58.3
+
+
+def test_lifecycle_time_to_convert_distribution_buckets_won_leads(db_session):
+    now = datetime.now(UTC)
+    start_dt = now - timedelta(days=90)
+    end_dt = now
+
+    person = Person(first_name="Convert", last_name="Histogram", email=f"convert-{uuid4().hex}@example.com")
+    db_session.add(person)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Lead(
+                person_id=person.id,
+                status=LeadStatus.won,
+                is_active=True,
+                created_at=now - timedelta(days=10),
+                closed_at=now - timedelta(days=5),
+            ),
+            Lead(
+                person_id=person.id,
+                status=LeadStatus.won,
+                is_active=True,
+                created_at=now - timedelta(days=25),
+                closed_at=now - timedelta(days=5),
+            ),
+            Lead(
+                person_id=person.id,
+                status=LeadStatus.won,
+                is_active=True,
+                created_at=now - timedelta(days=120),
+                closed_at=now - timedelta(days=100),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    distribution = subscriber_reports_service.lifecycle_time_to_convert_distribution(db_session, start_dt, end_dt)
+
+    assert distribution == [
+        {"label": "0-7 days", "count": 1},
+        {"label": "8-14 days", "count": 0},
+        {"label": "15-30 days", "count": 1},
+        {"label": "31-60 days", "count": 0},
+        {"label": "61-90 days", "count": 0},
+        {"label": "91+ days", "count": 0},
+    ]
+
+
+def test_lifecycle_plan_migration_flow_groups_plan_movements_from_event_payloads(db_session):
+    now = datetime.now(UTC)
+    start_dt = now - timedelta(days=30)
+    end_dt = now
+
+    db_session.add_all(
+        [
+            EventStore(
+                event_id=uuid4(),
+                event_type="subscription.upgraded",
+                payload={"from_plan": "Home 100", "to_plan": "Home 200"},
+                created_at=now - timedelta(days=7),
+            ),
+            EventStore(
+                event_id=uuid4(),
+                event_type="subscription.downgraded",
+                payload={"before": {"service_plan": "Business 500"}, "after": {"service_plan": "Business 300"}},
+                created_at=now - timedelta(days=6),
+            ),
+            EventStore(
+                event_id=uuid4(),
+                event_type="subscription.upgraded",
+                payload={"from_plan": "Home 100", "to_plan": "Home 200"},
+                created_at=now - timedelta(days=3),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    flows = subscriber_reports_service.lifecycle_plan_migration_flow(db_session, start_dt, end_dt)
+
+    assert flows == [
+        {"source": "Home 100", "target": "Home 200", "count": 2},
+        {"source": "Business 500", "target": "Business 300", "count": 1},
+    ]
+
+
+def test_lifecycle_retention_cohorts_returns_monthly_percentages(db_session):
+    now = datetime(2026, 3, 27, tzinfo=UTC)
+    start_dt = datetime(2026, 1, 1, tzinfo=UTC)
+    end_dt = now
+
+    people = [
+        Person(first_name="Cohort", last_name="One", email=f"cohort-one-{uuid4().hex}@example.com"),
+        Person(first_name="Cohort", last_name="Two", email=f"cohort-two-{uuid4().hex}@example.com"),
+    ]
+    db_session.add_all(people)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=people[0].id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.active,
+                is_active=True,
+                activated_at=datetime(2026, 1, 10, tzinfo=UTC),
+            ),
+            Subscriber(
+                person_id=people[1].id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.terminated,
+                is_active=False,
+                activated_at=datetime(2026, 1, 12, tzinfo=UTC),
+                terminated_at=datetime(2026, 2, 15, tzinfo=UTC),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    cohorts = subscriber_reports_service.lifecycle_retention_cohorts(db_session, start_dt, end_dt)
+
+    assert cohorts["months"] == ["2026-01", "2026-02", "2026-03"]
+    assert cohorts["rows"][0]["cohort"] == "2026-01"
+    assert cohorts["rows"][0]["size"] == 2
+    assert [cell["retention_pct"] for cell in cohorts["rows"][0]["values"]] == [100.0, 50.0, 50.0]
+
+
 def test_lifecycle_funnel_sorts_stages_by_descending_count(db_session):
     statuses = (
         (PartyStatus.customer, 4),
@@ -877,8 +1105,10 @@ def test_lifecycle_churn_trend_includes_inactive_terminated_subscribers(db_sessi
 
     trend = subscriber_reports_service.lifecycle_churn_trend(db_session)
     current_month = (now - timedelta(days=10)).strftime("%Y-%m")
+    current_month_label = (now - timedelta(days=10)).strftime("%b %Y")
 
-    assert {"month": current_month, "count": 2} in trend
+    assert len(trend) == 12
+    assert {"month": current_month_label, "month_key": current_month, "count": 2} in trend
 
 
 def test_lifecycle_longest_tenure_includes_requested_columns(db_session):
@@ -907,8 +1137,164 @@ def test_lifecycle_longest_tenure_includes_requested_columns(db_session):
     assert rows[0]["subscriber_number"] == "SUB-TEST-001"
     assert rows[0]["plan"] == "Business Fiber"
     assert rows[0]["region"] == "Abuja"
-    assert rows[0]["activated_at"] == (now - timedelta(days=120)).strftime("%Y-%m-%d")
-    assert rows[0]["tenure_days"] >= 119
+
+
+def test_lifecycle_top_subscribers_by_value_orders_by_sales_order_total(db_session):
+    person_one = Person(first_name="Value", last_name="Leader", email=f"value-one-{uuid4().hex}@example.com")
+    person_two = Person(first_name="Value", last_name="Runner", email=f"value-two-{uuid4().hex}@example.com")
+    db_session.add_all([person_one, person_two])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=person_one.id,
+                subscriber_number="SUB-VALUE-1",
+                status=SubscriberStatus.active,
+                is_active=True,
+                service_plan="Home 200",
+                service_region="Lagos",
+            ),
+            Subscriber(
+                person_id=person_two.id,
+                subscriber_number="SUB-VALUE-2",
+                status=SubscriberStatus.active,
+                is_active=True,
+                service_plan="Home 100",
+                service_region="Abuja",
+            ),
+            SalesOrder(
+                person_id=person_one.id,
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.paid,
+                total=15000,
+                amount_paid=15000,
+            ),
+            SalesOrder(
+                person_id=person_one.id,
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.fulfilled,
+                total=5000,
+                amount_paid=2500,
+            ),
+            SalesOrder(
+                person_id=person_two.id,
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.confirmed,
+                total=12000,
+                amount_paid=4000,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    rows = subscriber_reports_service.lifecycle_top_subscribers_by_value(db_session)
+
+    assert rows[0]["name"] == "Value Leader"
+    assert rows[0]["subscriber_id"]
+    assert rows[0]["subscriber_number"] == "SUB-VALUE-1"
+    assert rows[0]["plan"] == "Home 200"
+    assert rows[0]["status"] == "active"
+    assert rows[0]["activated_at"]
+    assert rows[0]["tenure_months"] >= 0
+    assert rows[0]["order_count"] == 2
+    assert rows[0]["total_paid"] == 17500.0
+    assert rows[0]["avg_monthly_spend"] == 17500.0
+
+
+def test_lifecycle_top_subscribers_by_value_includes_non_active_subscribers(db_session):
+    active_person = Person(first_name="Active", last_name="Customer", email=f"active-value-{uuid4().hex}@example.com")
+    terminated_person = Person(
+        first_name="Former",
+        last_name="Customer",
+        email=f"terminated-value-{uuid4().hex}@example.com",
+    )
+    db_session.add_all([active_person, terminated_person])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=active_person.id,
+                subscriber_number="SUB-ACTIVE-1",
+                status=SubscriberStatus.active,
+                is_active=True,
+                activated_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+            Subscriber(
+                person_id=terminated_person.id,
+                subscriber_number="SUB-TERM-1",
+                status=SubscriberStatus.terminated,
+                is_active=False,
+                activated_at=datetime(2025, 1, 1, tzinfo=UTC),
+                terminated_at=datetime(2026, 2, 1, tzinfo=UTC),
+            ),
+            SalesOrder(
+                person_id=active_person.id,
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.paid,
+                total=5000,
+                amount_paid=5000,
+            ),
+            SalesOrder(
+                person_id=terminated_person.id,
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.paid,
+                total=25000,
+                amount_paid=25000,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    rows = subscriber_reports_service.lifecycle_top_subscribers_by_value(db_session, limit=10)
+
+    assert rows[0]["name"] == "Former Customer"
+    assert rows[0]["subscriber_number"] == "SUB-TERM-1"
+    assert rows[0]["plan"] == ""
+    assert rows[0]["status"] == "terminated"
+    assert rows[0]["total_paid"] == 25000.0
+
+
+def test_lifecycle_top_subscribers_by_value_cleans_duplicate_person_rows(db_session):
+    person = Person(first_name="Merged", last_name="Customer", email=f"merged-{uuid4().hex}@example.com")
+    db_session.add(person)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=person.id,
+                subscriber_number="SUB-MERGE-1",
+                status=SubscriberStatus.active,
+                is_active=True,
+                activated_at=datetime(2025, 1, 1, tzinfo=UTC),
+            ),
+            Subscriber(
+                person_id=person.id,
+                subscriber_number="SUB-MERGE-2",
+                status=SubscriberStatus.active,
+                is_active=True,
+                activated_at=datetime(2025, 1, 1, tzinfo=UTC),
+            ),
+            SalesOrder(
+                person_id=person.id,
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.paid,
+                total=10000,
+                amount_paid=10000,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    rows = subscriber_reports_service.lifecycle_top_subscribers_by_value(db_session, limit=20)
+    matching_rows = [row for row in rows if row["name"] == "Merged Customer"]
+
+    assert len(matching_rows) == 1
+    assert matching_rows[0]["subscriber_number"] == "SUB-MERGE-1"
+    assert matching_rows[0]["plan"] == ""
+    assert matching_rows[0]["total_paid"] == 10000.0
 
 
 def test_lifecycle_longest_tenure_cleans_display_name_format(db_session):
@@ -937,6 +1323,196 @@ def test_lifecycle_longest_tenure_cleans_display_name_format(db_session):
     rows = subscriber_reports_service.lifecycle_longest_tenure(db_session, limit=10)
 
     assert rows[0]["name"] == "Mimi's Home"
+
+
+def test_subscriber_lifecycle_sorts_top_subscribers_by_tenure_when_requested(monkeypatch):
+    monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_kpis",
+        lambda _db, _start_dt, _end_dt: {
+            "conversion_rate": 0,
+            "avg_days_to_convert": 0,
+            "churn_rate": 0,
+            "terminated_in_period": 0,
+            "avg_lifecycle_days": 0,
+            "avg_lifecycle_months": 0,
+            "upgrade_rate": 0,
+            "downgrade_rate": 0,
+            "engagement_score": 0,
+            "pipeline_value": 0,
+            "leads_won": 0,
+        },
+    )
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_funnel", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_churn_trend", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_retention_cohorts",
+        lambda _db, _start_dt, _end_dt: {"months": [], "rows": []},
+    )
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_plan_migration_flow", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(subscriber_reports_service, "overview_plan_distribution", lambda _db, limit=8: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_recent_churns", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_longest_tenure", lambda _db: [])
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_top_subscribers_by_value",
+        lambda _db: [
+            {
+                "subscriber_id": "sub-1",
+                "name": "Lower Paid Longer",
+                "subscriber_number": "SUB-1",
+                "plan": "Business Fiber",
+                "status": "active",
+                "activated_at": "2024-01-01",
+                "tenure_months": 20.0,
+                "order_count": 1,
+                "total_paid": 1000.0,
+                "avg_monthly_spend": 50.0,
+            },
+            {
+                "subscriber_id": "sub-2",
+                "name": "Higher Paid Shorter",
+                "subscriber_number": "SUB-2",
+                "plan": "Home 100",
+                "status": "active",
+                "activated_at": "2025-12-01",
+                "tenure_months": 2.0,
+                "order_count": 1,
+                "total_paid": 5000.0,
+                "avg_monthly_spend": 2500.0,
+            },
+        ],
+    )
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_top_subscribers_by_tenure_proxy", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_top_subscribers_by_estimated_plan_value", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_top_subscribers_by_hybrid_score", lambda _db: [])
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/lifecycle",
+            "headers": [],
+            "query_string": b"sort_by=tenure_months",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+
+    response = reports_web.subscriber_lifecycle(
+        request=request,
+        db=None,
+        days=30,
+        start_date=None,
+        end_date=None,
+        sort_by="tenure_months",
+    )
+
+    body = response.body.decode()
+    assert response.status_code == 200
+    assert "By Tenure" in body
+    assert body.index("Lower Paid Longer") < body.index("Higher Paid Shorter")
+    assert "Sorted by tenure, with total paid as tie-breaker." in body
+
+
+def test_subscriber_lifecycle_sorts_top_subscribers_by_plan_type_when_requested(monkeypatch):
+    monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_kpis",
+        lambda _db, _start_dt, _end_dt: {
+            "conversion_rate": 0,
+            "avg_days_to_convert": 0,
+            "churn_rate": 0,
+            "terminated_in_period": 0,
+            "avg_lifecycle_days": 0,
+            "avg_lifecycle_months": 0,
+            "upgrade_rate": 0,
+            "downgrade_rate": 0,
+            "engagement_score": 0,
+            "pipeline_value": 0,
+            "leads_won": 0,
+        },
+    )
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_funnel", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_churn_trend", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_retention_cohorts",
+        lambda _db, _start_dt, _end_dt: {"months": [], "rows": []},
+    )
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_plan_migration_flow", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(subscriber_reports_service, "overview_plan_distribution", lambda _db, limit=8: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_recent_churns", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_longest_tenure", lambda _db: [])
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_top_subscribers_by_value",
+        lambda _db: [
+            {
+                "subscriber_id": "sub-1",
+                "name": "Zulu Customer",
+                "subscriber_number": "SUB-1",
+                "plan": "Zulu Plan",
+                "status": "active",
+                "activated_at": "2024-01-01",
+                "tenure_months": 20.0,
+                "order_count": 1,
+                "total_paid": 1000.0,
+                "avg_monthly_spend": 50.0,
+            },
+            {
+                "subscriber_id": "sub-2",
+                "name": "Alpha Customer",
+                "subscriber_number": "SUB-2",
+                "plan": "Alpha Plan",
+                "status": "active",
+                "activated_at": "2025-12-01",
+                "tenure_months": 2.0,
+                "order_count": 1,
+                "total_paid": 5000.0,
+                "avg_monthly_spend": 2500.0,
+            },
+        ],
+    )
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_top_subscribers_by_tenure_proxy", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_top_subscribers_by_estimated_plan_value", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_top_subscribers_by_hybrid_score", lambda _db: [])
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/lifecycle",
+            "headers": [],
+            "query_string": b"sort_by=plan_type",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+
+    response = reports_web.subscriber_lifecycle(
+        request=request,
+        db=None,
+        days=30,
+        start_date=None,
+        end_date=None,
+        sort_by="plan_type",
+    )
+
+    body = response.body.decode()
+    assert response.status_code == 200
+    assert "Plan Type" in body
+    assert body.index("Alpha Customer") < body.index("Zulu Customer")
+    assert "Sorted alphabetically by plan type, with revenue and tenure as tie-breakers." in body
 
 
 def test_lifecycle_longest_tenure_falls_back_to_created_at(db_session):
@@ -1278,11 +1854,12 @@ def test_service_quality_regional_ignores_city_when_region_missing(db_session):
     db_session.add(
         Ticket(
             title="Regional ticket",
-            status=TicketStatus.resolved,
+            status=TicketStatus.closed,
             is_active=True,
             subscriber_id=subscriber.id,
             created_at=now - timedelta(days=5),
             resolved_at=now - timedelta(days=4),
+            closed_at=now - timedelta(days=4),
         )
     )
     db_session.add(
@@ -1546,6 +2123,11 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
             "avg_days_to_convert": 7.2,
             "churn_rate": 1.8,
             "terminated_in_period": 3,
+            "avg_lifecycle_days": 90.0,
+            "avg_lifecycle_months": 3.0,
+            "upgrade_rate": 4.5,
+            "downgrade_rate": 1.1,
+            "engagement_score": 62.0,
             "pipeline_value": 25000.0,
             "leads_won": 4,
         },
@@ -1558,6 +2140,29 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
         subscriber_reports_service,
         "lifecycle_conversion_by_source",
         lambda _db, _start_dt, _end_dt: [{"source": "Referral", "total": 10, "won": 3}],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_retention_cohorts",
+        lambda _db, _start_dt, _end_dt: {
+            "months": ["2026-02", "2026-03"],
+            "rows": [{"cohort": "2026-02", "size": 4, "values": [{"retention_pct": 100, "retained": 4}, {"retention_pct": 75, "retained": 3}]}],
+        },
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_time_to_convert_distribution",
+        lambda _db, _start_dt, _end_dt: [{"label": "0-7 days", "count": 2}],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_plan_migration_flow",
+        lambda _db, _start_dt, _end_dt: [{"source": "Home 100", "target": "Home 200", "count": 2}],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "overview_plan_distribution",
+        lambda _db, limit=8, subscriber_ids=None: [{"plan": "Home 200", "count": 10}],
     )
     monkeypatch.setattr(
         subscriber_reports_service,
@@ -1576,6 +2181,37 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
         subscriber_reports_service,
         "lifecycle_longest_tenure",
         lambda _db: [{"name": "John Doe", "subscriber_number": "SUB-2", "plan": "Home 50", "tenure_days": 420}],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_top_subscribers_by_value",
+        lambda _db: [{
+            "subscriber_id": "sub-3",
+            "name": "Value Doe",
+            "subscriber_number": "SUB-3",
+            "plan": "Home 200",
+            "status": "active",
+            "activated_at": "2025-01-01",
+            "tenure_months": 14.2,
+            "order_count": 2,
+            "total_paid": 25000.0,
+            "avg_monthly_spend": 1760.56,
+        }],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_top_subscribers_by_tenure_proxy",
+        lambda _db: [{"subscriber_number": "SUB-TENURE", "name": "Tenure Doe", "activated_at": "2017-09-19", "tenure_months": 102.0}],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_top_subscribers_by_estimated_plan_value",
+        lambda _db: [{"subscriber_number": "SUB-PLAN", "name": "Plan Doe", "service_plan": "Business Fiber", "annualized_plan_estimate": 1080000.0}],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "lifecycle_top_subscribers_by_hybrid_score",
+        lambda _db: [{"subscriber_number": "SUB-HYBRID", "name": "Hybrid Doe", "activated_at": "2018-01-01", "hybrid_score": 2500000.0}],
     )
 
     request = Request(
@@ -1602,7 +2238,90 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
     assert response.status_code == 200
     body = response.body.decode()
     assert "Subscriber Lifecycle" in body
+    assert "Avg Days To Convert" in body
+    assert "Pipeline Value" in body
+    assert "Cohort Retention" in body
+    assert "Time To Convert Distribution" not in body
+    assert "Plan Migration Flow" not in body
+    assert "Top Subscribers By Value (All Time)" in body
+    assert "Sorted by total paid across all subscriber histories." in body
+    assert "Total Revenue" in body
+    assert "By Tenure" in body
+    assert "Plan Type" in body
+    assert "Top By Tenure Proxy" not in body
+    assert "Top By Estimated Annualized Value" not in body
+    assert "Top By Hybrid Score" not in body
     assert "Recent Churn" in body
+
+
+def test_subscriber_lifecycle_defaults_to_inception_when_days_is_zero(monkeypatch, db_session):
+    first_person = Person(first_name="First", last_name="Lifecycle", email=f"first-life-{uuid4().hex}@example.com")
+    db_session.add(first_person)
+    db_session.flush()
+    db_session.add(
+        Subscriber(
+            person_id=first_person.id,
+            subscriber_number=f"SUB-{uuid4().hex[:8]}",
+            status=SubscriberStatus.active,
+            is_active=True,
+            activated_at=datetime(2025, 1, 15, tzinfo=UTC),
+        )
+    )
+    db_session.commit()
+
+    captured: dict[str, datetime] = {}
+
+    monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
+
+    def _capture_kpis(_db, start_dt, end_dt):
+        captured["start_dt"] = start_dt
+        captured["end_dt"] = end_dt
+        return {
+            "conversion_rate": 0,
+            "churn_rate": 0,
+            "terminated_in_period": 0,
+            "avg_lifecycle_days": 0,
+            "avg_lifecycle_months": 0,
+            "upgrade_rate": 0,
+            "downgrade_rate": 0,
+            "engagement_score": 0,
+        }
+
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_kpis", _capture_kpis)
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_funnel", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_churn_trend", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_conversion_by_source", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(
+        subscriber_reports_service, "lifecycle_retention_cohorts", lambda _db, _start_dt, _end_dt: {"months": [], "rows": []}
+    )
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_time_to_convert_distribution", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_plan_migration_flow", lambda _db, _start_dt, _end_dt: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_recent_churns", lambda _db: [])
+    monkeypatch.setattr(subscriber_reports_service, "lifecycle_longest_tenure", lambda _db: [])
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/lifecycle",
+            "headers": [],
+            "query_string": b"days=0",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+
+    response = reports_web.subscriber_lifecycle(
+        request=request,
+        db=db_session,
+        days=0,
+        start_date=None,
+        end_date=None,
+    )
+
+    assert response.status_code == 200
+    assert captured["start_dt"] == datetime(2025, 1, 15, tzinfo=UTC)
 
 
 def test_churned_subscribers_kpis_and_rows_use_selected_period(db_session):
@@ -1612,7 +2331,8 @@ def test_churned_subscribers_kpis_and_rows_use_selected_period(db_session):
 
     recent_person = Person(first_name="Recent", last_name="Churn", email=f"recent-{uuid4().hex}@example.com")
     old_person = Person(first_name="Old", last_name="Churn", email=f"old-{uuid4().hex}@example.com")
-    db_session.add_all([recent_person, old_person])
+    active_person = Person(first_name="Still", last_name="Active", email=f"active-{uuid4().hex}@example.com")
+    db_session.add_all([recent_person, old_person, active_person])
     db_session.flush()
 
     db_session.add_all(
@@ -1623,6 +2343,7 @@ def test_churned_subscribers_kpis_and_rows_use_selected_period(db_session):
                 status=SubscriberStatus.terminated,
                 is_active=False,
                 service_plan="Home 200",
+                service_speed="200 Mbps",
                 service_region="Wuse 2",
                 activated_at=now - timedelta(days=180),
                 terminated_at=now - timedelta(days=20),
@@ -1637,7 +2358,34 @@ def test_churned_subscribers_kpis_and_rows_use_selected_period(db_session):
                 activated_at=now - timedelta(days=400),
                 terminated_at=now - timedelta(days=150),
             ),
+            Subscriber(
+                person_id=active_person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.active,
+                is_active=True,
+                service_plan="Home 100",
+                service_region="Wuse 2",
+                activated_at=now - timedelta(days=120),
+            ),
         ]
+    )
+    db_session.add(
+        SalesOrder(
+            person_id=recent_person.id,
+            order_number=f"SO-{uuid4().hex[:8]}",
+            status=SalesOrderStatus.paid,
+            total=Decimal("500.00"),
+            amount_paid=Decimal("350.00"),
+        )
+    )
+    db_session.add(
+        SalesOrder(
+            person_id=old_person.id,
+            order_number=f"SO-{uuid4().hex[:8]}",
+            status=SalesOrderStatus.paid,
+            total=Decimal("900.00"),
+            amount_paid=Decimal("900.00"),
+        )
     )
     db_session.commit()
 
@@ -1646,8 +2394,14 @@ def test_churned_subscribers_kpis_and_rows_use_selected_period(db_session):
     trend = subscriber_reports_service.churned_subscribers_trend(db_session, start_dt, end_dt)
 
     assert kpis["churned_count"] == 1
-    assert kpis["impacted_regions"] == 1
-    assert kpis["impacted_plans"] == 1
+    assert kpis["churn_rate"] == 50.0
+    assert kpis["revenue_lost_to_churn"] == 70000.0
+    assert kpis["top_churn_plan_type"] == "Home 200"
+    assert kpis["top_churn_plan_count"] == 1
+    assert kpis["avg_lifetime_before_churn_days"] == 160.0
+    assert kpis["avg_lifetime_before_churn_months"] == 5.3
+    assert kpis["high_value_customer_lost_name"] == "Recent Churn"
+    assert kpis["high_value_customer_lost_paid"] == 350.0
     assert rows == [
         {
             "name": "Recent Churn",
@@ -1669,9 +2423,14 @@ def test_churned_subscribers_page_renders(monkeypatch):
         "churned_subscribers_kpis",
         lambda _db, _start_dt, _end_dt: {
             "churned_count": 12,
-            "avg_tenure_days": 147.5,
-            "impacted_regions": 4,
-            "impacted_plans": 3,
+            "churn_rate": 6.8,
+            "revenue_lost_to_churn": 420000.0,
+            "top_churn_plan_type": "Home 200",
+            "top_churn_plan_count": 5,
+            "avg_lifetime_before_churn_days": 147.5,
+            "avg_lifetime_before_churn_months": 4.9,
+            "high_value_customer_lost_name": "Jane Doe",
+            "high_value_customer_lost_paid": 95000.0,
         },
     )
     monkeypatch.setattr(
@@ -1719,7 +2478,12 @@ def test_churned_subscribers_page_renders(monkeypatch):
     assert response.status_code == 200
     body = response.body.decode()
     assert "Churned Subscribers" in body
-    assert "Average Tenure" in body
+    assert "TOTAL CHURNED SUBSCRIBERS" in body
+    assert "CHURN RATE" in body
+    assert "Revenue Lost To Churn" in body
+    assert "Top Churn By Plan Type" in body
+    assert "Avg Lifetime Before Churn" in body
+    assert "High Value Customer Lost" in body
     assert "Jane Doe" in body
 
 

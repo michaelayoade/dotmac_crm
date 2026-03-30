@@ -4,7 +4,7 @@ import os
 
 from fastapi import Request
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
+from app.web.templates import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.models.legal import LegalDocumentType

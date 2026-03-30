@@ -19,14 +19,10 @@ def _make_request(path: str = "/admin/support/tickets") -> Request:
     )
 
 
-def test_ticket_query_not_closed_excludes_closed_and_canceled(db_session):
+def test_ticket_query_not_closed_excludes_terminal_statuses(db_session):
     open_ticket = tickets_service.tickets.create(
         db_session,
         TicketCreate(title="Open ticket", status=TicketStatus.open),
-    )
-    resolved_ticket = tickets_service.tickets.create(
-        db_session,
-        TicketCreate(title="Resolved ticket", status=TicketStatus.resolved),
     )
     closed_ticket = tickets_service.tickets.create(
         db_session,
@@ -36,14 +32,18 @@ def test_ticket_query_not_closed_excludes_closed_and_canceled(db_session):
         db_session,
         TicketCreate(title="Canceled ticket", status=TicketStatus.canceled),
     )
+    merged_ticket = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Merged ticket", status=TicketStatus.merged),
+    )
 
     tickets = TicketQuery(db_session).not_closed_tickets().all()
     ticket_ids = {ticket.id for ticket in tickets}
 
     assert open_ticket.id in ticket_ids
-    assert resolved_ticket.id in ticket_ids
     assert closed_ticket.id not in ticket_ids
     assert canceled_ticket.id not in ticket_ids
+    assert merged_ticket.id not in ticket_ids
 
 
 def test_tickets_list_defaults_to_not_closed(monkeypatch, db_session):
