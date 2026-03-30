@@ -838,16 +838,18 @@ def lifecycle_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
             EventStore.created_at <= end_dt,
         )
     ).all()
-    ticket_active_ids = {str(subscriber_id) for subscriber_id in ticket_subscriber_ids if subscriber_id} & active_subscriber_id_set
-    work_order_active_ids = (
-        {str(subscriber_id) for subscriber_id in work_order_subscriber_ids if subscriber_id} & active_subscriber_id_set
-    )
-    event_active_ids = {str(subscriber_id) for subscriber_id in event_subscriber_ids if subscriber_id} & active_subscriber_id_set
+    ticket_active_ids = {
+        str(subscriber_id) for subscriber_id in ticket_subscriber_ids if subscriber_id
+    } & active_subscriber_id_set
+    work_order_active_ids = {
+        str(subscriber_id) for subscriber_id in work_order_subscriber_ids if subscriber_id
+    } & active_subscriber_id_set
+    event_active_ids = {
+        str(subscriber_id) for subscriber_id in event_subscriber_ids if subscriber_id
+    } & active_subscriber_id_set
     max_weight_per_subscriber = 3.0
     weighted_activity_total = (
-        len(ticket_active_ids) * 1.0
-        + len(work_order_active_ids) * 1.5
-        + len(event_active_ids) * 0.5
+        len(ticket_active_ids) * 1.0 + len(work_order_active_ids) * 1.5 + len(event_active_ids) * 0.5
     )
     engagement_score = (
         round(weighted_activity_total / (len(active_subscriber_id_set) * max_weight_per_subscriber) * 100, 1)
@@ -1266,7 +1268,9 @@ def churned_subscribers_kpis(db: Session, start_dt: datetime, end_dt: datetime) 
         plan_name = (row.service_plan or "").strip() or "Unknown"
         plan_counts[plan_name] += 1
         revenue_lost_to_churn += _estimate_monthly_plan_value(row.service_plan, row.service_speed)
-        region_name = _normalize_city_name(getattr(row, "service_region", None)) if hasattr(row, "service_region") else ""
+        region_name = (
+            _normalize_city_name(getattr(row, "service_region", None)) if hasattr(row, "service_region") else ""
+        )
         if region_name:
             impacted_regions.add(region_name)
 
@@ -1310,9 +1314,7 @@ def churned_subscribers_kpis(db: Session, start_dt: datetime, end_dt: datetime) 
             .where(
                 SalesOrder.is_active.is_(True),
                 SalesOrder.person_id.in_(list(churned_people.keys())),
-                SalesOrder.status.in_(
-                    [SalesOrderStatus.confirmed, SalesOrderStatus.paid, SalesOrderStatus.fulfilled]
-                ),
+                SalesOrder.status.in_([SalesOrderStatus.confirmed, SalesOrderStatus.paid, SalesOrderStatus.fulfilled]),
             )
             .group_by(SalesOrder.person_id)
             .order_by(func.coalesce(func.sum(SalesOrder.amount_paid), 0).desc(), SalesOrder.person_id)
@@ -1470,7 +1472,9 @@ def churned_failed_payment_rows(db: Session, start_dt: datetime, end_dt: datetim
                 "total_paid": round(float(row.total_paid or 0), 2),
                 "outstanding_balance": round(float(row.outstanding_balance or 0), 2),
                 "due_date": row.latest_due_date.strftime("%Y-%m-%d") if row.latest_due_date else "",
-                "payment_updated_at": row.latest_payment_update.strftime("%Y-%m-%d") if row.latest_payment_update else "",
+                "payment_updated_at": row.latest_payment_update.strftime("%Y-%m-%d")
+                if row.latest_payment_update
+                else "",
             }
         )
     return results

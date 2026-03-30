@@ -331,7 +331,9 @@ def _can_manage_ticket_relationships(current_user: dict | None) -> bool:
     if not current_user:
         return False
     roles = {str(role).strip().lower() for role in (current_user.get("roles") or []) if role}
-    permissions = {str(permission).strip().lower() for permission in (current_user.get("permissions") or []) if permission}
+    permissions = {
+        str(permission).strip().lower() for permission in (current_user.get("permissions") or []) if permission
+    }
     return bool({"admin", "agent", "agents"} & roles) or "support:ticket:close" in permissions
 
 
