@@ -2367,132 +2367,132 @@ def test_subscriber_lifecycle_defaults_to_inception_when_days_is_zero(monkeypatc
     assert captured["start_dt"] == datetime(2025, 1, 15, tzinfo=UTC)
 
 
-def test_churned_subscribers_kpis_and_rows_use_selected_period(db_session):
+def test_get_churn_table_segments_and_flags_non_renewals(db_session):
     now = datetime.now(UTC)
-    start_dt = now - timedelta(days=90)
-    end_dt = now
 
-    recent_person = Person(first_name="Recent", last_name="Churn", email=f"recent-{uuid4().hex}@example.com")
-    old_person = Person(first_name="Old", last_name="Churn", email=f"old-{uuid4().hex}@example.com")
-    active_person = Person(first_name="Still", last_name="Active", email=f"active-{uuid4().hex}@example.com")
-    db_session.add_all([recent_person, old_person, active_person])
+    no_payment_person = Person(first_name="No", last_name="Payment", email=f"nopay-{uuid4().hex}@example.com")
+    at_risk_person = Person(first_name="At", last_name="Risk", email=f"atrisk-{uuid4().hex}@example.com")
+    churned_person = Person(first_name="High", last_name="Value", email=f"churned-{uuid4().hex}@example.com")
+    active_person = Person(first_name="Still", last_name="Paying", email=f"active-{uuid4().hex}@example.com")
+    db_session.add_all([no_payment_person, at_risk_person, churned_person, active_person])
+    db_session.flush()
+
+    no_payment_subscriber = Subscriber(
+        person_id=no_payment_person.id,
+        subscriber_number=f"SUB-{uuid4().hex[:8]}",
+        status=SubscriberStatus.active,
+        is_active=True,
+    )
+    at_risk_subscriber = Subscriber(
+        person_id=at_risk_person.id,
+        subscriber_number=f"SUB-{uuid4().hex[:8]}",
+        status=SubscriberStatus.active,
+        is_active=True,
+    )
+    churned_subscriber = Subscriber(
+        person_id=churned_person.id,
+        subscriber_number=f"SUB-{uuid4().hex[:8]}",
+        status=SubscriberStatus.active,
+        is_active=True,
+    )
+    active_subscriber = Subscriber(
+        person_id=active_person.id,
+        subscriber_number=f"SUB-{uuid4().hex[:8]}",
+        status=SubscriberStatus.active,
+        is_active=True,
+    )
+    db_session.add_all([no_payment_subscriber, at_risk_subscriber, churned_subscriber, active_subscriber])
     db_session.flush()
 
     db_session.add_all(
         [
-            Subscriber(
-                person_id=recent_person.id,
-                subscriber_number=f"SUB-{uuid4().hex[:8]}",
-                status=SubscriberStatus.terminated,
-                is_active=False,
-                service_plan="Home 200",
-                service_speed="200 Mbps",
-                service_region="Wuse 2",
-                activated_at=now - timedelta(days=180),
-                terminated_at=now - timedelta(days=20),
+            SalesOrder(
+                person_id=at_risk_person.id,
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.paid,
+                total=Decimal("100.00"),
+                amount_paid=Decimal("100.00"),
+                created_at=now - timedelta(days=100),
             ),
-            Subscriber(
-                person_id=old_person.id,
-                subscriber_number=f"SUB-{uuid4().hex[:8]}",
-                status=SubscriberStatus.terminated,
-                is_active=False,
-                service_plan="Business 500",
-                service_region="Lagos",
-                activated_at=now - timedelta(days=400),
-                terminated_at=now - timedelta(days=150),
+            SalesOrder(
+                person_id=churned_person.id,
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.paid,
+                total=Decimal("500.00"),
+                amount_paid=Decimal("500.00"),
+                created_at=now - timedelta(days=150),
             ),
-            Subscriber(
+            SalesOrder(
                 person_id=active_person.id,
-                subscriber_number=f"SUB-{uuid4().hex[:8]}",
-                status=SubscriberStatus.active,
-                is_active=True,
-                service_plan="Home 100",
-                service_region="Wuse 2",
-                activated_at=now - timedelta(days=120),
+                order_number=f"SO-{uuid4().hex[:8]}",
+                status=SalesOrderStatus.paid,
+                total=Decimal("50.00"),
+                amount_paid=Decimal("50.00"),
+                created_at=now - timedelta(days=30),
             ),
         ]
     )
-    db_session.add(
-        SalesOrder(
-            person_id=recent_person.id,
-            order_number=f"SO-{uuid4().hex[:8]}",
-            status=SalesOrderStatus.paid,
-            total=Decimal("500.00"),
-            amount_paid=Decimal("350.00"),
-        )
-    )
-    db_session.add(
-        SalesOrder(
-            person_id=old_person.id,
-            order_number=f"SO-{uuid4().hex[:8]}",
-            status=SalesOrderStatus.paid,
-            total=Decimal("900.00"),
-            amount_paid=Decimal("900.00"),
-        )
-    )
     db_session.commit()
 
-    kpis = subscriber_reports_service.churned_subscribers_kpis(db_session, start_dt, end_dt)
-    rows = subscriber_reports_service.churned_subscribers_rows(db_session, start_dt, end_dt, limit=20)
-    trend = subscriber_reports_service.churned_subscribers_trend(db_session, start_dt, end_dt)
+    rows = subscriber_reports_service.get_churn_table(db_session, days_active=90, days_churn=120, limit=20)
 
-    assert kpis["churned_count"] == 1
-    assert kpis["churn_rate"] == 50.0
-    assert kpis["revenue_lost_to_churn"] == 70000.0
-    assert kpis["top_churn_plan_type"] == "Home 200"
-    assert kpis["top_churn_plan_count"] == 1
-    assert kpis["avg_lifetime_before_churn_days"] == 160.0
-    assert kpis["avg_lifetime_before_churn_months"] == 5.3
-    assert kpis["high_value_customer_lost_name"] == "Recent Churn"
-    assert kpis["high_value_customer_lost_paid"] == 350.0
-    assert rows == [
-        {
-            "name": "Recent Churn",
-            "subscriber_number": rows[0]["subscriber_number"],
-            "plan": "Home 200",
-            "region": "Abuja",
-            "activated_at": (now - timedelta(days=180)).strftime("%Y-%m-%d"),
-            "terminated_at": (now - timedelta(days=20)).strftime("%Y-%m-%d"),
-            "tenure_days": 160,
-        }
-    ]
-    assert trend == [{"date": (now - timedelta(days=20)).strftime("%Y-%m-%d"), "count": 1}]
+    assert [row["name"] for row in rows] == ["High Value", "At Risk", "No Payment"]
+    assert rows[0]["subscriber_id"] == str(churned_subscriber.id)
+    assert rows[0]["last_payment_date"] == (now - timedelta(days=150)).strftime("%Y-%m-%d")
+    assert rows[0]["total_orders"] == 1
+    assert rows[0]["lifetime_value"] == 500.0
+    assert rows[0]["avg_order_value"] == 500.0
+    assert rows[0]["days_since_last_payment"] >= 149
+    assert rows[0]["churn_segment"] == "Churned"
+    assert rows[0]["is_high_value_churn"] is True
+
+    assert rows[1]["subscriber_id"] == str(at_risk_subscriber.id)
+    assert rows[1]["days_since_last_payment"] >= 99
+    assert rows[1]["churn_segment"] == "At Risk"
+    assert rows[1]["is_high_value_churn"] is False
+
+    assert rows[2]["subscriber_id"] == str(no_payment_subscriber.id)
+    assert rows[2]["last_payment_date"] == ""
+    assert rows[2]["days_since_last_payment"] == 9999
+    assert rows[2]["churn_segment"] == "Churned"
+    assert rows[2]["is_high_value_churn"] is False
+
+    churned_only = subscriber_reports_service.get_churn_table(
+        db_session,
+        days_active=90,
+        days_churn=120,
+        segment="churned",
+        limit=20,
+    )
+    assert [row["name"] for row in churned_only] == ["High Value", "No Payment"]
+
+    high_value_only = subscriber_reports_service.get_churn_table(
+        db_session,
+        days_active=90,
+        days_churn=120,
+        high_value_only=True,
+        limit=20,
+    )
+    assert [row["name"] for row in high_value_only] == ["High Value"]
 
 
 def test_churned_subscribers_page_renders(monkeypatch):
     monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
     monkeypatch.setattr(
         subscriber_reports_service,
-        "churned_subscribers_kpis",
-        lambda _db, _start_dt, _end_dt: {
-            "churned_count": 12,
-            "churn_rate": 6.8,
-            "revenue_lost_to_churn": 420000.0,
-            "top_churn_plan_type": "Home 200",
-            "top_churn_plan_count": 5,
-            "avg_lifetime_before_churn_days": 147.5,
-            "avg_lifetime_before_churn_months": 4.9,
-            "high_value_customer_lost_name": "Jane Doe",
-            "high_value_customer_lost_paid": 95000.0,
-        },
-    )
-    monkeypatch.setattr(
-        subscriber_reports_service,
-        "churned_subscribers_trend",
-        lambda _db, _start_dt, _end_dt: [{"date": "2026-03-01", "count": 2}],
-    )
-    monkeypatch.setattr(
-        subscriber_reports_service,
-        "churned_subscribers_rows",
-        lambda _db, _start_dt, _end_dt: [
+        "get_churn_table",
+        lambda _db, days_active=90, days_churn=120, high_value_only=False, segment=None: [
             {
+                "subscriber_id": "sub-1",
                 "name": "Jane Doe",
-                "subscriber_number": "SUB-1",
-                "plan": "Home 100",
-                "region": "Abuja",
-                "activated_at": "2025-01-10",
-                "terminated_at": "2026-03-01",
-                "tenure_days": 416,
+                "email": "jane@example.com",
+                "last_payment_date": "2025-11-21",
+                "total_orders": 4,
+                "lifetime_value": 95000.0,
+                "avg_order_value": 23750.0,
+                "days_since_last_payment": 130,
+                "churn_segment": "Churned",
+                "is_high_value_churn": True,
             }
         ],
     )
@@ -2513,20 +2513,19 @@ def test_churned_subscribers_page_renders(monkeypatch):
     response = reports_web.churned_subscribers(
         request=request,
         db=None,
-        days=90,
-        start_date=None,
-        end_date=None,
+        days_active=90,
+        days_churn=120,
+        high_value_only=False,
+        segment=None,
     )
 
     assert response.status_code == 200
     body = response.body.decode()
-    assert "Churned Subscribers" in body
-    assert "TOTAL CHURNED SUBSCRIBERS" in body
-    assert "CHURN RATE" in body
-    assert "Revenue Lost To Churn" in body
-    assert "Top Churn By Plan Type" in body
-    assert "Avg Lifetime Before Churn" in body
-    assert "High Value Customer Lost" in body
+    assert "Subscriber Churn Risk" in body
+    assert "Payment Renewal Churn Table" in body
+    assert "High-value only" in body
+    assert "Last Payment" in body
+    assert "Days Since Payment" in body
     assert "Jane Doe" in body
 
 

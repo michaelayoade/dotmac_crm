@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, TypedDict
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import Date, Integer, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.bandwidth import BandwidthSample
@@ -1228,6 +1228,160 @@ def _ensure_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _payment_completed_statuses() -> tuple[SalesOrderStatus, ...]:
+    """Statuses that indicate an order has been paid/realized in this codebase."""
+    return (SalesOrderStatus.paid, SalesOrderStatus.fulfilled)
+
+
+def _days_since_expr(db: Session, column):
+    """Portable days-since-date expression for SQLite and PostgreSQL."""
+    dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
+    if dialect_name == "sqlite":
+        return cast(func.julianday(func.current_date()) - func.julianday(func.date(column)), Integer)
+    return cast(func.current_date() - cast(column, Date), Integer)
+
+
+def get_churn_table(
+    db: Session,
+    days_active: int = 90,
+    days_churn: int = 120,
+    *,
+    high_value_only: bool = False,
+    segment: str | None = None,
+    limit: int = 500,
+) -> list[dict]:
+    """Subscribers who have not renewed recent paid orders, segmented by churn risk."""
+    normalized_segment = (segment or "").strip().lower()
+    segment_filter = None
+    if normalized_segment in {"at_risk", "at risk"}:
+        segment_filter = "At Risk"
+    elif normalized_segment == "churned":
+        segment_filter = "Churned"
+
+    payment_rollup = (
+        select(
+            Subscriber.id.label("subscriber_id"),
+            Subscriber.subscriber_number.label("subscriber_number"),
+            Person.display_name.label("display_name"),
+            Person.first_name.label("first_name"),
+            Person.last_name.label("last_name"),
+            Person.email.label("email"),
+            func.max(SalesOrder.created_at).label("last_payment_date"),
+            func.count(SalesOrder.id).label("total_orders"),
+            func.coalesce(func.sum(SalesOrder.total), 0).label("lifetime_value"),
+            func.coalesce(func.avg(SalesOrder.total), 0).label("avg_order_value"),
+        )
+        .select_from(Subscriber)
+        .outerjoin(Person, Person.id == Subscriber.person_id)
+        .outerjoin(
+            SalesOrder,
+            (SalesOrder.person_id == Subscriber.person_id)
+            & SalesOrder.is_active.is_(True)
+            & SalesOrder.status.in_(_payment_completed_statuses()),
+        )
+        .group_by(
+            Subscriber.id,
+            Subscriber.subscriber_number,
+            Person.display_name,
+            Person.first_name,
+            Person.last_name,
+            Person.email,
+        )
+        .subquery()
+    )
+
+    days_since_last_payment = case(
+        (payment_rollup.c.last_payment_date.is_(None), 9999),
+        else_=_days_since_expr(db, payment_rollup.c.last_payment_date),
+    ).label("days_since_last_payment")
+    avg_lifetime_value = func.avg(payment_rollup.c.lifetime_value).over().label("avg_lifetime_value")
+
+    segmented = select(
+        payment_rollup.c.subscriber_id,
+        payment_rollup.c.subscriber_number,
+        payment_rollup.c.display_name,
+        payment_rollup.c.first_name,
+        payment_rollup.c.last_name,
+        payment_rollup.c.email,
+        payment_rollup.c.last_payment_date,
+        payment_rollup.c.total_orders,
+        payment_rollup.c.lifetime_value,
+        payment_rollup.c.avg_order_value,
+        days_since_last_payment,
+        case(
+            (days_since_last_payment <= days_active, "Active"),
+            (days_since_last_payment <= days_churn, "At Risk"),
+            else_="Churned",
+        ).label("churn_segment"),
+        avg_lifetime_value,
+    ).subquery()
+
+    is_high_value_churn = case(
+        (
+            (segmented.c.lifetime_value > segmented.c.avg_lifetime_value)
+            & segmented.c.churn_segment.in_(("At Risk", "Churned")),
+            True,
+        ),
+        else_=False,
+    ).label("is_high_value_churn")
+
+    stmt = (
+        select(
+            segmented.c.subscriber_id,
+            segmented.c.subscriber_number,
+            segmented.c.display_name,
+            segmented.c.first_name,
+            segmented.c.last_name,
+            segmented.c.email,
+            segmented.c.last_payment_date,
+            segmented.c.total_orders,
+            segmented.c.lifetime_value,
+            segmented.c.avg_order_value,
+            segmented.c.days_since_last_payment,
+            segmented.c.churn_segment,
+            is_high_value_churn,
+        )
+        .where(segmented.c.churn_segment.in_(("At Risk", "Churned")))
+        .order_by(
+            is_high_value_churn.desc(),
+            segmented.c.lifetime_value.desc(),
+            segmented.c.days_since_last_payment.desc(),
+            segmented.c.subscriber_id,
+        )
+        .limit(limit)
+    )
+
+    if segment_filter is not None:
+        stmt = stmt.where(segmented.c.churn_segment == segment_filter)
+    if high_value_only:
+        stmt = stmt.where(is_high_value_churn.is_(True))
+
+    rows = db.execute(stmt).all()
+    results: list[dict] = []
+    for row in rows:
+        raw_name = (
+            row.display_name
+            or f"{row.first_name or ''} {row.last_name or ''}".strip()
+            or row.subscriber_number
+            or str(row.subscriber_id)
+        )
+        results.append(
+            {
+                "subscriber_id": str(row.subscriber_id),
+                "name": _clean_report_name(raw_name),
+                "email": row.email or "",
+                "last_payment_date": row.last_payment_date.strftime("%Y-%m-%d") if row.last_payment_date else "",
+                "total_orders": int(row.total_orders or 0),
+                "lifetime_value": round(float(row.lifetime_value or 0), 2),
+                "avg_order_value": round(float(row.avg_order_value or 0), 2),
+                "days_since_last_payment": int(row.days_since_last_payment or 0),
+                "churn_segment": row.churn_segment,
+                "is_high_value_churn": bool(row.is_high_value_churn),
+            }
+        )
+    return results
 
 
 def churned_subscribers_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
