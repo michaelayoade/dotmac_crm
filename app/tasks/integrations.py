@@ -697,6 +697,7 @@ def sync_material_request_to_erp(self, material_request_id: str):
         DotMacERPAuthError,
         DotMacERPError,
         DotMacERPRateLimitError,
+        DotMacERPTransientError,
     )
     from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
 
@@ -762,6 +763,14 @@ def sync_material_request_to_erp(self, material_request_id: str):
             str(e),
         )
         return {"success": False, "error": str(e), "error_type": "auth"}
+    except DotMacERPTransientError as e:
+        status = "retry"
+        logger.warning(
+            "MATERIAL_REQUEST_SYNC_TRANSIENT material_request_id=%s error=%s",
+            material_request_id,
+            str(e),
+        )
+        raise
     except DotMacERPError as e:
         status = "error"
         logger.error(

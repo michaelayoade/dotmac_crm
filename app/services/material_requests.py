@@ -1,11 +1,11 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.domain_settings import SettingDomain
-from app.models.inventory import InventoryItem
+from app.models.inventory import InventoryItem, InventoryLocation
 from app.models.material_request import (
     MaterialRequest,
     MaterialRequestItem,
@@ -90,6 +90,17 @@ class MaterialRequests(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: MaterialRequestCreate) -> MaterialRequest:
         get_or_404(db, Person, str(payload.requested_by_person_id), detail="Person not found")
+
+        if payload.source_location_id:
+            get_or_404(db, InventoryLocation, str(payload.source_location_id), detail="Source warehouse not found")
+        if payload.destination_location_id:
+            get_or_404(
+                db,
+                InventoryLocation,
+                str(payload.destination_location_id),
+                detail="Destination warehouse not found",
+            )
+
         data = payload.model_dump(exclude={"items"})
         number = generate_number(
             db=db,
@@ -142,6 +153,8 @@ class MaterialRequests(ListResponseMixin):
         ticket_id: str | None = None,
         project_id: str | None = None,
         priority: str | None = None,
+        created_from: date | None = None,
+        created_to: date | None = None,
         order_by: str = "created_at",
         order_dir: str = "desc",
         limit: int = 50,
@@ -159,6 +172,14 @@ class MaterialRequests(ListResponseMixin):
         if priority:
             validated_priority = validate_enum(priority, MaterialRequestPriority, "priority")
             query = query.filter(MaterialRequest.priority == validated_priority)
+
+        if created_from and created_to:
+            if created_from > created_to:
+                raise HTTPException(status_code=400, detail="From date must be before or equal to To date")
+            range_start = datetime.combine(created_from, time.min, tzinfo=UTC)
+            range_end_exclusive = datetime.combine(created_to + timedelta(days=1), time.min, tzinfo=UTC)
+            query = query.filter(MaterialRequest.created_at >= range_start)
+            query = query.filter(MaterialRequest.created_at < range_end_exclusive)
         query = apply_ordering(
             query,
             order_by,
@@ -172,6 +193,17 @@ class MaterialRequests(ListResponseMixin):
         mr = get_or_404(db, MaterialRequest, mr_id, options=[selectinload(MaterialRequest.items)])
         if mr.status in _TERMINAL_STATUSES:
             raise HTTPException(status_code=400, detail=f"Cannot update material request in {mr.status.value} status")
+
+        if payload.source_location_id:
+            get_or_404(db, InventoryLocation, str(payload.source_location_id), detail="Source warehouse not found")
+        if payload.destination_location_id:
+            get_or_404(
+                db,
+                InventoryLocation,
+                str(payload.destination_location_id),
+                detail="Destination warehouse not found",
+            )
+
         for field, value in payload.model_dump(exclude_unset=True).items():
             setattr(mr, field, value)
         db.commit()
@@ -190,7 +222,13 @@ class MaterialRequests(ListResponseMixin):
         return mr
 
     @staticmethod
-    def approve(db: Session, mr_id: str, approved_by_person_id: str) -> MaterialRequest:
+    def approve(
+        db: Session,
+        mr_id: str,
+        approved_by_person_id: str,
+        source_location_id: str | None = None,
+        destination_location_id: str | None = None,
+    ) -> MaterialRequest:
         mr = get_or_404(
             db,
             MaterialRequest,
@@ -202,8 +240,25 @@ class MaterialRequests(ListResponseMixin):
 
         approver_uuid = coerce_uuid(approved_by_person_id)
         get_or_404(db, Person, str(approver_uuid), detail="Approver not found")
+
+        source_uuid = coerce_uuid(source_location_id) if source_location_id else mr.source_location_id
+        destination_uuid = (
+            coerce_uuid(destination_location_id) if destination_location_id else mr.destination_location_id
+        )
+
+        if not source_uuid:
+            raise HTTPException(status_code=400, detail="Select a source warehouse before issuing this request")
+        get_or_404(db, InventoryLocation, str(source_uuid), detail="Source warehouse not found")
+
+        if destination_uuid:
+            get_or_404(db, InventoryLocation, str(destination_uuid), detail="Destination warehouse not found")
+            if destination_uuid == source_uuid:
+                raise HTTPException(status_code=400, detail="Source and destination warehouse cannot be the same")
+
         _validate_items_exist_in_erp(db, mr)
 
+        mr.source_location_id = source_uuid
+        mr.destination_location_id = destination_uuid
         mr.status = MaterialRequestStatus.issued
         mr.approved_by_person_id = approver_uuid
         mr.approved_at = datetime.now(UTC)
