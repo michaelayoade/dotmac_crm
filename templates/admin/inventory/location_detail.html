@@ -20,7 +20,7 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                 Edit
             </a>
-            {{ danger_button("Delete", "Confirm Delete", "Delete this location? This will deactivate it.", "/admin/inventory/locations/" ~ location.id ~ "/delete", size="sm") }}
+            {{ danger_button("Delete", "Confirm Delete", "Delete this warehouse? This will deactivate it.", "/admin/inventory/locations/" ~ location.id ~ "/delete", size="sm") }}
         </div>
     </div>
 
@@ -28,7 +28,7 @@
         <div class="lg:col-span-2 space-y-6">
             <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                    <h2 class="font-semibold text-slate-900 dark:text-white">Location Details</h2>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Warehouse Details</h2>
                 </div>
                 <div class="p-6">
                     <dl class="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -88,7 +88,7 @@
                 </table>
                 {% else %}
                 <div class="px-6 py-12">
-                    {{ empty_state("No stock records for this location", "Stock will appear once items are received.") }}
+                    {{ empty_state("No stock records for this warehouse", "Stock will appear once items are received.") }}
                 </div>
                 {% endif %}
             {% endcall %}
@@ -121,7 +121,7 @@
                 </div>
                 <div class="p-6 space-y-4">
                     <div>
-                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Location ID</p>
+                        <p class="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Warehouse ID</p>
                         <p class="text-sm font-mono text-slate-900 dark:text-white">{{ location.id | string | truncate(20, True, '...') }}</p>
                     </div>
                 </div>

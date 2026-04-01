@@ -1,11 +1,14 @@
 """Admin material request management web routes."""
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
+from app.models.inventory import InventoryLocation
 from app.models.material_request import MaterialRequestPriority
 from app.models.projects import Project
 from app.models.tickets import Ticket
@@ -65,17 +68,57 @@ def _resolve_project_id(db: Session, value: str | None):
     return coerce_uuid(raw)
 
 
+def _resolve_warehouse_id(value: str | None):
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    return coerce_uuid(raw)
+
+
+def _resolve_date(value: str | None) -> date | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _warehouse_choices(db: Session) -> list[InventoryLocation]:
+    return (
+        db.query(InventoryLocation)
+        .filter(InventoryLocation.is_active.is_(True))
+        .order_by(InventoryLocation.name.asc())
+        .all()
+    )
+
+
 @router.get("", response_class=HTMLResponse)
 def material_request_list(
     request: Request,
     status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     ticket_id: str | None = None,
     project_id: str | None = None,
     db: Session = Depends(get_db),
 ):
+    selected_status = (status or "").strip().lower() or None
+    if selected_status == "all":
+        selected_status = None
+
+    selected_date_from = _resolve_date(date_from)
+    selected_date_to = _resolve_date(date_to)
+    if not (selected_date_from and selected_date_to):
+        selected_date_from = None
+        selected_date_to = None
+
     items = material_requests.list(
         db,
-        status=status,
+        status=selected_status,
+        created_from=selected_date_from,
+        created_to=selected_date_to,
         ticket_id=ticket_id,
         project_id=project_id,
         order_by="created_at",
@@ -84,7 +127,14 @@ def material_request_list(
         offset=0,
     )
 
-    context = _base_ctx(request, db, items=items, filter_status=status)
+    context = _base_ctx(
+        request,
+        db,
+        items=items,
+        filter_status=selected_status or "",
+        filter_date_from=date_from or "",
+        filter_date_to=date_to or "",
+    )
     return templates.TemplateResponse("admin/material_requests/index.html", context)
 
 
@@ -102,6 +152,7 @@ def material_request_new(
         ticket_id=ticket_id,
         project_id=project_id,
         priorities=[p.value for p in MaterialRequestPriority],
+        warehouses=_warehouse_choices(db),
     )
     return templates.TemplateResponse("admin/material_requests/form.html", context)
 
@@ -113,6 +164,8 @@ def material_request_create(
     project_id: str | None = Form(None),
     notes: str | None = Form(None),
     priority: str = Form("medium"),
+    source_location_id: str | None = Form(None),
+    destination_location_id: str | None = Form(None),
     item_id: list[str] = Form(default=[]),
     quantity: list[int] = Form(default=[]),
     item_notes: list[str] = Form(default=[]),
@@ -149,6 +202,8 @@ def material_request_create(
         requested_by_person_id=person_id,
         priority=MaterialRequestPriority(priority) if priority else MaterialRequestPriority.medium,
         notes=notes,
+        source_location_id=_resolve_warehouse_id(source_location_id),
+        destination_location_id=_resolve_warehouse_id(destination_location_id),
         items=items or None,
     )
     mr = material_requests.create(db, payload)
@@ -178,6 +233,7 @@ def material_request_edit(request: Request, mr_id: str, db: Session = Depends(ge
         priorities=[p.value for p in MaterialRequestPriority],
         ticket_id=mr.ticket.number if mr.ticket and mr.ticket.number else mr.ticket_id,
         project_id=mr.project.number if mr.project and mr.project.number else mr.project_id,
+        warehouses=_warehouse_choices(db),
     )
     return templates.TemplateResponse("admin/material_requests/form.html", context)
 
@@ -190,6 +246,8 @@ def material_request_update(
     project_id: str | None = Form(None),
     notes: str | None = Form(None),
     priority: str | None = Form(None),
+    source_location_id: str | None = Form(None),
+    destination_location_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     from app.web.admin import get_current_user
@@ -204,6 +262,8 @@ def material_request_update(
         project_id=_resolve_project_id(db, project_id),
         priority=MaterialRequestPriority(priority) if priority else None,
         notes=notes,
+        source_location_id=_resolve_warehouse_id(source_location_id),
+        destination_location_id=_resolve_warehouse_id(destination_location_id),
     )
     material_requests.update(db, mr_id, payload)
 
@@ -223,7 +283,7 @@ def material_request_update(
 @router.get("/{mr_id}", response_class=HTMLResponse)
 def material_request_detail(request: Request, mr_id: str, db: Session = Depends(get_db)):
     mr = material_requests.get(db, mr_id)
-    context = _base_ctx(request, db, mr=mr)
+    context = _base_ctx(request, db, mr=mr, warehouses=_warehouse_choices(db))
     return templates.TemplateResponse("admin/material_requests/detail.html", context)
 
 
@@ -247,13 +307,25 @@ def material_request_submit(request: Request, mr_id: str, db: Session = Depends(
 
 
 @router.post("/{mr_id}/approve", dependencies=[Depends(require_permission("inventory:write"))])
-def material_request_approve(request: Request, mr_id: str, db: Session = Depends(get_db)):
+def material_request_approve(
+    request: Request,
+    mr_id: str,
+    source_location_id: str | None = Form(None),
+    destination_location_id: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
     from app.web.admin import get_current_user
 
     current_user = get_current_user(request)
     person_id = current_user.get("person_id") if current_user else None
 
-    material_requests.approve(db, mr_id, str(person_id) if person_id else "")
+    material_requests.approve(
+        db,
+        mr_id,
+        str(person_id) if person_id else "",
+        source_location_id=source_location_id,
+        destination_location_id=destination_location_id,
+    )
 
     log_audit_event(
         db=db,

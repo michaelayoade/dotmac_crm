@@ -8,20 +8,30 @@
     {{ page_header("Material Requests", "Manage material and equipment requests for tickets and projects", color="teal", color2="emerald", icon='<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>') }}
 
     <!-- Actions Bar -->
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex gap-2">
-            {% for s in ['all', 'draft', 'submitted', 'issued', 'approved', 'fulfilled', 'rejected', 'canceled'] %}
-            <a href="/admin/operations/material-requests{% if s != 'all' %}?status={{ s }}{% endif %}"
-               class="rounded-xl px-3 py-1.5 text-xs font-semibold transition-all
-                      {% if (filter_status == s) or (s == 'all' and not filter_status) %}
-                      bg-teal-500 text-white shadow-sm
-                      {% else %}
-                      bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700
-                      {% endif %}">
-                {{ s|capitalize }}
-            </a>
-            {% endfor %}
-        </div>
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <form method="GET" action="/admin/operations/material-requests" class="grid w-full gap-3 sm:grid-cols-4 sm:items-end">
+            <div>
+                <label for="status" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
+                <select id="status" name="status" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    <option value="" {% if not filter_status %}selected{% endif %}>All statuses</option>
+                    {% for s in ['draft', 'submitted', 'issued', 'approved', 'fulfilled', 'rejected', 'canceled'] %}
+                    <option value="{{ s }}" {% if filter_status == s %}selected{% endif %}>{{ s|replace('_', ' ')|title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="date_from" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+                <input id="date_from" name="date_from" type="date" value="{{ filter_date_from }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200" />
+            </div>
+            <div>
+                <label for="date_to" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+                <input id="date_to" name="date_to" type="date" value="{{ filter_date_to }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200" />
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-500">Apply</button>
+                <a href="/admin/operations/material-requests" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Reset</a>
+            </div>
+        </form>
         {{ action_button("New Request", "/admin/operations/material-requests/new", color="teal") }}
     </div>
 

@@ -33,6 +33,8 @@ class MaterialRequestBase(BaseModel):
     requested_by_person_id: UUID
     priority: MaterialRequestPriority = MaterialRequestPriority.medium
     notes: str | None = None
+    source_location_id: UUID | None = None
+    destination_location_id: UUID | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 
@@ -46,6 +48,8 @@ class MaterialRequestUpdate(BaseModel):
     project_id: UUID | None = None
     priority: MaterialRequestPriority | None = None
     notes: str | None = None
+    source_location_id: UUID | None = None
+    destination_location_id: UUID | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
 
