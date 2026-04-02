@@ -1,6 +1,7 @@
 """Query functions for inbox statistics and conversation listing."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func, or_, select, true
 from sqlalchemy.orm import Session, aliased, selectinload
@@ -25,6 +26,15 @@ from app.models.integration import IntegrationTarget
 from app.models.person import Person, PersonChannel
 from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
+
+
+def _message_activity_ts():
+    """Canonical message activity timestamp used for inbox ordering/filtering."""
+    return func.coalesce(
+        Message.received_at,
+        Message.sent_at,
+        Message.created_at,
+    )
 
 
 def list_inbox_conversations(
@@ -152,6 +162,25 @@ def list_inbox_conversations(
             query.filter(Conversation.status != ConversationStatus.resolved)
             .filter(inbound_exists)
             .filter(~outbound_exists)
+        )
+    elif assignment_filter == "needs_attention":
+        latest_inbound_at = (
+            select(func.max(_message_activity_ts()))
+            .where(Message.conversation_id == Conversation.id)
+            .where(Message.direction == MessageDirection.inbound)
+            .scalar_subquery()
+        )
+        latest_outbound_at = (
+            select(func.max(_message_activity_ts()))
+            .where(Message.conversation_id == Conversation.id)
+            .where(Message.direction == MessageDirection.outbound)
+            .scalar_subquery()
+        )
+        query = (
+            query.filter(Conversation.status != ConversationStatus.resolved)
+            .filter(latest_inbound_at.isnot(None))
+            .filter(latest_outbound_at.isnot(None))
+            .filter(latest_inbound_at > latest_outbound_at)
         )
     elif assignment_filter == "my_team":
         if not assigned_person_id:
@@ -378,11 +407,7 @@ def list_inbox_conversations(
             result.append((conv, latest_message, unread_map.get(conv.id, 0), failed_outbox))
         return result
 
-    last_message_ts = func.coalesce(
-        Message.received_at,
-        Message.sent_at,
-        Message.created_at,
-    )
+    last_message_ts = _message_activity_ts()
     has_attachments = db.query(MessageAttachment.id).filter(MessageAttachment.message_id == Message.id).exists()
 
     # LATERAL subquery to fetch only the latest message per conversation.
@@ -562,18 +587,179 @@ def get_inbox_stats(db: Session) -> dict:
         elif status == ConversationStatus.resolved:
             stats["resolved"] = count
 
+    latest_inbound_at = (
+        select(func.max(_message_activity_ts()))
+        .where(Message.conversation_id == Conversation.id)
+        .where(Message.direction == MessageDirection.inbound)
+        .scalar_subquery()
+    )
+    latest_outbound_at = (
+        select(func.max(_message_activity_ts()))
+        .where(Message.conversation_id == Conversation.id)
+        .where(Message.direction == MessageDirection.outbound)
+        .scalar_subquery()
+    )
     stats["unread"] = int(
-        db.query(func.count(func.distinct(Message.conversation_id)))
-        .join(Conversation, Conversation.id == Message.conversation_id)
+        db.query(func.count(Conversation.id))
         .filter(Conversation.is_active.is_(True))
-        .filter(Message.direction == MessageDirection.inbound)
-        .filter(Message.status == MessageStatus.received)
-        .filter(Message.read_at.is_(None))
+        .filter(Conversation.status != ConversationStatus.resolved)
+        .filter(latest_inbound_at.isnot(None))
+        .filter(or_(latest_outbound_at.is_(None), latest_inbound_at > latest_outbound_at))
         .scalar()
         or 0
     )
 
     return stats
+
+
+def _count_active_conversations_for_filter(
+    db: Session,
+    *,
+    assignment_filter: str,
+    assigned_person_id: str | None = None,
+) -> int:
+    query = db.query(Conversation.id).filter(Conversation.is_active.is_(True))
+    filter_key = (assignment_filter or "").strip().lower()
+
+    if filter_key in ("assigned", "assigned_to_me", "mine"):
+        if not assigned_person_id:
+            return 0
+        agent_ids = [
+            row[0]
+            for row in (
+                db.query(CrmAgent.id)
+                .filter(CrmAgent.person_id == coerce_uuid(assigned_person_id))
+                .filter(CrmAgent.is_active.is_(True))
+                .all()
+            )
+        ]
+        if not agent_ids:
+            return 0
+        assigned_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.in_(agent_ids))
+            .distinct()
+        )
+        query = query.filter(Conversation.id.in_(assigned_subq))
+    elif filter_key == "unassigned":
+        assigned_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .distinct()
+        )
+        query = query.filter(~Conversation.id.in_(assigned_subq))
+    elif filter_key == "unreplied":
+        inbound_exists = (
+            db.query(Message.id)
+            .filter(Message.conversation_id == Conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .exists()
+        )
+        outbound_exists = (
+            db.query(Message.id)
+            .filter(Message.conversation_id == Conversation.id)
+            .filter(Message.direction == MessageDirection.outbound)
+            .exists()
+        )
+        query = (
+            query.filter(Conversation.status != ConversationStatus.resolved)
+            .filter(inbound_exists)
+            .filter(~outbound_exists)
+        )
+    elif filter_key == "needs_attention":
+        latest_inbound_at = (
+            select(func.max(_message_activity_ts()))
+            .where(Message.conversation_id == Conversation.id)
+            .where(Message.direction == MessageDirection.inbound)
+            .scalar_subquery()
+        )
+        latest_outbound_at = (
+            select(func.max(_message_activity_ts()))
+            .where(Message.conversation_id == Conversation.id)
+            .where(Message.direction == MessageDirection.outbound)
+            .scalar_subquery()
+        )
+        query = (
+            query.filter(Conversation.status != ConversationStatus.resolved)
+            .filter(latest_inbound_at.isnot(None))
+            .filter(latest_outbound_at.isnot(None))
+            .filter(latest_inbound_at > latest_outbound_at)
+        )
+    elif filter_key == "my_team":
+        if not assigned_person_id:
+            return 0
+        from app.models.crm.team import CrmTeam
+        from app.models.service_team import ServiceTeamMember
+
+        person_uuid = coerce_uuid(assigned_person_id)
+        team_ids_subq = (
+            db.query(ServiceTeamMember.team_id)
+            .filter(ServiceTeamMember.person_id == person_uuid)
+            .filter(ServiceTeamMember.is_active.is_(True))
+        )
+        crm_team_ids_subq = (
+            db.query(CrmTeam.id).filter(CrmTeam.service_team_id.in_(team_ids_subq)).filter(CrmTeam.is_active.is_(True))
+        )
+        team_conv_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.team_id.in_(crm_team_ids_subq))
+            .distinct()
+        )
+        query = query.filter(Conversation.id.in_(team_conv_subq))
+
+    return int(query.count() or 0)
+
+
+def get_assignment_counts(
+    db: Session,
+    *,
+    assigned_person_id: str | None = None,
+) -> dict[str, int]:
+    """Get inbox assignment bucket counts for sidebar chips."""
+    return {
+        "all": _count_active_conversations_for_filter(db, assignment_filter="all", assigned_person_id=assigned_person_id),
+        "assigned": _count_active_conversations_for_filter(
+            db, assignment_filter="assigned", assigned_person_id=assigned_person_id
+        ),
+        "my_team": _count_active_conversations_for_filter(
+            db, assignment_filter="my_team", assigned_person_id=assigned_person_id
+        ),
+        "unassigned": _count_active_conversations_for_filter(
+            db, assignment_filter="unassigned", assigned_person_id=assigned_person_id
+        ),
+        "unreplied": _count_active_conversations_for_filter(
+            db, assignment_filter="unreplied", assigned_person_id=assigned_person_id
+        ),
+        "needs_attention": _count_active_conversations_for_filter(
+            db, assignment_filter="needs_attention", assigned_person_id=assigned_person_id
+        ),
+        "agent": 0,
+    }
+
+
+def get_resolved_today_count(
+    db: Session,
+    *,
+    timezone: str,
+) -> int:
+    """Count resolved conversations in the current company-local calendar day."""
+    tz = ZoneInfo(timezone)
+    now_local = datetime.now(tz)
+    day_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end_local = day_start_local + timedelta(days=1)
+    day_start_utc = day_start_local.astimezone(UTC)
+    day_end_utc = day_end_local.astimezone(UTC)
+    return int(
+        db.query(func.count(Conversation.id))
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.status == ConversationStatus.resolved)
+        .filter(Conversation.updated_at >= day_start_utc)
+        .filter(Conversation.updated_at < day_end_utc)
+        .scalar()
+        or 0
+    )
 
 
 def get_waiting_queue_counts_by_channel(db: Session) -> dict[str, int]:

@@ -35,6 +35,7 @@ from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel
 from app.services.crm.inbox.labels import enrich_formatted_conversations_with_labels
 from app.services.crm.inbox.listing import load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
+from app.services.crm.inbox.queries import get_assignment_counts
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
 from app.services.time_preferences import resolve_company_time_prefs
@@ -251,7 +252,8 @@ async def build_inbox_page_context(
             except Exception:
                 logger.debug("Failed to format contact sidebar details for inbox context.", exc_info=True)
 
-    stats, channel_stats = load_inbox_stats(db)
+    stats, channel_stats = load_inbox_stats(db, timezone=inbox_timezone)
+    assignment_counts = get_assignment_counts(db, assigned_person_id=assigned_person_id)
 
     email_channel = get_email_channel_state(db)
     email_inboxes = list_channel_targets(db, ConnectorType.email)
@@ -308,6 +310,7 @@ async def build_inbox_page_context(
         "selected_comment_id": str(selected_comment_id) if selected_comment_id else None,
         "comment_replies": comment_replies,
         "stats": stats,
+        "assignment_counts": assignment_counts,
         "channel_stats": channel_stats,
         "current_channel": channel,
         "current_status": status,

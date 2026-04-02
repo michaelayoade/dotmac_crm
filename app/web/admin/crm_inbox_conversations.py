@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, time
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -40,6 +40,28 @@ def _parse_date_param(value: str | None, *, end_of_day: bool = False) -> datetim
         return datetime.combine(d.date(), t, tzinfo=UTC)
     except ValueError:
         return None
+
+
+@router.get("/inbox/summary-counts", response_class=JSONResponse)
+async def inbox_summary_counts(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Live summary counters for inbox sidebar chips/KPI."""
+    from app.services.crm.inbox.queries import get_assignment_counts, get_inbox_stats, get_resolved_today_count
+    from app.services.time_preferences import resolve_company_time_prefs
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    assigned_person_id = current_user.get("person_id") if isinstance(current_user, dict) else None
+    timezone = resolve_company_time_prefs(db)[0]
+    return JSONResponse(
+        {
+            "assignment_counts": get_assignment_counts(db, assigned_person_id=assigned_person_id),
+            "unread": int(get_inbox_stats(db).get("unread", 0)),
+            "resolved_today": get_resolved_today_count(db, timezone=timezone),
+        }
+    )
 
 
 @router.get("/inbox/conversations", response_class=HTMLResponse)

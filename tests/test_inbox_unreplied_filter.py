@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.person import Person
-from app.services.crm.inbox.queries import list_inbox_conversations
+from app.services.crm.inbox.queries import get_assignment_counts, get_inbox_stats, list_inbox_conversations
 
 
 def _unique_email() -> str:
@@ -39,19 +39,20 @@ def _add_message(
     *,
     direction: MessageDirection,
     body: str,
+    timestamp: datetime | None = None,
 ) -> Message:
-    timestamp = datetime.now(UTC)
+    ts = timestamp or datetime.now(UTC)
     message = Message(
         conversation_id=conversation.id,
         channel_type=ChannelType.whatsapp,
         direction=direction,
         status=MessageStatus.received if direction == MessageDirection.inbound else MessageStatus.sent,
         body=body,
-        received_at=timestamp if direction == MessageDirection.inbound else None,
-        sent_at=timestamp if direction == MessageDirection.outbound else None,
+        received_at=ts if direction == MessageDirection.inbound else None,
+        sent_at=ts if direction == MessageDirection.outbound else None,
     )
     db_session.add(message)
-    conversation.last_message_at = timestamp
+    conversation.last_message_at = ts
     db_session.flush()
     return message
 
@@ -109,3 +110,214 @@ def test_unreplied_filter_returns_inbound_without_outbound(db_session):
     assert replied.id not in ids
     assert outbound_only.id not in ids
     assert internal_only.id not in ids
+
+
+def test_needs_attention_filter_returns_customer_follow_ups_after_agent_reply(db_session):
+    contact = _create_person(db_session, name="FollowUp")
+    now = datetime.now(UTC)
+
+    needs_attention = _create_conversation(db_session, contact, subject="Needs attention")
+    settled = _create_conversation(db_session, contact, subject="Agent replied last")
+    unresolved_first_touch = _create_conversation(db_session, contact, subject="No agent reply yet")
+    resolved_conversation = _create_conversation(db_session, contact, subject="Resolved")
+    resolved_conversation.status = ConversationStatus.resolved
+
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.inbound,
+        body="Customer asks question",
+        timestamp=now - timedelta(minutes=6),
+    )
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.outbound,
+        body="Agent answers",
+        timestamp=now - timedelta(minutes=5),
+    )
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.inbound,
+        body="Customer follows up",
+        timestamp=now - timedelta(minutes=1),
+    )
+
+    _add_message(
+        db_session,
+        settled,
+        direction=MessageDirection.inbound,
+        body="Customer asks",
+        timestamp=now - timedelta(minutes=5),
+    )
+    _add_message(
+        db_session,
+        settled,
+        direction=MessageDirection.outbound,
+        body="Agent latest reply",
+        timestamp=now - timedelta(minutes=2),
+    )
+
+    _add_message(
+        db_session,
+        unresolved_first_touch,
+        direction=MessageDirection.inbound,
+        body="Need onboarding help",
+        timestamp=now - timedelta(minutes=3),
+    )
+
+    _add_message(
+        db_session,
+        resolved_conversation,
+        direction=MessageDirection.inbound,
+        body="Customer follow-up after resolve should not count",
+        timestamp=now - timedelta(minutes=4),
+    )
+    _add_message(
+        db_session,
+        resolved_conversation,
+        direction=MessageDirection.outbound,
+        body="Agent response",
+        timestamp=now - timedelta(minutes=3),
+    )
+    _add_message(
+        db_session,
+        resolved_conversation,
+        direction=MessageDirection.inbound,
+        body="Another customer follow-up",
+        timestamp=now - timedelta(minutes=1),
+    )
+
+    db_session.flush()
+
+    results = list_inbox_conversations(db_session, assignment="needs_attention")
+    ids = _result_ids(results)
+
+    assert needs_attention.id in ids
+    assert settled.id not in ids
+    assert unresolved_first_touch.id not in ids
+    assert resolved_conversation.id not in ids
+
+
+def test_assignment_counts_include_needs_attention_and_unreplied(db_session):
+    contact = _create_person(db_session, name="Counts")
+    now = datetime.now(UTC)
+
+    unassigned = _create_conversation(db_session, contact, subject="Unassigned")
+    _add_message(
+        db_session,
+        unassigned,
+        direction=MessageDirection.inbound,
+        body="Need help",
+        timestamp=now - timedelta(minutes=2),
+    )
+
+    needs_attention = _create_conversation(db_session, contact, subject="Needs attention")
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.inbound,
+        body="First message",
+        timestamp=now - timedelta(minutes=6),
+    )
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.outbound,
+        body="Reply",
+        timestamp=now - timedelta(minutes=5),
+    )
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.inbound,
+        body="Follow-up",
+        timestamp=now - timedelta(minutes=1),
+    )
+
+    counts = get_assignment_counts(db_session, assigned_person_id=None)
+    assert counts["unassigned"] >= 2
+    assert counts["unreplied"] >= 1
+    assert counts["needs_attention"] >= 1
+
+
+def test_inbox_unread_stat_counts_customer_awaiting_response(db_session):
+    contact = _create_person(db_session, name="UnreadStat")
+    now = datetime.now(UTC)
+
+    unreplied = _create_conversation(db_session, contact, subject="Inbound only")
+    needs_attention = _create_conversation(db_session, contact, subject="Follow-up pending")
+    settled = _create_conversation(db_session, contact, subject="Agent latest reply")
+    resolved_pending = _create_conversation(db_session, contact, subject="Resolved should be excluded")
+    resolved_pending.status = ConversationStatus.resolved
+
+    _add_message(
+        db_session,
+        unreplied,
+        direction=MessageDirection.inbound,
+        body="First inbound",
+        timestamp=now - timedelta(minutes=5),
+    )
+
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.inbound,
+        body="Inbound 1",
+        timestamp=now - timedelta(minutes=8),
+    )
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.outbound,
+        body="Agent reply",
+        timestamp=now - timedelta(minutes=6),
+    )
+    _add_message(
+        db_session,
+        needs_attention,
+        direction=MessageDirection.inbound,
+        body="Customer follow-up",
+        timestamp=now - timedelta(minutes=1),
+    )
+
+    _add_message(
+        db_session,
+        settled,
+        direction=MessageDirection.inbound,
+        body="Inbound",
+        timestamp=now - timedelta(minutes=6),
+    )
+    _add_message(
+        db_session,
+        settled,
+        direction=MessageDirection.outbound,
+        body="Latest agent response",
+        timestamp=now - timedelta(minutes=2),
+    )
+
+    _add_message(
+        db_session,
+        resolved_pending,
+        direction=MessageDirection.inbound,
+        body="Resolved but inbound latest",
+        timestamp=now - timedelta(minutes=7),
+    )
+    _add_message(
+        db_session,
+        resolved_pending,
+        direction=MessageDirection.outbound,
+        body="Resolved reply",
+        timestamp=now - timedelta(minutes=5),
+    )
+    _add_message(
+        db_session,
+        resolved_pending,
+        direction=MessageDirection.inbound,
+        body="Inbound again",
+        timestamp=now - timedelta(minutes=1),
+    )
+
+    stats = get_inbox_stats(db_session)
+    assert stats["unread"] == 2

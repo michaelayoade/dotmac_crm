@@ -114,7 +114,7 @@ async def load_inbox_list(
     include_comments = not channel and assignment_filter != "assigned" and (status_enum is None)
     if outbox_status_filter:
         include_comments = False
-    if assignment_filter == "unreplied":
+    if assignment_filter in {"unreplied", "needs_attention"}:
         include_comments = False
     if target_is_comment:
         include_comments = True
