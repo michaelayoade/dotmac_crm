@@ -17,6 +17,10 @@ from app.services import meta_pages
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 
+# Meta Graph API comment length limits
+_FB_COMMENT_MAX_LENGTH = 8000
+_IG_COMMENT_MAX_LENGTH = 2200
+
 
 def _parse_meta_datetime(value: str | None) -> datetime | None:
     if not value:
@@ -222,7 +226,7 @@ async def fetch_and_store_social_comments(
                 if not comment.get("id"):
                     continue
                 fetched += 1
-                _upsert_comment(
+                parent = _upsert_comment(
                     db,
                     {
                         "platform": SocialCommentPlatform.instagram,
@@ -241,6 +245,26 @@ async def fetch_and_store_social_comments(
                     },
                 )
                 stored += 1
+                # Process nested replies returned by the API
+                nested_replies = (comment.get("replies") or {}).get("data") or []
+                for nested in nested_replies:
+                    if not nested.get("id"):
+                        continue
+                    _upsert_comment_reply(
+                        db,
+                        parent,
+                        {
+                            "platform": SocialCommentPlatform.instagram,
+                            "external_id": str(nested.get("id")),
+                            "author_id": nested.get("username"),
+                            "author_name": nested.get("username"),
+                            "message": nested.get("text") or "",
+                            "created_time": _parse_meta_datetime(nested.get("timestamp")),
+                            "raw_payload": nested,
+                            "is_active": True,
+                        },
+                    )
+                    stored += 1
 
     if stored:
         db.commit()
@@ -316,6 +340,16 @@ async def reply_to_social_comment(
 ) -> SocialCommentReply:
     if not comment.external_id or not comment.source_account_id:
         raise RuntimeError("Missing comment identifiers for reply")
+    max_len = (
+        _FB_COMMENT_MAX_LENGTH
+        if comment.platform == SocialCommentPlatform.facebook
+        else _IG_COMMENT_MAX_LENGTH
+    )
+    if len(message) > max_len:
+        raise ValueError(
+            f"Reply exceeds {comment.platform.value} limit of {max_len} characters "
+            f"({len(message)} provided)"
+        )
     try:
         if comment.platform == SocialCommentPlatform.facebook:
             result = await meta_pages.reply_to_comment(

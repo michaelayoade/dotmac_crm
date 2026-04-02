@@ -113,7 +113,7 @@ async def reply_to_social_comment(
             status_code=303,
         )
     if result.kind == "error":
-        logger.exception(
+        logger.error(
             "social_comment_reply_failed comment_id=%s error=%s",
             comment_id,
             result.error_detail,
@@ -121,7 +121,7 @@ async def reply_to_social_comment(
         return RedirectResponse(
             url=_build_reply_redirect(
                 reply_error=True,
-                reply_error_detail=result.error_detail or "Reply failed",
+                reply_error_detail="Reply failed. Please try again.",
             ),
             status_code=303,
         )
