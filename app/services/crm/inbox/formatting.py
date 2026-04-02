@@ -55,6 +55,38 @@ def _format_inbox_datetime_label(value: datetime | None, db: Session) -> str:
     return local_value.strftime(f"{date_format} {time_format}")
 
 
+def _derive_failure_reason_label(
+    metadata: dict | None,
+    *,
+    status: str | None,
+    channel_type: ChannelType | None,
+) -> str | None:
+    """Build a user-facing failed-send reason from message metadata."""
+    if status != "failed" or not isinstance(metadata, dict):
+        return None
+
+    send_error = metadata.get("send_error")
+    if not isinstance(send_error, dict):
+        return "Message not sent"
+
+    error_bits: list[str] = []
+    for key in ("error", "response_text", "meta_error"):
+        value = send_error.get(key)
+        if isinstance(value, str) and value.strip():
+            error_bits.append(value.strip())
+    error_text = " ".join(error_bits).lower()
+    if not error_text:
+        return "Message not sent"
+
+    if "over 1,000 characters" in error_text or "over 1000 characters" in error_text:
+        if channel_type == ChannelType.instagram_dm:
+            return "Not sent: Instagram message exceeded 1,000 characters"
+        return "Not sent: Message exceeded the channel character limit"
+    if "meta reply window expired" in error_text or "24-hour" in error_text or "24 hour" in error_text:
+        return "Not sent: Meta reply window expired"
+    return "Message not sent"
+
+
 def get_initials(name: str | None) -> str:
     """Generate initials from a name."""
     if not name:
@@ -779,6 +811,12 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
             }
 
     timestamp = msg.received_at or msg.sent_at or msg.created_at
+    status_value = msg.status.value if msg.status else "received"
+    failure_reason_label = _derive_failure_reason_label(
+        metadata if isinstance(metadata, dict) else None,
+        status=status_value,
+        channel_type=msg.channel_type,
+    )
 
     return {
         "id": str(msg.id),
@@ -789,7 +827,8 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "html_body": html_body,
         "timestamp": timestamp,
         "timestamp_label": _format_inbox_datetime_label(timestamp, db),
-        "status": msg.status.value if msg.status else "received",
+        "status": status_value,
+        "failure_reason_label": failure_reason_label,
         "read_at": msg.read_at,
         "attachments": attachments,
         "sender": {

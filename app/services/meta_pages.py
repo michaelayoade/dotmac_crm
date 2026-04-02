@@ -78,6 +78,27 @@ def _get_meta_graph_base_url(db: Session) -> str:
     return f"https://graph.facebook.com/{version}"
 
 
+def _get_meta_access_token_override(db: Session) -> str | None:
+    token = resolve_value(db, SettingDomain.comms, "meta_access_token_override")
+    if isinstance(token, str):
+        token = token.strip()
+    return token or None
+
+
+def _get_facebook_access_token_override(db: Session) -> str | None:
+    token = resolve_value(db, SettingDomain.comms, "meta_facebook_access_token_override")
+    if isinstance(token, str):
+        token = token.strip()
+    return token or _get_meta_access_token_override(db)
+
+
+def _get_instagram_access_token_override(db: Session) -> str | None:
+    token = resolve_value(db, SettingDomain.comms, "meta_instagram_access_token_override")
+    if isinstance(token, str):
+        token = token.strip()
+    return token or _get_meta_access_token_override(db)
+
+
 def _get_page_token_record(db: Session, page_id: str) -> OAuthToken | None:
     """Get the access token for a specific Facebook Page."""
     return (
@@ -246,11 +267,15 @@ async def reply_to_comment(
     Returns:
         Dict with 'id' of the created reply
     """
+    override_token = _get_facebook_access_token_override(db)
     token = _get_page_token_record(db, page_id)
-    if not token or not token.access_token:
-        raise ValueError(f"No active token found for Page {page_id}")
-    _ensure_token_scopes(token, _PAGE_POST_SCOPES, "facebook_comment_reply")
-    access_token = token.access_token
+    if not override_token:
+        if not token or not token.access_token:
+            raise ValueError(f"No active token found for Page {page_id}")
+        _ensure_token_scopes(token, _PAGE_POST_SCOPES, "facebook_comment_reply")
+    access_token = override_token or (token.access_token if token else None)
+    if not access_token:
+        raise ValueError(f"No access token available for Page {page_id}")
 
     base_url = _get_meta_graph_base_url(db)
     url = f"{base_url.rstrip('/')}/{comment_id}/comments"
@@ -548,11 +573,15 @@ async def reply_to_instagram_comment(
     Returns:
         Dict with 'id' of the created reply
     """
+    override_token = _get_instagram_access_token_override(db)
     token = _get_instagram_token_record(db, ig_account_id)
-    if not token or not token.access_token:
-        raise ValueError(f"No active token found for Instagram account {ig_account_id}")
-    _ensure_token_scopes(token, _IG_COMMENT_SCOPES, "instagram_comment_reply")
-    access_token = token.access_token
+    if not override_token:
+        if not token or not token.access_token:
+            raise ValueError(f"No active token found for Instagram account {ig_account_id}")
+        _ensure_token_scopes(token, _IG_COMMENT_SCOPES, "instagram_comment_reply")
+    access_token = override_token or (token.access_token if token else None)
+    if not access_token:
+        raise ValueError(f"No access token available for Instagram account {ig_account_id}")
 
     base_url = _get_meta_graph_base_url(db)
     url = f"{base_url.rstrip('/')}/{comment_id}/replies"

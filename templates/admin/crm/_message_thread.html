@@ -596,8 +596,10 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13l4 4L17 7"/>
                             </svg>
-                            {% elif msg.status in ['failed', 'queued'] %}
-                            <span class="w-2 h-2 rounded-full bg-red-500" title="Message not sent"></span>
+                            {% elif msg.status == 'failed' %}
+                            <span class="w-2 h-2 rounded-full bg-red-500" title="{{ msg.failure_reason_label | default('Message not sent') | e }}"></span>
+                            {% elif msg.status == 'queued' %}
+                            <span class="w-2 h-2 rounded-full bg-red-500" title="Message queued for delivery"></span>
                             {% endif %}
                             {% if msg.read_at %}
                             <span class="text-[10px] text-emerald-600 dark:text-emerald-400">Read</span>

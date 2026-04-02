@@ -742,6 +742,20 @@ def seed_comms_settings(db: Session) -> None:
     )
     comms_settings.ensure_by_key(
         db,
+        key="meta_facebook_access_token_override",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("META_FACEBOOK_ACCESS_TOKEN_OVERRIDE", ""),
+        is_secret=True,
+    )
+    comms_settings.ensure_by_key(
+        db,
+        key="meta_instagram_access_token_override",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("META_INSTAGRAM_ACCESS_TOKEN_OVERRIDE", ""),
+        is_secret=True,
+    )
+    comms_settings.ensure_by_key(
+        db,
         key="company_name",
         value_type=SettingValueType.string,
         value_text=os.getenv("COMPANY_NAME", "Dotmac CRM"),
