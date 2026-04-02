@@ -150,6 +150,17 @@ def _channel_toggle_key(channel_type: ChannelType) -> str:
 
 
 def _pick_active_survey(db: Session) -> Survey | None:
+    # Prefer a survey explicitly configured for ticket/conversation closure
+    survey = (
+        db.query(Survey)
+        .filter(Survey.is_active.is_(True), Survey.status == CustomerSurveyStatus.active)
+        .filter(Survey.trigger_type == SurveyTriggerType.ticket_closed)
+        .order_by(Survey.updated_at.desc())
+        .first()
+    )
+    if survey:
+        return survey
+    # Fall back to manual trigger type
     survey = (
         db.query(Survey)
         .filter(Survey.is_active.is_(True), Survey.status == CustomerSurveyStatus.active)
@@ -159,6 +170,7 @@ def _pick_active_survey(db: Session) -> Survey | None:
     )
     if survey:
         return survey
+    # Last resort: any active survey
     return (
         db.query(Survey)
         .filter(Survey.is_active.is_(True), Survey.status == CustomerSurveyStatus.active)
@@ -231,12 +243,25 @@ def queue_for_resolved_conversation(
                 expires_at=survey.expires_at,
             )
         survey_url = _resolve_survey_link(db, invitation.token)
+
+        if channel_type == ChannelType.email:
+            csat_body = (
+                "Your conversation has been resolved. We'd love to hear how we did!\n\n"
+                f"Please take a moment to rate your experience: {survey_url}\n\n"
+                "Your feedback helps us improve our service. Thank you!"
+            )
+        else:
+            csat_body = (
+                "Your conversation has been resolved. "
+                f"How was your experience? Rate us here: {survey_url}"
+            )
+
         outbound_payload = InboxSendRequest(
             conversation_id=conversation.id,
             channel_type=channel_type,
             channel_target_id=coerce_uuid(target_id) if target_id else None,
             reply_to_message_id=last_inbound.id if last_inbound else None,
-            body=(f"Your conversation has been resolved. Please rate your experience here: {survey_url}"),
+            body=csat_body,
         )
         crm_service.inbox.send_message_with_retry(
             db,
