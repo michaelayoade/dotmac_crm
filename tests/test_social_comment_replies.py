@@ -151,8 +151,11 @@ class TestReplyToSocialComment:
 
         reply = _run_async(
             reply_to_social_comment(
-                db_session, fb_comment, "Got it!",
-                author_id="agent_1", author_name="Agent Smith",
+                db_session,
+                fb_comment,
+                "Got it!",
+                author_id="agent_1",
+                author_name="Agent Smith",
             )
         )
         assert reply.author_id == "agent_1"

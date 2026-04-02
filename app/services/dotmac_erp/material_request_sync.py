@@ -57,9 +57,7 @@ class DotMacERPMaterialRequestSync:
             erp_id = self._extract_material_request_id(response)
 
             if not erp_id:
-                raise DotMacERPTransientError(
-                    f"ERP sync response missing request_id for material request {mr.id}"
-                )
+                raise DotMacERPTransientError(f"ERP sync response missing request_id for material request {mr.id}")
 
             if not mr.erp_material_request_id:
                 mr.erp_material_request_id = erp_id
