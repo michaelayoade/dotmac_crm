@@ -63,6 +63,7 @@ def list_inbox_conversations(
     assigned_from: datetime | None = None,
     assigned_to: datetime | None = None,
     sort_by: str | None = None,
+    missing: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[tuple]:
@@ -294,6 +295,17 @@ def list_inbox_conversations(
             )
 
         query = query.join(Conversation.contact).filter(or_(*search_filters))
+
+    # Missing data filter for data quality alerts
+    if missing:
+        from app.models.crm.conversation import ConversationTag
+
+        missing_fields = [f.strip() for f in missing.split(",")]
+        if "first_response" in missing_fields:
+            query = query.filter(Conversation.first_response_at.is_(None))
+        if "tags" in missing_fields:
+            tagged_ids = db.query(ConversationTag.conversation_id).distinct().subquery()
+            query = query.filter(~Conversation.id.in_(db.query(tagged_ids.c.conversation_id)))
 
     if exclude_superseded_resolved and (not status or status != ConversationStatus.resolved):
         other = aliased(Conversation)

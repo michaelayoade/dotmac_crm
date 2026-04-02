@@ -48,6 +48,7 @@ async def load_inbox_list(
     assigned_from: datetime | None = None,
     assigned_to: datetime | None = None,
     sort_by: str | None = None,
+    missing: str | None = None,
     offset: int = 0,
     limit: int = 150,
     include_thread: bool = False,
@@ -71,6 +72,7 @@ async def load_inbox_list(
         "assigned_from": assigned_from,
         "assigned_to": assigned_to,
         "sort_by": sort_by,
+        "missing": missing,
         "offset": safe_offset,
         "limit": safe_limit,
         "include_thread": include_thread,
@@ -143,6 +145,7 @@ async def load_inbox_list(
             assigned_from=assigned_from,
             assigned_to=assigned_to,
             sort_by=sort_by,
+            missing=missing,
             limit=safe_limit + 1,
             offset=safe_offset,
         )
