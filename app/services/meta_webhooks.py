@@ -1431,6 +1431,8 @@ def _process_facebook_comment_changes(
                     message=payload.message,
                     created_time=payload.created_time,
                     raw_payload=value,
+                    author_id=payload.from_id,
+                    author_name=payload.from_name,
                 )
                 status = "stored" if reply else "skipped"
                 results.append({"comment_id": payload.comment_id, "status": status})
@@ -1509,6 +1511,8 @@ def _process_instagram_comment_changes(
                     message=payload.text,
                     created_time=payload.timestamp,
                     raw_payload=value,
+                    author_id=payload.from_id,
+                    author_name=payload.from_username,
                 )
                 status = "stored" if reply else "skipped"
                 results.append({"comment_id": payload.comment_id, "status": status})

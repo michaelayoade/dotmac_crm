@@ -36,7 +36,11 @@ async def reply_to_social_comment(
     if not comment:
         return CommentReplyResult(kind="not_found")
     try:
-        await comments_service.reply_to_social_comment(db, comment, message.strip())
+        await comments_service.reply_to_social_comment(
+            db, comment, message.strip(),
+            author_id=actor_id,
+            author_name=None,
+        )
         log_comment_action(
             db,
             action="reply_comment",
