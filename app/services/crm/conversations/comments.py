@@ -247,6 +247,8 @@ async def fetch_and_store_social_comments(
                 stored += 1
                 # Process nested replies returned by the API
                 nested_replies = (comment.get("replies") or {}).get("data") or []
+                if nested_replies and parent.id is None:
+                    db.flush()
                 for nested in nested_replies:
                     if not nested.get("id"):
                         continue

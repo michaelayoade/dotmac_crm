@@ -1,7 +1,7 @@
 """CRM inbox social comment reply routes."""
 
 import contextlib
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -142,8 +142,13 @@ def reply_to_social_comment_get(
     next_url = next or "/admin/crm/inbox"
     if not next_url.startswith("/") or next_url.startswith("//"):
         next_url = "/admin/crm/inbox"
-    detail = quote("Session expired. Please re-submit your reply.", safe="")
+    parsed_next = urlparse(next_url)
+    params = dict(parse_qsl(parsed_next.query, keep_blank_values=True))
+    params["channel"] = "comments"
+    params["comment_id"] = comment_id
+    params["reply_error"] = "1"
+    params["reply_error_detail"] = "Session expired. Please re-submit your reply."
     return RedirectResponse(
-        url=f"{next_url}?channel=comments&comment_id={comment_id}&reply_error=1&reply_error_detail={detail}",
+        url=urlunparse(parsed_next._replace(query=urlencode(params, doseq=True))),
         status_code=303,
     )

@@ -4,8 +4,10 @@ import asyncio
 import concurrent.futures
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qsl, urlparse
 
 import pytest
+from starlette.requests import Request
 
 from app.models.crm.comments import SocialComment, SocialCommentPlatform, SocialCommentReply
 
@@ -371,3 +373,88 @@ class TestListAndGetComments:
         from app.services.crm.conversations.comments import get_social_comment
 
         assert get_social_comment(db_session, "not-a-uuid") is None
+
+
+class TestFetchAndStoreSocialComments:
+    @patch("app.services.meta_pages.get_connected_pages", return_value=[])
+    @patch("app.services.meta_pages.get_connected_instagram_accounts", return_value=[{"account_id": "ig_1"}])
+    @patch("app.services.meta_pages.get_instagram_media", new_callable=AsyncMock)
+    @patch("app.services.meta_pages.get_instagram_media_comments", new_callable=AsyncMock)
+    def test_fetch_stores_instagram_nested_replies_with_parent_comment_id(
+        self,
+        mock_media_comments,
+        mock_media,
+        _mock_accounts,
+        _mock_pages,
+        db_session,
+    ):
+        from app.services.crm.conversations.comments import fetch_and_store_social_comments
+
+        mock_media.return_value = [{"id": "media_1", "permalink": "https://instagram.test/p/abc"}]
+        mock_media_comments.return_value = [
+            {
+                "id": "parent_comment_1",
+                "username": "customer_1",
+                "text": "Parent comment",
+                "timestamp": "2026-04-01T00:00:00Z",
+                "replies": {
+                    "data": [
+                        {
+                            "id": "nested_reply_1",
+                            "username": "support_1",
+                            "text": "Nested reply",
+                            "timestamp": "2026-04-01T00:01:00Z",
+                        }
+                    ]
+                },
+            }
+        ]
+
+        _run_async(fetch_and_store_social_comments(db_session, post_limit=1, comment_limit=1))
+
+        parent = (
+            db_session.query(SocialComment)
+            .filter(SocialComment.platform == SocialCommentPlatform.instagram)
+            .filter(SocialComment.external_id == "parent_comment_1")
+            .first()
+        )
+        assert parent is not None
+
+        reply = (
+            db_session.query(SocialCommentReply)
+            .filter(SocialCommentReply.platform == SocialCommentPlatform.instagram)
+            .filter(SocialCommentReply.external_id == "nested_reply_1")
+            .first()
+        )
+        assert reply is not None
+        assert reply.comment_id == parent.id
+
+
+class TestCommentReplyRouteRedirects:
+    def test_get_reply_route_merges_next_query_parameters(self):
+        from app.web.admin.crm_inbox_comment_reply import reply_to_social_comment_get
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/admin/crm/inbox/comments/123/reply",
+                "headers": [],
+                "query_string": b"",
+            }
+        )
+
+        response = reply_to_social_comment_get(
+            request=request,
+            comment_id="123",
+            next="/admin/crm/inbox?search=alice",
+        )
+
+        location = response.headers["location"]
+        parsed = urlparse(location)
+        params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        assert parsed.path == "/admin/crm/inbox"
+        assert params["search"] == "alice"
+        assert params["comment_id"] == "123"
+        assert params["reply_error"] == "1"
+        assert params["channel"] == "comments"
