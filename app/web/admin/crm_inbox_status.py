@@ -128,6 +128,28 @@ async def update_conversation_status(
     actor_id = (current_user or {}).get("person_id")
 
     if new_status == "resolved" and request.headers.get("HX-Target") == "message-thread":
+        skip_tag_check = request.query_params.get("skip_tag_check") == "1"
+
+        # Tag nudge: soft warning if no tags
+        if not skip_tag_check:
+            from app.models.crm.conversation import ConversationTag
+            from app.services.common import coerce_uuid
+
+            tag_count = (
+                db.query(ConversationTag)
+                .filter(ConversationTag.conversation_id == coerce_uuid(conversation_id))
+                .count()
+            )
+            if tag_count == 0:
+                return templates.TemplateResponse(
+                    "admin/crm/_tag_nudge_modal.html",
+                    {
+                        "request": request,
+                        "conversation_id": conversation_id,
+                        "csrf_token": get_csrf_token(request),
+                    },
+                )
+
         from app.services.crm.inbox.resolve_gate import check_resolve_gate
 
         gate = check_resolve_gate(db, conversation_id)
