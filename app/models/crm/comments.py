@@ -2,9 +2,9 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSON, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
@@ -44,6 +44,10 @@ class SocialComment(Base):
         onupdate=lambda: datetime.now(UTC),
     )
 
+    replies: Mapped[list["SocialCommentReply"]] = relationship(
+        "SocialCommentReply", back_populates="comment", lazy="selectin",
+    )
+
 
 class SocialCommentReply(Base):
     __tablename__ = "crm_social_comment_replies"
@@ -56,9 +60,13 @@ class SocialCommentReply(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    comment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    comment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_social_comments.id"), nullable=False,
+    )
     platform: Mapped[SocialCommentPlatform] = mapped_column(Enum(SocialCommentPlatform), nullable=False)
     external_id: Mapped[str | None] = mapped_column(String(200))
+    author_id: Mapped[str | None] = mapped_column(String(200))
+    author_name: Mapped[str | None] = mapped_column(String(200))
     message: Mapped[str] = mapped_column(Text, nullable=False)
     created_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict | None] = mapped_column(JSON)
@@ -70,3 +78,5 @@ class SocialCommentReply(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+
+    comment: Mapped["SocialComment"] = relationship("SocialComment", back_populates="replies")
