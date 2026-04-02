@@ -42,6 +42,10 @@ class Conversation(Base):
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_muted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    first_response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    response_time_seconds: Mapped[int | None] = mapped_column(Integer)
+    resolution_time_seconds: Mapped[int | None] = mapped_column(Integer)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
