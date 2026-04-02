@@ -1,0 +1,36 @@
+{# -- Tag Nudge Modal -----------------------------------------------------
+   Shown when resolving a conversation that has no tags.
+   Soft nudge: agent can confirm or cancel.
+   ------------------------------------------------------------------------ #}
+
+<div class="flex flex-col items-center justify-center min-h-[40vh] px-6 py-12 animate-fade-in-up">
+    <div class="w-full max-w-sm space-y-5">
+        <div class="text-center space-y-2">
+            <div class="mx-auto w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 dark:bg-amber-500/15 dark:border-amber-400/20">
+                <svg class="w-6 h-6 text-amber-500 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"/>
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold text-slate-900 dark:text-white font-display">No tags on this conversation</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Adding tags helps with reporting and analytics. Are you sure you want to resolve without tagging?</p>
+        </div>
+
+        {# Resolve Anyway #}
+        <button
+            hx-post="/admin/crm/inbox/conversation/{{ conversation_id }}/status?new_status=resolved&skip_tag_check=1"
+            hx-target="#message-thread"
+            hx-swap="innerHTML"
+            hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+            class="w-full rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-500 transition-colors focus:ring-2 focus:ring-amber-500/20 focus:outline-none dark:bg-amber-500 dark:hover:bg-amber-400">
+            Resolve Without Tags
+        </button>
+
+        {# Cancel #}
+        <a hx-get="/admin/crm/inbox/conversation/{{ conversation_id }}"
+           hx-target="#message-thread"
+           hx-swap="innerHTML"
+           class="block w-full text-center rounded-xl border border-slate-200/60 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer transition-colors dark:border-slate-700/40 dark:bg-slate-800/30 dark:text-slate-300 dark:hover:bg-slate-800/50">
+            Cancel &mdash; Add Tags First
+        </a>
+    </div>
+</div>
