@@ -75,76 +75,80 @@ class TestMaterialRequestSyncResult:
 
 class TestMapMaterialRequest:
     def test_basic_payload(self, mr_sync, full_mr):
-        payload = mr_sync._map_material_request(full_mr, idempotency_key="idem-1")
+        payload = mr_sync._map_material_request(full_mr)
 
-        assert payload["event_type"] == "material_request.issued"
-        assert payload["idempotency_key"] == "idem-1"
-        assert payload["source_system"] == "crm"
-        assert payload["material_request"]["omni_id"] == str(full_mr.id)
-        assert payload["material_request"]["number"] == "MR-2026-00001"
-        assert payload["material_request"]["status"] == "issued"
-        assert payload["material_request"]["priority"] == full_mr.priority.value
-        assert payload["material_request"]["request_type"] == "ISSUE"
-        assert payload["material_request"]["default_from_warehouse_code"] == "ERP-WH-001"
-        assert payload["material_request"]["default_to_warehouse_code"] is None
+        assert payload["omni_id"] == str(full_mr.id)
+        assert payload["status"] == "issued"
+        assert payload["request_type"] == "ISSUE"
+        assert payload["requested_by_email"] == full_mr.requested_by.email
+        assert payload["ticket_crm_id"] == str(full_mr.ticket_id)
+        assert payload["schedule_date"]
+        assert "priority" not in payload
+        assert "material_request" not in payload
+        assert "actors" not in payload
+        assert "links" not in payload
         assert len(payload["items"]) == 1
         assert payload["items"][0]["quantity"] == 5
+        assert payload["items"][0]["from_warehouse_code"] == "ERP-WH-001"
+        assert "line_id" not in payload["items"][0]
+        assert "item_name" not in payload["items"][0]
+        assert "to_warehouse_code" not in payload["items"][0]
+        assert "notes" not in payload["items"][0]
 
-    def test_event_type_is_approved_for_approved_status(self, mr_sync, full_mr, db_session):
+    def test_status_is_issued_for_approved_status(self, mr_sync, full_mr, db_session):
         full_mr.status = MaterialRequestStatus.approved
         db_session.commit()
         db_session.refresh(full_mr)
 
-        payload = mr_sync._map_material_request(full_mr, idempotency_key="idem-1")
+        payload = mr_sync._map_material_request(full_mr)
 
-        assert payload["event_type"] == "material_request.approved"
+        assert payload["status"] == "issued"
 
-    def test_transfer_payload_has_destination_warehouses(self, mr_sync, full_mr, destination_location, db_session):
+    def test_issue_payload_omits_destination_warehouses(self, mr_sync, full_mr, destination_location, db_session):
         full_mr.destination_location_id = destination_location.id
         db_session.commit()
         db_session.refresh(full_mr)
 
-        payload = mr_sync._map_material_request(full_mr, idempotency_key="idem-1")
+        payload = mr_sync._map_material_request(full_mr)
 
-        assert payload["material_request"]["request_type"] == "TRANSFER"
-        assert payload["material_request"]["default_to_warehouse_code"] == "ERP-WH-002"
+        assert payload["request_type"] == "ISSUE"
         assert payload["items"][0]["from_warehouse_code"] == "ERP-WH-001"
-        assert payload["items"][0]["to_warehouse_code"] == "ERP-WH-002"
+        assert "to_warehouse_code" not in payload["items"][0]
 
     def test_ticket_fields_included(self, mr_sync, full_mr):
-        payload = mr_sync._map_material_request(full_mr, idempotency_key="idem-1")
+        payload = mr_sync._map_material_request(full_mr)
 
         if full_mr.ticket_id:
-            assert payload["links"]["ticket_omni_id"] == str(full_mr.ticket_id)
+            assert payload["ticket_crm_id"] == str(full_mr.ticket_id)
 
-    def test_project_fields_included(self, mr_sync, db_session, full_mr, project):
+    def test_project_fields_not_sent(self, mr_sync, db_session, full_mr, project):
         full_mr.project_id = project.id
         db_session.commit()
 
-        payload = mr_sync._map_material_request(full_mr, idempotency_key="idem-1")
-        assert payload["links"]["project_omni_id"] == str(project.id)
+        payload = mr_sync._map_material_request(full_mr)
+        assert "project_omni_id" not in payload
 
     def test_requested_by_email(self, mr_sync, full_mr):
-        payload = mr_sync._map_material_request(full_mr, idempotency_key="idem-1")
+        payload = mr_sync._map_material_request(full_mr)
         if full_mr.requested_by:
-            assert payload["actors"]["requested_by_email"] == full_mr.requested_by.email
+            assert payload["requested_by_email"] == full_mr.requested_by.email
 
     def test_item_mapping(self, mr_sync, full_mr):
-        payload = mr_sync._map_material_request(full_mr, idempotency_key="idem-1")
+        payload = mr_sync._map_material_request(full_mr)
         item = payload["items"][0]
         assert "item_code" in item
-        assert "item_name" in item
         assert "quantity" in item
         assert "uom" in item
-        assert "line_id" in item
+        assert "from_warehouse_code" in item
 
 
 class TestSyncMaterialRequest:
     def test_success(self, mr_sync, mock_client, full_mr):
         mock_client.push_material_request.return_value = {
-            "material_request_id": "MAT-REQ-2026-00001",
+            "request_id": "MAT-REQ-2026-00001",
+            "request_number": "MAT-REQ-2026-00001",
             "omni_id": str(full_mr.id),
-            "status": "SYNCED",
+            "status": "ISSUED",
         }
 
         result = mr_sync.sync_material_request(full_mr)
@@ -154,8 +158,21 @@ class TestSyncMaterialRequest:
         assert full_mr.erp_material_request_id == "MAT-REQ-2026-00001"
         mock_client.push_material_request.assert_called_once()
 
+    def test_success_on_identical_resend_200(self, mr_sync, mock_client, full_mr):
+        mock_client.push_material_request.return_value = {
+            "request_id": "MAT-REQ-2026-00001",
+            "request_number": "MAT-REQ-2026-00001",
+            "omni_id": str(full_mr.id),
+            "status": "ISSUED",
+        }
+
+        result = mr_sync.sync_material_request(full_mr)
+
+        assert result.success is True
+        assert result.erp_material_request_id == "MAT-REQ-2026-00001"
+
     def test_idempotency_key_format(self, mr_sync, mock_client, full_mr):
-        mock_client.push_material_request.return_value = {"material_request_id": "X"}
+        mock_client.push_material_request.return_value = {"request_id": "X"}
 
         mr_sync.sync_material_request(full_mr)
 
@@ -167,7 +184,7 @@ class TestSyncMaterialRequest:
         db_session.commit()
 
         mock_client.push_material_request.return_value = {
-            "material_request_id": "NEW-ID",
+            "request_id": "NEW-ID",
         }
 
         result = mr_sync.sync_material_request(full_mr)
@@ -175,17 +192,18 @@ class TestSyncMaterialRequest:
         assert result.success is True
         assert full_mr.erp_material_request_id == "ALREADY-SET"
 
-    def test_treats_409_idempotent_replay_as_success(self, mr_sync, mock_client, full_mr):
+    def test_409_conflict_is_failure(self, mr_sync, mock_client, full_mr):
         mock_client.push_material_request.side_effect = DotMacERPError(
-            "API error (409): duplicate",
+            "API error (409): payload conflict",
             status_code=409,
-            response={"material_request_id": "MAT-REPLAY-01"},
+            response={"request_id": "MAT-REPLAY-01"},
         )
 
         result = mr_sync.sync_material_request(full_mr)
 
-        assert result.success is True
-        assert result.erp_material_request_id == "MAT-REPLAY-01"
+        assert result.success is False
+        assert result.error is not None
+        assert "409" in result.error
 
     def test_handles_api_validation_error_without_retry(self, mr_sync, mock_client, full_mr):
         mock_client.push_material_request.side_effect = DotMacERPError(
@@ -199,7 +217,7 @@ class TestSyncMaterialRequest:
         assert "422" in result.error
         assert result.error_type == "DotMacERPError"
 
-    def test_retries_when_2xx_missing_material_request_id(self, mr_sync, mock_client, full_mr):
+    def test_retries_when_2xx_missing_request_id(self, mr_sync, mock_client, full_mr):
         mock_client.push_material_request.return_value = {"accepted": True, "sync_status": "QUEUED"}
 
         with pytest.raises(DotMacERPTransientError):

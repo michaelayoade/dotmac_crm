@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Collection
 from typing import Any
 
 import httpx
@@ -112,7 +113,12 @@ class DotMacERPClient:
     def __exit__(self, *args):
         self.close()
 
-    def _handle_response(self, response: httpx.Response) -> dict | list | None:
+    def _handle_response(
+        self,
+        response: httpx.Response,
+        *,
+        expected_status_codes: Collection[int] | None = None,
+    ) -> dict | list | None:
         """Handle API response and raise appropriate errors."""
         if response.status_code == 204:
             return None
@@ -155,6 +161,13 @@ class DotMacERPClient:
                 response=data,
             )
 
+        if expected_status_codes and response.status_code not in expected_status_codes:
+            raise DotMacERPError(
+                f"API unexpected status ({response.status_code}), expected {sorted(expected_status_codes)}",
+                status_code=response.status_code,
+                response=data if isinstance(data, dict) else None,
+            )
+
         return data
 
     def _request(
@@ -164,6 +177,7 @@ class DotMacERPClient:
         params: dict | None = None,
         json_data: dict | list | None = None,
         idempotency_key: str | None = None,
+        expected_status_codes: Collection[int] | None = None,
     ) -> dict | list | None:
         """
         Make an HTTP request with retry logic.
@@ -194,7 +208,7 @@ class DotMacERPClient:
                     json=json_data,
                     headers=headers if headers else None,
                 )
-                return self._handle_response(response)
+                return self._handle_response(response, expected_status_codes=expected_status_codes)
 
             except DotMacERPRateLimitError as e:
                 # Wait for rate limit to reset
@@ -327,13 +341,14 @@ class DotMacERPClient:
             idempotency_key: Idempotency key for safe retries
 
         Returns:
-            ERP response with material_request_id
+            ERP response with request_id/request_number
         """
         result = self._request(
             "POST",
-            "/api/v1/sync/crm/material-requests",
+            "/sync/crm/material-requests",
             json_data=payload,
             idempotency_key=idempotency_key or f"mr-{uuid.uuid4()}",
+            expected_status_codes={200, 201},
         )
         return result if isinstance(result, dict) else {}
 
@@ -347,7 +362,11 @@ class DotMacERPClient:
             Status dict or None if not found
         """
         try:
-            result = self._request("GET", f"/api/v1/sync/crm/material-requests/{omni_id}")
+            result = self._request(
+                "GET",
+                f"/sync/crm/material-requests/{omni_id}",
+                expected_status_codes={200},
+            )
             return result if isinstance(result, dict) else None
         except DotMacERPNotFoundError:
             return None
