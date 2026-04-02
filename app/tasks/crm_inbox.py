@@ -181,3 +181,68 @@ def cleanup_old_outbox_task(retention_days: int = 7):
         raise
     finally:
         session.close()
+
+
+@celery_app.task(name="app.tasks.crm_inbox.check_sla_breaches")
+def check_sla_breaches_task():
+    """Check for SLA breaches and alert assigned agents."""
+    import logging
+    import time
+
+    from app.metrics import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("SLA_BREACH_CHECK_START")
+    try:
+        from app.services.crm.inbox.sla import check_and_alert_breaches
+
+        result = check_and_alert_breaches(session)
+        logger.info(
+            "SLA_BREACH_CHECK_COMPLETE response_breaches=%s resolution_breaches=%s alerted=%s",
+            result.get("response_breaches", 0),
+            result.get("resolution_breaches", 0),
+            result.get("alerted_response", 0) + result.get("alerted_resolution", 0),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("check_sla_breaches", status, time.monotonic() - start)
+
+
+@celery_app.task(name="app.tasks.crm_inbox.check_conversation_data_quality")
+def check_conversation_data_quality_task():
+    """Daily check for conversations with missing data fields."""
+    import logging
+    import time
+
+    from app.metrics import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("DATA_QUALITY_CHECK_START")
+    try:
+        from app.services.crm.inbox.data_quality import run_data_quality_check_and_notify
+
+        result = run_data_quality_check_and_notify(session)
+        logger.info(
+            "DATA_QUALITY_CHECK_COMPLETE missing_first_response=%s missing_tags=%s",
+            result.get("missing_first_response", 0),
+            result.get("missing_tags", 0),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("check_conversation_data_quality", status, time.monotonic() - start)

@@ -471,6 +471,24 @@ def build_beat_schedule() -> dict:
             interval_seconds=86400,  # daily
         )
 
+        # CRM inbox SLA breach check — every 15 minutes
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_sla_breach_check",
+            task_name="app.tasks.crm_inbox.check_sla_breaches",
+            enabled=True,
+            interval_seconds=900,
+        )
+
+        # CRM inbox data quality check — daily
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_data_quality_check",
+            task_name="app.tasks.crm_inbox.check_conversation_data_quality",
+            enabled=True,
+            interval_seconds=86400,
+        )
+
         # Event retry - retries failed event handlers
         event_retry_enabled = _effective_bool(
             session,
