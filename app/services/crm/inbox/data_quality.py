@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation, ConversationTag
