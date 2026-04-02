@@ -24,7 +24,6 @@
      x-effect="updateNewConversationTarget()"
      x-on:toggle-contact-panel.window="toggleContactPanel()"
      x-on:show-contact-panel.window="showContactPanel = true"
-     x-on:conversation-read.window="if (typeof stats?.unread === 'number' && stats.unread > 0) { stats.unread -= 1 }"
      class="flex h-[calc(100vh-4rem)] min-h-0 w-full overflow-hidden rounded-2xl border border-slate-200/60 bg-white font-editorial shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
 
     {% if reply_error %}
@@ -113,7 +112,7 @@
                 <div>
                     <h1 class="text-lg font-bold text-slate-900 tracking-tight dark:text-white">Inbox</h1>
                     <p class="text-xs text-slate-500 dark:text-slate-400">
-                        <span class="font-semibold text-amber-600 dark:text-amber-400" x-text="stats.unread">{{ stats.unread }}</span> unread conversations
+                        <span class="font-semibold text-amber-600 dark:text-amber-400" x-text="stats.unread || 0">{{ (stats or {}).get("unread", 0) }}</span> unread conversations
                         <span x-show="wsConnected"
                               class="ml-2 inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
                               title="Real-time updates active">
@@ -285,33 +284,39 @@
                 <div class="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
                     <button @click="setAssignment(null)"
                             :class="!currentAssignment ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-200' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
                         All
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('all')">{{ (assignment_counts or {}).get("all", 0) }}</span>
                     </button>
                     <button @click="setAssignment('assigned')"
                             :class="currentAssignment === 'assigned' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
                         Assigned to me
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('assigned')">{{ (assignment_counts or {}).get("assigned", 0) }}</span>
                     </button>
                     <button @click="setAssignment('my_team')"
                             :class="currentAssignment === 'my_team' ? 'bg-white text-cyan-700 shadow-sm dark:bg-slate-700 dark:text-cyan-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
                         My Team
-                    </button>
-                    <button @click="setAssignment('team_assigned')"
-                            :class="currentAssignment === 'team_assigned' ? 'bg-white text-sky-700 shadow-sm dark:bg-slate-700 dark:text-sky-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
-                        Team Queue
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('my_team')">{{ (assignment_counts or {}).get("my_team", 0) }}</span>
                     </button>
                     <button @click="setAssignment('unassigned')"
                             :class="currentAssignment === 'unassigned' ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
                         Unassigned
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('unassigned')">{{ (assignment_counts or {}).get("unassigned", 0) }}</span>
                     </button>
                     <button @click="setAssignment('unreplied')"
                             :class="currentAssignment === 'unreplied' ? 'bg-white text-rose-700 shadow-sm dark:bg-slate-700 dark:text-rose-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
                         Unreplied
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('unreplied')">{{ (assignment_counts or {}).get("unreplied", 0) }}</span>
+                    </button>
+                    <button @click="setAssignment('needs_attention')"
+                            :class="currentAssignment === 'needs_attention' ? 'bg-white text-orange-700 shadow-sm dark:bg-slate-700 dark:text-orange-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
+                        Needs attention
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('needs_attention')">{{ (assignment_counts or {}).get("needs_attention", 0) }}</span>
                     </button>
                     <button @click="setAssignment('agent')"
                             :class="currentAssignment === 'agent' ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-700 dark:text-violet-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
@@ -902,6 +907,8 @@ function inboxController() {
         selectedCommentId: {{ ((selected_comment.id | string) if selected_comment else None) | tojson }},
         paginationLimit: {{ (pagination_limit or 150) | tojson }},
         stats: {{ (stats or {}) | tojson }},
+        assignmentCounts: {{ (assignment_counts or {}) | tojson }},
+        summaryCountsRefreshTimer: null,
         showCommandPalette: false,
         commandQuery: '',
         showContactPanel: false,
@@ -1002,7 +1009,7 @@ function inboxController() {
                     this.typingConversationId = null;
                     this.threadStale = false;
                     this.restoreDraft(this.selectedConversation);
-                    window.dispatchEvent(new CustomEvent('conversation-read'));
+                    this.scheduleSummaryCountsRefresh();
                 }
                 if (e.detail.target.id === 'conversation-list') {
                     this.storeConversationCache();
@@ -1054,6 +1061,7 @@ function inboxController() {
                 } else if (!this.updateConversationRow(summary)) {
                     this.refreshConversations();
                 }
+                this.scheduleSummaryCountsRefresh();
                 if (payload.conversation_id && this.selectedConversation === payload.conversation_id) {
                     this.scheduleRefresh('thread');
                 }
@@ -1076,6 +1084,7 @@ function inboxController() {
                 } else if (!this.updateConversationRow(summary)) {
                     this.refreshConversations();
                 }
+                this.scheduleSummaryCountsRefresh();
             });
             window.addEventListener('inbox-conversation-summary', (e) => {
                 const summary = e.detail || {};
@@ -1084,6 +1093,7 @@ function inboxController() {
                 } else if (!this.updateConversationRow(summary)) {
                     this.refreshConversations();
                 }
+                this.scheduleSummaryCountsRefresh();
             });
             window.addEventListener('inbox-ws-connected', () => {
                 this.wsConnected = true;
@@ -1149,6 +1159,7 @@ function inboxController() {
             this.restoreConversationCache();
             this.subscribeVisibleConversations();
             this.startPresenceCleanup();
+            this.refreshSummaryCounts();
             if (!this._presenceUnloadBound) {
                 this._presenceUnloadBound = true;
                 window.addEventListener('beforeunload', () => {
@@ -1204,6 +1215,38 @@ function inboxController() {
                 }
             });
             this.$nextTick(() => this.ensureReplyShortcodesInitialized());
+        },
+        assignmentCount(key) {
+            if (!key) return 0;
+            if (!this.assignmentCounts || typeof this.assignmentCounts !== 'object') return 0;
+            const value = this.assignmentCounts[key];
+            return Number.isFinite(Number(value)) ? Number(value) : 0;
+        },
+        scheduleSummaryCountsRefresh() {
+            if (this.summaryCountsRefreshTimer) {
+                clearTimeout(this.summaryCountsRefreshTimer);
+            }
+            this.summaryCountsRefreshTimer = setTimeout(() => {
+                this.summaryCountsRefreshTimer = null;
+                this.refreshSummaryCounts();
+            }, 300);
+        },
+        async refreshSummaryCounts() {
+            try {
+                const resp = await fetch('/admin/crm/inbox/summary-counts', {
+                    headers: { Accept: 'application/json' }
+                });
+                if (!resp.ok) return;
+                const payload = await resp.json();
+                if (payload && payload.assignment_counts && typeof payload.assignment_counts === 'object') {
+                    this.assignmentCounts = payload.assignment_counts;
+                }
+                if (payload && Number.isFinite(Number(payload.unread))) {
+                    this.stats = { ...(this.stats || {}), unread: Number(payload.unread) };
+                }
+            } catch (_err) {
+                // Best-effort; avoid disrupting inbox interactions.
+            }
         },
         initViewportMode() {
             this.viewportMediaQuery = window.matchMedia('(max-width: 639px)');
