@@ -4,20 +4,24 @@ from app.services.crm.conversations.comments import (
     SocialCommentReplies,
     SocialComments,
     fetch_and_store_social_comments,
+    get_social_comment,
     list_social_comment_replies,
     list_social_comments,
     reply_to_social_comment,
     social_comment_replies,
     social_comments,
+    upsert_social_comment_reply,
 )
 
 __all__ = [
     "SocialCommentReplies",
     "SocialComments",
     "fetch_and_store_social_comments",
+    "get_social_comment",
     "list_social_comment_replies",
     "list_social_comments",
     "reply_to_social_comment",
     "social_comment_replies",
     "social_comments",
+    "upsert_social_comment_reply",
 ]
