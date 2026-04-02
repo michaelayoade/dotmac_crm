@@ -113,6 +113,24 @@ def update_conversation_status(
         if conversation and status_enum != ConversationStatus.snoozed:
             _clear_snooze_metadata(conversation)
             db.commit()
+        # Populate resolved_at / resolution_time_seconds
+        if conversation is None and db is not None:
+            conversation = db.get(Conversation, coerce_uuid(conversation_id))
+        if conversation:
+            if status_enum == ConversationStatus.resolved:
+                now = datetime.now(UTC)
+                conversation.resolved_at = now
+                created = conversation.created_at
+                if created is not None and created.tzinfo is None:
+                    created = created.replace(tzinfo=UTC)
+                conversation.resolution_time_seconds = int(
+                    (now - created).total_seconds()
+                ) if created else 0
+                db.commit()
+            elif previous_status == ConversationStatus.resolved:
+                conversation.resolved_at = None
+                conversation.resolution_time_seconds = None
+                db.commit()
         inbox_cache.invalidate_inbox_list()
         log_conversation_action(
             db,

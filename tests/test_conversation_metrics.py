@@ -154,3 +154,51 @@ class TestFirstResponseAt:
 
         assert conv.first_response_at is None
         assert conv.response_time_seconds is None
+
+
+class TestResolvedAt:
+    def test_set_on_resolve(self, db_session):
+        from app.services.crm.inbox.conversation_status import update_conversation_status
+
+        person = _make_person(db_session)
+        conv = _make_conversation(db_session, person.id)
+
+        result = update_conversation_status(
+            db_session,
+            conversation_id=str(conv.id),
+            new_status="resolved",
+        )
+        db_session.refresh(conv)
+
+        assert result.kind == "updated"
+        assert conv.resolved_at is not None
+        assert conv.resolution_time_seconds is not None
+        assert conv.resolution_time_seconds >= 0
+
+    def test_cleared_on_reopen(self, db_session):
+        from app.services.crm.inbox.conversation_status import update_conversation_status
+
+        person = _make_person(db_session)
+        conv = _make_conversation(db_session, person.id)
+
+        # First resolve
+        update_conversation_status(
+            db_session,
+            conversation_id=str(conv.id),
+            new_status="resolved",
+        )
+        db_session.refresh(conv)
+        assert conv.resolved_at is not None
+        assert conv.resolution_time_seconds is not None
+
+        # Then reopen
+        result = update_conversation_status(
+            db_session,
+            conversation_id=str(conv.id),
+            new_status="open",
+        )
+        db_session.refresh(conv)
+
+        assert result.kind == "updated"
+        assert conv.resolved_at is None
+        assert conv.resolution_time_seconds is None
