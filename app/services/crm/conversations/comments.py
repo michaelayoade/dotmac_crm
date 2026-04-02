@@ -103,6 +103,9 @@ def upsert_social_comment_reply(
     message: str | None,
     created_time: datetime | None,
     raw_payload: dict | None,
+    *,
+    author_id: str | None = None,
+    author_name: str | None = None,
 ) -> SocialCommentReply | None:
     if not parent_external_id or not external_id:
         return None
@@ -121,6 +124,8 @@ def upsert_social_comment_reply(
         "created_time": created_time,
         "raw_payload": raw_payload,
         "is_active": True,
+        "author_id": author_id,
+        "author_name": author_name,
     }
     reply = _upsert_comment_reply(db, parent, payload)
     db.commit()
@@ -305,6 +310,9 @@ async def reply_to_social_comment(
     db: Session,
     comment: SocialComment,
     message: str,
+    *,
+    author_id: str | None = None,
+    author_name: str | None = None,
 ) -> SocialCommentReply:
     if not comment.external_id or not comment.source_account_id:
         raise RuntimeError("Missing comment identifiers for reply")
@@ -336,6 +344,8 @@ async def reply_to_social_comment(
         message=message,
         created_time=datetime.now(UTC),
         raw_payload=result,
+        author_id=author_id,
+        author_name=author_name,
     )
     db.add(reply)
     db.commit()
@@ -385,8 +395,13 @@ class SocialCommentReplies:
         db: Session,
         comment: SocialComment,
         message: str,
+        *,
+        author_id: str | None = None,
+        author_name: str | None = None,
     ) -> SocialCommentReply:
-        return await reply_to_social_comment(db, comment, message)
+        return await reply_to_social_comment(
+            db, comment, message, author_id=author_id, author_name=author_name,
+        )
 
 
 # Singleton instances
