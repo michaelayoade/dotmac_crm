@@ -231,6 +231,26 @@ class Messages(ListResponseMixin):
         timestamp = message.received_at or message.sent_at or _now()
         conversation.last_message_at = timestamp
         conversation.updated_at = timestamp
+
+        # Populate first_response_at for the first agent-authored outbound message.
+        if (
+            message.direction == MessageDirection.outbound
+            and conversation.first_response_at is None
+            and message.author_id is not None
+        ):
+            from app.models.crm.team import CrmAgent
+
+            is_agent = (
+                db.query(CrmAgent.id)
+                .filter(CrmAgent.person_id == message.author_id, CrmAgent.is_active.is_(True))
+                .first()
+            ) is not None
+            if is_agent:
+                conversation.first_response_at = timestamp
+                conversation.response_time_seconds = int(
+                    (timestamp - conversation.created_at).total_seconds()
+                )
+
         db.commit()
         db.refresh(message)
         if message.direction == MessageDirection.inbound:
