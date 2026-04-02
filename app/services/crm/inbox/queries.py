@@ -719,7 +719,9 @@ def get_assignment_counts(
 ) -> dict[str, int]:
     """Get inbox assignment bucket counts for sidebar chips."""
     return {
-        "all": _count_active_conversations_for_filter(db, assignment_filter="all", assigned_person_id=assigned_person_id),
+        "all": _count_active_conversations_for_filter(
+            db, assignment_filter="all", assigned_person_id=assigned_person_id
+        ),
         "assigned": _count_active_conversations_for_filter(
             db, assignment_filter="assigned", assigned_person_id=assigned_person_id
         ),
