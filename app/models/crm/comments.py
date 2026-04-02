@@ -45,7 +45,9 @@ class SocialComment(Base):
     )
 
     replies: Mapped[list["SocialCommentReply"]] = relationship(
-        "SocialCommentReply", back_populates="comment", lazy="selectin",
+        "SocialCommentReply",
+        back_populates="comment",
+        lazy="selectin",
     )
 
 
@@ -61,7 +63,9 @@ class SocialCommentReply(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     comment_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crm_social_comments.id"), nullable=False,
+        UUID(as_uuid=True),
+        ForeignKey("crm_social_comments.id"),
+        nullable=False,
     )
     platform: Mapped[SocialCommentPlatform] = mapped_column(Enum(SocialCommentPlatform), nullable=False)
     external_id: Mapped[str | None] = mapped_column(String(200))

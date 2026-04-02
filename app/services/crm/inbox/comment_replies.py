@@ -37,7 +37,9 @@ async def reply_to_social_comment(
         return CommentReplyResult(kind="not_found")
     try:
         await comments_service.reply_to_social_comment(
-            db, comment, message.strip(),
+            db,
+            comment,
+            message.strip(),
             author_id=actor_id,
             author_name=None,
         )

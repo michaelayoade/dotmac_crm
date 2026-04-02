@@ -342,15 +342,10 @@ async def reply_to_social_comment(
 ) -> SocialCommentReply:
     if not comment.external_id or not comment.source_account_id:
         raise RuntimeError("Missing comment identifiers for reply")
-    max_len = (
-        _FB_COMMENT_MAX_LENGTH
-        if comment.platform == SocialCommentPlatform.facebook
-        else _IG_COMMENT_MAX_LENGTH
-    )
+    max_len = _FB_COMMENT_MAX_LENGTH if comment.platform == SocialCommentPlatform.facebook else _IG_COMMENT_MAX_LENGTH
     if len(message) > max_len:
         raise ValueError(
-            f"Reply exceeds {comment.platform.value} limit of {max_len} characters "
-            f"({len(message)} provided)"
+            f"Reply exceeds {comment.platform.value} limit of {max_len} characters ({len(message)} provided)"
         )
     try:
         if comment.platform == SocialCommentPlatform.facebook:
@@ -436,7 +431,11 @@ class SocialCommentReplies:
         author_name: str | None = None,
     ) -> SocialCommentReply:
         return await reply_to_social_comment(
-            db, comment, message, author_id=author_id, author_name=author_name,
+            db,
+            comment,
+            message,
+            author_id=author_id,
+            author_name=author_name,
         )
 
 
