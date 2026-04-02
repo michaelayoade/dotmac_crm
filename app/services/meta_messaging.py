@@ -108,6 +108,21 @@ def _get_meta_access_token_override(db: Session) -> str | None:
     return token.strip() or None
 
 
+def _get_meta_channel_access_token_override(db: Session, channel_type: ChannelType) -> str | None:
+    """Resolve per-channel override token with backward-compatible fallback."""
+    key = None
+    if channel_type == ChannelType.facebook_messenger:
+        key = "meta_facebook_access_token_override"
+    elif channel_type == ChannelType.instagram_dm:
+        key = "meta_instagram_access_token_override"
+
+    if key:
+        token = resolve_value(db, SettingDomain.comms, key)
+        if isinstance(token, str) and token.strip():
+            return token.strip()
+    return _get_meta_access_token_override(db)
+
+
 def _is_instagram_login_token(token: str | None) -> bool:
     if not token:
         return False
@@ -231,7 +246,7 @@ async def send_facebook_message(
         ValueError: If no active token found or token expired
         httpx.HTTPStatusError: If API request fails
     """
-    raw_override_token = _get_meta_access_token_override(db)
+    raw_override_token = _get_meta_channel_access_token_override(db, ChannelType.facebook_messenger)
     # Keep Facebook on the legacy Meta Graph flow; ignore IG login tokens.
     override_token = None if _is_instagram_login_token(raw_override_token) else raw_override_token
     token = _get_token_for_channel(db, ChannelType.facebook_messenger, target, account_id=account_id)
@@ -316,9 +331,11 @@ async def send_instagram_message(
         ValueError: If no active token found or token expired
         httpx.HTTPStatusError: If API request fails
     """
-    override_token = _get_meta_access_token_override(db)
+    override_token = _get_meta_channel_access_token_override(db, ChannelType.instagram_dm)
+    use_instagram_login_api = bool(_is_instagram_login_token(override_token))
     token = _get_token_for_channel(db, ChannelType.instagram_dm, target, account_id=account_id)
-    _ensure_token_scopes(token, _INSTAGRAM_REQUIRED_SCOPES, "instagram_dm")
+    if not use_instagram_login_api:
+        _ensure_token_scopes(token, _INSTAGRAM_REQUIRED_SCOPES, "instagram_dm")
     if not token and not override_token:
         raise ValueError("No active Instagram Business Account token found")
 
@@ -333,16 +350,10 @@ async def send_instagram_message(
     if token and not override_token and token.is_token_expired():
         raise ValueError(f"Instagram token has expired. Please reconnect. (Account: {token.external_account_name})")
 
-    use_instagram_login_api = bool(_is_instagram_login_token(override_token) and not token)
     if use_instagram_login_api:
         access_token = override_token
     else:
-        access_token = token.access_token if token else override_token
-        if _is_instagram_login_token(override_token) and token:
-            logger.info(
-                "instagram_override_token_ignored_linked_token_present account_id=%s",
-                token.external_account_id,
-            )
+        access_token = override_token or (token.access_token if token else None)
     if not access_token:
         raise ValueError("No access token available for Instagram message send")
 
