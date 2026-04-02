@@ -1053,76 +1053,102 @@ def agent_weekly_performance(
 
     sla_targets = get_sla_targets(db)
 
-    results: list[dict[str, Any]] = []
-    for agent in agents:
-        person = person_map.get(agent.person_id)
-        agent_name = person.display_name if person else "Unknown"
+    agent_ids = [a.id for a in agents]
 
-        assigned_conv_ids = [
-            row[0]
-            for row in db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.agent_id == agent.id)
-            .all()
-        ]
+    # Batch-load all assignments for these agents
+    all_assignments = (
+        db.query(ConversationAssignment.agent_id, ConversationAssignment.conversation_id)
+        .filter(ConversationAssignment.agent_id.in_(agent_ids))
+        .all()
+    )
+    # Build agent_id -> set of conversation_ids
+    agent_conv_ids: dict = {}
+    all_conv_ids: set = set()
+    for agent_id, conv_id in all_assignments:
+        agent_conv_ids.setdefault(agent_id, set()).add(conv_id)
+        all_conv_ids.add(conv_id)
 
-        if not assigned_conv_ids:
-            results.append({
-                "agent_id": str(agent.id),
-                "agent_name": agent_name,
+    if not all_conv_ids:
+        return [
+            {
+                "agent_id": str(a.id),
+                "agent_name": (person_map.get(a.person_id) or type("P", (), {"display_name": "Unknown"})).display_name,
                 "resolved_count": 0,
                 "median_response_seconds": None,
                 "median_resolution_seconds": None,
                 "open_backlog": 0,
                 "csat_avg": None,
                 "sla_breach_count": 0,
-            })
-            continue
+            }
+            for a in agents
+        ]
 
-        resolved_convs = (
-            db.query(Conversation)
+    # Batch-load resolved conversations in the period
+    resolved_convs = (
+        db.query(Conversation)
+        .filter(
+            Conversation.id.in_(all_conv_ids),
+            Conversation.status == ConversationStatus.resolved,
+            Conversation.resolved_at >= start_at,
+            Conversation.resolved_at <= end_at,
+        )
+        .all()
+    )
+    resolved_by_id = {c.id: c for c in resolved_convs}
+
+    # Batch-load open/pending conversations for backlog
+    open_convs = (
+        db.query(Conversation.id)
+        .filter(
+            Conversation.id.in_(all_conv_ids),
+            Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]),
+            Conversation.is_active.is_(True),
+        )
+        .all()
+    )
+    open_conv_ids = {row[0] for row in open_convs}
+
+    # Batch-load CSAT ratings for resolved conversation persons
+    all_resolved_person_ids = list({c.person_id for c in resolved_convs})
+    ratings_by_person: dict = {}
+    if all_resolved_person_ids:
+        rating_rows = (
+            db.query(SurveyInvitation.person_id, SurveyResponse.rating)
+            .join(SurveyInvitation, SurveyInvitation.id == SurveyResponse.invitation_id)
             .filter(
-                Conversation.id.in_(assigned_conv_ids),
-                Conversation.status == ConversationStatus.resolved,
-                Conversation.resolved_at >= start_at,
-                Conversation.resolved_at <= end_at,
+                SurveyInvitation.person_id.in_(all_resolved_person_ids),
+                SurveyResponse.rating.isnot(None),
+                SurveyResponse.completed_at >= start_at,
+                SurveyResponse.completed_at <= end_at,
             )
             .all()
         )
+        for person_id, rating in rating_rows:
+            if rating is not None:
+                ratings_by_person.setdefault(person_id, []).append(rating)
 
-        response_times = [c.response_time_seconds for c in resolved_convs if c.response_time_seconds is not None]
-        resolution_times = [c.resolution_time_seconds for c in resolved_convs if c.resolution_time_seconds is not None]
+    # Compute per-agent metrics from batch-loaded data
+    results: list[dict[str, Any]] = []
+    for agent in agents:
+        person = person_map.get(agent.person_id)
+        agent_name = person.display_name if person else "Unknown"
+        conv_ids = agent_conv_ids.get(agent.id, set())
 
-        open_backlog = (
-            db.query(Conversation)
-            .filter(
-                Conversation.id.in_(assigned_conv_ids),
-                Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]),
-                Conversation.is_active.is_(True),
-            )
-            .count()
-        )
+        agent_resolved = [resolved_by_id[cid] for cid in conv_ids if cid in resolved_by_id]
+        response_times = [c.response_time_seconds for c in agent_resolved if c.response_time_seconds is not None]
+        resolution_times = [c.resolution_time_seconds for c in agent_resolved if c.resolution_time_seconds is not None]
+        open_backlog = sum(1 for cid in conv_ids if cid in open_conv_ids)
 
-        csat_avg = None
-        resolved_conv_ids = [c.id for c in resolved_convs]
-        if resolved_conv_ids:
-            conv_person_ids = [c.person_id for c in resolved_convs]
-            ratings = (
-                db.query(SurveyResponse.rating)
-                .join(SurveyInvitation, SurveyInvitation.id == SurveyResponse.invitation_id)
-                .filter(
-                    SurveyInvitation.person_id.in_(conv_person_ids),
-                    SurveyResponse.rating.isnot(None),
-                    SurveyResponse.completed_at >= start_at,
-                    SurveyResponse.completed_at <= end_at,
-                )
-                .all()
-            )
-            rating_values = [r[0] for r in ratings if r[0] is not None]
-            if rating_values:
-                csat_avg = round(sum(rating_values) / len(rating_values), 2)
+        # CSAT from resolved conversation persons
+        agent_person_ids = {c.person_id for c in agent_resolved}
+        agent_ratings = []
+        for pid in agent_person_ids:
+            agent_ratings.extend(ratings_by_person.get(pid, []))
+        csat_avg = round(sum(agent_ratings) / len(agent_ratings), 2) if agent_ratings else None
 
+        # SLA breach count
         breach_count = 0
-        for conv in resolved_convs:
+        for conv in agent_resolved:
             priority = conv.priority.value if conv.priority else "none"
             resp_target = sla_targets["response"].get(priority, 1440)
             res_target = sla_targets["resolution"].get(priority, 4320)
@@ -1134,7 +1160,7 @@ def agent_weekly_performance(
         results.append({
             "agent_id": str(agent.id),
             "agent_name": agent_name,
-            "resolved_count": len(resolved_convs),
+            "resolved_count": len(agent_resolved),
             "median_response_seconds": int(statistics.median(response_times)) if response_times else None,
             "median_resolution_seconds": int(statistics.median(resolution_times)) if resolution_times else None,
             "open_backlog": open_backlog,

@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.crm.conversation import Conversation
 from app.models.crm.enums import ConversationStatus
@@ -62,12 +63,17 @@ def find_response_breaches(db: Session, targets_minutes: dict[str, int]) -> list
 
 
 def find_resolution_breaches(db: Session, targets_minutes: dict[str, int]) -> list[Conversation]:
-    """Find open/pending conversations that have breached resolution SLA."""
+    """Find open/pending conversations that have breached resolution SLA.
+
+    Only considers conversations that already received a first response
+    (first_response_at is set) to avoid double-alerting with response breaches.
+    """
     now = datetime.now(UTC)
     candidates = (
         db.query(Conversation)
         .filter(
             Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]),
+            Conversation.first_response_at.isnot(None),
             Conversation.resolved_at.is_(None),
             Conversation.is_active.is_(True),
         )
@@ -100,6 +106,7 @@ def check_and_alert_breaches(db: Session) -> dict:
             continue
         metadata["sla_response_breach_alerted_at"] = datetime.now(UTC).isoformat()
         conv.metadata_ = metadata
+        flag_modified(conv, "metadata_")
 
         recipient = _resolve_notification_recipient(db, conv)
         if recipient:
@@ -125,6 +132,7 @@ def check_and_alert_breaches(db: Session) -> dict:
             continue
         metadata["sla_resolution_breach_alerted_at"] = datetime.now(UTC).isoformat()
         conv.metadata_ = metadata
+        flag_modified(conv, "metadata_")
 
         recipient = _resolve_notification_recipient(db, conv)
         if recipient:
