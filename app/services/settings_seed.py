@@ -1056,3 +1056,30 @@ def seed_performance_settings(db: Session) -> None:
         value_type=SettingValueType.integer,
         value_text=os.getenv("PERFORMANCE_REVIEW_COOLDOWN_HOURS", "24"),
     )
+
+
+def seed_sla_defaults(db: Session) -> None:
+    """Seed default per-priority SLA targets for CRM conversations."""
+    from app.schemas.settings import DomainSettingUpdate
+
+    sla_defaults = {
+        "crm_sla_response_urgent_minutes": 60,
+        "crm_sla_response_high_minutes": 240,
+        "crm_sla_response_medium_minutes": 480,
+        "crm_sla_response_low_minutes": 1440,
+        "crm_sla_resolution_urgent_minutes": 240,
+        "crm_sla_resolution_high_minutes": 1440,
+        "crm_sla_resolution_medium_minutes": 2880,
+        "crm_sla_resolution_low_minutes": 4320,
+    }
+    for key, default_value in sla_defaults.items():
+        existing = notification_settings.get_by_key(db, key)
+        if existing is None:
+            notification_settings.upsert_by_key(
+                db,
+                key,
+                DomainSettingUpdate(
+                    value_type=SettingValueType.number,
+                    value_text=str(default_value),
+                ),
+            )

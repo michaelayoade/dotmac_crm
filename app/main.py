@@ -85,6 +85,7 @@ from app.services.settings_seed import (
     seed_projects_settings,
     seed_provisioning_settings,
     seed_scheduler_settings,
+    seed_sla_defaults,
     seed_workflow_settings,
 )
 from app.telemetry import setup_otel
@@ -525,6 +526,7 @@ def _start_jobs():
         seed_comms_settings(db)
         seed_integration_settings(db)
         seed_performance_settings(db)
+        seed_sla_defaults(db)
     finally:
         db.close()
     smtp_inbound_service.start_smtp_inbound_server()
