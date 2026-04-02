@@ -1114,3 +1114,58 @@ def crm_performance_report_export(
 
     filename = f"crm_performance_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Agent Performance Report (Weekly Trends)
+# =============================================================================
+
+
+@router.get("/agent-performance", response_class=HTMLResponse)
+def agent_performance_report(
+    request: Request,
+    db: Session = Depends(get_db),
+    days: int = Query(7, ge=7, le=90),
+):
+    """Weekly agent performance report with trend comparisons."""
+    user = get_current_user(request)
+    now = datetime.now(UTC)
+    current_start = now - timedelta(days=days)
+    previous_start = current_start - timedelta(days=days)
+    previous_end = current_start
+
+    current_metrics = crm_reports_service.agent_weekly_performance(
+        db, start_at=current_start, end_at=now,
+    )
+    previous_metrics = crm_reports_service.agent_weekly_performance(
+        db, start_at=previous_start, end_at=previous_end,
+    )
+
+    prev_map = {m["agent_id"]: m for m in previous_metrics}
+
+    all_resolved = [m["resolved_count"] for m in current_metrics]
+    team_median_resolved = sorted(all_resolved)[len(all_resolved) // 2] if all_resolved else 0
+
+    for m in current_metrics:
+        prev = prev_map.get(m["agent_id"], {})
+        m["prev_resolved_count"] = prev.get("resolved_count", 0)
+        m["prev_median_response_seconds"] = prev.get("median_response_seconds")
+        m["prev_median_resolution_seconds"] = prev.get("median_resolution_seconds")
+        m["prev_open_backlog"] = prev.get("open_backlog", 0)
+        m["prev_csat_avg"] = prev.get("csat_avg")
+        m["prev_sla_breach_count"] = prev.get("sla_breach_count", 0)
+        m["below_median"] = m["resolved_count"] < team_median_resolved
+
+    return templates.TemplateResponse(
+        "admin/reports/agent_performance.html",
+        {
+            "request": request,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "agent-performance",
+            "active_menu": "reports",
+            "days": days,
+            "agents": current_metrics,
+            "team_median_resolved": team_median_resolved,
+        },
+    )

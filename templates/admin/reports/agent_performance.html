@@ -1,0 +1,169 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import stats_card, dashboard_kpi_grid %}
+
+{% block title %}Agent Performance - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {# Header + filter form #}
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white font-display">Agent Performance</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Weekly metrics with trend comparison</p>
+        </div>
+        <form method="GET" action="/admin/reports/agent-performance" class="flex items-center gap-2">
+            <select name="days" class="rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 Days</option>
+                <option value="14" {% if days == 14 %}selected{% endif %}>Last 14 Days</option>
+                <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 Days</option>
+            </select>
+            <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 transition-colors">
+                Filter
+            </button>
+        </form>
+    </div>
+
+    {# Summary Cards #}
+    {% set total_resolved = agents | map(attribute='resolved_count') | sum %}
+    {% set total_backlog = agents | map(attribute='open_backlog') | sum %}
+    {% set total_breaches = agents | map(attribute='sla_breach_count') | sum %}
+    {% set csat_values = agents | selectattr('csat_avg') | map(attribute='csat_avg') | list %}
+    {% set avg_csat = (csat_values | sum / csat_values | length) if csat_values else 0 %}
+
+    {% call dashboard_kpi_grid(cols="4") %}
+        {{ stats_card("Conversations Resolved", total_resolved, color="emerald", color2="teal") }}
+        {{ stats_card("Open Backlog", total_backlog, color="amber", color2="orange") }}
+        {{ stats_card("SLA Breaches", total_breaches, color="rose", color2="pink") }}
+        {{ stats_card("Avg CSAT", "%.1f" | format(avg_csat) if avg_csat else "\u2014", color="blue", color2="cyan") }}
+    {% endcall %}
+
+    {# Agent Table #}
+    <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Agent</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Resolved</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Med. Response</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Med. Resolution</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Backlog</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">CSAT</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">SLA Breaches</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {% for a in agents %}
+                    <tr class="{{ 'bg-red-50/50 dark:bg-red-900/10' if a.below_median else '' }} hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                        {# Agent name #}
+                        <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">
+                            {{ a.agent_name }}
+                            {% if a.below_median %}
+                            <span class="ml-2 inline-flex items-center rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">Below median</span>
+                            {% endif %}
+                        </td>
+
+                        {# Resolved — higher is better #}
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                            {{ a.resolved_count }}
+                            {% if a.prev_resolved_count is not none %}
+                                {% if a.resolved_count > a.prev_resolved_count %}
+                                <span class="ml-1 text-xs text-emerald-600 dark:text-emerald-400">&#9650;</span>
+                                {% elif a.resolved_count < a.prev_resolved_count %}
+                                <span class="ml-1 text-xs text-red-600 dark:text-red-400">&#9660;</span>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+
+                        {# Median Response Time (seconds -> minutes) — lower is better #}
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                            {% if a.median_response_seconds is not none %}
+                                {{ "%.1f" | format(a.median_response_seconds / 60) }} min
+                                {% if a.prev_median_response_seconds is not none %}
+                                    {% if a.median_response_seconds < a.prev_median_response_seconds %}
+                                    <span class="ml-1 text-xs text-emerald-600 dark:text-emerald-400">&#9650;</span>
+                                    {% elif a.median_response_seconds > a.prev_median_response_seconds %}
+                                    <span class="ml-1 text-xs text-red-600 dark:text-red-400">&#9660;</span>
+                                    {% endif %}
+                                {% endif %}
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </td>
+
+                        {# Median Resolution Time (seconds -> hours) — lower is better #}
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                            {% if a.median_resolution_seconds is not none %}
+                                {{ "%.1f" | format(a.median_resolution_seconds / 3600) }} hrs
+                                {% if a.prev_median_resolution_seconds is not none %}
+                                    {% if a.median_resolution_seconds < a.prev_median_resolution_seconds %}
+                                    <span class="ml-1 text-xs text-emerald-600 dark:text-emerald-400">&#9650;</span>
+                                    {% elif a.median_resolution_seconds > a.prev_median_resolution_seconds %}
+                                    <span class="ml-1 text-xs text-red-600 dark:text-red-400">&#9660;</span>
+                                    {% endif %}
+                                {% endif %}
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </td>
+
+                        {# Backlog — lower is better #}
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                            {{ a.open_backlog }}
+                            {% if a.prev_open_backlog is not none %}
+                                {% if a.open_backlog < a.prev_open_backlog %}
+                                <span class="ml-1 text-xs text-emerald-600 dark:text-emerald-400">&#9650;</span>
+                                {% elif a.open_backlog > a.prev_open_backlog %}
+                                <span class="ml-1 text-xs text-red-600 dark:text-red-400">&#9660;</span>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+
+                        {# CSAT — higher is better #}
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                            {% if a.csat_avg is not none %}
+                                {{ "%.1f" | format(a.csat_avg) }}
+                                {% if a.prev_csat_avg is not none %}
+                                    {% if a.csat_avg > a.prev_csat_avg %}
+                                    <span class="ml-1 text-xs text-emerald-600 dark:text-emerald-400">&#9650;</span>
+                                    {% elif a.csat_avg < a.prev_csat_avg %}
+                                    <span class="ml-1 text-xs text-red-600 dark:text-red-400">&#9660;</span>
+                                    {% endif %}
+                                {% endif %}
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </td>
+
+                        {# SLA Breaches — lower is better #}
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                            {{ a.sla_breach_count }}
+                            {% if a.prev_sla_breach_count is not none %}
+                                {% if a.sla_breach_count < a.prev_sla_breach_count %}
+                                <span class="ml-1 text-xs text-emerald-600 dark:text-emerald-400">&#9650;</span>
+                                {% elif a.sla_breach_count > a.prev_sla_breach_count %}
+                                <span class="ml-1 text-xs text-red-600 dark:text-red-400">&#9660;</span>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No agent data available for the selected period.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# Team Median Note #}
+    {% if agents %}
+    <p class="text-xs text-slate-400 dark:text-slate-500">
+        Team median resolved: {{ team_median_resolved }}. Agents below this threshold are flagged.
+    </p>
+    {% endif %}
+</div>
+{% endblock %}
