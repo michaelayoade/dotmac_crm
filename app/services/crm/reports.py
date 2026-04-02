@@ -1024,3 +1024,122 @@ def agent_sales_performance(
 
     results.sort(key=lambda x: float(x.get("won_value") or 0), reverse=True)
     return results
+
+
+def agent_weekly_performance(
+    db: Session,
+    start_at: datetime,
+    end_at: datetime,
+) -> list[dict[str, Any]]:
+    """Compute weekly performance metrics per agent.
+
+    Returns a list of dicts with: agent_id, agent_name, resolved_count,
+    median_response_seconds, median_resolution_seconds, open_backlog,
+    csat_avg, sla_breach_count.
+    """
+    import statistics
+
+    from app.models.comms import SurveyInvitation, SurveyResponse
+
+    agents = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).limit(200).all()
+    if not agents:
+        return []
+
+    person_ids = [a.person_id for a in agents if a.person_id]
+    persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+    person_map = {p.id: p for p in persons}
+
+    from app.services.crm.inbox.sla import get_sla_targets
+
+    sla_targets = get_sla_targets(db)
+
+    results: list[dict[str, Any]] = []
+    for agent in agents:
+        person = person_map.get(agent.person_id)
+        agent_name = person.display_name if person else "Unknown"
+
+        assigned_conv_ids = [
+            row[0]
+            for row in db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.agent_id == agent.id)
+            .all()
+        ]
+
+        if not assigned_conv_ids:
+            results.append({
+                "agent_id": str(agent.id),
+                "agent_name": agent_name,
+                "resolved_count": 0,
+                "median_response_seconds": None,
+                "median_resolution_seconds": None,
+                "open_backlog": 0,
+                "csat_avg": None,
+                "sla_breach_count": 0,
+            })
+            continue
+
+        resolved_convs = (
+            db.query(Conversation)
+            .filter(
+                Conversation.id.in_(assigned_conv_ids),
+                Conversation.status == ConversationStatus.resolved,
+                Conversation.resolved_at >= start_at,
+                Conversation.resolved_at <= end_at,
+            )
+            .all()
+        )
+
+        response_times = [c.response_time_seconds for c in resolved_convs if c.response_time_seconds is not None]
+        resolution_times = [c.resolution_time_seconds for c in resolved_convs if c.resolution_time_seconds is not None]
+
+        open_backlog = (
+            db.query(Conversation)
+            .filter(
+                Conversation.id.in_(assigned_conv_ids),
+                Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]),
+                Conversation.is_active.is_(True),
+            )
+            .count()
+        )
+
+        csat_avg = None
+        resolved_conv_ids = [c.id for c in resolved_convs]
+        if resolved_conv_ids:
+            conv_person_ids = [c.person_id for c in resolved_convs]
+            ratings = (
+                db.query(SurveyResponse.rating)
+                .join(SurveyInvitation, SurveyInvitation.id == SurveyResponse.invitation_id)
+                .filter(
+                    SurveyInvitation.person_id.in_(conv_person_ids),
+                    SurveyResponse.rating.isnot(None),
+                    SurveyResponse.completed_at >= start_at,
+                    SurveyResponse.completed_at <= end_at,
+                )
+                .all()
+            )
+            rating_values = [r[0] for r in ratings if r[0] is not None]
+            if rating_values:
+                csat_avg = round(sum(rating_values) / len(rating_values), 2)
+
+        breach_count = 0
+        for conv in resolved_convs:
+            priority = conv.priority.value if conv.priority else "none"
+            resp_target = sla_targets["response"].get(priority, 1440)
+            res_target = sla_targets["resolution"].get(priority, 4320)
+            if conv.response_time_seconds and conv.response_time_seconds > resp_target * 60:
+                breach_count += 1
+            if conv.resolution_time_seconds and conv.resolution_time_seconds > res_target * 60:
+                breach_count += 1
+
+        results.append({
+            "agent_id": str(agent.id),
+            "agent_name": agent_name,
+            "resolved_count": len(resolved_convs),
+            "median_response_seconds": int(statistics.median(response_times)) if response_times else None,
+            "median_resolution_seconds": int(statistics.median(resolution_times)) if resolution_times else None,
+            "open_backlog": open_backlog,
+            "csat_avg": csat_avg,
+            "sla_breach_count": breach_count,
+        })
+
+    return results
