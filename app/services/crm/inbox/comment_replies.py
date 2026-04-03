@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.services.crm import comments as comments_service
 from app.services.crm.inbox.audit import log_comment_action
+from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.permissions import can_reply_to_comments
 
 
@@ -35,11 +36,14 @@ async def reply_to_social_comment(
     comment = comments_service.get_social_comment(db, comment_id)
     if not comment:
         return CommentReplyResult(kind="not_found")
+    cleaned_message = message.strip()
+    if not cleaned_message:
+        return CommentReplyResult(kind="error", error_detail="Reply text cannot be empty")
     try:
         await comments_service.reply_to_social_comment(
             db,
             comment,
-            message.strip(),
+            cleaned_message,
             author_id=actor_id,
             author_name=None,
         )
@@ -49,6 +53,7 @@ async def reply_to_social_comment(
             comment_id=str(comment.id),
             actor_id=actor_id,
         )
+        inbox_cache.invalidate_comments()
         return CommentReplyResult(kind="success")
     except Exception as exc:
         return CommentReplyResult(kind="error", error_detail=str(exc) or "Reply failed")

@@ -178,3 +178,20 @@ pytest tests/playwright/ --headed
 - Inline badge/table HTML instead of macros
 - Referencing removed domains (billing, NAS/RADIUS, catalog)
 - Missing `is_active` filter on soft-deleted entities
+
+## Design Context
+
+**Users**: Mixed office ops staff and field technicians at ISPs/telcos. Office users need density; field techs need large touch targets and clarity. Support agents handle real-time omni-channel conversations.
+
+**Brand personality**: Technical, reliable, warm. Professional operations tool that feels human and approachable.
+
+**Emotional goal**: Calm and clarity — reduce cognitive load even under pressure.
+
+**Design principles**:
+1. **Clarity over density** — scannable hierarchy, white space is a feature
+2. **Consistency builds trust** — every domain has its color, every status its badge, every action the same pattern
+3. **Responsive to context** — data-dense for desktop, simplified for mobile/field
+4. **Calm under pressure** — no urgency theater, important info surfaces through hierarchy
+5. **Warm professionalism** — rounded corners, warm accents, human language; technical but not sterile
+
+Full design context: `.impeccable.md`

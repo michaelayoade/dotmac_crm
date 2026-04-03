@@ -157,3 +157,41 @@ def test_send_instagram_message_image_payload(db_session):
             "payload": {"url": "https://crm.dotmac.io/static/uploads/messages/test.jpg"},
         }
     }
+
+
+def test_send_instagram_message_prefers_ig_override_token_even_with_linked_token(db_session):
+    config, target = _create_target(db_session)
+    token = OAuthToken(
+        connector_config_id=config.id,
+        provider="meta",
+        account_type="instagram_business",
+        external_account_id="ig_123",
+        access_token="linked_token",
+        scopes=["email"],
+        token_expires_at=datetime.now(UTC) + timedelta(days=30),
+        is_active=True,
+    )
+    db_session.add(token)
+    db_session.commit()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"message_id": "ig_m3", "recipient_id": "ig_u1"}
+    mock_response.raise_for_status = MagicMock()
+
+    with (
+        patch("app.services.meta_messaging._get_meta_access_token_override", return_value="IG_OVERRIDE_TOKEN"),
+        patch("app.services.meta_messaging.httpx.AsyncClient") as mock_client,
+    ):
+        mock_instance = AsyncMock()
+        mock_instance.post = AsyncMock(return_value=mock_response)
+        mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = _run_async(meta_messaging.send_instagram_message(db_session, "ig_u1", "Hello", target=target))
+
+    assert result["message_id"] == "ig_m3"
+    call_kwargs = mock_instance.post.await_args.kwargs
+    assert call_kwargs["url"].endswith("/me/messages")
+    assert call_kwargs["headers"] == {"Authorization": "Bearer IG_OVERRIDE_TOKEN"}
+    assert call_kwargs["params"] is None

@@ -141,6 +141,7 @@ async def build_inbox_page_context(
     current_agent_id = get_current_agent_id(db, assigned_person_id) if db else None
 
     comments_mode = channel == "comments"
+    force_refresh_thread = str(query_params.get("reply_sent") or "").strip() == "1"
     comments: list[dict] = []
     selected_comment = None
     comment_replies: list[dict] = []
@@ -158,6 +159,7 @@ async def build_inbox_page_context(
             limit=page_limit,
             fetch=False,
             target_id=target_id,
+            force_refresh_thread=force_refresh_thread,
         )
         comments = context.grouped_comments
         selected_comment = context.selected_comment
@@ -241,6 +243,7 @@ async def build_inbox_page_context(
                 fetch=False,
                 target_id=target_id,
                 include_thread=True,
+                force_refresh_thread=force_refresh_thread,
             )
             selected_comment = comment_context.selected_comment
             comment_replies = comment_context.comment_replies

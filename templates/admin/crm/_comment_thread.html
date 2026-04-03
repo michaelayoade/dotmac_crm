@@ -40,7 +40,12 @@
                                 {{ selected_comment.created_time.strftime('%b %d, %Y %H:%M') if selected_comment.created_time else '' }}
                             </span>
                         </div>
-                        {{ selected_comment.message or 'No message text' }}
+                        {{
+                            selected_comment.message
+                            or (selected_comment.raw_payload.get('message') if selected_comment.raw_payload else '')
+                            or (selected_comment.raw_payload.get('text') if selected_comment.raw_payload else '')
+                            or 'No message text provided by Meta for this event'
+                        }}
                     </div>
                 </div>
             </div>
@@ -55,7 +60,7 @@
                             <div class="mb-1 text-[11px] text-slate-400">
                                 {{ reply.created_time.strftime('%b %d, %H:%M') if reply.created_time else '' }}
                             </div>
-                            {{ reply.message }}
+                            {{ reply.message or 'Reply sent (text unavailable from provider payload)' }}
                         </div>
                     </div>
                 </div>

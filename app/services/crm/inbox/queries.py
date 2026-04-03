@@ -27,6 +27,8 @@ from app.models.person import Person, PersonChannel
 from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
 
+UNASSIGNED_ACTIVITY_START_UTC = datetime(2026, 1, 1, tzinfo=UTC)
+
 
 def _message_activity_ts():
     """Canonical message activity timestamp used for inbox ordering/filtering."""
@@ -34,6 +36,14 @@ def _message_activity_ts():
         Message.received_at,
         Message.sent_at,
         Message.created_at,
+    )
+
+
+def _conversation_activity_ts():
+    """Canonical conversation activity timestamp used for conversation-level filtering."""
+    return func.coalesce(
+        Conversation.last_message_at,
+        Conversation.updated_at,
     )
 
 
@@ -135,7 +145,9 @@ def list_inbox_conversations(
             .filter(ConversationAssignment.is_active.is_(True))
             .distinct()
         )
-        query = query.filter(~Conversation.id.in_(assigned_subq))
+        query = query.filter(~Conversation.id.in_(assigned_subq)).filter(
+            _conversation_activity_ts() >= UNASSIGNED_ACTIVITY_START_UTC
+        )
     elif assignment_filter == "team_assigned":
         team_assigned_subq = (
             db.query(ConversationAssignment.conversation_id)
@@ -648,7 +660,9 @@ def _count_active_conversations_for_filter(
             .filter(ConversationAssignment.is_active.is_(True))
             .distinct()
         )
-        query = query.filter(~Conversation.id.in_(assigned_subq))
+        query = query.filter(~Conversation.id.in_(assigned_subq)).filter(
+            _conversation_activity_ts() >= UNASSIGNED_ACTIVITY_START_UTC
+        )
     elif filter_key == "unreplied":
         inbound_exists = (
             db.query(Message.id)
