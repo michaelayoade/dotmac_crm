@@ -2,9 +2,6 @@
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
-
-import pytest
 
 from app.models.crm.conversation import Message
 from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
@@ -12,7 +9,6 @@ from app.models.notification import Notification, NotificationChannel, Notificat
 from app.models.webhook_dead_letter import WebhookDeadLetter
 from app.tasks.webhook_health import (
     ALERT_COOLDOWN_MINUTES,
-    CHANNEL_SILENCE_THRESHOLDS,
     DEAD_LETTER_LOOKBACK_MINUTES,
     DEAD_LETTER_THRESHOLD,
     _check_channel_silence,
@@ -120,7 +116,7 @@ class TestDeadLetters:
     def test_ignores_old_dead_letters(self, db_session):
         """Dead letters outside the lookback window are ignored."""
         old_time = datetime.now(UTC) - timedelta(minutes=DEAD_LETTER_LOOKBACK_MINUTES + 30)
-        for i in range(DEAD_LETTER_THRESHOLD + 5):
+        for _i in range(DEAD_LETTER_THRESHOLD + 5):
             _make_dead_letter(db_session, "whatsapp", old_time)
 
         issues = _check_dead_letters(db_session, FAKE_RECIPIENT)
