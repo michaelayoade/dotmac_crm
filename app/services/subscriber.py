@@ -231,7 +231,11 @@ class SubscriberManager:
         if previous_speed_value is None or new_speed_value is None or previous_speed_value == new_speed_value:
             return
 
-        event_type = EventType.subscription_upgraded if new_speed_value > previous_speed_value else EventType.subscription_downgraded
+        event_type = (
+            EventType.subscription_upgraded
+            if new_speed_value > previous_speed_value
+            else EventType.subscription_downgraded
+        )
         emit_event(
             db,
             event_type,

@@ -251,10 +251,7 @@ def queue_for_resolved_conversation(
                 "Your feedback helps us improve our service. Thank you!"
             )
         else:
-            csat_body = (
-                "Your conversation has been resolved. "
-                f"How was your experience? Rate us here: {survey_url}"
-            )
+            csat_body = f"Your conversation has been resolved. How was your experience? Rate us here: {survey_url}"
 
         outbound_payload = InboxSendRequest(
             conversation_id=conversation.id,

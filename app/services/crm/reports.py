@@ -1157,15 +1157,17 @@ def agent_weekly_performance(
             if conv.resolution_time_seconds and conv.resolution_time_seconds > res_target * 60:
                 breach_count += 1
 
-        results.append({
-            "agent_id": str(agent.id),
-            "agent_name": agent_name,
-            "resolved_count": len(agent_resolved),
-            "median_response_seconds": int(statistics.median(response_times)) if response_times else None,
-            "median_resolution_seconds": int(statistics.median(resolution_times)) if resolution_times else None,
-            "open_backlog": open_backlog,
-            "csat_avg": csat_avg,
-            "sla_breach_count": breach_count,
-        })
+        results.append(
+            {
+                "agent_id": str(agent.id),
+                "agent_name": agent_name,
+                "resolved_count": len(agent_resolved),
+                "median_response_seconds": int(statistics.median(response_times)) if response_times else None,
+                "median_resolution_seconds": int(statistics.median(resolution_times)) if resolution_times else None,
+                "open_backlog": open_backlog,
+                "csat_avg": csat_avg,
+                "sla_breach_count": breach_count,
+            }
+        )
 
     return results

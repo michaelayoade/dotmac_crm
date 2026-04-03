@@ -123,9 +123,7 @@ def update_conversation_status(
                 created = conversation.created_at
                 if created is not None and created.tzinfo is None:
                     created = created.replace(tzinfo=UTC)
-                conversation.resolution_time_seconds = int(
-                    (now - created).total_seconds()
-                ) if created else 0
+                conversation.resolution_time_seconds = int((now - created).total_seconds()) if created else 0
                 db.commit()
             elif previous_status == ConversationStatus.resolved:
                 conversation.resolved_at = None

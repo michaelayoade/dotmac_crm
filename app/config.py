@@ -28,7 +28,9 @@ class Settings:
 
     # Avatar settings
     avatar_upload_dir: str = field(default_factory=lambda: os.getenv("AVATAR_UPLOAD_DIR", "static/avatars"))
-    avatar_max_size_bytes: int = field(default_factory=lambda: int(os.getenv("AVATAR_MAX_SIZE_BYTES", str(2 * 1024 * 1024))))  # 2MB
+    avatar_max_size_bytes: int = field(
+        default_factory=lambda: int(os.getenv("AVATAR_MAX_SIZE_BYTES", str(2 * 1024 * 1024)))
+    )  # 2MB
     avatar_allowed_types: str = field(
         default_factory=lambda: os.getenv("AVATAR_ALLOWED_TYPES", "image/jpeg,image/png,image/gif,image/webp")
     )

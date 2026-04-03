@@ -247,9 +247,7 @@ class Messages(ListResponseMixin):
             ) is not None
             if is_agent:
                 conversation.first_response_at = timestamp
-                conversation.response_time_seconds = int(
-                    (timestamp - conversation.created_at).total_seconds()
-                )
+                conversation.response_time_seconds = int((timestamp - conversation.created_at).total_seconds())
 
         db.commit()
         db.refresh(message)
