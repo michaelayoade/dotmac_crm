@@ -1072,7 +1072,7 @@ def agent_weekly_performance(
         return [
             {
                 "agent_id": str(a.id),
-                "agent_name": (person_map.get(a.person_id) or type("P", (), {"display_name": "Unknown"})).display_name,
+                "agent_name": (person.display_name if person else "Unknown"),
                 "resolved_count": 0,
                 "median_response_seconds": None,
                 "median_resolution_seconds": None,
@@ -1081,6 +1081,7 @@ def agent_weekly_performance(
                 "sla_breach_count": 0,
             }
             for a in agents
+            for person in [person_map.get(a.person_id)]
         ]
 
     # Batch-load resolved conversations in the period

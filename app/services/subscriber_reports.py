@@ -625,7 +625,7 @@ def _looks_like_noise_name(value: str | None) -> bool:
     return alpha > 0 and alpha / max(alnum, 1) < _NOISE_MIN_ALPHA_RATIO and digit >= _NOISE_MIXED_MIN_DIGITS
 
 
-def _dedupe_churn_rows(rows: list[dict]) -> list[dict]:
+def _dedupe_churn_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep the single most risky row per linked person."""
     if not rows:
         return rows
@@ -638,7 +638,7 @@ def _dedupe_churn_rows(rows: list[dict]) -> list[dict]:
         "Pending": 0,
     }
 
-    grouped: dict[str, list[dict]] = defaultdict(list)
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         person_id = str(row.get("_person_id") or "").strip()
         external_id = str(row.get("_external_id") or "").strip()
@@ -647,7 +647,7 @@ def _dedupe_churn_rows(rows: list[dict]) -> list[dict]:
         key = person_id or external_id or subscriber_number or subscriber_id
         grouped[key].append(row)
 
-    def sort_key(row: dict) -> tuple:
+    def sort_key(row: dict[str, Any]) -> tuple:
         segment = str(row.get("risk_segment") or "")
         due = row.get("days_to_due")
         due_value = due if isinstance(due, int) else 10**9
@@ -659,7 +659,7 @@ def _dedupe_churn_rows(rows: list[dict]) -> list[dict]:
             last_synced,
         )
 
-    deduped: list[dict] = []
+    deduped: list[dict[str, Any]] = []
     for bucket in grouped.values():
         bucket.sort(key=sort_key)
         deduped.append(bucket[0])
@@ -671,7 +671,7 @@ def overview_regional_breakdown(
     start_dt: datetime,
     end_dt: datetime,
     subscriber_ids: list | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Regional breakdown table."""
     activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
     raw_region_key = _regional_breakdown_key().label("region")
@@ -1684,9 +1684,9 @@ def get_churn_table(
 
     results = _dedupe_churn_rows(results)
 
-    avg_balance = round(sum(row["balance"] for row in results) / len(results), 2) if results else 0.0
-    for row in results:
-        row["is_high_balance_risk"] = row["balance"] > avg_balance and row["risk_segment"] in {
+    avg_balance = round(sum(r["balance"] for r in results) / len(results), 2) if results else 0.0
+    for entry in results:
+        entry["is_high_balance_risk"] = entry["balance"] > avg_balance and entry["risk_segment"] in {
             "Overdue",
             "Suspended",
             "Churned",
@@ -2795,16 +2795,16 @@ def _behavioral_churn_event_at(db: Session):
             else_=func.coalesce(derived_from_last_payment, derived_from_invoice_due),
         )
 
-    threshold_interval = func.make_interval(days=40)
-    threshold_date = cast(func.current_date() - threshold_interval, Date)
+    threshold_interval: Any = func.make_interval(days=40)
+    threshold_date_pg: Any = cast(func.current_date() - threshold_interval, Date)
     derived_from_last_payment = case(
         (
-            and_(last_payment_date.isnot(None), last_payment_date <= threshold_date),
+            and_(last_payment_date.isnot(None), last_payment_date <= threshold_date_pg),
             cast(last_payment_date + threshold_interval, DateTime(timezone=True)),
         ),
         else_=None,
     )
-    invoice_due_date = cast(Subscriber.next_bill_date, Date)
+    invoice_due_date_pg: Any = cast(Subscriber.next_bill_date, Date)
     clean_balance = func.nullif(
         func.regexp_replace(func.coalesce(Subscriber.balance, ""), r"[^0-9.\-]", "", "g"),
         "",
@@ -2812,8 +2812,8 @@ def _behavioral_churn_event_at(db: Session):
     balance_positive = cast(clean_balance, Numeric) > 0
     derived_from_invoice_due = case(
         (
-            and_(invoice_due_date.isnot(None), invoice_due_date <= threshold_date, balance_positive),
-            cast(invoice_due_date + threshold_interval, DateTime(timezone=True)),
+            and_(invoice_due_date_pg.isnot(None), invoice_due_date_pg <= threshold_date_pg, balance_positive),
+            cast(invoice_due_date_pg + threshold_interval, DateTime(timezone=True)),
         ),
         else_=None,
     )
@@ -2876,6 +2876,10 @@ def _unified_churn_expressions(db: Session, behavioral_days: int):
     successful_payment_sq = _successful_payment_subquery()
     last_successful_payment_at = successful_payment_sq.c.last_successful_payment_at
     last_transaction_at = cast(_sync_metadata_date_expr(db, "last_transaction_date"), DateTime(timezone=True))
+    latest_payment_signal_at: Any
+    behavioral_reference_date: Any
+    behavioral_cutoff_date: Any
+    invoice_due_date: Any
     if dialect_name == "sqlite":
         latest_payment_signal_at = case(
             (last_successful_payment_at.is_(None), last_transaction_at),
@@ -2888,7 +2892,7 @@ def _unified_churn_expressions(db: Session, behavioral_days: int):
         invoice_due_date = func.date(Subscriber.next_bill_date)
         balance_positive = cast(func.replace(func.coalesce(Subscriber.balance, "0"), ",", ""), Numeric) > 0
     else:
-        threshold_interval = func.make_interval(days=threshold_days)
+        threshold_interval: Any = func.make_interval(days=threshold_days)
         latest_payment_signal_at = func.greatest(
             func.coalesce(last_successful_payment_at, cast("1970-01-01", DateTime(timezone=True))),
             func.coalesce(last_transaction_at, cast("1970-01-01", DateTime(timezone=True))),
