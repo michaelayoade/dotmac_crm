@@ -293,6 +293,7 @@ class ProposedRouteRevisionBase(BaseModel):
     reviewed_at: datetime | None = None
     reviewed_by_person_id: UUID | None = None
     review_notes: str | None = None
+    fiber_segment_id: UUID | None = None
 
 
 class ProposedRouteRevisionCreate(BaseModel):

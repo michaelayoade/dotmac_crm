@@ -1,6 +1,7 @@
 import contextlib
 import html
 import json
+import logging
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -8,8 +9,9 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from app.models.domain_settings import SettingDomain
 from app.models.network import FiberSegment, FiberSegmentType
@@ -71,6 +73,12 @@ _QUOTE_COMMENT_PATTERN = re.compile(
     r"^\[QUOTE:(?P<quote_id>[0-9a-fA-F-]{36})\]\s*(?:\[(?P<action>[A-Z_]+)\]\s*)?(?P<body>.*)$",
     re.DOTALL,
 )
+_ROUTE_DUPLICATE_NEAR_METERS = 5.0
+_ROUTE_DUPLICATE_OVERLAP_WARN = 0.60
+_ROUTE_DUPLICATE_OVERLAP_HIGH = 0.85
+_MAX_SEGMENT_NAME_ATTEMPTS = 10_000
+
+logger = logging.getLogger(__name__)
 
 
 def _quote_comment_prefix(quote_id: str) -> str:
@@ -240,6 +248,27 @@ def _get_route_geojson(db: Session, model, entity_id: str) -> dict | None:
     if not geojson_str:
         return None
     return json.loads(geojson_str)
+
+
+def _segment_name_for_quote_revision(revision: ProposedRouteRevision) -> str:
+    quote = revision.quote
+    project = quote.project if quote else None
+    parent_project = project.project if project else None
+    project_token = (parent_project.code if parent_project and parent_project.code else str(project.id)[:8]).strip()
+    quote_token = str(quote.id)[:8] if quote else "unknown"
+    return f"Quote-{project_token}-Q{quote_token}-R{revision.revision_number}"
+
+
+def _ensure_unique_segment_name(db: Session, base_name: str) -> str:
+    base_candidate = base_name.strip() or "Quote-Route"
+    candidate = base_candidate
+    suffix = 2
+    while db.scalar(select(FiberSegment.id).where(FiberSegment.name == candidate).limit(1)):
+        if suffix > _MAX_SEGMENT_NAME_ATTEMPTS:
+            raise HTTPException(status_code=409, detail="Unable to generate a unique fiber segment name")
+        candidate = f"{base_candidate} ({suffix})"
+        suffix += 1
+    return candidate
 
 
 def _quote_total_from_items(db: Session, quote_id: str) -> Decimal:
@@ -1393,15 +1422,144 @@ class ProposedRouteRevisions(ListResponseMixin):
         return revision
 
     @staticmethod
+    def find_duplicate_segments(
+        db: Session,
+        revision_id: str,
+        *,
+        limit: int = 5,
+    ) -> list[dict[str, object]]:
+        revision = _ensure_route_revision(db, revision_id)
+        if revision.route_geom is None:
+            return []
+
+        revision_alias = aliased(ProposedRouteRevision)
+        transformed_segment = func.ST_Transform(FiberSegment.route_geom, 3857)
+        transformed_revision = func.ST_Transform(revision_alias.route_geom, 3857)
+        distance_m = func.ST_Distance(transformed_segment, transformed_revision).label("distance_m")
+        overlap_ratio = func.coalesce(
+            func.ST_Length(func.ST_Intersection(transformed_segment, transformed_revision))
+            / func.nullif(func.ST_Length(transformed_revision), 0),
+            0.0,
+        ).label("overlap_ratio")
+        exact_match = func.ST_Equals(FiberSegment.route_geom, revision_alias.route_geom).label("exact_match")
+        near_match = func.ST_DWithin(
+            transformed_segment,
+            transformed_revision,
+            _ROUTE_DUPLICATE_NEAR_METERS,
+        ).label("near_match")
+
+        try:
+            rows = (
+                db.query(
+                    FiberSegment.id,
+                    FiberSegment.name,
+                    FiberSegment.segment_type,
+                    exact_match,
+                    near_match,
+                    overlap_ratio,
+                    distance_m,
+                )
+                .join(revision_alias, revision_alias.id == revision.id)
+                .filter(FiberSegment.is_active.is_(True))
+                .filter(FiberSegment.route_geom.isnot(None))
+                .filter(
+                    or_(
+                        exact_match.is_(True),
+                        near_match.is_(True),
+                        overlap_ratio >= _ROUTE_DUPLICATE_OVERLAP_WARN,
+                    )
+                )
+                .order_by(
+                    exact_match.desc(),
+                    overlap_ratio.desc(),
+                    distance_m.asc(),
+                )
+                .limit(max(1, limit))
+                .all()
+            )
+        except (OperationalError, ProgrammingError):
+            # Keep approval/review resilient when spatial extensions are unavailable in local test DBs.
+            logger.exception("Duplicate segment check failed due to missing/incompatible spatial DB features")
+            return []
+
+        warnings: list[dict[str, object]] = []
+        for row in rows:
+            is_exact = bool(row.exact_match)
+            ratio = float(row.overlap_ratio or 0.0)
+            is_near = bool(row.near_match)
+            if is_exact:
+                match_type = "exact"
+                severity = "high"
+                message = "Matches an existing route exactly."
+            elif ratio >= _ROUTE_DUPLICATE_OVERLAP_HIGH:
+                match_type = "overlap_high"
+                severity = "high"
+                message = "Has very high overlap with an existing route."
+            elif is_near:
+                match_type = "near"
+                severity = "medium"
+                message = "Runs very close to an existing route."
+            else:
+                match_type = "overlap"
+                severity = "medium"
+                message = "Partially overlaps an existing route."
+            warnings.append(
+                {
+                    "segment_id": str(row.id),
+                    "segment_name": row.name,
+                    "segment_type": row.segment_type.value if row.segment_type else None,
+                    "match_type": match_type,
+                    "severity": severity,
+                    "message": message,
+                    "distance_m": float(row.distance_m or 0.0),
+                    "overlap_ratio": ratio,
+                }
+            )
+        return warnings
+
+    @staticmethod
+    def _replace_segment_for_revision(db: Session, revision: ProposedRouteRevision) -> FiberSegment | None:
+        if revision.route_geom is None:
+            return None
+        if not revision.quote:
+            raise HTTPException(status_code=400, detail="Route revision quote is missing")
+
+        prior_segments = (
+            db.query(FiberSegment)
+            .join(ProposedRouteRevision, ProposedRouteRevision.fiber_segment_id == FiberSegment.id)
+            .filter(ProposedRouteRevision.quote_id == revision.quote_id)
+            .filter(ProposedRouteRevision.id != revision.id)
+            .filter(ProposedRouteRevision.status == ProposedRouteRevisionStatus.accepted)
+            .filter(FiberSegment.is_active.is_(True))
+            .all()
+        )
+        for prior in prior_segments:
+            prior.is_active = False
+
+        segment_name = _ensure_unique_segment_name(db, _segment_name_for_quote_revision(revision))
+        segment = FiberSegment(
+            name=segment_name,
+            segment_type=FiberSegmentType.drop,
+            route_geom=revision.route_geom,
+            length_m=revision.length_meters,
+            is_active=True,
+        )
+        db.add(segment)
+        db.flush()
+        return segment
+
+    @staticmethod
     def approve(db: Session, revision_id: str, reviewer_person_id: str, review_notes: str | None = None):
         revision = _ensure_route_revision(db, revision_id)
         _ensure_person(db, reviewer_person_id)
         if revision.status != ProposedRouteRevisionStatus.submitted:
             raise HTTPException(status_code=400, detail="Only submitted route revisions can be approved")
+        segment = ProposedRouteRevisions._replace_segment_for_revision(db, revision)
         revision.status = ProposedRouteRevisionStatus.accepted
         revision.reviewed_at = _now()
         revision.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
         revision.review_notes = review_notes
+        revision.fiber_segment_id = segment.id if segment else None
         db.commit()
         db.refresh(revision)
         return revision

@@ -8,7 +8,7 @@ from app.models.crm.enums import LeadStatus
 from app.models.crm.sales import Lead
 from app.models.event_store import EventStore
 from app.models.person import PartyStatus, Person
-from app.models.sales_order import SalesOrder, SalesOrderStatus
+from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
@@ -640,7 +640,7 @@ def test_overview_regional_breakdown_extracts_states_and_drops_invalid_values(db
     assert any(row["region"] == "Unknown" and row["active"] == 1 for row in regional)
 
 
-def test_lifecycle_kpis_uses_inactive_subscribers_as_churn_fallback(db_session):
+def test_lifecycle_kpis_uses_behavioral_last_payment_churn(db_session):
     now = datetime.now(UTC)
     start_dt = now - timedelta(days=30)
     end_dt = now
@@ -662,9 +662,9 @@ def test_lifecycle_kpis_uses_inactive_subscribers_as_churn_fallback(db_session):
                 person_id=person.id,
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
-                is_active=False,
+                is_active=True,
                 created_at=now - timedelta(days=60),
-                updated_at=now - timedelta(days=5),
+                sync_metadata={"last_transaction_date": (now - timedelta(days=45)).strftime("%Y-%m-%d")},
             ),
         ]
     )
@@ -674,6 +674,9 @@ def test_lifecycle_kpis_uses_inactive_subscribers_as_churn_fallback(db_session):
 
     assert kpis["terminated_in_period"] == 1
     assert kpis["churn_rate"] == 50.0
+    assert kpis["operational_churn_in_period"] == 0
+    assert kpis["behavioral_churn_in_period"] == 1
+    assert kpis["total_active_subscribers_start"] == 2
 
 
 def test_lifecycle_kpis_keeps_small_churn_rates_visible(db_session):
@@ -703,9 +706,9 @@ def test_lifecycle_kpis_keeps_small_churn_rates_visible(db_session):
             person_id=people[100].id,
             subscriber_number=f"SUB-{uuid4().hex[:8]}",
             status=SubscriberStatus.active,
-            is_active=False,
+            is_active=True,
             created_at=now - timedelta(days=60),
-            updated_at=now - timedelta(days=5),
+            sync_metadata={"last_transaction_date": (now - timedelta(days=45)).strftime("%Y-%m-%d")},
         )
     )
     db_session.add_all(subscribers)
@@ -743,17 +746,17 @@ def test_lifecycle_kpis_excludes_pre_period_churn_from_starting_base(db_session)
                 person_id=people[1].id,
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
-                is_active=False,
+                is_active=True,
                 created_at=now - timedelta(days=60),
-                updated_at=now - timedelta(days=5),
+                sync_metadata={"last_transaction_date": (now - timedelta(days=45)).strftime("%Y-%m-%d")},
             ),
             Subscriber(
                 person_id=people[2].id,
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
-                is_active=False,
+                is_active=True,
                 created_at=now - timedelta(days=90),
-                updated_at=now - timedelta(days=45),
+                sync_metadata={"last_transaction_date": (now - timedelta(days=80)).strftime("%Y-%m-%d")},
             ),
         ]
     )
@@ -763,6 +766,84 @@ def test_lifecycle_kpis_excludes_pre_period_churn_from_starting_base(db_session)
 
     assert kpis["terminated_in_period"] == 1
     assert kpis["churn_rate"] == 50.0
+
+
+def test_lifecycle_kpis_uses_behavioral_invoice_due_non_payment_churn(db_session):
+    now = datetime.now(UTC)
+    start_dt = now - timedelta(days=30)
+    end_dt = now
+
+    person = Person(first_name="Due", last_name="Churn", email=f"due-churn-{uuid4().hex}@example.com")
+    db_session.add(person)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.active,
+                is_active=True,
+                created_at=now - timedelta(days=120),
+            ),
+            Subscriber(
+                person_id=person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.active,
+                is_active=True,
+                created_at=now - timedelta(days=90),
+                next_bill_date=now - timedelta(days=45),
+                balance="120.00",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    kpis = subscriber_reports_service.lifecycle_kpis(db_session, start_dt, end_dt)
+
+    assert kpis["terminated_in_period"] == 1
+    assert kpis["churn_rate"] == 50.0
+    assert kpis["operational_churn_in_period"] == 0
+    assert kpis["behavioral_churn_in_period"] == 1
+    assert kpis["total_active_subscribers_start"] == 2
+
+
+def test_lifecycle_kpis_prioritizes_operational_over_behavioral(db_session):
+    now = datetime.now(UTC)
+    start_dt = now - timedelta(days=30)
+    end_dt = now
+
+    person = Person(first_name="Priority", last_name="Churn", email=f"priority-{uuid4().hex}@example.com")
+    db_session.add(person)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.active,
+                is_active=True,
+                created_at=now - timedelta(days=120),
+            ),
+            Subscriber(
+                person_id=person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.terminated,
+                is_active=True,
+                created_at=now - timedelta(days=90),
+                terminated_at=now - timedelta(days=10),
+                sync_metadata={"last_transaction_date": (now - timedelta(days=80)).strftime("%Y-%m-%d")},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    kpis = subscriber_reports_service.lifecycle_kpis(db_session, start_dt, end_dt)
+
+    assert kpis["terminated_in_period"] == 1
+    assert kpis["operational_churn_in_period"] == 1
+    assert kpis["behavioral_churn_in_period"] == 0
 
 
 def test_lifecycle_kpis_avg_days_to_convert_uses_won_lead_cycle_time(db_session):
@@ -1551,7 +1632,7 @@ def test_lifecycle_longest_tenure_falls_back_to_created_at(db_session):
     assert rows[0]["tenure_days"] >= 44
 
 
-def test_lifecycle_recent_churns_fall_back_to_inactive_updated_at(db_session):
+def test_lifecycle_recent_churns_include_behavioral_40_day_non_payment(db_session):
     now = datetime.now(UTC)
 
     person = Person(first_name="Recent", last_name="Churn", email=f"recent-churn-{uuid4().hex}@example.com")
@@ -1562,12 +1643,11 @@ def test_lifecycle_recent_churns_fall_back_to_inactive_updated_at(db_session):
         Subscriber(
             person_id=person.id,
             subscriber_number="SUB-RECENT-001",
-            status=SubscriberStatus.terminated,
-            is_active=False,
+            status=SubscriberStatus.active,
+            is_active=True,
             service_region="Central",
             created_at=now - timedelta(days=60),
-            updated_at=now - timedelta(days=5),
-            terminated_at=None,
+            sync_metadata={"last_transaction_date": (now - timedelta(days=45)).strftime("%Y-%m-%d")},
         )
     )
     db_session.commit()
@@ -2276,6 +2356,8 @@ def test_subscriber_lifecycle_page_renders(monkeypatch):
     body = response.body.decode()
     assert "Subscriber Lifecycle" in body
     assert "Avg Days To Convert" in body
+    assert "Operational Churn" in body
+    assert "Behavioral Churn (40d)" in body
     assert "Pipeline Value" in body
     assert "Cohort Retention" in body
     assert "Time To Convert Distribution" not in body
@@ -2367,132 +2449,221 @@ def test_subscriber_lifecycle_defaults_to_inception_when_days_is_zero(monkeypatc
     assert captured["start_dt"] == datetime(2025, 1, 15, tzinfo=UTC)
 
 
-def test_get_churn_table_segments_and_flags_non_renewals(db_session):
+def test_get_churn_table_uses_splynx_status_due_date_and_balance(db_session):
     now = datetime.now(UTC)
 
-    no_payment_person = Person(first_name="No", last_name="Payment", email=f"nopay-{uuid4().hex}@example.com")
-    at_risk_person = Person(first_name="At", last_name="Risk", email=f"atrisk-{uuid4().hex}@example.com")
-    churned_person = Person(first_name="High", last_name="Value", email=f"churned-{uuid4().hex}@example.com")
-    active_person = Person(first_name="Still", last_name="Paying", email=f"active-{uuid4().hex}@example.com")
-    db_session.add_all([no_payment_person, at_risk_person, churned_person, active_person])
+    due_soon_person = Person(first_name="Due", last_name="Soon", email=f"duesoon-{uuid4().hex}@example.com")
+    overdue_person = Person(first_name="Late", last_name="Payer", email=f"overdue-{uuid4().hex}@example.com")
+    suspended_person = Person(first_name="Suspended", last_name="Account", email=f"suspended-{uuid4().hex}@example.com")
+    current_person = Person(first_name="Current", last_name="Active", email=f"current-{uuid4().hex}@example.com")
+    db_session.add_all([due_soon_person, overdue_person, suspended_person, current_person])
     db_session.flush()
 
-    no_payment_subscriber = Subscriber(
-        person_id=no_payment_person.id,
+    due_soon_subscriber = Subscriber(
+        person_id=due_soon_person.id,
         subscriber_number=f"SUB-{uuid4().hex[:8]}",
         status=SubscriberStatus.active,
         is_active=True,
+        next_bill_date=now + timedelta(days=3),
+        balance="50.00",
+        billing_cycle="monthly",
     )
-    at_risk_subscriber = Subscriber(
-        person_id=at_risk_person.id,
+    overdue_subscriber = Subscriber(
+        person_id=overdue_person.id,
         subscriber_number=f"SUB-{uuid4().hex[:8]}",
         status=SubscriberStatus.active,
         is_active=True,
+        next_bill_date=now - timedelta(days=5),
+        balance="250.00",
+        billing_cycle="monthly",
+        sync_metadata={
+            "last_transaction_date": "2026-03-14",
+            "expires_in": "2 days",
+            "invoiced_until": "2026-03-31",
+            "total_paid": "12345.67",
+        },
     )
-    churned_subscriber = Subscriber(
-        person_id=churned_person.id,
+    suspended_subscriber = Subscriber(
+        person_id=suspended_person.id,
+        subscriber_number=f"SUB-{uuid4().hex[:8]}",
+        status=SubscriberStatus.suspended,
+        is_active=True,
+        next_bill_date=now - timedelta(days=15),
+        balance="120.00",
+        billing_cycle="monthly",
+    )
+    current_subscriber = Subscriber(
+        person_id=current_person.id,
         subscriber_number=f"SUB-{uuid4().hex[:8]}",
         status=SubscriberStatus.active,
         is_active=True,
+        next_bill_date=now + timedelta(days=25),
+        balance="10.00",
+        billing_cycle="monthly",
     )
-    active_subscriber = Subscriber(
-        person_id=active_person.id,
-        subscriber_number=f"SUB-{uuid4().hex[:8]}",
-        status=SubscriberStatus.active,
-        is_active=True,
-    )
-    db_session.add_all([no_payment_subscriber, at_risk_subscriber, churned_subscriber, active_subscriber])
-    db_session.flush()
-
-    db_session.add_all(
-        [
-            SalesOrder(
-                person_id=at_risk_person.id,
-                order_number=f"SO-{uuid4().hex[:8]}",
-                status=SalesOrderStatus.paid,
-                total=Decimal("100.00"),
-                amount_paid=Decimal("100.00"),
-                created_at=now - timedelta(days=100),
-            ),
-            SalesOrder(
-                person_id=churned_person.id,
-                order_number=f"SO-{uuid4().hex[:8]}",
-                status=SalesOrderStatus.paid,
-                total=Decimal("500.00"),
-                amount_paid=Decimal("500.00"),
-                created_at=now - timedelta(days=150),
-            ),
-            SalesOrder(
-                person_id=active_person.id,
-                order_number=f"SO-{uuid4().hex[:8]}",
-                status=SalesOrderStatus.paid,
-                total=Decimal("50.00"),
-                amount_paid=Decimal("50.00"),
-                created_at=now - timedelta(days=30),
-            ),
-        ]
-    )
+    db_session.add_all([due_soon_subscriber, overdue_subscriber, suspended_subscriber, current_subscriber])
     db_session.commit()
 
-    rows = subscriber_reports_service.get_churn_table(db_session, days_active=90, days_churn=120, limit=20)
+    rows = subscriber_reports_service.get_churn_table(db_session, due_soon_days=7, limit=20)
 
-    assert [row["name"] for row in rows] == ["High Value", "At Risk", "No Payment"]
-    assert rows[0]["subscriber_id"] == str(churned_subscriber.id)
-    assert rows[0]["last_payment_date"] == (now - timedelta(days=150)).strftime("%Y-%m-%d")
-    assert rows[0]["total_orders"] == 1
-    assert rows[0]["lifetime_value"] == 500.0
-    assert rows[0]["avg_order_value"] == 500.0
-    assert rows[0]["days_since_last_payment"] >= 149
-    assert rows[0]["churn_segment"] == "Churned"
-    assert rows[0]["is_high_value_churn"] is True
+    assert [row["name"] for row in rows] == ["Late Payer", "Suspended Account", "Due Soon"]
+    assert rows[0]["subscriber_id"] == str(overdue_subscriber.id)
+    assert rows[0]["subscriber_status"] == "Active"
+    assert rows[0]["next_bill_date"] == (now - timedelta(days=5)).strftime("%Y-%m-%d")
+    assert rows[0]["balance"] == 250.0
+    assert rows[0]["billing_cycle"] == "monthly"
+    assert rows[0]["last_transaction_date"] == "2026-03-14"
+    assert rows[0]["expires_in"] == "2 days"
+    assert rows[0]["invoiced_until"] == "2026-03-31"
+    assert rows[0]["total_paid"] == 12345.67
+    assert rows[0]["days_to_due"] <= -4
+    assert rows[0]["risk_segment"] == "Overdue"
+    assert rows[0]["is_high_balance_risk"] is True
 
-    assert rows[1]["subscriber_id"] == str(at_risk_subscriber.id)
-    assert rows[1]["days_since_last_payment"] >= 99
-    assert rows[1]["churn_segment"] == "At Risk"
-    assert rows[1]["is_high_value_churn"] is False
+    assert rows[1]["subscriber_id"] == str(suspended_subscriber.id)
+    assert rows[1]["subscriber_status"] == "Suspended"
+    assert rows[1]["risk_segment"] == "Suspended"
+    assert rows[1]["is_high_balance_risk"] is False
 
-    assert rows[2]["subscriber_id"] == str(no_payment_subscriber.id)
-    assert rows[2]["last_payment_date"] == ""
-    assert rows[2]["days_since_last_payment"] == 9999
-    assert rows[2]["churn_segment"] == "Churned"
-    assert rows[2]["is_high_value_churn"] is False
+    assert rows[2]["subscriber_id"] == str(due_soon_subscriber.id)
+    assert rows[2]["risk_segment"] == "Due Soon"
+    assert rows[2]["is_high_balance_risk"] is False
 
     churned_only = subscriber_reports_service.get_churn_table(
         db_session,
-        days_active=90,
-        days_churn=120,
-        segment="churned",
+        due_soon_days=7,
+        segment="overdue",
         limit=20,
     )
-    assert [row["name"] for row in churned_only] == ["High Value", "No Payment"]
+    assert [row["name"] for row in churned_only] == ["Late Payer"]
 
-    high_value_only = subscriber_reports_service.get_churn_table(
+    high_balance_only = subscriber_reports_service.get_churn_table(
         db_session,
-        days_active=90,
-        days_churn=120,
-        high_value_only=True,
+        due_soon_days=7,
+        high_balance_only=True,
         limit=20,
     )
-    assert [row["name"] for row in high_value_only] == ["High Value"]
+    assert [row["name"] for row in high_balance_only] == ["Late Payer"]
+
+
+def test_get_overdue_invoices_table_returns_30_day_past_due_customers(db_session):
+    now = datetime.now(UTC)
+    person = Person(first_name="Overdue", last_name="Customer", email=f"overdue-{uuid4().hex}@example.com")
+    db_session.add(person)
+    db_session.flush()
+
+    overdue_order = SalesOrder(
+        person_id=person.id,
+        status=SalesOrderStatus.confirmed,
+        payment_status=SalesOrderPaymentStatus.pending,
+        total=Decimal("5000.00"),
+        amount_paid=Decimal("0.00"),
+        balance_due=Decimal("5000.00"),
+        payment_due_date=now - timedelta(days=45),
+    )
+    not_overdue_order = SalesOrder(
+        person_id=person.id,
+        status=SalesOrderStatus.confirmed,
+        payment_status=SalesOrderPaymentStatus.pending,
+        total=Decimal("1000.00"),
+        amount_paid=Decimal("0.00"),
+        balance_due=Decimal("1000.00"),
+        payment_due_date=now - timedelta(days=10),
+    )
+    db_session.add_all([overdue_order, not_overdue_order])
+    db_session.commit()
+
+    rows = subscriber_reports_service.get_overdue_invoices_table(db_session, min_days_past_due=30, limit=50)
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Overdue Customer"
+    assert rows[0]["overdue_invoices"] == 1
+    assert rows[0]["total_balance_due"] == 5000.0
+    assert rows[0]["max_days_past_due"] >= 30
 
 
 def test_churned_subscribers_page_renders(monkeypatch):
+    monkeypatch.setattr(
+        reports_web,
+        "_resolve_lifecycle_date_range",
+        lambda _db, _days, _start, _end: (
+            datetime(2026, 3, 1, tzinfo=UTC),
+            datetime(2026, 3, 31, 23, 59, 59, tzinfo=UTC),
+        ),
+    )
     monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
     monkeypatch.setattr(
         subscriber_reports_service,
-        "get_churn_table",
-        lambda _db, days_active=90, days_churn=120, high_value_only=False, segment=None: [
+        "churned_subscribers_kpis",
+        lambda _db, _start, _end, behavioral_days=60: {
+            "churned_count": 4,
+            "churn_rate": 2.7,
+            "revenue_lost_to_churn": 180000.0,
+            "avg_lifetime_before_churn_days": 312,
+            "impacted_plans": 2,
+            "impacted_regions": 1,
+        },
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churned_subscribers_trend",
+        lambda _db, _start, _end, behavioral_days=60: [
+            {"date": "2026-03-28", "count": 1},
+            {"date": "2026-03-29", "count": 2},
+        ],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churned_subscribers_rows",
+        lambda _db, _start, _end, limit=100, behavioral_days=60: [
             {
-                "subscriber_id": "sub-1",
-                "name": "Jane Doe",
-                "email": "jane@example.com",
-                "last_payment_date": "2025-11-21",
-                "total_orders": 4,
-                "lifetime_value": 95000.0,
-                "avg_order_value": 23750.0,
-                "days_since_last_payment": 130,
-                "churn_segment": "Churned",
-                "is_high_value_churn": True,
+                "name": "Former Customer",
+                "subscriber_number": "SUB-9",
+                "plan": "Premium",
+                "region": "Ikeja",
+                "activated_at": "2025-05-21",
+                "terminated_at": "2026-03-28",
+                "tenure_days": 312,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churned_failed_payment_rows",
+        lambda _db, _start, _end, limit=50, behavioral_days=60: [
+            {
+                "name": "Payment Risk",
+                "subscriber_number": "SUB-10",
+                "plan": "Standard",
+                "outstanding_balance": 6400.0,
+                "due_date": "2026-03-15",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churned_cancelled_rows",
+        lambda _db, _start, _end, limit=50: [
+            {
+                "name": "Cancelled User",
+                "subscriber_number": "SUB-11",
+                "plan": "Premium",
+                "region": "Abuja",
+                "terminated_at": "2026-03-27",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churned_inactive_usage_rows",
+        lambda _db, _end, limit=50: [
+            {
+                "name": "Dormant User",
+                "subscriber_number": "SUB-12",
+                "plan": "SME",
+                "status": "suspended",
+                "last_usage_at": "2025-12-20",
+                "days_since_use": 100,
+                "total_paid": 50000.0,
             }
         ],
     )
@@ -2513,20 +2684,82 @@ def test_churned_subscribers_page_renders(monkeypatch):
     response = reports_web.churned_subscribers(
         request=request,
         db=None,
-        days_active=90,
-        days_churn=120,
-        high_value_only=False,
-        segment=None,
+        days=30,
+        start_date=None,
+        end_date=None,
     )
 
     assert response.status_code == 200
     body = response.body.decode()
-    assert "Subscriber Churn Risk" in body
-    assert "Payment Renewal Churn Table" in body
-    assert "High-value only" in body
-    assert "Last Payment" in body
-    assert "Days Since Payment" in body
-    assert "Jane Doe" in body
+    assert "Churned Subscribers" in body
+    assert "Churn Rate" in body
+    assert "Revenue Lost" in body
+    assert "Churn Trend" in body
+    assert "Behavioral Churn: Failed Payment" in body
+    assert "Operational Churn: Explicit Cancellation" in body
+    assert "At-Risk Inactive Usage (90+ days no activity)" in body
+    assert "Outstanding" in body
+    assert "Former Customer" in body
+    assert "Payment Risk" in body
+    assert "Cancelled User" in body
+    assert "Dormant User" in body
+
+
+def test_churn_risk_summary_rolls_up_balances_and_recent_churn():
+    summary = subscriber_reports_service.churn_risk_summary(
+        [
+            {"balance": 1000.0, "risk_segment": "Overdue", "is_high_balance_risk": True},
+            {"balance": 500.0, "risk_segment": "Due Soon", "is_high_balance_risk": False},
+            {"balance": 250.0, "risk_segment": "Overdue", "is_high_balance_risk": False},
+        ],
+        [{"total_balance_due": 3000.0}],
+        {"churned_count": 2, "churn_rate": 1.5, "revenue_lost_to_churn": 12000.0},
+    )
+
+    assert summary["total_at_risk"] == 3
+    assert summary["total_balance_exposure"] == 1750.0
+    assert summary["high_balance_risk_count"] == 1
+    assert summary["overdue_count"] == 2
+    assert summary["overdue_balance_exposure"] == 1250.0
+    assert summary["overdue_invoice_balance"] == 3000.0
+    assert summary["recent_churned_count"] == 2
+    assert summary["recent_churn_rate"] == 1.5
+
+
+def test_churn_risk_segment_breakdown_groups_and_orders_rows():
+    rows = subscriber_reports_service.churn_risk_segment_breakdown(
+        [
+            {"risk_segment": "Due Soon", "balance": 100.0, "is_high_balance_risk": False},
+            {"risk_segment": "Overdue", "balance": 500.0, "is_high_balance_risk": True},
+            {"risk_segment": "Overdue", "balance": 300.0, "is_high_balance_risk": False},
+        ]
+    )
+
+    assert [row["segment"] for row in rows] == ["Overdue", "Due Soon"]
+    assert rows[0]["count"] == 2
+    assert rows[0]["balance"] == 800.0
+    assert rows[0]["high_balance_count"] == 1
+    assert rows[0]["avg_balance"] == 400.0
+
+
+def test_churn_risk_aging_buckets_categorizes_due_dates():
+    rows = subscriber_reports_service.churn_risk_aging_buckets(
+        [
+            {"days_to_due": 3},
+            {"days_to_due": -2},
+            {"days_to_due": -15},
+            {"days_to_due": -45},
+            {"days_to_due": None},
+        ],
+        due_soon_days=7,
+    )
+
+    bucket_map = {row["label"]: row["count"] for row in rows}
+    assert bucket_map["Due In 0-7 Days"] == 1
+    assert bucket_map["Overdue 1-7 Days"] == 1
+    assert bucket_map["Overdue 8-30 Days"] == 1
+    assert bucket_map["Overdue 31+ Days"] == 1
+    assert bucket_map["No Due Date / Status Driven"] == 1
 
 
 def test_subscriber_service_quality_page_renders(monkeypatch):

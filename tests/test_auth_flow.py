@@ -113,6 +113,25 @@ def test_login_rejects_unsupported_provider(db_session, person):
     assert exc.value.status_code == 400
 
 
+def test_login_accepts_email_with_different_case(db_session, person, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    credential = UserCredential(
+        person_id=person.id,
+        provider=AuthProvider.local,
+        username="user@example.com",
+        password_hash=hash_password("secret"),
+        is_active=True,
+    )
+    db_session.add(credential)
+    db_session.commit()
+
+    request = _make_request()
+    result = AuthFlow.login(db_session, "User@Example.com", "secret", request, None)
+
+    assert result["access_token"]
+    assert result["refresh_token"]
+
+
 def test_mfa_setup_confirm(db_session, person, monkeypatch):
     key = Fernet.generate_key().decode("utf-8")
     monkeypatch.setenv("TOTP_ENCRYPTION_KEY", key)

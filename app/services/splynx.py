@@ -378,6 +378,7 @@ def map_customer_to_subscriber_data(
         "activated_at": activated_at,
         "terminated_at": terminated_at,
         "suspended_at": suspended_at,
+        "sync_metadata": _build_sync_metadata(customer, billing, primary_service),
     }
     return {key: value for key, value in candidate_fields.items() if _has_value(value)}
 
@@ -497,6 +498,104 @@ def _extract_balance(
         if normalized is not None:
             return normalized
     return None
+
+
+def _extract_last_transaction_date(
+    customer: dict[str, Any],
+    billing: dict[str, Any] | None,
+    primary_service: dict[str, Any] | None,
+) -> str | None:
+    for candidate in (
+        billing.get("last_transaction_date") if billing else None,
+        billing.get("transaction_date") if billing else None,
+        billing.get("last_payment_date") if billing else None,
+        customer.get("last_transaction_date"),
+        customer.get("transaction_date"),
+        customer.get("last_payment_date"),
+        customer.get("payment_date"),
+        primary_service.get("last_transaction_date") if primary_service else None,
+    ):
+        parsed = _parse_splynx_date(candidate)
+        if parsed is not None:
+            return parsed.strftime("%Y-%m-%d")
+        text = _coalesce_str(candidate)
+        if text:
+            return text
+    return None
+
+
+def _extract_expires_in(
+    customer: dict[str, Any],
+    billing: dict[str, Any] | None,
+    primary_service: dict[str, Any] | None,
+) -> str | None:
+    return _coalesce_str(
+        customer.get("expire_in"),
+        customer.get("expires_in"),
+        billing.get("expire_in") if billing else None,
+        billing.get("expires_in") if billing else None,
+        primary_service.get("expire_in") if primary_service else None,
+        primary_service.get("expires_in") if primary_service else None,
+    )
+
+
+def _extract_invoiced_until(
+    customer: dict[str, Any],
+    billing: dict[str, Any] | None,
+    primary_service: dict[str, Any] | None,
+) -> str | None:
+    for candidate in (
+        billing.get("invoiced_until") if billing else None,
+        billing.get("invoiced_to") if billing else None,
+        billing.get("paid_until") if billing else None,
+        customer.get("invoiced_until"),
+        customer.get("invoiced_to"),
+        customer.get("paid_until"),
+        primary_service.get("invoiced_until") if primary_service else None,
+        primary_service.get("paid_until") if primary_service else None,
+    ):
+        parsed = _parse_splynx_date(candidate)
+        if parsed is not None:
+            return parsed.strftime("%Y-%m-%d")
+        text = _coalesce_str(candidate)
+        if text:
+            return text
+    return None
+
+
+def _extract_total_paid(
+    customer: dict[str, Any],
+    billing: dict[str, Any] | None,
+    primary_service: dict[str, Any] | None,
+) -> str | None:
+    for candidate in (
+        billing.get("total_paid") if billing else None,
+        billing.get("paid_total") if billing else None,
+        billing.get("payments_total") if billing else None,
+        customer.get("total_paid"),
+        customer.get("paid_total"),
+        customer.get("payments_total"),
+        primary_service.get("total_paid") if primary_service else None,
+    ):
+        normalized = _normalize_decimal_str(candidate)
+        if normalized is not None:
+            return normalized
+    return None
+
+
+def _build_sync_metadata(
+    customer: dict[str, Any],
+    billing: dict[str, Any] | None,
+    primary_service: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    metadata = {
+        "last_transaction_date": _extract_last_transaction_date(customer, billing, primary_service),
+        "expires_in": _extract_expires_in(customer, billing, primary_service),
+        "invoiced_until": _extract_invoiced_until(customer, billing, primary_service),
+        "total_paid": _extract_total_paid(customer, billing, primary_service),
+    }
+    compact = {key: value for key, value in metadata.items() if _has_value(value)}
+    return compact or None
 
 
 def _extract_next_bill_date(

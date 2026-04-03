@@ -783,6 +783,37 @@ h1, h2, h3, .font-display {
   animation: panel-slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Select dropdown dark-mode option styles */
+select.churn-filter-select option {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+.dark select.churn-filter-select option {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+select.ticket-detail-select {
+  color-scheme: light;
+}
+.dark select.ticket-detail-select {
+  color-scheme: dark;
+}
+.dark select.ticket-detail-select,
+.dark select.ticket-detail-select:focus,
+.dark select.ticket-detail-select:active {
+  background-color: rgb(51 65 85) !important;
+  color: rgb(248 250 252) !important;
+}
+select.ticket-detail-select option {
+  background-color: rgb(255 255 255);
+  color: rgb(15 23 42);
+}
+.dark select.ticket-detail-select option {
+  background-color: rgb(51 65 85);
+  color: rgb(248 250 252);
+}
+
 /* Chat widget panel reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .panel-enter,

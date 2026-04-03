@@ -1,8 +1,12 @@
 import contextlib
+import datetime as _datetime
+import enum
 import os
 import sqlite3
+import typing as _typing
 import uuid
-from datetime import UTC
+from datetime import timezone
+from importlib.util import find_spec
 
 import pytest
 from dotenv import load_dotenv
@@ -12,9 +16,29 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db import Base
-
 load_dotenv(os.path.join(os.getcwd(), ".env"))
+
+# In minimal local test environments, psycopg may be absent.
+# Force SQLite so importing app.db does not require PostgreSQL drivers.
+if (os.getenv("DATABASE_URL") or "").startswith("postgresql") and find_spec("psycopg") is None:
+    os.environ["DATABASE_URL"] = "sqlite+pysqlite://"
+
+# Python 3.10 compatibility for modules that import `UTC` from datetime.
+if not hasattr(_datetime, "UTC"):
+    _datetime.UTC = timezone.utc
+
+if not hasattr(enum, "StrEnum"):
+    class _StrEnum(str, enum.Enum):
+        pass
+
+    enum.StrEnum = _StrEnum
+
+if not hasattr(_typing, "Self"):
+    from typing_extensions import Self as _TypingSelf
+
+    _typing.Self = _TypingSelf
+
+from app.db import Base
 
 
 class _JoseDateTimeProxy:
@@ -22,7 +46,7 @@ class _JoseDateTimeProxy:
     def utcnow():
         from datetime import datetime
 
-        return datetime.now(UTC)
+        return datetime.now(timezone.utc)
 
     @staticmethod
     def now(tz=None):

@@ -73,6 +73,7 @@ from app.services.settings_seed import (
     seed_audit_settings,
     seed_auth_policy_settings,
     seed_auth_settings,
+    seed_bootstrap_admin_user,
     seed_comms_settings,
     seed_geocoding_settings,
     seed_gis_settings,
@@ -527,6 +528,7 @@ def _start_jobs():
         seed_integration_settings(db)
         seed_performance_settings(db)
         seed_sla_defaults(db)
+        seed_bootstrap_admin_user(db)
     finally:
         db.close()
     smtp_inbound_service.start_smtp_inbound_server()

@@ -1,8 +1,13 @@
 import os
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.auth import AuthProvider, UserCredential
 from app.models.domain_settings import SettingValueType
+from app.models.person import Person
+from app.models.rbac import PersonRole, Role
+from app.services.auth_flow import hash_password
 from app.services.domain_settings import (
     audit_settings,
     auth_settings,
@@ -21,6 +26,77 @@ from app.services.domain_settings import (
     workflow_settings,
 )
 from app.services.secrets import is_openbao_ref
+
+BOOTSTRAP_ADMIN_USERNAME = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "codexadmin")
+BOOTSTRAP_ADMIN_EMAIL = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "codexadmin@local.invalid")
+BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+
+
+def seed_bootstrap_admin_user(db: Session) -> None:
+    """Ensure a local bootstrap admin credential exists for first login.
+
+    Requires BOOTSTRAP_ADMIN_PASSWORD env var. Skips seeding if not set.
+    Does NOT overwrite an existing credential — only creates if missing.
+    """
+    if not BOOTSTRAP_ADMIN_PASSWORD:
+        return
+
+    role = db.scalar(select(Role).where(Role.name == "admin"))
+    if role is None:
+        role = Role(name="admin", description="Platform administrator", is_active=True)
+        db.add(role)
+        db.flush()
+    elif not role.is_active:
+        role.is_active = True
+
+    person = db.scalar(select(Person).where(Person.email == BOOTSTRAP_ADMIN_EMAIL))
+    if person is None:
+        person = Person(
+            first_name="Codex",
+            last_name="Admin",
+            display_name="Codex Admin",
+            email=BOOTSTRAP_ADMIN_EMAIL,
+            is_active=True,
+            email_verified=True,
+        )
+        db.add(person)
+        db.flush()
+
+    credential = db.scalar(
+        select(UserCredential).where(
+            UserCredential.username == BOOTSTRAP_ADMIN_USERNAME,
+            UserCredential.provider == AuthProvider.local,
+        )
+    )
+    if credential is None:
+        credential = db.scalar(
+            select(UserCredential).where(
+                UserCredential.person_id == person.id,
+                UserCredential.provider == AuthProvider.local,
+            )
+        )
+
+    # Only create — never overwrite an existing credential
+    if credential is None:
+        credential = UserCredential(
+            person_id=person.id,
+            provider=AuthProvider.local,
+            username=BOOTSTRAP_ADMIN_USERNAME,
+            password_hash=hash_password(BOOTSTRAP_ADMIN_PASSWORD),
+            is_active=True,
+        )
+        db.add(credential)
+
+    role_link = db.scalar(
+        select(PersonRole).where(
+            PersonRole.person_id == person.id,
+            PersonRole.role_id == role.id,
+        )
+    )
+    if role_link is None:
+        db.add(PersonRole(person_id=person.id, role_id=role.id))
+
+    db.commit()
 
 
 def seed_auth_settings(db: Session) -> None:

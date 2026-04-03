@@ -1,95 +1,221 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, table_shell, table_row, empty_state, status_badge %}
+{% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, dashboard_kpi_grid, stats_card, table_shell, table_row, empty_state, status_badge %}
 
-{% block title %}Subscriber Churn Risk - Admin{% endblock %}
+{% block title %}Churned Subscribers - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const churnTrend = {{ churn_trend | tojson }};
+    const trendCtx = document.getElementById("subscriber-churn-trend-chart");
+
+    if (trendCtx && churnTrend.length) {
+        new Chart(trendCtx, {
+            type: "line",
+            data: {
+                labels: churnTrend.map((row) => row.date),
+                datasets: [
+                    {
+                        label: "Churned Subscribers",
+                        data: churnTrend.map((row) => row.count),
+                        borderColor: "#dc2626",
+                        backgroundColor: "rgba(220, 38, 38, 0.12)",
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { precision: 0 } },
+                },
+            },
+        });
+    }
+});
+</script>
+{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    {% call page_header("Subscriber Churn Risk", "Subscribers who have not renewed paid orders, segmented by payment recency and flagged for high-value churn risk.", color="amber", color2="orange") %}
+    {% call page_header("Churned Subscribers", "Standard churn dashboard with KPI cards, churn trend, and churn reason breakdown.", color="rose", color2="red") %}
         {{ action_button(
             "Export CSV",
-            href="/admin/reports/subscribers/churned/export?days_active=" ~ days_active ~ "&days_churn=" ~ days_churn ~ ("&high_value_only=true" if high_value_only else "") ~ ("&segment=" ~ selected_segment if selected_segment else ""),
+            href="/admin/reports/subscribers/churned/export?days=" ~ days ~ "&behavioral_days=" ~ behavioral_days ~ ("&start_date=" ~ start_date if start_date else "") ~ ("&end_date=" ~ end_date if end_date else ""),
             variant="secondary",
-            color="amber",
+            color="rose",
             icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>'
         ) }}
     {% endcall %}
 
-    {% call dashboard_filter_panel(color="amber", title="Filters") %}
+    {% call dashboard_filter_panel(color="rose", title="Filters") %}
     <form method="get" class="space-y-3">
-        <div class="grid grid-cols-1 gap-3 lg:grid-cols-4 lg:items-end">
+        <input type="hidden" name="behavioral_days" value="{{ behavioral_days }}">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-3 lg:items-end">
             <div>
-                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Active Threshold</label>
-                <input type="number" name="days_active" min="1" max="365" value="{{ days_active }}" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-            </div>
-            <div>
-                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Churn Threshold</label>
-                <input type="number" name="days_churn" min="2" max="365" value="{{ days_churn }}" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-            </div>
-            <div>
-                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Segment</label>
-                <select name="segment" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-                    <option value="" {% if not selected_segment %}selected{% endif %}>At Risk + Churned</option>
-                    <option value="at_risk" {% if selected_segment == 'at_risk' %}selected{% endif %}>At Risk Only</option>
-                    <option value="churned" {% if selected_segment == 'churned' %}selected{% endif %}>Churned Only</option>
+                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</label>
+                <select name="days" class="churn-filter-select block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:focus:bg-slate-800">
+                    <option value="0" {% if days == 0 %}selected{% endif %}>All time</option>
+                    <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 days</option>
+                    <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 days</option>
+                    <option value="90" {% if days == 90 %}selected{% endif %}>Last 90 days</option>
+                    <option value="180" {% if days == 180 %}selected{% endif %}>Last 180 days</option>
+                    <option value="365" {% if days == 365 %}selected{% endif %}>Last 365 days</option>
                 </select>
             </div>
-            <label class="flex h-10 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-                <input type="checkbox" name="high_value_only" value="true" {% if high_value_only %}checked{% endif %} class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-500 dark:bg-slate-900">
-                <span>High-value only</span>
-            </label>
+            <div>
+                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+                <input type="date" name="start_date" value="{{ start_date }}" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+            </div>
+            <div>
+                <label class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+                <input type="date" name="end_date" value="{{ end_date }}" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+            </div>
         </div>
         <div class="flex items-center gap-2 lg:justify-end">
             <a href="/admin/reports/subscribers/churned" class="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 dark:hover:text-white">Reset</a>
-            <button type="submit" class="inline-flex h-10 items-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-semibold text-white hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-400">Apply</button>
+            <button type="submit" class="inline-flex h-10 items-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-400">Apply</button>
         </div>
     </form>
     {% endcall %}
 
-    {% call table_shell(table_id="subscriber-churn-risk-table", title="Payment Renewal Churn Table", color="amber", count=churn_table|length, bulk_selectable=False) %}
+    {% call dashboard_kpi_grid(cols="3") %}
+        {{ stats_card("Churned Subscribers (Period)", distinct_churned_subscribers_count, color="rose", color2="red") }}
+        {{ stats_card("Churn Rate", (kpis.churn_rate if kpis and kpis.churn_rate is not none else 0) ~ "%", color="amber", color2="orange") }}
+        {{ stats_card("Revenue Lost", "₦" ~ "{:,.2f}".format((kpis.revenue_lost_to_churn if kpis and kpis.revenue_lost_to_churn is not none else 0)), color="slate", color2="gray") }}
+    {% endcall %}
+
+    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+            <h2 class="font-semibold text-slate-900 dark:text-white">Churn Trend</h2>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Daily churned subscriber count for the selected range.</p>
+        </div>
+        <div class="p-6">
+            <div class="chart-container" style="min-height: 300px;">
+                <canvas id="subscriber-churn-trend-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    {% call table_shell(table_id="churned-subscribers-table", title="Churned Subscribers", color="rose", count=churned_rows|length, bulk_selectable=False) %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead>
             <tr>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber ID</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Email</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Payment</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Orders</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Lifetime Value</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Avg Order</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Since Payment</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Segment</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">High-Value Risk</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Activated</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Churned At</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tenure</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-            {% for row in churn_table %}
-            {% call table_row(color="amber") %}
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_id }}</td>
+            {% for row in churned_rows %}
+            {% call table_row(color="rose") %}
                 <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.email }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.last_payment_date or "No payments" }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.total_orders }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.lifetime_value or 0) }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.avg_order_value or 0) }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.days_since_last_payment }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">
-                    {% if row.churn_segment == "Churned" %}
-                        {{ status_badge("Churned", "inactive", size="sm") }}
-                    {% else %}
-                        {{ status_badge("At Risk", "pending", size="sm") }}
-                    {% endif %}
-                </td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">
-                    {% if row.is_high_value_churn %}
-                        {{ status_badge("True", "warning", size="sm") }}
-                    {% else %}
-                        {{ status_badge("False", "inactive", size="sm") }}
-                    {% endif %}
-                </td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.region }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.activated_at }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.terminated_at }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.tenure_days }}</td>
             {% endcall %}
             {% else %}
-            {{ empty_state(title="No churn-risk subscribers", message="No subscribers match the current churn-risk filters.", color="amber", color2="orange", colspan=10) }}
+            {{ empty_state(title="No churned subscribers", message="No churned subscribers were found in the selected period.", color="rose", color2="red", colspan=7) }}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endcall %}
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {% call table_shell(table_id="failed-payment-churn-table", title="Behavioral Churn: Failed Payment", color="amber", count=failed_payment_rows|length, bulk_selectable=False) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
+                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Outstanding</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Latest Due</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for row in failed_payment_rows %}
+                {% call table_row(color="amber") %}
+                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.outstanding_balance or 0) }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.due_date }}</td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state(title="No failed-payment churn", message="No churned subscribers with open unpaid balances were found.", color="amber", color2="orange", colspan=5) }}
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endcall %}
+
+        {% call table_shell(table_id="cancelled-churn-table", title="Operational Churn: Explicit Cancellation", color="rose", count=cancelled_rows|length, bulk_selectable=False) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Canceled At</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% for row in cancelled_rows %}
+                {% call table_row(color="rose") %}
+                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.region }}</td>
+                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.terminated_at }}</td>
+                {% endcall %}
+                {% else %}
+                {{ empty_state(title="No cancellation churn", message="No explicit cancellation events were found in the selected period.", color="rose", color2="red", colspan=5) }}
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endcall %}
+    </div>
+
+    {% call table_shell(table_id="inactive-usage-table", title="At-Risk Inactive Usage (90+ days no activity)", color="slate", count=inactive_usage_rows|length, bulk_selectable=False) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead>
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Usage</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Since Use</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Paid</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% for row in inactive_usage_rows %}
+            {% call table_row(color="slate") %}
+                <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ status_badge(row.status|title, "warning" if row.status != "active" else "active", size="sm") }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.last_usage_at or "No usage record" }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.days_since_use }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.total_paid or 0) }}</td>
+            {% endcall %}
+            {% else %}
+            {{ empty_state(title="No inactive usage list", message="No subscribers qualified for the 90+ day inactivity list.", color="slate", color2="gray", colspan=7) }}
             {% endfor %}
         </tbody>
     </table>
