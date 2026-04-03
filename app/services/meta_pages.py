@@ -568,7 +568,9 @@ async def reply_to_instagram_comment(
     Returns:
         Dict with 'id' of the created reply
     """
-    override_token = _get_instagram_access_token_override(db)
+    # Instagram comment replies on Graph often require the Page-style token.
+    # Prefer the Facebook override token for this specific flow.
+    override_token = _get_facebook_access_token_override(db) or _get_instagram_access_token_override(db)
     token = _get_instagram_token_record(db, ig_account_id)
     if not override_token:
         if not token or not token.access_token:
