@@ -320,7 +320,7 @@
 	                         x-transition
 	                         x-cloak
 	                         class="absolute right-0 mt-12 w-44 rounded-xl border border-slate-200 bg-white py-2 shadow-lg dark:border-slate-700 dark:bg-slate-800">
-	                        <div x-show="error" x-cloak class="px-4 pb-2 text-xs text-rose-600 dark:text-rose-400" x-text="error"></div>
+	                        <div x-show="error && !(agentKnown && !agentId)" x-cloak class="px-4 pb-2 text-xs text-rose-600 dark:text-rose-400" x-text="error"></div>
 	                        <button type="button"
 	                                x-on:click="setStatus('online'); open = false"
 	                                :disabled="(agentKnown && !agentId) || loading"
@@ -397,7 +397,7 @@
 	                            Off
 	                        </button>
 	                    </div>
-	                    <div x-show="error" x-cloak class="ml-2 text-xs text-rose-600 dark:text-rose-400" x-text="error"></div>
+	                    <div x-show="error && !(agentKnown && !agentId)" x-cloak class="ml-2 text-xs text-rose-600 dark:text-rose-400" x-text="error"></div>
 	                </div>
 	                {% endif %}
 
@@ -1151,11 +1151,7 @@
 	                        this.agentKnown = true;
 	                        this.status = data.status || null;
 	                        this.effective = data.effective_status || null;
-	                        if (this.agentKnown && !this.agentId) {
-	                            this.error = "This user is not configured as a CRM agent.";
-	                        } else {
-	                            this.error = null;
-	                        }
+	                        this.error = null;
 	                    })
 	                    .catch(() => {
 	                        // If blocked (403) or network issue, don't disable the UI; show a hint.
