@@ -89,6 +89,12 @@ class ConversationTagRead(ConversationTagBase):
     created_at: datetime
 
 
+class ConversationTalkEscalationRequest(BaseModel):
+    recipient_person_id: UUID
+    note: str | None = Field(default=None, max_length=1000)
+    urgency: str = Field(default="high", pattern="^(normal|high|critical)$")
+
+
 class MessageBase(BaseModel):
     conversation_id: UUID
     person_channel_id: UUID | None = None

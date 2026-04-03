@@ -12,6 +12,7 @@ from app.models.crm.conversation import (
     MessageAttachment,
 )
 from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection, MessageStatus
+from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person, PersonChannel
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
@@ -125,6 +126,84 @@ class Conversations(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Conversation not found")
         conversation.is_active = False
         db.commit()
+
+    @staticmethod
+    def escalate_to_talk(
+        db: Session,
+        *,
+        conversation_id: str,
+        recipient_person_id: str,
+        actor_person_id: str | None = None,
+        note: str | None = None,
+        urgency: str = "high",
+    ) -> dict[str, object]:
+        from app.services import email as email_service
+        from app.services import nextcloud_talk_notifications as talk_notifications_service
+
+        conversation = db.get(Conversation, coerce_uuid(conversation_id))
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        recipient = db.get(Person, coerce_uuid(recipient_person_id))
+        if not recipient or not recipient.is_active:
+            raise HTTPException(status_code=404, detail="Recipient person not found")
+
+        actor: Person | None = None
+        if actor_person_id:
+            actor = db.get(Person, coerce_uuid(actor_person_id))
+
+        conversation_ref = conversation.subject or f"Conversation {str(conversation.id)[:8]}"
+        actor_name = ((actor.display_name or "").strip() if actor else "") or (
+            f"{(actor.first_name or '').strip()} {(actor.last_name or '').strip()}".strip() if actor else ""
+        )
+        if not actor_name:
+            actor_name = "A teammate"
+        note_text = (note or "").strip()
+        app_url = (email_service.get_app_url(db) or "").rstrip("/")
+        target_url = f"{app_url}/admin/crm/inbox?conversation_id={conversation.id}"
+
+        preview_lines = [f"{actor_name} escalated {conversation_ref} to you."]
+        if note_text:
+            preview_lines.append(f"Note: {note_text}")
+        preview_lines.append(f"Urgency: {urgency}")
+        preview = " ".join(preview_lines)
+
+        payload = {
+            "title": "Conversation Escalation",
+            "subtitle": conversation_ref,
+            "preview": preview,
+            "kind": "conversation_escalation",
+            "conversation_id": str(conversation.id),
+            "target_url": target_url,
+            "metadata": {"urgency": urgency, "note": note_text or None},
+        }
+
+        recipient_address = (recipient.email or "").strip() or str(recipient.id)
+        db.add(
+            Notification(
+                channel=NotificationChannel.push,
+                recipient=recipient_address,
+                subject=f"Conversation Escalation: {conversation_ref}"[:200],
+                body=preview,
+                status=NotificationStatus.delivered,
+                sent_at=_now(),
+            )
+        )
+        db.commit()
+
+        talk_forwarded = talk_notifications_service.forward_agent_notification(
+            db,
+            person_id=str(recipient.id),
+            payload=payload,
+        )
+
+        return {
+            "ok": True,
+            "conversation_id": str(conversation.id),
+            "recipient_person_id": str(recipient.id),
+            "target_url": target_url,
+            "talk_forwarded": bool(talk_forwarded),
+        }
 
 
 class ConversationAssignments(ListResponseMixin):

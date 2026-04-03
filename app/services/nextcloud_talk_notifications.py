@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.logging import get_logger
@@ -8,7 +9,11 @@ from app.models.nextcloud_talk_notification import NextcloudTalkNotificationRoom
 from app.models.notification import Notification
 from app.models.person import Person
 from app.services.common import coerce_uuid
-from app.services.nextcloud_talk import NextcloudTalkClient, NextcloudTalkError
+from app.services.nextcloud_talk import (
+    NextcloudTalkClient,
+    NextcloudTalkError,
+    normalize_and_validate_nextcloud_base_url,
+)
 from app.services.settings_spec import resolve_value
 
 logger = get_logger(__name__)
@@ -58,8 +63,13 @@ def _resolve_notification_config(db: Session) -> dict[str, object] | None:
     if not base_url or not username or not app_password:
         logger.debug("talk_notification_config_incomplete")
         return None
+    try:
+        normalized_base_url = normalize_and_validate_nextcloud_base_url(base_url)
+    except NextcloudTalkError:
+        logger.warning("talk_notification_config_invalid_base_url")
+        return None
     return {
-        "base_url": base_url.rstrip("/"),
+        "base_url": normalized_base_url,
         "username": username,
         "app_password": app_password,
         "room_type": max(1, room_type),
@@ -190,7 +200,20 @@ def _resolve_room_token(
                 room_token=token,
             )
         )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = (
+            db.query(NextcloudTalkNotificationRoom)
+            .filter(NextcloudTalkNotificationRoom.person_id == person.id)
+            .filter(NextcloudTalkNotificationRoom.base_url == base_url)
+            .filter(NextcloudTalkNotificationRoom.notifier_username == notifier_username)
+            .first()
+        )
+        if existing and existing.room_token:
+            return existing.room_token
+        raise
     return token
 
 

@@ -577,6 +577,23 @@ def build_inbox_conversation_detail_context(
         offset=0,
     )
     mention_agents = list_active_agents_for_mentions(db)
+    assignment_options = crm_service.get_agent_team_options(db)
+    agent_labels = assignment_options.get("agent_labels") or {}
+    talk_escalation_recipients: list[dict[str, str]] = []
+    seen_person_ids: set[str] = set()
+    for agent in assignment_options.get("agents") or []:
+        person_id = str(getattr(agent, "person_id", "") or "").strip()
+        agent_id = str(getattr(agent, "id", "") or "").strip()
+        if not person_id or not agent_id or person_id in seen_person_ids:
+            continue
+        seen_person_ids.add(person_id)
+        talk_escalation_recipients.append(
+            {
+                "person_id": person_id,
+                "label": agent_labels.get(agent_id, "Agent"),
+            }
+        )
+    talk_escalation_recipients.sort(key=lambda item: item.get("label", "").lower())
     macros = (
         conversation_macros.list_for_agent(db, str(current_agent_id))
         if current_agent_id
@@ -590,6 +607,7 @@ def build_inbox_conversation_detail_context(
         "current_roles": current_roles,
         "message_templates": templates_list,
         "mention_agents": mention_agents,
+        "talk_escalation_recipients": talk_escalation_recipients,
         "assignment_events": assignment_events,
         "latest_manual_assignment": latest_manual_assignment,
         "macros": macros,

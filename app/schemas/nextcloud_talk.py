@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.services.nextcloud_talk import NextcloudTalkError, normalize_and_validate_nextcloud_base_url
+
 
 class NextcloudTalkAuth(BaseModel):
     connector_config_id: UUID | None = None
@@ -16,6 +18,11 @@ class NextcloudTalkAuth(BaseModel):
     def _validate_auth(self) -> NextcloudTalkAuth:
         if self.connector_config_id is None and (not self.base_url or not self.username or not self.app_password):
             raise ValueError("Provide base_url, username, and app_password when connector_config_id is not set.")
+        if self.base_url:
+            try:
+                self.base_url = normalize_and_validate_nextcloud_base_url(self.base_url)
+            except NextcloudTalkError as exc:
+                raise ValueError(str(exc)) from exc
         return self
 
 
@@ -44,6 +51,14 @@ class NextcloudTalkLoginRequest(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     username: str = Field(min_length=1, max_length=150)
     app_password: str = Field(min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def _validate_base_url(self) -> NextcloudTalkLoginRequest:
+        try:
+            self.base_url = normalize_and_validate_nextcloud_base_url(self.base_url)
+        except NextcloudTalkError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
 
 class NextcloudTalkRoomCreateMeRequest(BaseModel):

@@ -15,7 +15,11 @@ from app.schemas.nextcloud_talk import (
 )
 from app.services.auth_dependencies import require_user_auth
 from app.services.common import coerce_uuid
-from app.services.nextcloud_talk import NextcloudTalkClient, NextcloudTalkError
+from app.services.nextcloud_talk import (
+    NextcloudTalkClient,
+    NextcloudTalkError,
+    normalize_and_validate_nextcloud_base_url,
+)
 from app.services.nextcloud_talk_me import NextcloudTalkNotConnectedError
 from app.services.nextcloud_talk_me import connect as talk_connect
 from app.services.nextcloud_talk_me import disconnect as talk_disconnect
@@ -25,13 +29,19 @@ from app.services.nextcloud_talk_me import resolve_client as resolve_talk_me_cli
 router = APIRouter(prefix="/nextcloud-talk", tags=["nextcloud-talk"])
 
 
-def _resolve_client(db: Session, payload) -> NextcloudTalkClient:
+def _resolve_client(db: Session, payload, auth: dict) -> NextcloudTalkClient:
+    roles = {str(role).strip().lower() for role in (auth.get("roles") or [])}
+    scopes = {str(scope).strip().lower() for scope in (auth.get("scopes") or [])}
+    is_admin = "admin" in roles or "system:settings:read" in scopes or "system:settings:write" in scopes
+
     base_url = payload.base_url
     username = payload.username
     app_password = payload.app_password
     timeout = payload.timeout_sec
 
     if payload.connector_config_id:
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Connector-based Talk access requires admin privileges.")
         config = db.get(ConnectorConfig, coerce_uuid(payload.connector_config_id))
         if not config:
             raise HTTPException(status_code=404, detail="Connector config not found")
@@ -46,12 +56,20 @@ def _resolve_client(db: Session, payload) -> NextcloudTalkClient:
             status_code=400,
             detail="Nextcloud Talk credentials are incomplete.",
         )
+    try:
+        normalized_base_url = normalize_and_validate_nextcloud_base_url(str(base_url))
+    except NextcloudTalkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        parsed_timeout = float(timeout or 30.0)
+    except (TypeError, ValueError):
+        parsed_timeout = 30.0
 
     return NextcloudTalkClient(
-        base_url=base_url,
+        base_url=normalized_base_url,
         username=username,
         app_password=app_password,
-        timeout=float(timeout or 30.0),
+        timeout=parsed_timeout,
     )
 
 
@@ -160,8 +178,12 @@ def me_list_messages(
 
 
 @router.post("/rooms/list", response_model=list[dict])
-def list_rooms(payload: NextcloudTalkRoomListRequest, db: Session = Depends(get_db)):
-    client = _resolve_client(db, payload)
+def list_rooms(
+    payload: NextcloudTalkRoomListRequest,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_user_auth),
+):
+    client = _resolve_client(db, payload, auth)
     try:
         return client.list_rooms()
     except NextcloudTalkError as exc:
@@ -169,8 +191,12 @@ def list_rooms(payload: NextcloudTalkRoomListRequest, db: Session = Depends(get_
 
 
 @router.post("/rooms", response_model=dict)
-def create_room(payload: NextcloudTalkRoomCreateRequest, db: Session = Depends(get_db)):
-    client = _resolve_client(db, payload)
+def create_room(
+    payload: NextcloudTalkRoomCreateRequest,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_user_auth),
+):
+    client = _resolve_client(db, payload, auth)
     try:
         return client.create_room(
             room_name=payload.room_name,
@@ -182,8 +208,13 @@ def create_room(payload: NextcloudTalkRoomCreateRequest, db: Session = Depends(g
 
 
 @router.post("/rooms/{room_token}/messages", response_model=dict)
-def post_message(room_token: str, payload: NextcloudTalkMessageRequest, db: Session = Depends(get_db)):
-    client = _resolve_client(db, payload)
+def post_message(
+    room_token: str,
+    payload: NextcloudTalkMessageRequest,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_user_auth),
+):
+    client = _resolve_client(db, payload, auth)
     try:
         return client.post_message(
             room_token=room_token,
@@ -195,9 +226,14 @@ def post_message(room_token: str, payload: NextcloudTalkMessageRequest, db: Sess
 
 
 @router.post("/rooms/{room_token}/messages/list", response_model=list[dict])
-def list_messages(room_token: str, payload: NextcloudTalkMessageListRequest, db: Session = Depends(get_db)):
+def list_messages(
+    room_token: str,
+    payload: NextcloudTalkMessageListRequest,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_user_auth),
+):
     """List messages for a room token (for Talk floater polling)."""
-    client = _resolve_client(db, payload)
+    client = _resolve_client(db, payload, auth)
     try:
         return client.list_messages(
             room_token,

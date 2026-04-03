@@ -10,9 +10,11 @@ from app.schemas.crm.conversation import (
     ConversationRead,
     ConversationTagCreate,
     ConversationTagRead,
+    ConversationTalkEscalationRequest,
     ConversationUpdate,
 )
 from app.services import crm as crm_service
+from app.services.auth_dependencies import require_user_auth
 
 router = APIRouter(prefix="/crm/conversations", tags=["crm-conversations"])
 
@@ -128,3 +130,20 @@ def list_tags(
     db: Session = Depends(get_db),
 ):
     return crm_service.conversation_tags.list_response(db, conversation_id, order_by, order_dir, limit, offset)
+
+
+@router.post("/{conversation_id}/escalate-talk", response_model=dict)
+def escalate_conversation_to_talk(
+    conversation_id: str,
+    payload: ConversationTalkEscalationRequest,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_user_auth),
+):
+    return crm_service.conversations.escalate_to_talk(
+        db,
+        conversation_id=conversation_id,
+        recipient_person_id=str(payload.recipient_person_id),
+        actor_person_id=str(auth.get("person_id") or "") or None,
+        note=payload.note,
+        urgency=payload.urgency,
+    )

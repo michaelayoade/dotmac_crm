@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -27,6 +29,43 @@ def get_nextcloud_talk_timeout(db: Session | None = None) -> float:
         except ValueError:
             return _DEFAULT_TIMEOUT
     return _DEFAULT_TIMEOUT
+
+
+def normalize_and_validate_nextcloud_base_url(base_url: str) -> str:
+    """Normalize and validate Nextcloud Talk base URL to reduce SSRF risk."""
+    value = (base_url or "").strip()
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"}:
+        raise NextcloudTalkError("Base URL must start with http:// or https://")
+    if not parsed.netloc:
+        raise NextcloudTalkError("Base URL must include a hostname")
+    if parsed.username or parsed.password:
+        raise NextcloudTalkError("Base URL must not include embedded credentials")
+    hostname = parsed.hostname or ""
+    if not hostname:
+        raise NextcloudTalkError("Base URL hostname is invalid")
+
+    lowered = hostname.lower()
+    if lowered == "localhost" or lowered.endswith(".localhost") or lowered.endswith(".local"):
+        raise NextcloudTalkError("Local/loopback hostnames are not allowed")
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise NextcloudTalkError("Private or local network addresses are not allowed")
+    except ValueError:
+        # Hostname (not an IP) is allowed after basic checks above.
+        pass
+
+    normalized = f"{parsed.scheme}://{parsed.netloc.rstrip('/')}"
+    return normalized
 
 
 class NextcloudTalkError(Exception):
