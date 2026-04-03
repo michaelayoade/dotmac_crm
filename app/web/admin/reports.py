@@ -388,6 +388,7 @@ def subscriber_lifecycle(
     plan_migration_flow = sr.lifecycle_plan_migration_flow(db, start_dt, end_dt)
     plan_distribution = sr.overview_plan_distribution(db, limit=8)
     recent_churns = sr.lifecycle_recent_churns(db)
+    recent_churn_summary = sr.lifecycle_recent_churn_summary(db)
     longest_tenure = sr.lifecycle_longest_tenure(db)
     top_subscribers_by_value = sr.lifecycle_top_subscribers_by_value(db)
     top_subscribers_title = "Top Subscribers By Value (All Time)"
@@ -432,6 +433,7 @@ def subscriber_lifecycle(
             "plan_migration_flow": plan_migration_flow,
             "plan_distribution": plan_distribution,
             "recent_churns": recent_churns,
+            "recent_churn_summary": recent_churn_summary,
             "longest_tenure": longest_tenure,
             "top_subscribers_by_value": top_subscribers_by_value,
             "top_subscribers_title": top_subscribers_title,
@@ -482,27 +484,39 @@ def subscriber_lifecycle_export(
 def churned_subscribers(
     request: Request,
     db: Session = Depends(get_db),
-    days_active: int = Query(90, ge=1, le=365),
-    days_churn: int = Query(120, ge=2, le=365),
-    high_value_only: bool = Query(False),
-    segment: str | None = Query(None),
+    days: int = Query(30, ge=0, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    behavioral_days: int = Query(60, ge=30, le=180),
 ):
-    """Subscribers who have not renewed paid orders, grouped by churn risk."""
+    """Standard churned subscribers dashboard with KPIs, trend, and churn detail tables."""
     from app.services import subscriber_reports as sr
 
     user = get_current_user(request)
-    if days_churn <= days_active:
-        days_churn = days_active + 1
-    selected_segment = (segment or "").strip().lower()
-    if selected_segment not in {"", "at_risk", "churned"}:
-        selected_segment = ""
-
-    churn_table = sr.get_churn_table(
+    start_dt, end_dt = _resolve_lifecycle_date_range(db, days, start_date, end_date)
+    kpis = sr.churned_subscribers_kpis(db, start_dt, end_dt, behavioral_days=behavioral_days)
+    churn_trend = sr.churned_subscribers_trend(db, start_dt, end_dt, behavioral_days=behavioral_days)
+    churned_rows = sr.churned_subscribers_rows(db, start_dt, end_dt, limit=100, behavioral_days=behavioral_days)
+    failed_payment_rows = sr.churned_failed_payment_rows(
         db,
-        days_active=days_active,
-        days_churn=days_churn,
-        high_value_only=high_value_only,
-        segment=selected_segment or None,
+        start_dt,
+        end_dt,
+        limit=50,
+        behavioral_days=behavioral_days,
+    )
+    cancelled_rows = sr.churned_cancelled_rows(db, start_dt, end_dt, limit=50)
+    inactive_usage_rows = sr.churned_inactive_usage_rows(db, end_dt, limit=50)
+
+    churned_count = kpis.get("churned_count")
+    if churned_count is None:
+        churned_count = kpis.get("terminated_in_period")
+    if churned_count is None:
+        churned_count = len(churned_rows)
+    kpis["churned_count"] = int(churned_count or 0)
+
+    active_at_start = int(kpis.get("total_active_subscribers_start") or 0)
+    kpis["churn_rate"] = (
+        round((kpis["churned_count"] / active_at_start) * 100, 1) if active_at_start > 0 else 0.0
     )
 
     return templates.TemplateResponse(
@@ -514,11 +528,17 @@ def churned_subscribers(
             "sidebar_stats": get_sidebar_stats(db),
             "active_page": "subscriber-churned",
             "active_menu": "reports",
-            "churn_table": churn_table,
-            "days_active": days_active,
-            "days_churn": days_churn,
-            "high_value_only": high_value_only,
-            "selected_segment": selected_segment,
+            "kpis": kpis,
+            "churn_trend": churn_trend,
+            "churned_rows": churned_rows,
+            "failed_payment_rows": failed_payment_rows,
+            "cancelled_rows": cancelled_rows,
+            "inactive_usage_rows": inactive_usage_rows,
+            "distinct_churned_subscribers_count": kpis["churned_count"],
+            "days": days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+            "behavioral_days": behavioral_days,
         },
     )
 
@@ -526,45 +546,30 @@ def churned_subscribers(
 @router.get("/subscribers/churned/export")
 def churned_subscribers_export(
     db: Session = Depends(get_db),
-    days_active: int = Query(90, ge=1, le=365),
-    days_churn: int = Query(120, ge=2, le=365),
-    high_value_only: bool = Query(False),
-    segment: str | None = Query(None),
+    days: int = Query(30, ge=0, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    behavioral_days: int = Query(60, ge=30, le=180),
 ):
-    """Export churned subscribers data as CSV."""
+    """Export churned subscriber rows as CSV for selected range."""
     from app.services import subscriber_reports as sr
 
-    if days_churn <= days_active:
-        days_churn = days_active + 1
-    selected_segment = (segment or "").strip().lower()
-    if selected_segment not in {"", "at_risk", "churned"}:
-        selected_segment = ""
-
-    churned_rows = sr.get_churn_table(
-        db,
-        days_active=days_active,
-        days_churn=days_churn,
-        high_value_only=high_value_only,
-        segment=selected_segment or None,
-        limit=1000,
-    )
+    start_dt, end_dt = _resolve_lifecycle_date_range(db, days, start_date, end_date)
+    churned_rows = sr.churned_subscribers_rows(db, start_dt, end_dt, limit=1000, behavioral_days=behavioral_days)
 
     export_data = [
         {
-            "Subscriber ID": row["subscriber_id"],
             "Name": row["name"],
-            "Email": row["email"],
-            "Last Payment Date": row["last_payment_date"],
-            "Total Orders": row["total_orders"],
-            "Lifetime Value": row["lifetime_value"],
-            "Avg Order Value": row["avg_order_value"],
-            "Days Since Last Payment": row["days_since_last_payment"],
-            "Churn Segment": row["churn_segment"],
-            "High Value Churn Risk": row["is_high_value_churn"],
+            "Subscriber #": row["subscriber_number"],
+            "Plan": row["plan"],
+            "Region": row["region"],
+            "Activated": row["activated_at"],
+            "Terminated": row["terminated_at"],
+            "Tenure (days)": row["tenure_days"],
         }
         for row in churned_rows
     ]
-    filename = f"churned_subscribers_payment_risk_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
+    filename = f"subscriber_churned_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
 
 

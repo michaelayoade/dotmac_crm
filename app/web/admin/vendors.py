@@ -22,6 +22,7 @@ from app.models.vendor import (
     InstallationProjectNote,
     ProjectQuoteStatus,
     ProposedRouteRevision,
+    ProposedRouteRevisionStatus,
     Vendor,
     VendorPurchaseInvoiceStatus,
     VendorUser,
@@ -706,6 +707,8 @@ def vendor_quotes_list(
     quote_ids = [quote.id for quote in quotes]
     quote_id_set = {str(quote_id).lower() for quote_id in quote_ids}
     route_revisions_by_quote: dict[object, list[ProposedRouteRevision]] = {quote_id: [] for quote_id in quote_ids}
+    route_duplicate_warnings_by_revision: dict[str, list[dict[str, object]]] = {}
+    route_duplicate_exact_by_revision: dict[str, bool] = {}
     if quote_ids:
         revisions = (
             db.query(ProposedRouteRevision)
@@ -715,6 +718,16 @@ def vendor_quotes_list(
         )
         for revision in revisions:
             route_revisions_by_quote.setdefault(revision.quote_id, []).append(revision)
+            if revision.status == ProposedRouteRevisionStatus.submitted:
+                warnings = vendor_service.proposed_route_revisions.find_duplicate_segments(
+                    db,
+                    revision_id=str(revision.id),
+                    limit=5,
+                )
+                route_duplicate_warnings_by_revision[str(revision.id)] = warnings
+                route_duplicate_exact_by_revision[str(revision.id)] = any(
+                    str(item.get("match_type")) == "exact" for item in warnings
+                )
     quote_comments_by_quote = _build_quote_comments(
         db,
         quote_ids=quote_id_set,
@@ -731,6 +744,8 @@ def vendor_quotes_list(
             "quote_error_detail": quote_error_detail,
             "route_error_detail": route_error_detail,
             "route_revisions_by_quote": route_revisions_by_quote,
+            "route_duplicate_warnings_by_revision": route_duplicate_warnings_by_revision,
+            "route_duplicate_exact_by_revision": route_duplicate_exact_by_revision,
             "quote_comments_by_quote": quote_comments_by_quote,
         }
     )
@@ -1354,6 +1369,7 @@ def vendor_route_revision_approve(
     revision_id: str,
     request: Request,
     review_notes: str | None = Form(None),
+    confirm_exact_duplicate: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     reviewer_person_id = _current_person_id(request)
@@ -1367,6 +1383,16 @@ def vendor_route_revision_approve(
         return RedirectResponse(url=f"/admin/vendors/quotes?route_error_detail={detail}", status_code=303)
 
     try:
+        duplicate_warnings = vendor_service.proposed_route_revisions.find_duplicate_segments(
+            db,
+            revision_id=revision_id,
+            limit=5,
+        )
+        has_exact_duplicate = any(str(item.get("match_type")) == "exact" for item in duplicate_warnings)
+        confirm_exact = str(confirm_exact_duplicate or "").strip().lower() in {"1", "true", "yes", "on"}
+        if has_exact_duplicate and not confirm_exact:
+            detail = urlquote("This route matches an existing route exactly. Approve anyway?", safe="")
+            return RedirectResponse(url=f"/admin/vendors/quotes?route_error_detail={detail}", status_code=303)
         vendor_service.proposed_route_revisions.approve(
             db,
             revision_id=revision_id,

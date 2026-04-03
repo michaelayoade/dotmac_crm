@@ -116,9 +116,28 @@
                                                     View route
                                                 </a>
                                             </div>
+                                            {% set duplicate_warnings = route_duplicate_warnings_by_revision.get(rev.id|string, []) %}
+                                            {% if duplicate_warnings %}
+                                            <div class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                                                <div class="font-semibold">Possible duplicates on map</div>
+                                                <ul class="mt-1 space-y-1 list-disc pl-4">
+                                                    {% for warning in duplicate_warnings %}
+                                                    <li>
+                                                        <span class="font-medium">{{ warning.message }}</span>
+                                                        <a href="/admin/network/fiber-map?segment_id={{ warning.segment_id }}"
+                                                           target="_blank"
+                                                           class="ml-1 underline hover:no-underline">
+                                                            {{ warning.segment_name }}
+                                                        </a>
+                                                    </li>
+                                                    {% endfor %}
+                                                </ul>
+                                            </div>
+                                            {% endif %}
                                             {% if rev.status and rev.status.value == 'submitted' %}
-                                            <form method="post" class="mt-2 space-y-2">
+                                            <form method="post" class="mt-2 space-y-2 js-route-approve-form" data-has-exact-duplicate="{{ '1' if route_duplicate_exact_by_revision.get(rev.id|string, False) else '0' }}">
                                                 <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token | default('') }}" />
+                                                <input type="hidden" name="confirm_exact_duplicate" value="0" />
                                                 <textarea
                                                     name="review_notes"
                                                     rows="2"
@@ -127,6 +146,7 @@
                                                 <div class="flex items-center gap-2">
                                                     <button type="submit"
                                                             formaction="/admin/vendors/quotes/{{ quote.id }}/route-revisions/{{ rev.id }}/approve"
+                                                            data-route-approve="1"
                                                             class="inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700">
                                                         Approve route
                                                     </button>
@@ -166,4 +186,32 @@
         </table>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    (() => {
+        const forms = document.querySelectorAll('.js-route-approve-form');
+        forms.forEach((form) => {
+            const approveBtn = form.querySelector('button[data-route-approve="1"]');
+            if (!approveBtn) return;
+            approveBtn.addEventListener('click', (event) => {
+                const hasExact = String(form.dataset.hasExactDuplicate || '0') === '1';
+                if (!hasExact) {
+                    const confirmInput = form.querySelector('input[name="confirm_exact_duplicate"]');
+                    if (confirmInput) confirmInput.value = '0';
+                    return;
+                }
+                const ok = window.confirm('This route matches an existing route exactly. Approve anyway?');
+                if (!ok) {
+                    event.preventDefault();
+                    return;
+                }
+                const confirmInput = form.querySelector('input[name="confirm_exact_duplicate"]');
+                if (confirmInput) confirmInput.value = '1';
+            });
+        });
+    })();
+</script>
 {% endblock %}

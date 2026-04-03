@@ -4,10 +4,10 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
 
-from sqlalchemy import Date, Integer, case, cast, func, or_, select
+from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, func, or_, select, text, true
 from sqlalchemy.orm import Session
 
 from app.models.bandwidth import BandwidthSample
@@ -593,6 +593,79 @@ def _clean_report_name(value: str | None) -> str:
     return cleaned
 
 
+def _metadata_text(metadata: Mapping[str, Any] | None, key: str) -> str:
+    if not isinstance(metadata, Mapping):
+        return ""
+    value = metadata.get(key)
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text
+
+
+_SCI_NOTATION_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?E[+-]?\d+$", re.IGNORECASE)
+_NOISE_NUMERIC_ONLY_MIN_DIGITS = 8
+_NOISE_MIXED_MIN_DIGITS = 6
+_NOISE_MIN_ALPHA_RATIO = 0.25
+
+
+def _looks_like_noise_name(value: str | None) -> bool:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return True
+    if _SCI_NOTATION_RE.match(text.replace(" ", "")):
+        return True
+    alnum = sum(1 for ch in text if ch.isalnum())
+    alpha = sum(1 for ch in text if ch.isalpha())
+    digit = sum(1 for ch in text if ch.isdigit())
+    if alnum == 0:
+        return True
+    if alpha == 0 and digit >= _NOISE_NUMERIC_ONLY_MIN_DIGITS:
+        return True
+    return alpha > 0 and alpha / max(alnum, 1) < _NOISE_MIN_ALPHA_RATIO and digit >= _NOISE_MIXED_MIN_DIGITS
+
+
+def _dedupe_churn_rows(rows: list[dict]) -> list[dict]:
+    """Keep the single most risky row per linked person."""
+    if not rows:
+        return rows
+
+    risk_rank = {
+        "Churned": 4,
+        "Suspended": 3,
+        "Overdue": 2,
+        "Due Soon": 1,
+        "Pending": 0,
+    }
+
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        person_id = str(row.get("_person_id") or "").strip()
+        external_id = str(row.get("_external_id") or "").strip()
+        subscriber_number = str(row.get("_subscriber_number") or "").strip()
+        subscriber_id = str(row.get("subscriber_id") or "").strip()
+        key = person_id or external_id or subscriber_number or subscriber_id
+        grouped[key].append(row)
+
+    def sort_key(row: dict) -> tuple:
+        segment = str(row.get("risk_segment") or "")
+        due = row.get("days_to_due")
+        due_value = due if isinstance(due, int) else 10**9
+        last_synced = str(row.get("_last_synced_at") or "")
+        return (
+            -risk_rank.get(segment, -1),
+            -float(row.get("balance") or 0.0),
+            due_value,
+            last_synced,
+        )
+
+    deduped: list[dict] = []
+    for bucket in grouped.values():
+        bucket.sort(key=sort_key)
+        deduped.append(bucket[0])
+    return deduped
+
+
 def overview_regional_breakdown(
     db: Session,
     start_dt: datetime,
@@ -706,10 +779,195 @@ def overview_filter_options(db: Session) -> dict:
 # =====================================================================
 
 
+def _lifecycle_unified_churn_metrics(db: Session, start_dt: datetime, end_dt: datetime) -> dict[str, float | int]:
+    """Unified churn metrics using SQL CTEs on PostgreSQL, ORM fallback elsewhere."""
+    dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
+    if dialect_name == "postgresql":
+        result = (
+            db.execute(
+                text(
+                    """
+                WITH params AS (
+                    SELECT
+                        CAST(:start_dt AS timestamptz) AS start_dt,
+                        CAST(:end_dt AS timestamptz) AS end_dt
+                ),
+                source_subscribers AS (
+                    SELECT
+                        s.id AS subscriber_id,
+                        COALESCE(s.activated_at, s.created_at)::timestamptz AS activation_at,
+                        s.created_at::timestamptz AS created_at,
+                        s.terminated_at::timestamptz AS churn_event_at,
+                        CAST(NULLIF(s.sync_metadata ->> 'last_transaction_date', '') AS date) AS last_payment_date,
+                        CAST(s.next_bill_date AS date) AS invoice_due_date,
+                        CAST(
+                            COALESCE(
+                                NULLIF(REGEXP_REPLACE(COALESCE(s.balance, ''), '[^0-9.\\-]', '', 'g'), ''),
+                                '0'
+                            ) AS numeric
+                        ) AS balance_num
+                    FROM subscribers s
+                ),
+                churn_candidates AS (
+                    SELECT
+                        ss.subscriber_id,
+                        ss.activation_at,
+                        ss.created_at,
+                        ss.churn_event_at,
+                        CASE
+                            WHEN ss.last_payment_date IS NOT NULL
+                             AND ss.last_payment_date <= CURRENT_DATE - INTERVAL '40 days'
+                            THEN (ss.last_payment_date + INTERVAL '40 days')::timestamptz
+                            ELSE NULL
+                        END AS behavioral_churn_from_payment,
+                        CASE
+                            WHEN ss.invoice_due_date IS NOT NULL
+                             AND ss.invoice_due_date <= CURRENT_DATE - INTERVAL '40 days'
+                             AND ss.balance_num > 0
+                            THEN (ss.invoice_due_date + INTERVAL '40 days')::timestamptz
+                            ELSE NULL
+                        END AS behavioral_churn_from_due
+                    FROM source_subscribers ss
+                ),
+                unified_churn AS (
+                    SELECT
+                        cc.subscriber_id,
+                        cc.activation_at,
+                        cc.created_at,
+                        CASE
+                            WHEN cc.behavioral_churn_from_payment IS NOT NULL
+                             AND cc.behavioral_churn_from_due IS NOT NULL
+                            THEN LEAST(cc.behavioral_churn_from_payment, cc.behavioral_churn_from_due)
+                            ELSE COALESCE(cc.behavioral_churn_from_payment, cc.behavioral_churn_from_due)
+                        END AS behavioral_churn_date,
+                        cc.churn_event_at
+                    FROM churn_candidates cc
+                ),
+                resolved_churn AS (
+                    SELECT
+                        uc.subscriber_id,
+                        uc.activation_at,
+                        uc.created_at,
+                        CASE
+                            WHEN uc.churn_event_at IS NOT NULL THEN uc.churn_event_at
+                            WHEN uc.behavioral_churn_date IS NOT NULL THEN uc.behavioral_churn_date
+                            ELSE NULL
+                        END AS churn_date,
+                        CASE
+                            WHEN uc.churn_event_at IS NOT NULL THEN 'operational'
+                            WHEN uc.behavioral_churn_date IS NOT NULL THEN 'behavioral'
+                            ELSE NULL
+                        END AS churn_type,
+                        uc.churn_event_at
+                    FROM unified_churn uc
+                ),
+                period_churn AS (
+                    SELECT
+                        rc.subscriber_id,
+                        rc.churn_date,
+                        rc.churn_type
+                    FROM resolved_churn rc
+                    CROSS JOIN params p
+                    WHERE rc.churn_date IS NOT NULL
+                      AND rc.churn_date >= p.start_dt
+                      AND rc.churn_date <= p.end_dt
+                ),
+                active_base AS (
+                    SELECT
+                        COUNT(rc.subscriber_id) AS total_active_subscribers_start
+                    FROM resolved_churn rc
+                    CROSS JOIN params p
+                    WHERE rc.activation_at <= p.start_dt
+                      AND (rc.churn_date IS NULL OR rc.churn_date > p.start_dt)
+                ),
+                churn_counts AS (
+                    SELECT
+                        COUNT(pc.subscriber_id) AS total_churned_subscribers,
+                        COUNT(pc.subscriber_id) FILTER (WHERE pc.churn_type = 'operational') AS count_operational_churn,
+                        COUNT(pc.subscriber_id) FILTER (WHERE pc.churn_type = 'behavioral') AS count_behavioral_churn
+                    FROM period_churn pc
+                )
+                SELECT
+                    cc.total_churned_subscribers,
+                    cc.count_operational_churn,
+                    cc.count_behavioral_churn,
+                    ab.total_active_subscribers_start,
+                    CASE
+                        WHEN ab.total_active_subscribers_start > 0
+                        THEN cc.total_churned_subscribers::numeric / ab.total_active_subscribers_start::numeric
+                        ELSE 0::numeric
+                    END AS churn_rate_ratio
+                FROM churn_counts cc
+                CROSS JOIN active_base ab
+                """
+                ),
+                {"start_dt": start_dt, "end_dt": end_dt},
+            )
+            .mappings()
+            .first()
+        )
+        if result is None:
+            return {
+                "total_churned_subscribers": 0,
+                "count_operational_churn": 0,
+                "count_behavioral_churn": 0,
+                "total_active_subscribers_start": 0,
+                "churn_rate_ratio": 0.0,
+            }
+        return {
+            "total_churned_subscribers": int(result["total_churned_subscribers"] or 0),
+            "count_operational_churn": int(result["count_operational_churn"] or 0),
+            "count_behavioral_churn": int(result["count_behavioral_churn"] or 0),
+            "total_active_subscribers_start": int(result["total_active_subscribers_start"] or 0),
+            "churn_rate_ratio": float(result["churn_rate_ratio"] or 0),
+        }
+
+    operational_churn = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                Subscriber.terminated_at.isnot(None),
+                Subscriber.terminated_at >= start_dt,
+                Subscriber.terminated_at <= end_dt,
+            )
+        )
+        or 0
+    )
+    behavioral_event_at = _behavioral_churn_event_at(db)
+    behavioral_churn = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                Subscriber.terminated_at.is_(None),
+                behavioral_event_at.isnot(None),
+                behavioral_event_at >= start_dt,
+                behavioral_event_at <= end_dt,
+            )
+        )
+        or 0
+    )
+    total_churned = operational_churn + behavioral_churn
+    churn_event_at = _churn_event_at(db)
+    activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
+    active_base = (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                activation_event_at <= start_dt,
+                ((churn_event_at.is_(None)) | (churn_event_at > start_dt)),
+            )
+        )
+        or 0
+    )
+    return {
+        "total_churned_subscribers": int(total_churned),
+        "count_operational_churn": int(operational_churn),
+        "count_behavioral_churn": int(behavioral_churn),
+        "total_active_subscribers_start": int(active_base),
+        "churn_rate_ratio": (float(total_churned) / float(active_base)) if active_base > 0 else 0.0,
+    }
+
+
 def lifecycle_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
     """5 KPI cards for lifecycle report."""
     activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
-    churn_event_at = _churn_event_at()
 
     # Leads created in period
     leads_created = (
@@ -754,30 +1012,18 @@ def lifecycle_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
     )
     avg_days_to_convert = round(float(avg_days_result), 1) if avg_days_result else 0
 
-    # Churn rate
-    active_at_start = (
-        db.scalar(
-            select(func.count(Subscriber.id)).where(
-                activation_event_at < start_dt,
-                ((churn_event_at.is_(None)) | (churn_event_at >= start_dt)),
-            )
-        )
-        or 0
-    )
-    terminated_in_period = (
-        db.scalar(
-            select(func.count(Subscriber.id)).where(
-                churn_event_at >= start_dt,
-                churn_event_at <= end_dt,
-            )
-        )
-        or 0
-    )
-    churn_rate = (terminated_in_period / active_at_start * 100) if active_at_start > 0 else 0
+    churn_metrics = _lifecycle_unified_churn_metrics(db, start_dt, end_dt)
+    active_at_start = int(churn_metrics["total_active_subscribers_start"])
+    operational_churn_in_period = int(churn_metrics["count_operational_churn"])
+    behavioral_churn_in_period = int(churn_metrics["count_behavioral_churn"])
+    terminated_in_period = int(churn_metrics["total_churned_subscribers"])
+    churn_rate_ratio = float(churn_metrics["churn_rate_ratio"])
+    churn_rate = round(churn_rate_ratio * 100, 5)
 
     churn_rows = _lifecycle_churn_rows(db, start_dt, end_dt, strict_terminated_only=True)
     avg_lifecycle_days = round(sum(row["tenure_days"] for row in churn_rows) / len(churn_rows), 1) if churn_rows else 0
     avg_lifecycle_months = round(avg_lifecycle_days / 30.4, 1) if avg_lifecycle_days > 0 else 0
+    churn_event_at = _churn_event_at(db)
 
     upgraded_in_period = (
         db.scalar(
@@ -886,7 +1132,11 @@ def lifecycle_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
         "conversion_rate": conversion_rate,
         "avg_days_to_convert": avg_days_to_convert,
         "churn_rate": churn_rate,
+        "churn_rate_ratio": churn_rate_ratio,
         "terminated_in_period": terminated_in_period,
+        "total_active_subscribers_start": active_at_start,
+        "operational_churn_in_period": operational_churn_in_period,
+        "behavioral_churn_in_period": behavioral_churn_in_period,
         "avg_lifecycle_days": avg_lifecycle_days,
         "avg_lifecycle_months": avg_lifecycle_months,
         "upgraded_in_period": upgraded_in_period,
@@ -917,7 +1167,7 @@ def lifecycle_churn_trend(db: Session) -> list[dict]:
     """Monthly churn count over the last 12 months."""
     current_month = _month_start(datetime.now(UTC))
     cutoff = _add_months(current_month, -11)
-    churn_event_at = _churn_event_at()
+    churn_event_at = _churn_event_at(db)
     dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
     if dialect_name == "sqlite":
         churn_month = func.strftime("%Y-%m", churn_event_at).label("month")
@@ -977,7 +1227,7 @@ def lifecycle_retention_cohorts(db: Session, start_dt: datetime, end_dt: datetim
     """Monthly activation cohorts with retention percentages through the selected range."""
     max_months = 12
     activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
-    churn_event_at = _churn_event_at()
+    churn_event_at = _churn_event_at(db)
     start_month = _month_start(start_dt)
     end_month = _month_start(end_dt)
     month_span = (end_month.year - start_month.year) * 12 + (end_month.month - start_month.month) + 1
@@ -1145,6 +1395,44 @@ def lifecycle_recent_churns(db: Session, limit: int = 5) -> list[dict]:
     return _lifecycle_churn_rows(db, cutoff, datetime.now(UTC), limit=limit)
 
 
+def lifecycle_recent_churn_summary(db: Session) -> dict[str, float | int]:
+    """Recent churn metric for the last 30 days with previous-period comparison."""
+    now = datetime.now(UTC)
+    current_start = now - timedelta(days=30)
+    previous_start = current_start - timedelta(days=30)
+
+    current_count = _lifecycle_churn_count(db, current_start, now)
+    previous_count = _lifecycle_churn_count(db, previous_start, current_start)
+    if previous_count > 0:
+        pct_change = round(((current_count - previous_count) / previous_count) * 100, 1)
+    elif current_count > 0:
+        pct_change = 100.0
+    else:
+        pct_change = 0.0
+    return {
+        "count": current_count,
+        "previous_count": previous_count,
+        "pct_change": pct_change,
+    }
+
+
+def _lifecycle_churn_count(db: Session, start_dt: datetime, end_dt: datetime) -> int:
+    """Count unified churn rows for a date range."""
+    if db is None:
+        return 0
+    churn_event_at = _churn_event_at(db)
+    return (
+        db.scalar(
+            select(func.count(Subscriber.id)).where(
+                churn_event_at.isnot(None),
+                churn_event_at >= start_dt,
+                churn_event_at <= end_dt,
+            )
+        )
+        or 0
+    )
+
+
 def _lifecycle_churn_rows(
     db: Session,
     start_dt: datetime,
@@ -1154,7 +1442,7 @@ def _lifecycle_churn_rows(
 ) -> list[dict]:
     """Build churn rows for the selected date range."""
     activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
-    churn_event_at = _strict_churn_event_at() if strict_terminated_only else _churn_event_at()
+    churn_event_at = _strict_churn_event_at() if strict_terminated_only else _churn_event_at(db)
     query = (
         select(
             Subscriber.subscriber_number,
@@ -1230,11 +1518,6 @@ def _ensure_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _payment_completed_statuses() -> tuple[SalesOrderStatus, ...]:
-    """Statuses that indicate an order has been paid/realized in this codebase."""
-    return (SalesOrderStatus.paid, SalesOrderStatus.fulfilled)
-
-
 def _days_since_expr(db: Session, column):
     """Portable days-since-date expression for SQLite and PostgreSQL."""
     dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
@@ -1243,185 +1526,466 @@ def _days_since_expr(db: Session, column):
     return cast(func.current_date() - cast(column, Date), Integer)
 
 
+def _parse_balance_amount(raw_value: object) -> float:
+    text = str(raw_value or "").strip()
+    if not text:
+        return 0.0
+    cleaned = re.sub(r"[^0-9.\-]", "", text.replace(",", ""))
+    if not cleaned:
+        return 0.0
+    try:
+        return round(float(Decimal(cleaned)), 2)
+    except (InvalidOperation, ValueError):
+        return 0.0
+
+
 def get_churn_table(
     db: Session,
-    days_active: int = 90,
-    days_churn: int = 120,
+    due_soon_days: int = 7,
     *,
-    high_value_only: bool = False,
+    high_balance_only: bool = False,
     segment: str | None = None,
     limit: int = 500,
 ) -> list[dict]:
-    """Subscribers who have not renewed recent paid orders, segmented by churn risk."""
+    """Subscribers with non-current Splynx billing state, segmented by due/risk status."""
     normalized_segment = (segment or "").strip().lower()
     segment_filter = None
-    if normalized_segment in {"at_risk", "at risk"}:
-        segment_filter = "At Risk"
+    if normalized_segment in {"due_soon", "due soon"}:
+        segment_filter = "Due Soon"
+    elif normalized_segment == "overdue":
+        segment_filter = "Overdue"
+    elif normalized_segment == "suspended":
+        segment_filter = "Suspended"
     elif normalized_segment == "churned":
         segment_filter = "Churned"
+    elif normalized_segment == "pending":
+        segment_filter = "Pending"
 
-    payment_rollup = (
+    days_to_due = case(
+        (Subscriber.next_bill_date.is_(None), None),
+        else_=-_days_since_expr(db, Subscriber.next_bill_date),
+    ).label("days_to_due")
+    days_since_due = _days_since_expr(db, Subscriber.next_bill_date)
+
+    active_at_risk_filter = and_(
+        Subscriber.status == SubscriberStatus.active,
+        Subscriber.next_bill_date.isnot(None),
+        days_since_due >= -max(0, int(due_soon_days)),
+    )
+    row_scope_filter = or_(
+        Subscriber.status.in_(
+            [SubscriberStatus.terminated, SubscriberStatus.suspended, SubscriberStatus.pending],
+        ),
+        active_at_risk_filter,
+    )
+    segment_scope_filter = None
+    if segment_filter == "Churned":
+        segment_scope_filter = Subscriber.status == SubscriberStatus.terminated
+    elif segment_filter == "Suspended":
+        segment_scope_filter = Subscriber.status == SubscriberStatus.suspended
+    elif segment_filter == "Pending":
+        segment_scope_filter = Subscriber.status == SubscriberStatus.pending
+    elif segment_filter == "Overdue":
+        segment_scope_filter = and_(
+            Subscriber.status == SubscriberStatus.active,
+            Subscriber.next_bill_date.isnot(None),
+            days_since_due > 0,
+        )
+    elif segment_filter == "Due Soon":
+        segment_scope_filter = and_(
+            Subscriber.status == SubscriberStatus.active,
+            Subscriber.next_bill_date.isnot(None),
+            days_since_due <= 0,
+            days_since_due >= -max(0, int(due_soon_days)),
+        )
+
+    normalized_limit = max(1, int(limit))
+    # We fetch a bounded superset because post-processing performs dedupe, scoring, and optional high-balance filtering.
+    fetch_limit = min(max(normalized_limit * 20, 500), 20_000)
+
+    rows = db.execute(
         select(
             Subscriber.id.label("subscriber_id"),
-            Subscriber.subscriber_number.label("subscriber_number"),
-            Person.display_name.label("display_name"),
-            Person.first_name.label("first_name"),
-            Person.last_name.label("last_name"),
-            Person.email.label("email"),
-            func.max(SalesOrder.created_at).label("last_payment_date"),
-            func.count(SalesOrder.id).label("total_orders"),
-            func.coalesce(func.sum(SalesOrder.total), 0).label("lifetime_value"),
-            func.coalesce(func.avg(SalesOrder.total), 0).label("avg_order_value"),
-        )
-        .select_from(Subscriber)
-        .outerjoin(Person, Person.id == Subscriber.person_id)
-        .outerjoin(
-            SalesOrder,
-            (SalesOrder.person_id == Subscriber.person_id)
-            & SalesOrder.is_active.is_(True)
-            & SalesOrder.status.in_(_payment_completed_statuses()),
-        )
-        .group_by(
-            Subscriber.id,
             Subscriber.subscriber_number,
+            Subscriber.external_id,
+            Subscriber.person_id,
+            Subscriber.status,
+            Subscriber.next_bill_date,
+            Subscriber.balance,
+            Subscriber.billing_cycle,
+            Subscriber.sync_metadata,
+            Subscriber.last_synced_at,
             Person.display_name,
             Person.first_name,
             Person.last_name,
             Person.email,
+            days_to_due,
         )
-        .subquery()
-    )
+        .select_from(Subscriber)
+        .outerjoin(Person, Person.id == Subscriber.person_id)
+        .where(Subscriber.is_active.is_(True), row_scope_filter)
+        .where(segment_scope_filter if segment_scope_filter is not None else true())
+        .limit(fetch_limit)
+    ).all()
 
-    days_since_last_payment = case(
-        (payment_rollup.c.last_payment_date.is_(None), 9999),
-        else_=_days_since_expr(db, payment_rollup.c.last_payment_date),
-    ).label("days_since_last_payment")
-    avg_lifetime_value = func.avg(payment_rollup.c.lifetime_value).over().label("avg_lifetime_value")
-
-    segmented = select(
-        payment_rollup.c.subscriber_id,
-        payment_rollup.c.subscriber_number,
-        payment_rollup.c.display_name,
-        payment_rollup.c.first_name,
-        payment_rollup.c.last_name,
-        payment_rollup.c.email,
-        payment_rollup.c.last_payment_date,
-        payment_rollup.c.total_orders,
-        payment_rollup.c.lifetime_value,
-        payment_rollup.c.avg_order_value,
-        days_since_last_payment,
-        case(
-            (days_since_last_payment <= days_active, "Active"),
-            (days_since_last_payment <= days_churn, "At Risk"),
-            else_="Churned",
-        ).label("churn_segment"),
-        avg_lifetime_value,
-    ).subquery()
-
-    is_high_value_churn = case(
-        (
-            (segmented.c.lifetime_value > segmented.c.avg_lifetime_value)
-            & segmented.c.churn_segment.in_(("At Risk", "Churned")),
-            True,
-        ),
-        else_=False,
-    ).label("is_high_value_churn")
-
-    stmt = (
-        select(
-            segmented.c.subscriber_id,
-            segmented.c.subscriber_number,
-            segmented.c.display_name,
-            segmented.c.first_name,
-            segmented.c.last_name,
-            segmented.c.email,
-            segmented.c.last_payment_date,
-            segmented.c.total_orders,
-            segmented.c.lifetime_value,
-            segmented.c.avg_order_value,
-            segmented.c.days_since_last_payment,
-            segmented.c.churn_segment,
-            is_high_value_churn,
-        )
-        .where(segmented.c.churn_segment.in_(("At Risk", "Churned")))
-        .order_by(
-            is_high_value_churn.desc(),
-            segmented.c.lifetime_value.desc(),
-            segmented.c.days_since_last_payment.desc(),
-            segmented.c.subscriber_id,
-        )
-        .limit(limit)
-    )
-
-    if segment_filter is not None:
-        stmt = stmt.where(segmented.c.churn_segment == segment_filter)
-    if high_value_only:
-        stmt = stmt.where(is_high_value_churn.is_(True))
-
-    rows = db.execute(stmt).all()
     results: list[dict] = []
     for row in rows:
-        raw_name = (
-            row.display_name
-            or f"{row.first_name or ''} {row.last_name or ''}".strip()
-            or row.subscriber_number
-            or str(row.subscriber_id)
-        )
+        candidate_display = row.display_name or ""
+        candidate_full = f"{row.first_name or ''} {row.last_name or ''}".strip()
+        raw_name = candidate_display if not _looks_like_noise_name(candidate_display) else ""
+        if not raw_name and not _looks_like_noise_name(candidate_full):
+            raw_name = candidate_full
+        if not raw_name:
+            raw_name = row.subscriber_number or str(row.subscriber_id)
+        status_value = row.status.value if row.status else "unknown"
+        balance_amount = _parse_balance_amount(row.balance)
+        due_days = row.days_to_due if isinstance(row.days_to_due, int) else None
+        sync_metadata = row.sync_metadata if isinstance(row.sync_metadata, Mapping) else {}
+
+        segment_value: str | None = None
+        if status_value == SubscriberStatus.terminated.value:
+            segment_value = "Churned"
+        elif status_value == SubscriberStatus.suspended.value:
+            segment_value = "Suspended"
+        elif status_value == SubscriberStatus.pending.value:
+            segment_value = "Pending"
+        elif status_value == SubscriberStatus.active.value and due_days is not None and due_days < 0:
+            segment_value = "Overdue"
+        elif status_value == SubscriberStatus.active.value and due_days is not None and due_days <= due_soon_days:
+            segment_value = "Due Soon"
+
+        # Exclude active/current subscribers from this report.
+        if segment_value is None:
+            continue
+        if segment_filter is not None and segment_value != segment_filter:
+            continue
+
         results.append(
             {
                 "subscriber_id": str(row.subscriber_id),
                 "name": _clean_report_name(raw_name),
                 "email": row.email or "",
-                "last_payment_date": row.last_payment_date.strftime("%Y-%m-%d") if row.last_payment_date else "",
-                "total_orders": int(row.total_orders or 0),
-                "lifetime_value": round(float(row.lifetime_value or 0), 2),
-                "avg_order_value": round(float(row.avg_order_value or 0), 2),
-                "days_since_last_payment": int(row.days_since_last_payment or 0),
-                "churn_segment": row.churn_segment,
-                "is_high_value_churn": bool(row.is_high_value_churn),
+                "subscriber_status": status_value.replace("_", " ").title(),
+                "next_bill_date": row.next_bill_date.strftime("%Y-%m-%d") if row.next_bill_date else "",
+                "balance": balance_amount,
+                "billing_cycle": row.billing_cycle or "",
+                "last_transaction_date": _metadata_text(sync_metadata, "last_transaction_date"),
+                "expires_in": _metadata_text(sync_metadata, "expires_in"),
+                "invoiced_until": _metadata_text(sync_metadata, "invoiced_until"),
+                "total_paid": _parse_balance_amount(_metadata_text(sync_metadata, "total_paid")),
+                "days_to_due": due_days,
+                "risk_segment": segment_value,
+                "_person_id": str(row.person_id) if row.person_id else "",
+                "_external_id": str(row.external_id or ""),
+                "_subscriber_number": str(row.subscriber_number or ""),
+                "_last_synced_at": row.last_synced_at.isoformat() if row.last_synced_at else "",
             }
         )
+
+    results = _dedupe_churn_rows(results)
+
+    avg_balance = round(sum(row["balance"] for row in results) / len(results), 2) if results else 0.0
+    for row in results:
+        row["is_high_balance_risk"] = row["balance"] > avg_balance and row["risk_segment"] in {
+            "Overdue",
+            "Suspended",
+            "Churned",
+        }
+
+    if high_balance_only:
+        results = [row for row in results if row["is_high_balance_risk"]]
+
+    results.sort(
+        key=lambda row: (
+            -int(bool(row["is_high_balance_risk"])),
+            -float(row["balance"]),
+            (row["days_to_due"] if isinstance(row["days_to_due"], int) else 10**9),
+            row["name"],
+        )
+    )
+    return results[:normalized_limit]
+
+
+def get_overdue_invoices_table(
+    db: Session,
+    *,
+    min_days_past_due: int = 30,
+    limit: int = 500,
+) -> list[dict]:
+    """
+    Overdue receivables (sales orders) by customer.
+
+    In this codebase, customer invoices are represented by `sales_orders`.
+    """
+    dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
+    due_dt = func.coalesce(SalesOrder.payment_due_date, SalesOrder.created_at)
+    days_past_due = _days_since_expr(db, due_dt).label("days_past_due")
+    oldest_due_day_expr = func.date(due_dt) if dialect_name == "sqlite" else cast(due_dt, Date)
+
+    rows = db.execute(
+        select(
+            SalesOrder.person_id,
+            func.count(SalesOrder.id).label("overdue_invoices"),
+            func.sum(SalesOrder.balance_due).label("total_balance_due"),
+            func.max(days_past_due).label("max_days_past_due"),
+            func.min(oldest_due_day_expr).label("oldest_due_day"),
+            Person.display_name,
+            Person.first_name,
+            Person.last_name,
+            Person.email,
+        )
+        .select_from(SalesOrder)
+        .join(Person, Person.id == SalesOrder.person_id, isouter=True)
+        .where(
+            SalesOrder.is_active.is_(True),
+            func.coalesce(SalesOrder.balance_due, 0) > 0,
+            SalesOrder.payment_status != SalesOrderPaymentStatus.paid,
+            days_past_due >= min_days_past_due,
+        )
+        .group_by(
+            SalesOrder.person_id,
+            Person.display_name,
+            Person.first_name,
+            Person.last_name,
+            Person.email,
+        )
+        .order_by(func.max(days_past_due).desc(), func.sum(SalesOrder.balance_due).desc())
+        .limit(limit)
+    ).all()
+
+    results: list[dict] = []
+    for row in rows:
+        raw_name = (
+            row.display_name
+            or f"{row.first_name or ''} {row.last_name or ''}".strip()
+            or (row.email.split(",")[0].strip() if row.email else "")
+            or "Unknown"
+        )
+        oldest_due_day = ""
+        if row.oldest_due_day:
+            if isinstance(row.oldest_due_day, str):
+                oldest_due_day = row.oldest_due_day[:10]
+            else:
+                oldest_due_day = row.oldest_due_day.strftime("%Y-%m-%d")
+        results.append(
+            {
+                "person_id": str(row.person_id) if row.person_id else "",
+                "name": _clean_report_name(raw_name),
+                "email": row.email or "",
+                "overdue_invoices": int(row.overdue_invoices or 0),
+                "total_balance_due": float(row.total_balance_due or 0),
+                "max_days_past_due": int(row.max_days_past_due or 0),
+                "oldest_due_day": oldest_due_day,
+            }
+        )
+
     return results
 
 
-def churned_subscribers_kpis(db: Session, start_dt: datetime, end_dt: datetime) -> dict:
-    """Summary metrics for churned subscribers in a date range."""
-    activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
-    churn_event_at = _strict_churn_event_at()
+_CHURN_SEGMENT_ORDER = ["Overdue", "Suspended", "Churned", "Pending", "Due Soon"]
+
+
+def churn_risk_summary(
+    churn_rows: list[dict],
+    overdue_invoices: list[dict],
+    recent_churn_kpis: dict[str, Any] | None = None,
+) -> dict[str, float | int]:
+    """Topline KPIs for the billing-risk churn dashboard."""
+    recent_churn_kpis = recent_churn_kpis or {}
+    total_at_risk = len(churn_rows)
+    total_balance_exposure = round(sum(float(row.get("balance") or 0) for row in churn_rows), 2)
+    high_balance_risk_count = sum(1 for row in churn_rows if bool(row.get("is_high_balance_risk")))
+    overdue_count = sum(1 for row in churn_rows if row.get("risk_segment") == "Overdue")
+    overdue_balance_exposure = round(
+        sum(float(row.get("balance") or 0) for row in churn_rows if row.get("risk_segment") == "Overdue"),
+        2,
+    )
+    overdue_invoice_balance = round(
+        sum(float(row.get("total_balance_due") or 0) for row in overdue_invoices),
+        2,
+    )
+
+    return {
+        "total_at_risk": total_at_risk,
+        "total_balance_exposure": total_balance_exposure,
+        "high_balance_risk_count": high_balance_risk_count,
+        "high_balance_risk_pct": round((high_balance_risk_count / total_at_risk) * 100, 1) if total_at_risk else 0,
+        "overdue_count": overdue_count,
+        "overdue_balance_exposure": overdue_balance_exposure,
+        "overdue_invoice_balance": overdue_invoice_balance,
+        "recent_churned_count": int(recent_churn_kpis.get("churned_count") or 0),
+        "recent_churn_rate": float(recent_churn_kpis.get("churn_rate") or 0),
+        "recent_revenue_lost": float(recent_churn_kpis.get("revenue_lost_to_churn") or 0),
+    }
+
+
+def churn_risk_segment_breakdown(churn_rows: list[dict]) -> list[dict[str, float | int | str]]:
+    """Counts and exposure by risk segment."""
+    segment_map: dict[str, dict[str, float | int | str]] = {}
+    total_count = len(churn_rows)
+
+    for segment in _CHURN_SEGMENT_ORDER:
+        segment_map[segment] = {
+            "segment": segment,
+            "count": 0,
+            "balance": 0.0,
+            "high_balance_count": 0,
+            "avg_balance": 0.0,
+            "share_pct": 0.0,
+        }
+
+    for row in churn_rows:
+        segment = str(row.get("risk_segment") or "Unknown")
+        if segment not in segment_map:
+            segment_map[segment] = {
+                "segment": segment,
+                "count": 0,
+                "balance": 0.0,
+                "high_balance_count": 0,
+                "avg_balance": 0.0,
+                "share_pct": 0.0,
+            }
+        segment_map[segment]["count"] = int(segment_map[segment]["count"]) + 1
+        segment_map[segment]["balance"] = round(
+            float(segment_map[segment]["balance"]) + float(row.get("balance") or 0), 2
+        )
+        if row.get("is_high_balance_risk"):
+            segment_map[segment]["high_balance_count"] = int(segment_map[segment]["high_balance_count"]) + 1
+
+    results = list(segment_map.values())
+    for row in results:
+        count = int(row["count"])
+        balance = float(row["balance"])
+        row["avg_balance"] = round(balance / count, 2) if count else 0.0
+        row["share_pct"] = round((count / total_count) * 100, 1) if total_count else 0.0
+
+    results.sort(
+        key=lambda row: (
+            _CHURN_SEGMENT_ORDER.index(str(row["segment"]))
+            if str(row["segment"]) in _CHURN_SEGMENT_ORDER
+            else len(_CHURN_SEGMENT_ORDER),
+            -int(row["count"]),
+        )
+    )
+    return [row for row in results if int(row["count"]) > 0]
+
+
+def churn_risk_aging_buckets(churn_rows: list[dict], *, due_soon_days: int = 7) -> list[dict[str, int | str]]:
+    """Bucket at-risk subscribers by due-date aging."""
+    buckets = {
+        f"Due In 0-{due_soon_days} Days": 0,
+        "Overdue 1-7 Days": 0,
+        "Overdue 8-30 Days": 0,
+        "Overdue 31+ Days": 0,
+        "No Due Date / Status Driven": 0,
+    }
+
+    for row in churn_rows:
+        due_days = row.get("days_to_due")
+        if not isinstance(due_days, int):
+            buckets["No Due Date / Status Driven"] += 1
+            continue
+        if due_days < 0:
+            overdue_days = abs(due_days)
+            if overdue_days <= 7:
+                buckets["Overdue 1-7 Days"] += 1
+            elif overdue_days <= 30:
+                buckets["Overdue 8-30 Days"] += 1
+            else:
+                buckets["Overdue 31+ Days"] += 1
+        elif due_days <= due_soon_days:
+            buckets[f"Due In 0-{due_soon_days} Days"] += 1
+        else:
+            buckets["No Due Date / Status Driven"] += 1
+
+    return [{"label": label, "count": count} for label, count in buckets.items()]
+
+
+def churned_subscribers_kpis(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+    *,
+    behavioral_days: int = 60,
+) -> dict:
+    """Summary metrics for unified churned subscribers in a date range."""
+    resolved = _unified_churn_expressions(db, behavioral_days)
+    activation_event_at = resolved["activation_event_at"]
+    successful_payment_sq = resolved["successful_payment_sq"]
+    churn_event_at = resolved["churn_date"]
+    churn_type = resolved["churn_type"]
+    churn_filters = (
+        churn_event_at.isnot(None),
+        churn_event_at >= start_dt,
+        churn_event_at <= end_dt,
+        activation_event_at <= churn_event_at,
+    )
+
+    churn_counts_row = db.execute(
+        select(
+            func.count(func.distinct(Subscriber.id)).label("churned_count"),
+            func.count(
+                func.distinct(
+                    case(
+                        (churn_type == "operational", Subscriber.id),
+                        else_=None,
+                    )
+                )
+            ).label("operational_count"),
+            func.count(
+                func.distinct(
+                    case(
+                        (churn_type == "behavioral", Subscriber.id),
+                        else_=None,
+                    )
+                )
+            ).label("behavioral_count"),
+        )
+        .select_from(Subscriber)
+        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
+        .where(*churn_filters)
+    ).one()
+
     churned_rows = db.execute(
         select(
+            Subscriber.id.label("subscriber_id"),
             Subscriber.person_id,
             Subscriber.service_plan,
+            Subscriber.service_name,
             Subscriber.service_speed,
             Subscriber.service_region,
             activation_event_at.label("activation_event_at"),
             churn_event_at.label("churn_event_at"),
+            churn_type.label("churn_type"),
             Person.first_name,
             Person.last_name,
             Person.display_name,
         )
+        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
         .outerjoin(Person, Person.id == Subscriber.person_id)
-        .where(
-            churn_event_at.isnot(None),
-            churn_event_at >= start_dt,
-            churn_event_at <= end_dt,
-        )
+        .where(*churn_filters)
     ).all()
 
-    churned_count = len(churned_rows)
+    churned_count = int(churn_counts_row.churned_count or 0)
+    operational_count = int(churn_counts_row.operational_count or 0)
+    behavioral_count = int(churn_counts_row.behavioral_count or 0)
     tenure_days: list[int] = []
     plan_counts: dict[str, int] = defaultdict(int)
     impacted_regions: set[str] = set()
     revenue_lost_to_churn = 0.0
     churned_people: dict[Any, str] = {}
     fallback_names: list[str] = []
+    seen_subscriber_ids: set[Any] = set()
 
     for row in churned_rows:
+        if row.subscriber_id in seen_subscriber_ids:
+            continue
+        seen_subscriber_ids.add(row.subscriber_id)
         if row.activation_event_at and row.churn_event_at:
             tenure_days.append(max(0, (row.churn_event_at.date() - row.activation_event_at.date()).days))
-        plan_name = (row.service_plan or "").strip() or "Unknown"
+        plan_name = (row.service_plan or "").strip() or (row.service_name or "").strip() or "Unknown"
         plan_counts[plan_name] += 1
-        revenue_lost_to_churn += _estimate_monthly_plan_value(row.service_plan, row.service_speed)
+        revenue_lost_to_churn += _estimate_monthly_plan_value(row.service_plan or row.service_name, row.service_speed)
         region_name = (
             _normalize_city_name(getattr(row, "service_region", None)) if hasattr(row, "service_region") else ""
         )
@@ -1440,10 +2004,13 @@ def churned_subscribers_kpis(db: Session, start_dt: datetime, end_dt: datetime) 
 
     active_at_start = (
         db.scalar(
-            select(func.count(Subscriber.id)).where(
-                activation_event_at < start_dt,
-                ((churn_event_at.is_(None)) | (churn_event_at >= start_dt)),
+            select(func.count(Subscriber.id))
+            .where(
+                activation_event_at <= start_dt,
+                ((churn_event_at.is_(None)) | (churn_event_at > start_dt)),
             )
+            .select_from(Subscriber)
+            .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
         )
         or 0
     )
@@ -1483,6 +2050,9 @@ def churned_subscribers_kpis(db: Session, start_dt: datetime, end_dt: datetime) 
     return {
         "churned_count": churned_count,
         "churn_rate": churn_rate,
+        "count_operational_churn": operational_count,
+        "count_behavioral_churn": behavioral_count,
+        "total_active_subscribers_start": active_at_start,
         "revenue_lost_to_churn": round(revenue_lost_to_churn, 2),
         "top_churn_plan_type": top_churn_plan_type,
         "top_churn_plan_count": top_churn_plan_count,
@@ -1496,9 +2066,18 @@ def churned_subscribers_kpis(db: Session, start_dt: datetime, end_dt: datetime) 
     }
 
 
-def churned_subscribers_trend(db: Session, start_dt: datetime, end_dt: datetime) -> list[dict]:
-    """Daily churn count in the selected date range."""
-    churn_event_at = _strict_churn_event_at()
+def churned_subscribers_trend(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+    *,
+    behavioral_days: int = 60,
+) -> list[dict]:
+    """Daily unified churn count in the selected date range."""
+    resolved = _unified_churn_expressions(db, behavioral_days)
+    churn_event_at = resolved["churn_date"]
+    activation_event_at = resolved["activation_event_at"]
+    successful_payment_sq = resolved["successful_payment_sq"]
     dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
     if dialect_name == "sqlite":
         churn_day = func.date(churn_event_at).label("day")
@@ -1514,17 +2093,30 @@ def churned_subscribers_trend(db: Session, start_dt: datetime, end_dt: datetime)
             churn_event_at.isnot(None),
             churn_event_at >= start_dt,
             churn_event_at <= end_dt,
+            activation_event_at <= churn_event_at,
         )
+        .select_from(Subscriber)
+        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
         .group_by("day")
         .order_by("day")
     ).all()
     return [{"date": str(row.day)[:10], "count": int(row._mapping["count"] or 0)} for row in rows if row.day]
 
 
-def churned_subscribers_rows(db: Session, start_dt: datetime, end_dt: datetime, limit: int = 50) -> list[dict]:
-    """Detailed churned subscribers in the selected date range."""
-    activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
-    churn_event_at = _strict_churn_event_at()
+def churned_subscribers_rows(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+    limit: int = 50,
+    *,
+    behavioral_days: int = 60,
+) -> list[dict]:
+    """Detailed unified churned subscribers in the selected date range."""
+    resolved = _unified_churn_expressions(db, behavioral_days)
+    activation_event_at = resolved["activation_event_at"]
+    churn_event_at = resolved["churn_date"]
+    churn_type = resolved["churn_type"]
+    successful_payment_sq = resolved["successful_payment_sq"]
     subs = db.execute(
         select(
             Subscriber.subscriber_number,
@@ -1532,15 +2124,18 @@ def churned_subscribers_rows(db: Session, start_dt: datetime, end_dt: datetime, 
             Subscriber.service_region,
             activation_event_at.label("activation_event_at"),
             churn_event_at.label("churn_event_at"),
+            churn_type.label("churn_type"),
             Person.first_name,
             Person.last_name,
             Person.display_name,
         )
+        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
         .outerjoin(Person, Person.id == Subscriber.person_id)
         .where(
             churn_event_at.isnot(None),
             churn_event_at >= start_dt,
             churn_event_at <= end_dt,
+            activation_event_at <= churn_event_at,
         )
         .order_by(churn_event_at.desc())
         .limit(limit)
@@ -1562,48 +2157,129 @@ def churned_subscribers_rows(db: Session, start_dt: datetime, end_dt: datetime, 
                 "region": region,
                 "activated_at": row.activation_event_at.strftime("%Y-%m-%d") if row.activation_event_at else "",
                 "terminated_at": row.churn_event_at.strftime("%Y-%m-%d") if row.churn_event_at else "",
+                "churn_type": row.churn_type or "",
                 "tenure_days": tenure,
             }
         )
     return results
 
 
-def churned_failed_payment_rows(db: Session, start_dt: datetime, end_dt: datetime, limit: int = 50) -> list[dict]:
-    """Terminated subscribers in period with outstanding failed payment signals."""
-    activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
-    churn_event_at = _strict_churn_event_at()
+def churned_failed_payment_rows(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+    limit: int = 50,
+    *,
+    behavioral_days: int = 60,
+) -> list[dict]:
+    """Behavioral churn in period with outstanding failed payment signals."""
+    resolved = _unified_churn_expressions(db, behavioral_days)
+    activation_event_at = resolved["activation_event_at"]
+    churn_event_at = resolved["churn_date"]
+    churn_type = resolved["churn_type"]
+    successful_payment_sq = resolved["successful_payment_sq"]
     rows = db.execute(
         select(
             Subscriber.subscriber_number,
             Subscriber.service_plan,
+            Subscriber.service_name,
+            Subscriber.balance.label("subscriber_balance"),
+            Subscriber.next_bill_date.label("subscriber_due_date"),
             activation_event_at.label("activation_event_at"),
             churn_event_at.label("churn_event_at"),
+            churn_type.label("churn_type"),
             Person.first_name,
             Person.last_name,
             Person.display_name,
-            func.coalesce(func.sum(SalesOrder.amount_paid), 0).label("total_paid"),
-            func.coalesce(func.sum(SalesOrder.balance_due), 0).label("outstanding_balance"),
-            func.max(SalesOrder.payment_due_date).label("latest_due_date"),
-            func.max(SalesOrder.updated_at).label("latest_payment_update"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                SalesOrder.is_active.is_(True),
+                                SalesOrder.payment_status.in_(
+                                    [SalesOrderPaymentStatus.pending, SalesOrderPaymentStatus.partial]
+                                ),
+                                SalesOrder.balance_due > 0,
+                            ),
+                            SalesOrder.amount_paid,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("total_paid"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                SalesOrder.is_active.is_(True),
+                                SalesOrder.payment_status.in_(
+                                    [SalesOrderPaymentStatus.pending, SalesOrderPaymentStatus.partial]
+                                ),
+                                SalesOrder.balance_due > 0,
+                            ),
+                            SalesOrder.balance_due,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("outstanding_balance"),
+            func.max(
+                case(
+                    (
+                        and_(
+                            SalesOrder.is_active.is_(True),
+                            SalesOrder.payment_status.in_(
+                                [SalesOrderPaymentStatus.pending, SalesOrderPaymentStatus.partial]
+                            ),
+                            SalesOrder.balance_due > 0,
+                        ),
+                        SalesOrder.payment_due_date,
+                    ),
+                    else_=None,
+                )
+            ).label("latest_due_date"),
+            func.max(
+                case(
+                    (
+                        and_(
+                            SalesOrder.is_active.is_(True),
+                            SalesOrder.payment_status.in_(
+                                [SalesOrderPaymentStatus.pending, SalesOrderPaymentStatus.partial]
+                            ),
+                            SalesOrder.balance_due > 0,
+                        ),
+                        SalesOrder.updated_at,
+                    ),
+                    else_=None,
+                )
+            ).label("latest_payment_update"),
         )
+        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
         .outerjoin(Person, Person.id == Subscriber.person_id)
-        .join(
+        .outerjoin(
             SalesOrder,
-            (SalesOrder.person_id == Subscriber.person_id)
-            & SalesOrder.is_active.is_(True)
-            & SalesOrder.payment_status.in_([SalesOrderPaymentStatus.pending, SalesOrderPaymentStatus.partial])
-            & (SalesOrder.balance_due > 0),
+            SalesOrder.person_id == Subscriber.person_id,
         )
         .where(
             churn_event_at.isnot(None),
             churn_event_at >= start_dt,
             churn_event_at <= end_dt,
+            activation_event_at <= churn_event_at,
+            churn_type == "behavioral",
         )
         .group_by(
             Subscriber.subscriber_number,
             Subscriber.service_plan,
+            Subscriber.service_name,
+            Subscriber.balance,
+            Subscriber.next_bill_date,
             activation_event_at,
             churn_event_at,
+            churn_type,
             Person.first_name,
             Person.last_name,
             Person.display_name,
@@ -1616,21 +2292,30 @@ def churned_failed_payment_rows(db: Session, start_dt: datetime, end_dt: datetim
     for row in rows:
         raw_name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
         name = _clean_report_name(raw_name)
+        outstanding_balance = round(float(row.outstanding_balance or 0), 2)
+        if outstanding_balance <= 0:
+            outstanding_balance = _parse_balance_amount(row.subscriber_balance)
+
+        due_date_value = row.latest_due_date or row.subscriber_due_date
         results.append(
             {
                 "name": name,
                 "subscriber_number": row.subscriber_number or "",
-                "plan": row.service_plan or "",
+                "plan": row.service_plan or row.service_name or "",
+                "churn_type": row.churn_type or "",
                 "activated_at": row.activation_event_at.strftime("%Y-%m-%d") if row.activation_event_at else "",
                 "terminated_at": row.churn_event_at.strftime("%Y-%m-%d") if row.churn_event_at else "",
                 "total_paid": round(float(row.total_paid or 0), 2),
-                "outstanding_balance": round(float(row.outstanding_balance or 0), 2),
-                "due_date": row.latest_due_date.strftime("%Y-%m-%d") if row.latest_due_date else "",
+                "outstanding_balance": outstanding_balance,
+                "due_date": due_date_value.strftime("%Y-%m-%d") if due_date_value else "",
                 "payment_updated_at": row.latest_payment_update.strftime("%Y-%m-%d")
                 if row.latest_payment_update
                 else "",
             }
         )
+    results.sort(key=lambda item: (-float(item["outstanding_balance"]), item["name"]))
+    if limit > 0:
+        results = results[:limit]
     return results
 
 
@@ -1870,6 +2555,19 @@ def lifecycle_longest_tenure(db: Session, limit: int = 10) -> list[dict]:
 def lifecycle_top_subscribers_by_value(db: Session, limit: int = 10) -> list[dict]:
     """Top subscribers of all time by realized paid amount on sales orders."""
     activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
+    sales_totals = (
+        select(
+            SalesOrder.person_id.label("person_id"),
+            func.coalesce(func.sum(SalesOrder.amount_paid), 0).label("total_paid"),
+            func.count(SalesOrder.id).label("order_count"),
+        )
+        .where(
+            SalesOrder.is_active.is_(True),
+            SalesOrder.status.in_([SalesOrderStatus.confirmed, SalesOrderStatus.paid, SalesOrderStatus.fulfilled]),
+        )
+        .group_by(SalesOrder.person_id)
+        .subquery()
+    )
     rows = db.execute(
         select(
             Person.id.label("person_id"),
@@ -1880,30 +2578,16 @@ def lifecycle_top_subscribers_by_value(db: Session, limit: int = 10) -> list[dic
             Person.first_name,
             Person.last_name,
             Person.display_name,
-            func.coalesce(func.sum(SalesOrder.amount_paid), 0).label("total_paid"),
-            func.count(SalesOrder.id).label("order_count"),
+            sales_totals.c.total_paid,
+            sales_totals.c.order_count,
         )
         .join(Person, Person.id == Subscriber.person_id)
-        .join(SalesOrder, SalesOrder.person_id == Subscriber.person_id)
-        .where(
-            SalesOrder.is_active.is_(True),
-            SalesOrder.status.in_([SalesOrderStatus.confirmed, SalesOrderStatus.paid, SalesOrderStatus.fulfilled]),
-        )
-        .group_by(
-            Person.id,
-            Subscriber.subscriber_number,
-            Subscriber.status,
-            Subscriber.service_plan,
-            activation_event_at,
-            Person.first_name,
-            Person.last_name,
-            Person.display_name,
-        )
-        .order_by(func.coalesce(func.sum(SalesOrder.amount_paid), 0).desc(), func.count(SalesOrder.id).desc())
+        .join(sales_totals, sales_totals.c.person_id == Subscriber.person_id)
+        .order_by(sales_totals.c.total_paid.desc(), sales_totals.c.order_count.desc(), activation_event_at.desc())
     ).all()
 
     now = datetime.now(UTC)
-    deduped: dict[tuple[Any, str, str, float, int], dict[str, Any]] = {}
+    deduped: dict[Any, dict[str, Any]] = {}
     for row in rows:
         raw_name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
         clean_name = _clean_report_name(raw_name)
@@ -1914,13 +2598,6 @@ def lifecycle_top_subscribers_by_value(db: Session, limit: int = 10) -> list[dic
         avg_monthly_spend = round(total_paid / tenure_months, 2) if tenure_months > 0 else total_paid
         status = row.status.value if row.status else "unknown"
         candidate_subscriber_number = row.subscriber_number or ""
-        dedupe_key = (
-            row.person_id,
-            status,
-            activation_at.strftime("%Y-%m-%d") if activation_at else "",
-            round(total_paid, 2),
-            int(row.order_count or 0),
-        )
         result_row = {
             "subscriber_id": str(row.person_id) if row.person_id else (candidate_subscriber_number or clean_name),
             "name": clean_name,
@@ -1934,18 +2611,23 @@ def lifecycle_top_subscribers_by_value(db: Session, limit: int = 10) -> list[dic
             "avg_monthly_spend": avg_monthly_spend,
         }
 
-        existing = deduped.get(dedupe_key)
+        existing = deduped.get(row.person_id)
         if existing is None:
-            deduped[dedupe_key] = result_row
+            deduped[row.person_id] = result_row
             continue
 
         existing_subscriber_number = existing["subscriber_number"] or ""
-        candidate_is_name = candidate_subscriber_number.strip().lower() == clean_name.strip().lower()
-        existing_is_name = existing_subscriber_number.strip().lower() == clean_name.strip().lower()
         candidate_digit_count = sum(ch.isdigit() for ch in candidate_subscriber_number)
         existing_digit_count = sum(ch.isdigit() for ch in existing_subscriber_number)
-        if (existing_is_name and not candidate_is_name) or candidate_digit_count > existing_digit_count:
+        if candidate_digit_count > existing_digit_count or (
+            candidate_digit_count == existing_digit_count
+            and len(candidate_subscriber_number) > len(existing_subscriber_number)
+        ):
             existing["subscriber_number"] = candidate_subscriber_number
+        if not existing.get("plan") and result_row["plan"]:
+            existing["plan"] = result_row["plan"]
+        if existing["name"].strip().lower() == (existing["subscriber_number"] or "").strip().lower() and clean_name:
+            existing["name"] = clean_name
 
     results = list(deduped.values())
     results.sort(key=lambda row: (-row["total_paid"], -row["tenure_months"], row["name"]))
@@ -2065,13 +2747,89 @@ def _speed_mbps_value(service_speed: str | None) -> float | None:
         return None
 
 
-def _churn_event_at():
-    return func.coalesce(
-        Subscriber.terminated_at,
-        case(
-            (Subscriber.is_active.is_(False), Subscriber.updated_at),
+def _sync_metadata_text_expr(db: Session, key: str):
+    """Cross-dialect access to sync_metadata string values."""
+    dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
+    if dialect_name == "sqlite":
+        return func.json_extract(Subscriber.sync_metadata, f"$.{key}")
+    return Subscriber.sync_metadata.op("->>")(key)
+
+
+def _sync_metadata_date_expr(db: Session, key: str):
+    """Cross-dialect safe date expression for sync_metadata date-like values."""
+    dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
+    text_expr = _sync_metadata_text_expr(db, key)
+    if dialect_name == "sqlite":
+        return func.date(text_expr)
+    return cast(func.nullif(text_expr, ""), Date)
+
+
+def _behavioral_churn_event_at(db: Session):
+    """Derived churn date from 40+ day non-payment / overdue due-date signals."""
+    dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
+    last_payment_date = _sync_metadata_date_expr(db, "last_transaction_date")
+
+    if dialect_name == "sqlite":
+        threshold_date = func.date("now", "-40 days")
+        derived_from_last_payment = case(
+            (
+                and_(last_payment_date.isnot(None), last_payment_date <= threshold_date),
+                func.datetime(last_payment_date, "+40 days"),
+            ),
             else_=None,
+        )
+        invoice_due_date = func.date(Subscriber.next_bill_date)
+        balance_positive = cast(func.replace(func.coalesce(Subscriber.balance, "0"), ",", ""), Numeric) > 0
+        derived_from_invoice_due = case(
+            (
+                and_(invoice_due_date.isnot(None), invoice_due_date <= threshold_date, balance_positive),
+                func.datetime(invoice_due_date, "+40 days"),
+            ),
+            else_=None,
+        )
+        return case(
+            (
+                and_(derived_from_last_payment.isnot(None), derived_from_invoice_due.isnot(None)),
+                func.min(derived_from_last_payment, derived_from_invoice_due),
+            ),
+            else_=func.coalesce(derived_from_last_payment, derived_from_invoice_due),
+        )
+
+    threshold_interval = func.make_interval(days=40)
+    threshold_date = cast(func.current_date() - threshold_interval, Date)
+    derived_from_last_payment = case(
+        (
+            and_(last_payment_date.isnot(None), last_payment_date <= threshold_date),
+            cast(last_payment_date + threshold_interval, DateTime(timezone=True)),
         ),
+        else_=None,
+    )
+    invoice_due_date = cast(Subscriber.next_bill_date, Date)
+    clean_balance = func.nullif(
+        func.regexp_replace(func.coalesce(Subscriber.balance, ""), r"[^0-9.\-]", "", "g"),
+        "",
+    )
+    balance_positive = cast(clean_balance, Numeric) > 0
+    derived_from_invoice_due = case(
+        (
+            and_(invoice_due_date.isnot(None), invoice_due_date <= threshold_date, balance_positive),
+            cast(invoice_due_date + threshold_interval, DateTime(timezone=True)),
+        ),
+        else_=None,
+    )
+    return case(
+        (
+            and_(derived_from_last_payment.isnot(None), derived_from_invoice_due.isnot(None)),
+            func.least(derived_from_last_payment, derived_from_invoice_due),
+        ),
+        else_=func.coalesce(derived_from_last_payment, derived_from_invoice_due),
+    )
+
+
+def _churn_event_at(db: Session):
+    return func.coalesce(
+        _strict_churn_event_at(),
+        _behavioral_churn_event_at(db),
     )
 
 
@@ -2089,6 +2847,163 @@ def _strict_churn_event_at():
             else_=None,
         ),
     )
+
+
+def _successful_payment_subquery():
+    """Latest successful payment timestamp per person."""
+    return (
+        select(
+            SalesOrder.person_id.label("person_id"),
+            func.max(func.coalesce(SalesOrder.paid_at, SalesOrder.updated_at, SalesOrder.created_at)).label(
+                "last_successful_payment_at"
+            ),
+        )
+        .where(
+            SalesOrder.is_active.is_(True),
+            SalesOrder.status.in_([SalesOrderStatus.confirmed, SalesOrderStatus.paid, SalesOrderStatus.fulfilled]),
+            or_(SalesOrder.payment_status == SalesOrderPaymentStatus.paid, SalesOrder.amount_paid > 0),
+        )
+        .group_by(SalesOrder.person_id)
+        .subquery()
+    )
+
+
+def _unified_churn_expressions(db: Session, behavioral_days: int):
+    """Unified churn expressions with operational priority and behavioral fallback."""
+    dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
+    threshold_days = max(1, int(behavioral_days))
+    activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
+    successful_payment_sq = _successful_payment_subquery()
+    last_successful_payment_at = successful_payment_sq.c.last_successful_payment_at
+    last_transaction_at = cast(_sync_metadata_date_expr(db, "last_transaction_date"), DateTime(timezone=True))
+    if dialect_name == "sqlite":
+        latest_payment_signal_at = case(
+            (last_successful_payment_at.is_(None), last_transaction_at),
+            (last_transaction_at.is_(None), last_successful_payment_at),
+            (last_successful_payment_at >= last_transaction_at, last_successful_payment_at),
+            else_=last_transaction_at,
+        )
+        behavioral_reference_date = func.date(latest_payment_signal_at)
+        behavioral_cutoff_date = func.date("now", f"-{threshold_days} days")
+        invoice_due_date = func.date(Subscriber.next_bill_date)
+        balance_positive = cast(func.replace(func.coalesce(Subscriber.balance, "0"), ",", ""), Numeric) > 0
+    else:
+        threshold_interval = func.make_interval(days=threshold_days)
+        latest_payment_signal_at = func.greatest(
+            func.coalesce(last_successful_payment_at, cast("1970-01-01", DateTime(timezone=True))),
+            func.coalesce(last_transaction_at, cast("1970-01-01", DateTime(timezone=True))),
+        )
+        latest_payment_signal_at = case(
+            (
+                and_(last_successful_payment_at.is_(None), last_transaction_at.is_(None)),
+                None,
+            ),
+            else_=latest_payment_signal_at,
+        )
+        behavioral_reference_date = cast(latest_payment_signal_at, Date)
+        behavioral_cutoff_date = cast(func.current_date() - threshold_interval, Date)
+        invoice_due_date = cast(Subscriber.next_bill_date, Date)
+        clean_balance = func.nullif(
+            func.regexp_replace(func.coalesce(Subscriber.balance, ""), r"[^0-9.\-]", "", "g"),
+            "",
+        )
+        balance_positive = cast(clean_balance, Numeric) > 0
+
+    # Operational churn: explicit termination status/date.
+    is_operational_status = or_(
+        Subscriber.status == SubscriberStatus.terminated,
+        cast(Subscriber.status, String).in_(["terminated", "cancelled", "inactive"]),
+    )
+    operational_churn_date = func.coalesce(
+        Subscriber.terminated_at,
+        case((is_operational_status, Subscriber.updated_at), else_=None),
+    )
+
+    if dialect_name == "sqlite":
+        behavioral_from_payment = case(
+            (
+                and_(
+                    operational_churn_date.is_(None),
+                    Subscriber.status != SubscriberStatus.pending,
+                    behavioral_reference_date.isnot(None),
+                    behavioral_reference_date <= behavioral_cutoff_date,
+                ),
+                func.datetime(behavioral_reference_date, f"+{threshold_days} days"),
+            ),
+            else_=None,
+        )
+        behavioral_from_due = case(
+            (
+                and_(
+                    operational_churn_date.is_(None),
+                    Subscriber.status != SubscriberStatus.pending,
+                    invoice_due_date.isnot(None),
+                    invoice_due_date <= behavioral_cutoff_date,
+                    balance_positive,
+                ),
+                func.datetime(invoice_due_date, f"+{threshold_days} days"),
+            ),
+            else_=None,
+        )
+        behavioral_churn_date = case(
+            (
+                and_(behavioral_from_payment.isnot(None), behavioral_from_due.isnot(None)),
+                func.min(behavioral_from_payment, behavioral_from_due),
+            ),
+            else_=func.coalesce(behavioral_from_payment, behavioral_from_due),
+        )
+    else:
+        behavioral_from_payment = case(
+            (
+                and_(
+                    operational_churn_date.is_(None),
+                    Subscriber.status != SubscriberStatus.pending,
+                    behavioral_reference_date.isnot(None),
+                    behavioral_reference_date <= behavioral_cutoff_date,
+                ),
+                cast(
+                    behavioral_reference_date + threshold_interval,
+                    DateTime(timezone=True),
+                ),
+            ),
+            else_=None,
+        )
+        behavioral_from_due = case(
+            (
+                and_(
+                    operational_churn_date.is_(None),
+                    Subscriber.status != SubscriberStatus.pending,
+                    invoice_due_date.isnot(None),
+                    invoice_due_date <= behavioral_cutoff_date,
+                    balance_positive,
+                ),
+                cast(
+                    invoice_due_date + threshold_interval,
+                    DateTime(timezone=True),
+                ),
+            ),
+            else_=None,
+        )
+        behavioral_churn_date = case(
+            (
+                and_(behavioral_from_payment.isnot(None), behavioral_from_due.isnot(None)),
+                func.least(behavioral_from_payment, behavioral_from_due),
+            ),
+            else_=func.coalesce(behavioral_from_payment, behavioral_from_due),
+        )
+
+    churn_date = func.coalesce(operational_churn_date, behavioral_churn_date)
+    churn_type = case(
+        (operational_churn_date.isnot(None), "operational"),
+        (behavioral_churn_date.isnot(None), "behavioral"),
+        else_=None,
+    )
+    return {
+        "activation_event_at": activation_event_at,
+        "successful_payment_sq": successful_payment_sq,
+        "churn_date": churn_date,
+        "churn_type": churn_type,
+    }
 
 
 # =====================================================================

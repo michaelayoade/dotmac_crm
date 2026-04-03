@@ -14,6 +14,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func, select
 
 from app.models.auth import (
     AuthProvider,
@@ -91,26 +92,33 @@ def _request_ip(request: Request) -> str | None:
 
 
 def _resolve_local_credential(db: Session, username: str) -> UserCredential | None:
-    credential = (
-        db.query(UserCredential)
-        .filter(UserCredential.username == username)
-        .filter(UserCredential.provider == AuthProvider.local)
-        .filter(UserCredential.is_active.is_(True))
-        .first()
+    normalized_username = (username or "").strip()
+    normalized_email = normalized_username.lower() if "@" in normalized_username else None
+
+    credential = db.scalar(
+        select(UserCredential).where(
+            (
+                func.lower(UserCredential.username) == normalized_email
+                if normalized_email
+                else UserCredential.username == normalized_username
+            ),
+            UserCredential.provider == AuthProvider.local,
+            UserCredential.is_active.is_(True),
+        )
     )
     if credential:
         return credential
-    if "@" not in username:
+    if not normalized_email:
         return None
-    person = db.query(Person).filter(Person.email == username).first()
+    person = db.scalar(select(Person).where(func.lower(Person.email) == normalized_email))
     if not person:
         return None
-    return (
-        db.query(UserCredential)
-        .filter(UserCredential.person_id == person.id)
-        .filter(UserCredential.provider == AuthProvider.local)
-        .filter(UserCredential.is_active.is_(True))
-        .first()
+    return db.scalar(
+        select(UserCredential).where(
+            UserCredential.person_id == person.id,
+            UserCredential.provider == AuthProvider.local,
+            UserCredential.is_active.is_(True),
+        )
     )
 
 

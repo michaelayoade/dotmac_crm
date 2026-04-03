@@ -8,6 +8,7 @@ like Splynx, UCRM, WHMCS, or custom platforms.
 from __future__ import annotations
 
 import builtins
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any, ClassVar
@@ -18,6 +19,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
 from app.models.subscriber import Organization, Subscriber, SubscriberStatus
 from app.services.common import apply_ordering
+from app.services.events import emit_event
+from app.services.events.types import EventType
 
 
 class SubscriberManager:
@@ -154,12 +157,22 @@ class SubscriberManager:
 
     def update(self, db: Session, subscriber: Subscriber, data: dict[str, Any]) -> Subscriber:
         """Update an existing subscriber."""
+        previous_plan = subscriber.service_plan
+        previous_speed = subscriber.service_speed
         for key, value in data.items():
             if hasattr(subscriber, key):
+                if key == "sync_metadata" and isinstance(getattr(subscriber, key), dict) and isinstance(value, dict):
+                    # Merge-only: new keys are added, existing keys are overwritten.
+                    # To fully replace sync_metadata, set the field to None first.
+                    merged_metadata = dict(getattr(subscriber, key) or {})
+                    merged_metadata.update(value)
+                    setattr(subscriber, key, merged_metadata)
+                    continue
                 setattr(subscriber, key, value)
         subscriber.updated_at = datetime.now(UTC)
         db.commit()
         db.refresh(subscriber)
+        self._emit_plan_migration_event(db, subscriber, previous_plan=previous_plan, previous_speed=previous_speed)
         return subscriber
 
     def delete(self, db: Session, subscriber: Subscriber) -> None:
@@ -199,6 +212,43 @@ class SubscriberManager:
             return self.update(db, subscriber, sync_data)
         else:
             return self.create(db, sync_data)
+
+    def _emit_plan_migration_event(
+        self,
+        db: Session,
+        subscriber: Subscriber,
+        *,
+        previous_plan: str | None,
+        previous_speed: str | None,
+    ) -> None:
+        new_plan = subscriber.service_plan
+        new_speed = subscriber.service_speed
+        if not previous_plan or not new_plan or previous_plan == new_plan:
+            return
+
+        previous_speed_value = _speed_mbps(previous_speed)
+        new_speed_value = _speed_mbps(new_speed)
+        if previous_speed_value is None or new_speed_value is None or previous_speed_value == new_speed_value:
+            return
+
+        event_type = EventType.subscription_upgraded if new_speed_value > previous_speed_value else EventType.subscription_downgraded
+        emit_event(
+            db,
+            event_type,
+            {
+                "from_plan": previous_plan,
+                "to_plan": new_plan,
+                "old_service_plan": previous_plan,
+                "new_service_plan": new_plan,
+                "from_speed": previous_speed,
+                "to_speed": new_speed,
+                "previous_speed_mbps": previous_speed_value,
+                "new_speed_mbps": new_speed_value,
+                "external_system": subscriber.external_system,
+            },
+            actor=subscriber.external_system or "subscriber_sync",
+            subscriber_id=subscriber.id,
+        )
 
     def mark_sync_error(self, db: Session, subscriber: Subscriber, error: str) -> Subscriber:
         """Mark a sync error on subscriber."""
@@ -659,3 +709,19 @@ class SubscriberManager:
 
 # Singleton instance
 subscriber = SubscriberManager()
+
+
+_SPEED_VALUE_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*(?:mbps|mb)", re.IGNORECASE)
+
+
+def _speed_mbps(value: str | None) -> float | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    match = _SPEED_VALUE_RE.search(text)
+    if not match:
+        return None
+    try:
+        return float(match.group("value"))
+    except (TypeError, ValueError):
+        return None

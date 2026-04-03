@@ -332,12 +332,14 @@ class ProposedRouteRevision(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     review_notes: Mapped[str | None] = mapped_column(Text)
+    fiber_segment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("fiber_segments.id"))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     quote = relationship("ProjectQuote", back_populates="route_revisions")
     submitted_by = relationship("Person", foreign_keys=[submitted_by_person_id])
     reviewed_by = relationship("Person", foreign_keys=[reviewed_by_person_id])
+    fiber_segment = relationship("FiberSegment")
 
 
 class AsBuiltRoute(Base):

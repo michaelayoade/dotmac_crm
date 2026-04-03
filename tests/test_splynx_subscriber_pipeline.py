@@ -8,6 +8,7 @@ Covers:
 - Reseller model removal verification
 """
 
+import importlib
 import uuid
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -39,6 +40,8 @@ from app.services.splynx import (
 )
 from app.services.subscriber import subscriber as subscriber_service
 from app.tasks.subscribers import _map_splynx_status
+
+subscriber_module = importlib.import_module("app.services.subscriber")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -347,6 +350,45 @@ class TestSubscriberSyncFromExternal:
         )
         assert sub1.id == sub2.id
         assert sub2.subscriber_number == "101-updated"
+
+    def test_emits_subscription_upgraded_when_speed_increases(self, db_session, monkeypatch):
+        person = _make_person(db_session)
+        emitted: list[dict] = []
+
+        def _capture_emit(db, event_type, payload, **kwargs):
+            emitted.append({"event_type": event_type, "payload": payload, "kwargs": kwargs})
+
+        monkeypatch.setattr(subscriber_module, "emit_event", _capture_emit)
+
+        subscriber_service.sync_from_external(
+            db_session,
+            "splynx",
+            "101-speed",
+            {
+                "person_id": person.id,
+                "status": "active",
+                "subscriber_number": "101-speed",
+                "service_plan": "Basic 10",
+                "service_speed": "10 Mbps",
+            },
+        )
+        subscriber_service.sync_from_external(
+            db_session,
+            "splynx",
+            "101-speed",
+            {
+                "person_id": person.id,
+                "status": "active",
+                "subscriber_number": "101-speed",
+                "service_plan": "Pro 20",
+                "service_speed": "20 Mbps",
+            },
+        )
+
+        assert len(emitted) == 1
+        assert emitted[0]["event_type"] == EventType.subscription_upgraded
+        assert emitted[0]["payload"]["from_plan"] == "Basic 10"
+        assert emitted[0]["payload"]["to_plan"] == "Pro 20"
 
     def test_idempotent_no_duplicate(self, db_session):
         person = _make_person(db_session)

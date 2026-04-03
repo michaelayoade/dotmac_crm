@@ -104,7 +104,8 @@ select.lifecycle-period-select option {
         {{ lifecycle_kpi_card("Conversion Rate", (kpis.conversion_rate | default(0)) ~ "%", '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M5 16l5-5 4 4 5-7"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14 8h5v5"/></svg>') }}
         {{ lifecycle_kpi_card("Avg Days To Convert", kpis.avg_days_to_convert | default(0), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>') }}
         {{ lifecycle_kpi_card("Churn Rate", ("%.5f"|format(kpis.churn_rate | default(0))) ~ "%", '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 17l-5-5-4 4-5-5"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 11v6h-6"/></svg>', value_style="font-size: 28px !important; line-height: 1 !important;") }}
-        {{ lifecycle_kpi_card("Terminated In Period", kpis.terminated_in_period | default(0), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 18L18 6M6 6l12 12"/></svg>') }}
+        {{ lifecycle_kpi_card("Operational Churn", (kpis.operational_churn_in_period | default(0) | int), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12l2 2 4-4"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>') }}
+        {{ lifecycle_kpi_card("Behavioral Churn (40d)", (kpis.behavioral_churn_in_period | default(0) | int), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8v4m0 4h.01"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.29 3.86l-7.54 13.05A2 2 0 004.46 20h15.08a2 2 0 001.71-3.09L13.71 3.86a2 2 0 00-3.42 0z"/></svg>') }}
         {{ lifecycle_kpi_card("Pipeline Value", "NGN " ~ "{:,.0f}".format(kpis.pipeline_value | default(0)), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3v18M16 7.5c0-1.933-1.79-3.5-4-3.5s-4 1.567-4 3.5 1.79 3.5 4 3.5 4 1.567 4 3.5-1.79 3.5-4 3.5-4-1.567-4-3.5"/></svg>') }}
         {{ lifecycle_kpi_card("Total Billed In Selected Range", "NGN " ~ "{:,.0f}".format(kpis.total_billed_selected_range | default(0)), '<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 3v18M7 8.5C7 6.567 9.239 5 12 5s5 1.567 5 3.5S14.761 12 12 12s-5 1.567-5 3.5S9.239 19 12 19s5-1.567 5-3.5"/></svg>') }}
     {% endcall %}
@@ -298,7 +299,16 @@ select.lifecycle-period-select option {
         {% endcall %}
     </div>
 
-    {% call table_shell(table_id="recent-churn-table", title="Recent Churn (Last 30 Days)", color="rose", count=recent_churns|length, bulk_selectable=False) %}
+    {% call table_shell(table_id="recent-churn-table", title="Recent Churn (Last 30 Days)", color="rose", count=recent_churn_summary.count | default(0), bulk_selectable=False) %}
+    <div class="flex flex-wrap items-center justify-between gap-3 px-6 pt-4">
+        <div>
+            <p class="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">{{ recent_churn_summary.count | default(0) }}</p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Customers who cancelled or churned in the last 30 days.</p>
+        </div>
+        <p class="text-sm font-medium {% if (recent_churn_summary.pct_change | default(0)) > 0 %}text-rose-600 dark:text-rose-400{% elif (recent_churn_summary.pct_change | default(0)) < 0 %}text-emerald-600 dark:text-emerald-400{% else %}text-slate-500 dark:text-slate-400{% endif %}">
+            {% if (recent_churn_summary.pct_change | default(0)) > 0 %}+{% endif %}{{ "%.1f"|format(recent_churn_summary.pct_change | default(0)) }}% vs previous 30 days
+        </p>
+    </div>
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead>
             <tr>

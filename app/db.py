@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
@@ -14,14 +15,18 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(
-            settings.database_url,
-            pool_pre_ping=True,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
-            pool_timeout=settings.db_pool_timeout,
-            pool_recycle=settings.db_pool_recycle,
-        )
+        database_url = settings.database_url
+        engine_kwargs = {"pool_pre_ping": True, "pool_recycle": settings.db_pool_recycle}
+        if make_url(database_url).drivername.startswith("sqlite"):
+            _engine = create_engine(database_url, **engine_kwargs)
+        else:
+            _engine = create_engine(
+                database_url,
+                **engine_kwargs,
+                pool_size=settings.db_pool_size,
+                max_overflow=settings.db_max_overflow,
+                pool_timeout=settings.db_pool_timeout,
+            )
     return _engine
 
 

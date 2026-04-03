@@ -565,7 +565,7 @@
                                 hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/status"
                                 hx-swap="none"
                                 hx-trigger="change"
-                                class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
+                                class="ticket-detail-select block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500 dark:focus:bg-slate-700/50">
                             <option value="new" {% if status_val == 'new' %}selected{% endif %}>New</option>
                             <option value="open" {% if status_val == 'open' %}selected{% endif %}>Open</option>
                             <option value="pending" {% if status_val == 'pending' %}selected{% endif %}>Pending</option>
@@ -603,7 +603,7 @@
                                 hx-post="/admin/support/tickets/{{ ticket.number or ticket.id }}/priority"
                                 hx-swap="none"
                                 hx-trigger="change"
-                                class="block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500">
+                                class="ticket-detail-select block w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-4 pr-10 text-sm text-slate-900 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-amber-500 dark:focus:bg-slate-700/50">
                             {% if priority_val == 'normal' %}
                             <option value="normal" selected>Normal</option>
                             {% endif %}
