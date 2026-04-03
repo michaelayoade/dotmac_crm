@@ -1155,7 +1155,7 @@ def seed_sla_defaults(db: Session) -> None:
                 db,
                 key,
                 DomainSettingUpdate(
-                    value_type=SettingValueType.number,
+                    value_type=SettingValueType.integer,
                     value_text=str(default_value),
                 ),
             )

@@ -254,7 +254,11 @@ def _segment_name_for_quote_revision(revision: ProposedRouteRevision) -> str:
     quote = revision.quote
     project = quote.project if quote else None
     parent_project = project.project if project else None
-    project_token = (parent_project.code if parent_project and parent_project.code else str(project.id)[:8]).strip()
+    project_token = (
+        parent_project.code
+        if parent_project and parent_project.code
+        else (str(project.id)[:8] if project else "unknown")
+    ).strip()
     quote_token = str(quote.id)[:8] if quote else "unknown"
     return f"Quote-{project_token}-Q{quote_token}-R{revision.revision_number}"
 

@@ -82,21 +82,24 @@ def _get_meta_access_token_override(db: Session) -> str | None:
     token = resolve_value(db, SettingDomain.comms, "meta_access_token_override")
     if isinstance(token, str):
         token = token.strip()
-    return token or None
+        return token or None
+    return None
 
 
 def _get_facebook_access_token_override(db: Session) -> str | None:
     token = resolve_value(db, SettingDomain.comms, "meta_facebook_access_token_override")
     if isinstance(token, str):
         token = token.strip()
-    return token or _get_meta_access_token_override(db)
+        return token or _get_meta_access_token_override(db)
+    return _get_meta_access_token_override(db)
 
 
 def _get_instagram_access_token_override(db: Session) -> str | None:
     token = resolve_value(db, SettingDomain.comms, "meta_instagram_access_token_override")
     if isinstance(token, str):
         token = token.strip()
-    return token or _get_meta_access_token_override(db)
+        return token or _get_meta_access_token_override(db)
+    return _get_meta_access_token_override(db)
 
 
 def _get_page_token_record(db: Session, page_id: str) -> OAuthToken | None:

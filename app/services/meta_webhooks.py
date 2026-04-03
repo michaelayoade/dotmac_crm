@@ -1387,12 +1387,14 @@ def _process_facebook_comment_changes(
 ) -> list[dict]:
     results = []
     for change in entry.changes or []:
-        value = change.get("value") or {}
+        raw_value = change.get("value")
+        value = raw_value if isinstance(raw_value, dict) else {}
         if change.get("field") != "feed":
             continue
         if value.get("item") != "comment":
             continue
-        from_data = value.get("from") if isinstance(value.get("from"), dict) else {}
+        raw_from = value.get("from")
+        from_data = raw_from if isinstance(raw_from, dict) else {}
         sender_id = value.get("sender_id") or value.get("from_id") or from_data.get("id")
         if sender_id and sender_id == entry.id:
             logger.info(

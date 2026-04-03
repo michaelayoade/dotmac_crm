@@ -20,6 +20,17 @@ _DEFAULT_RESOLUTION = {"urgent": 240, "high": 1440, "medium": 2880, "low": 4320,
 _PRIORITY_KEYS = ("urgent", "high", "medium", "low", "none")
 
 
+def _as_minutes(value: object | None, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, (int, str)):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
 def get_sla_targets(db: Session) -> dict[str, dict[str, int]]:
     """Load per-priority SLA targets from settings, falling back to defaults."""
     response: dict[str, int] = {}
@@ -29,8 +40,8 @@ def get_sla_targets(db: Session) -> dict[str, dict[str, int]]:
         res_key = f"crm_sla_resolution_{priority}_minutes"
         resp_val = settings_spec.resolve_value(db, SettingDomain.notification, resp_key)
         res_val = settings_spec.resolve_value(db, SettingDomain.notification, res_key)
-        response[priority] = int(resp_val) if resp_val is not None else _DEFAULT_RESPONSE[priority]
-        resolution[priority] = int(res_val) if res_val is not None else _DEFAULT_RESOLUTION[priority]
+        response[priority] = _as_minutes(resp_val, _DEFAULT_RESPONSE[priority])
+        resolution[priority] = _as_minutes(res_val, _DEFAULT_RESOLUTION[priority])
     return {"response": response, "resolution": resolution}
 
 
