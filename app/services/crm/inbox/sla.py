@@ -111,19 +111,21 @@ def check_and_alert_breaches(db: Session) -> dict:
         recipient = _resolve_notification_recipient(db, conv)
         if recipient:
             elapsed_hours = round((datetime.now(UTC) - conv.created_at).total_seconds() / 3600, 1)
-            db.add(Notification(
-                channel=NotificationChannel.push,
-                recipient=recipient,
-                subject=f"SLA Breach: Response overdue ({elapsed_hours}h)",
-                body=(
-                    f"Conversation \"{conv.subject or 'No subject'}\" "
-                    f"(priority: {_priority_value(conv)}) has no first response "
-                    f"after {elapsed_hours} hours.\n"
-                    f"Open: /admin/crm/inbox?conversation_id={conv.id}"
-                ),
-                status=NotificationStatus.delivered,
-                sent_at=datetime.now(UTC),
-            ))
+            db.add(
+                Notification(
+                    channel=NotificationChannel.push,
+                    recipient=recipient,
+                    subject=f"SLA Breach: Response overdue ({elapsed_hours}h)",
+                    body=(
+                        f'Conversation "{conv.subject or "No subject"}" '
+                        f"(priority: {_priority_value(conv)}) has no first response "
+                        f"after {elapsed_hours} hours.\n"
+                        f"Open: /admin/crm/inbox?conversation_id={conv.id}"
+                    ),
+                    status=NotificationStatus.delivered,
+                    sent_at=datetime.now(UTC),
+                )
+            )
             alerted_response += 1
 
     for conv in resolution_breaches:
@@ -137,19 +139,21 @@ def check_and_alert_breaches(db: Session) -> dict:
         recipient = _resolve_notification_recipient(db, conv)
         if recipient:
             elapsed_hours = round((datetime.now(UTC) - conv.created_at).total_seconds() / 3600, 1)
-            db.add(Notification(
-                channel=NotificationChannel.push,
-                recipient=recipient,
-                subject=f"SLA Breach: Resolution overdue ({elapsed_hours}h)",
-                body=(
-                    f"Conversation \"{conv.subject or 'No subject'}\" "
-                    f"(priority: {_priority_value(conv)}) has been open "
-                    f"for {elapsed_hours} hours without resolution.\n"
-                    f"Open: /admin/crm/inbox?conversation_id={conv.id}"
-                ),
-                status=NotificationStatus.delivered,
-                sent_at=datetime.now(UTC),
-            ))
+            db.add(
+                Notification(
+                    channel=NotificationChannel.push,
+                    recipient=recipient,
+                    subject=f"SLA Breach: Resolution overdue ({elapsed_hours}h)",
+                    body=(
+                        f'Conversation "{conv.subject or "No subject"}" '
+                        f"(priority: {_priority_value(conv)}) has been open "
+                        f"for {elapsed_hours} hours without resolution.\n"
+                        f"Open: /admin/crm/inbox?conversation_id={conv.id}"
+                    ),
+                    status=NotificationStatus.delivered,
+                    sent_at=datetime.now(UTC),
+                )
+            )
             alerted_resolution += 1
 
     if alerted_response or alerted_resolution:

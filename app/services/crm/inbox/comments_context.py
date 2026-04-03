@@ -95,12 +95,7 @@ def build_comment_list_items(
             if account_id and comment.source_account_id != account_id:
                 continue
         raw_payload = comment.raw_payload if isinstance(comment.raw_payload, dict) else {}
-        preview_text = (
-            comment.message
-            or raw_payload.get("message")
-            or raw_payload.get("text")
-            or "No message text"
-        )
+        preview_text = comment.message or raw_payload.get("message") or raw_payload.get("text") or "No message text"
         created_at = comment.created_time or comment.created_at
         inbox_label = entry.get("inbox_label") if include_inbox_label else None
         href = f"/admin/crm/inbox?comment_id={comment.id}"

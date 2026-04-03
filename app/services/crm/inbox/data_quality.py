@@ -17,13 +17,10 @@ def check_data_quality(db: Session, *, lookback_hours: int = 24) -> dict:
     """Check conversations resolved in the last N hours for missing data."""
     cutoff = datetime.now(UTC) - timedelta(hours=lookback_hours)
 
-    resolved_base = (
-        db.query(Conversation)
-        .filter(
-            Conversation.status == ConversationStatus.resolved,
-            Conversation.is_active.is_(True),
-            Conversation.resolved_at >= cutoff,
-        )
+    resolved_base = db.query(Conversation).filter(
+        Conversation.status == ConversationStatus.resolved,
+        Conversation.is_active.is_(True),
+        Conversation.resolved_at >= cutoff,
     )
 
     missing_first_response = resolved_base.filter(
@@ -31,11 +28,9 @@ def check_data_quality(db: Session, *, lookback_hours: int = 24) -> dict:
     ).count()
 
     tagged_conv_ids = db.query(ConversationTag.conversation_id).distinct().subquery()
-    missing_tags = (
-        resolved_base.filter(
-            ~Conversation.id.in_(db.query(tagged_conv_ids.c.conversation_id)),
-        ).count()
-    )
+    missing_tags = resolved_base.filter(
+        ~Conversation.id.in_(db.query(tagged_conv_ids.c.conversation_id)),
+    ).count()
 
     return {
         "missing_first_response": missing_first_response,
@@ -67,14 +62,16 @@ def run_data_quality_check_and_notify(db: Session) -> dict:
         f"Open: /admin/crm/inbox?status=resolved&missing=first_response,tags"
     )
 
-    db.add(Notification(
-        channel=NotificationChannel.push,
-        recipient="system:team_leads",
-        subject=f"Data Quality: {total_issues} conversations with missing fields",
-        body=body,
-        status=NotificationStatus.delivered,
-        sent_at=datetime.now(UTC),
-    ))
+    db.add(
+        Notification(
+            channel=NotificationChannel.push,
+            recipient="system:team_leads",
+            subject=f"Data Quality: {total_issues} conversations with missing fields",
+            body=body,
+            status=NotificationStatus.delivered,
+            sent_at=datetime.now(UTC),
+        )
+    )
     db.commit()
 
     return result

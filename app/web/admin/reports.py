@@ -515,9 +515,7 @@ def churned_subscribers(
     kpis["churned_count"] = int(churned_count or 0)
 
     active_at_start = int(kpis.get("total_active_subscribers_start") or 0)
-    kpis["churn_rate"] = (
-        round((kpis["churned_count"] / active_at_start) * 100, 1) if active_at_start > 0 else 0.0
-    )
+    kpis["churn_rate"] = round((kpis["churned_count"] / active_at_start) * 100, 1) if active_at_start > 0 else 0.0
 
     return templates.TemplateResponse(
         "admin/reports/churned_subscribers.html",
@@ -1140,10 +1138,14 @@ def agent_performance_report(
     previous_end = current_start
 
     current_metrics = crm_reports_service.agent_weekly_performance(
-        db, start_at=current_start, end_at=now,
+        db,
+        start_at=current_start,
+        end_at=now,
     )
     previous_metrics = crm_reports_service.agent_weekly_performance(
-        db, start_at=previous_start, end_at=previous_end,
+        db,
+        start_at=previous_start,
+        end_at=previous_end,
     )
 
     prev_map = {m["agent_id"]: m for m in previous_metrics}
