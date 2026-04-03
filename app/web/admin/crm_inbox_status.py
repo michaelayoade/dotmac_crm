@@ -4,12 +4,13 @@ import json
 from datetime import datetime
 from html import escape as html_escape
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
+from app.services import crm as crm_service
 from app.services.crm.inbox.csat import get_conversation_csat_event
 from app.services.crm.inbox.formatting import (
     filter_messages_for_user,
@@ -48,11 +49,29 @@ def _get_current_scopes(request: Request) -> list[str]:
     return []
 
 
+def _load_talk_escalation_recipients(db: Session) -> list[dict[str, str]]:
+    assignment_options = crm_service.get_agent_team_options(db)
+    agent_labels = assignment_options.get("agent_labels") or {}
+    recipients: list[dict[str, str]] = []
+    seen_person_ids: set[str] = set()
+    for agent in assignment_options.get("agents") or []:
+        person_id = str(getattr(agent, "person_id", "") or "").strip()
+        agent_id = str(getattr(agent, "id", "") or "").strip()
+        if not person_id or not agent_id or person_id in seen_person_ids:
+            continue
+        seen_person_ids.add(person_id)
+        recipients.append({"person_id": person_id, "label": agent_labels.get(agent_id, "Agent")})
+    recipients.sort(key=lambda item: item.get("label", "").lower())
+    return recipients
+
+
 def _render_thread_or_error(
     request: Request,
     db: Session,
     conversation_id: str,
     current_user: dict,
+    *,
+    extra_context: dict | None = None,
 ) -> HTMLResponse:
     """Shared helper: load conversation thread and return rendered template."""
     from app.services.crm.inbox.thread import load_conversation_thread
@@ -104,6 +123,8 @@ def _render_thread_or_error(
             "current_user": current_user,
             "current_roles": current_roles,
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
+            "talk_escalation_recipients": _load_talk_escalation_recipients(db),
+            **(extra_context or {}),
         },
     )
 
@@ -290,6 +311,61 @@ async def send_conversation_transcript(
 
     headers = {"HX-Trigger": json.dumps({"showToast": {"message": "Transcript sent!", "type": "success"}})}
     return HTMLResponse("", headers=headers)
+
+
+@router.post("/inbox/conversation/{conversation_id}/escalate-talk", response_class=HTMLResponse)
+async def escalate_conversation_to_talk(
+    request: Request,
+    conversation_id: str,
+    recipient_person_id: str = Form(...),
+    note: str | None = Form(None),
+    urgency: str = Form("high"),
+    db: Session = Depends(get_db),
+):
+    """Escalate a conversation to a teammate via Nextcloud Talk."""
+    from app.web.admin import get_current_user
+
+    current_user = get_current_user(request)
+    actor_person_id = (current_user or {}).get("person_id")
+
+    try:
+        result = crm_service.conversations.escalate_to_talk(
+            db,
+            conversation_id=conversation_id,
+            recipient_person_id=recipient_person_id,
+            actor_person_id=actor_person_id,
+            note=note,
+            urgency=urgency,
+        )
+    except HTTPException as exc:
+        detail = str(exc.detail or "Escalation failed")
+        return _render_thread_or_error(
+            request,
+            db,
+            conversation_id,
+            current_user,
+            extra_context={"talk_escalation_error": detail},
+        )
+    except Exception:
+        return _render_thread_or_error(
+            request,
+            db,
+            conversation_id,
+            current_user,
+            extra_context={"talk_escalation_error": "Escalation failed due to an unexpected error."},
+        )
+
+    if result.get("talk_forwarded"):
+        success_message = "Escalated to Talk successfully."
+    else:
+        success_message = "Escalation created, but Talk forwarding is currently unavailable."
+    return _render_thread_or_error(
+        request,
+        db,
+        conversation_id,
+        current_user,
+        extra_context={"talk_escalation_success": success_message},
+    )
 
 
 @router.post("/inbox/conversation/{conversation_id}/resolve-with-lead", response_class=HTMLResponse)
