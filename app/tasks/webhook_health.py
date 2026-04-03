@@ -174,8 +174,8 @@ def _check_dead_letters(session, recipient: str) -> list[str]:
                     f"in the last {DEAD_LETTER_LOOKBACK_MINUTES} minutes.\n\n"
                     f"These messages are stored in the webhook_dead_letters table "
                     f"and may be recoverable.\n\n"
-                    f"Check: SELECT channel, error, created_at FROM webhook_dead_letters "
-                    f"ORDER BY created_at DESC LIMIT 20;",
+                    f"Check recent dead-letter entries for this channel in admin tools "
+                    f"and review the latest error details.",
                 )
 
     return issues
@@ -295,9 +295,8 @@ def _check_outbox_stuck(session, recipient: str) -> list[str]:
                 f"{stuck_count} outbound messages have been stuck in 'sending' status "
                 f"for over 1 hour.\n\n"
                 f"These messages were never delivered and need manual cleanup.\n\n"
-                f"Fix: UPDATE crm_outbox SET status = 'failed', "
-                f"last_error = 'Stuck in sending' WHERE status = 'sending' "
-                f"AND created_at < NOW() - INTERVAL '1 hour';",
+                f"Fix: use the CRM admin/maintenance workflow to mark stale sending "
+                f"outbox records as failed and add an explicit error reason.",
             )
 
     return issues
