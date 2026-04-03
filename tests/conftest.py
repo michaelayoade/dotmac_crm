@@ -28,6 +28,7 @@ if not hasattr(_datetime, "UTC"):
     _datetime.UTC = timezone.utc  # noqa: UP017
 
 if not hasattr(enum, "StrEnum"):
+
     class _StrEnum(str, enum.Enum):  # noqa: UP042
         pass
 
