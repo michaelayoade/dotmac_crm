@@ -180,7 +180,10 @@ def test_send_instagram_message_prefers_ig_override_token_even_with_linked_token
     mock_response.raise_for_status = MagicMock()
 
     with (
-        patch("app.services.meta_messaging._get_meta_access_token_override", return_value="IG_OVERRIDE_TOKEN"),
+        patch(
+            "app.services.meta_messaging._get_meta_channel_access_token_override",
+            return_value="IG_OVERRIDE_TOKEN",
+        ),
         patch("app.services.meta_messaging.httpx.AsyncClient") as mock_client,
     ):
         mock_instance = AsyncMock()
@@ -191,7 +194,8 @@ def test_send_instagram_message_prefers_ig_override_token_even_with_linked_token
         result = _run_async(meta_messaging.send_instagram_message(db_session, "ig_u1", "Hello", target=target))
 
     assert result["message_id"] == "ig_m3"
-    call_kwargs = mock_instance.post.await_args.kwargs
-    assert call_kwargs["url"].endswith("/me/messages")
-    assert call_kwargs["headers"] == {"Authorization": "Bearer IG_OVERRIDE_TOKEN"}
-    assert call_kwargs["params"] is None
+    call_args = mock_instance.post.await_args
+    url = call_args.args[0] if call_args.args else call_args.kwargs.get("url")
+    assert url.endswith("/me/messages")
+    assert call_args.kwargs["headers"] == {"Authorization": "Bearer IG_OVERRIDE_TOKEN"}
+    assert call_args.kwargs["params"] is None
