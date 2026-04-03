@@ -280,6 +280,27 @@ def build_beat_schedule() -> dict:
             enabled=oauth_refresh_enabled,
             interval_seconds=oauth_refresh_interval_seconds,
         )
+        # Webhook channel health monitoring — every 30 minutes
+        webhook_health_enabled = _effective_bool(
+            session,
+            SettingDomain.comms,
+            "webhook_health_check_enabled",
+            "WEBHOOK_HEALTH_CHECK_ENABLED",
+            True,
+        )
+        webhook_health_interval = _coerce_int(
+            resolve_value(session, SettingDomain.comms, "webhook_health_check_interval_seconds"),
+            1800,
+        )
+        webhook_health_interval = max(webhook_health_interval, 300)  # Min: 5 minutes
+        _sync_scheduled_task(
+            session,
+            name="webhook_health_check",
+            task_name="app.tasks.webhook_health.check_webhook_health",
+            enabled=webhook_health_enabled,
+            interval_seconds=webhook_health_interval,
+        )
+
         integration_jobs = integration_service.list_interval_jobs(session)
         if not integration_jobs:
             logger.info("EMAIL_POLL_EXIT reason=no_jobs")

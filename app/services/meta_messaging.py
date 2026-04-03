@@ -99,17 +99,8 @@ def _get_instagram_graph_base_url(db: Session) -> str:
     return f"https://graph.instagram.com/{version}"
 
 
-def _get_meta_access_token_override(db: Session) -> str | None:
-    token = resolve_value(db, SettingDomain.comms, "meta_access_token_override")
-    if not token:
-        return None
-    if not isinstance(token, str):
-        token = str(token)
-    return token.strip() or None
-
-
 def _get_meta_channel_access_token_override(db: Session, channel_type: ChannelType) -> str | None:
-    """Resolve per-channel override token with backward-compatible fallback."""
+    """Resolve per-channel override token."""
     key = None
     if channel_type == ChannelType.facebook_messenger:
         key = "meta_facebook_access_token_override"
@@ -120,7 +111,7 @@ def _get_meta_channel_access_token_override(db: Session, channel_type: ChannelTy
         token = resolve_value(db, SettingDomain.comms, key)
         if isinstance(token, str) and token.strip():
             return token.strip()
-    return _get_meta_access_token_override(db)
+    return None
 
 
 def _is_instagram_login_token(token: str | None) -> bool:
