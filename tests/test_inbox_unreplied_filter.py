@@ -242,6 +242,38 @@ def test_assignment_counts_include_needs_attention_and_unreplied(db_session):
     assert counts["needs_attention"] >= 1
 
 
+def test_unassigned_filter_excludes_pre_2026_activity(db_session):
+    contact = _create_person(db_session, name="Imported")
+
+    imported_legacy = _create_conversation(db_session, contact, subject="Imported 2025")
+    current_2026 = _create_conversation(db_session, contact, subject="Current 2026")
+
+    _add_message(
+        db_session,
+        imported_legacy,
+        direction=MessageDirection.inbound,
+        body="Legacy imported conversation",
+        timestamp=datetime(2025, 12, 31, 23, 59, tzinfo=UTC),
+    )
+    _add_message(
+        db_session,
+        current_2026,
+        direction=MessageDirection.inbound,
+        body="Current conversation",
+        timestamp=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+    )
+    db_session.flush()
+
+    results = list_inbox_conversations(db_session, assignment="unassigned")
+    ids = _result_ids(results)
+
+    assert current_2026.id in ids
+    assert imported_legacy.id not in ids
+
+    counts = get_assignment_counts(db_session, assigned_person_id=None)
+    assert counts["unassigned"] == 1
+
+
 def test_inbox_unread_stat_counts_customer_awaiting_response(db_session):
     contact = _create_person(db_session, name="UnreadStat")
     now = datetime.now(UTC)

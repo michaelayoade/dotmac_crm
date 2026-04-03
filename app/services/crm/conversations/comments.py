@@ -70,6 +70,10 @@ def _upsert_comment(db: Session, payload: dict[str, Any]) -> SocialComment:
     )
     if existing:
         for key, value in payload.items():
+            if key == "message" and (value is None or value == ""):
+                continue
+            if key in {"author_id", "author_name"} and (value is None or value == ""):
+                continue
             setattr(existing, key, value)
         return existing
     comment = SocialComment(**payload)
@@ -90,6 +94,10 @@ def _upsert_comment_reply(
     )
     if existing:
         for key, value in payload.items():
+            if key == "message" and (value is None or value == ""):
+                continue
+            if key in {"author_id", "author_name"} and (value is None or value == ""):
+                continue
             setattr(existing, key, value)
         if existing.comment_id != parent_comment.id:
             existing.comment_id = parent_comment.id

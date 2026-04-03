@@ -94,6 +94,13 @@ def build_comment_list_items(
                 continue
             if account_id and comment.source_account_id != account_id:
                 continue
+        raw_payload = comment.raw_payload if isinstance(comment.raw_payload, dict) else {}
+        preview_text = (
+            comment.message
+            or raw_payload.get("message")
+            or raw_payload.get("text")
+            or "No message text"
+        )
         created_at = comment.created_time or comment.created_at
         inbox_label = entry.get("inbox_label") if include_inbox_label else None
         href = f"/admin/crm/inbox?comment_id={comment.id}"
@@ -108,7 +115,7 @@ def build_comment_list_items(
                 "comment_id": str(comment.id),
                 "platform": comment.platform.value,
                 "author_name": comment.author_name or "Unknown",
-                "preview": comment.message or "No message text",
+                "preview": preview_text,
                 "created_at": created_at,
                 "last_message_at": created_at,
                 "inbox_label": inbox_label,
@@ -163,6 +170,7 @@ async def load_comments_context(
     fetch: bool = True,
     target_id: str | None = None,
     include_thread: bool = True,
+    force_refresh_thread: bool = False,
 ) -> CommentsContext:
     comments = []
     selected_comment = None
@@ -266,7 +274,7 @@ async def load_comments_context(
         selected_comment = comments[0]
     if selected_comment and include_thread:
         thread_cache_key = inbox_cache.build_comment_thread_key(str(selected_comment.id))
-        cached_replies = inbox_cache.get(thread_cache_key)
+        cached_replies = None if force_refresh_thread else inbox_cache.get(thread_cache_key)
         if cached_replies is not None:
             comment_replies = cached_replies
         else:

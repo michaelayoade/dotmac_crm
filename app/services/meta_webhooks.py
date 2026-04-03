@@ -1392,7 +1392,8 @@ def _process_facebook_comment_changes(
             continue
         if value.get("item") != "comment":
             continue
-        sender_id = value.get("sender_id") or value.get("from_id")
+        from_data = value.get("from") if isinstance(value.get("from"), dict) else {}
+        sender_id = value.get("sender_id") or value.get("from_id") or from_data.get("id")
         if sender_id and sender_id == entry.id:
             logger.info(
                 "facebook_comment_skip_self page_id=%s sender_id=%s",
@@ -1405,9 +1406,9 @@ def _process_facebook_comment_changes(
                 post_id=value.get("post_id") or "",
                 comment_id=value.get("comment_id") or "",
                 parent_id=value.get("parent_id"),
-                from_id=value.get("sender_id") or "",
-                from_name=value.get("sender_name"),
-                message=value.get("message") or "",
+                from_id=sender_id or "",
+                from_name=value.get("sender_name") or from_data.get("name"),
+                message=value.get("message") or value.get("text") or "",
                 created_time=_parse_webhook_timestamp(value.get("created_time")) or datetime.now(UTC),
                 page_id=entry.id,
             )
