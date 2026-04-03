@@ -8,8 +8,8 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.services.crm import comments as comments_service
-from app.services.crm.inbox.audit import log_comment_action
 from app.services.crm.inbox import cache as inbox_cache
+from app.services.crm.inbox.audit import log_comment_action
 from app.services.crm.inbox.permissions import can_reply_to_comments
 
 

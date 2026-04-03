@@ -25,20 +25,20 @@ if (os.getenv("DATABASE_URL") or "").startswith("postgresql") and find_spec("psy
 
 # Python 3.10 compatibility for modules that import `UTC` from datetime.
 if not hasattr(_datetime, "UTC"):
-    _datetime.UTC = timezone.utc
+    _datetime.UTC = timezone.utc  # noqa: UP017
 
 if not hasattr(enum, "StrEnum"):
-    class _StrEnum(str, enum.Enum):
+    class _StrEnum(str, enum.Enum):  # noqa: UP042
         pass
 
     enum.StrEnum = _StrEnum
 
 if not hasattr(_typing, "Self"):
-    from typing_extensions import Self as _TypingSelf
+    from typing_extensions import Self as _TypingSelf  # noqa: UP035
 
     _typing.Self = _TypingSelf
 
-from app.db import Base
+from app.db import Base  # noqa: E402
 
 
 class _JoseDateTimeProxy:
@@ -46,7 +46,7 @@ class _JoseDateTimeProxy:
     def utcnow():
         from datetime import datetime
 
-        return datetime.now(timezone.utc)
+        return datetime.now(timezone.utc)  # noqa: UP017
 
     @staticmethod
     def now(tz=None):
